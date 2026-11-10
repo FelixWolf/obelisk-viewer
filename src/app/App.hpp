@@ -2,6 +2,7 @@
 
 #include "CameraController.hpp"
 #include "LoginPanel.hpp"
+#include "ObjectView.hpp"
 #include "SceneAssets.hpp"
 #include "TerrainTextures.hpp"
 #include "TerrainView.hpp"
@@ -103,6 +104,7 @@ private:
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<TextureManager> textures_;
+    std::unique_ptr<ObjectView> objects_;
     TerrainTextures terrainTextures_;
     std::unique_ptr<LoginPanel> loginPanel_;
     std::unique_ptr<SceneAssets> sceneAssets_;

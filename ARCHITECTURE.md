@@ -59,10 +59,12 @@ src/session  Login, Session (one login: regions, circuits, caps,
 src/render   SDL GPU device, scene pass (HDR + depth), tonemap,
              the four material pipelines, meshes, texture upload   -> viewer::render
 src/render/shaders  GLSL, compiled to SPIR-V at build time and embedded
-src/world    World state: terrain (LayerData decode) per region    -> viewer::world
+src/volume   Prim geometry from shape parameters (as llvolume.cpp)  -> viewer::volume
+src/world    World state: terrain (LayerData decode) and objects
+             (full/compressed/terse updates, texture entries)       -> viewer::world
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
 src/app      App (owns everything), LoginPanel, TextureBrowser, camera,
-             TerrainView (terrain meshes), procedural test scene, main()
+             TerrainView, ObjectView, TextureManager, procedural test scene, main()
 tests/       doctest unit tests (fixtures in tests/data)
 tools/j2kbench   benchmarks J2kDecoder implementations
 tools/httpget    one request through HttpClient; pretty-prints LLSD replies
@@ -261,3 +263,32 @@ shadercross) first.
 
 `--screenshot` saves the scene (without UI) as a PNG and quits, which is how
 rendering changes get checked without someone looking at the window.
+
+## Objects
+
+`World` decodes ObjectUpdate, ObjectUpdateCompressed,
+ImprovedTerseObjectUpdate and KillObject into `world::Object`s keyed by
+(region, local id): transform, shape parameters, texture entry (per face:
+texture, color, repeats/offset/rotation, fullbright, shiny, glow) and extra
+parameters (sculpt/mesh, flexible). Formats follow llviewerobject.cpp,
+llvovolume.cpp, llprimitive.cpp and llvolumemessage.cpp. Terse updates for
+objects we haven't seen are dropped for now (the official viewer asks for the
+full update).
+
+`volume::generateVolume` builds a prim's faces from its shape parameters the
+way llvolume.cpp does: profile (square, circle, triangles, half circle, with
+cuts and hollows of any shape) swept along a path (line, circle, circle2),
+with twist, taper, shear, skew, radius offset and revolutions. Face i is
+texture entry i, so faces line up with in-world face numbers.
+
+`ObjectView` (app) generates geometry on the JobSystem, cached per (shape,
+level of detail), so identical prims share a mesh. The level of detail follows
+the official viewer's screen-size thresholds. Each frame it draws the prims
+within 128 m: linked children relative to their root, each face with its
+texture (from `TextureManager`), color, texture transform (as llface.cpp's
+xform) and fullbright flag. Transparent faces (color alpha, or textures with
+blended alpha) go through a blended pipeline after opaque geometry, sorted
+back to front; masked alpha uses an alpha test.
+
+Not drawn yet: sculpted prims, mesh, attachments (need avatars), trees, grass,
+flexible prims (drawn straight), planar texture mapping, materials.

@@ -8,12 +8,14 @@
 
 #include "viewer/core/Uuid.hpp"
 #include "viewer/protocol/CircuitManager.hpp"
+#include "viewer/world/Objects.hpp"
 #include "viewer/world/TerrainDecoder.hpp"
 
 #include <array>
 #include <bitset>
 #include <cstdint>
 #include <map>
+#include <unordered_map>
 #include <vector>
 
 namespace viewer::world
@@ -44,6 +46,25 @@ struct RegionTerrain
     bool complete() const { return patchesReceived.all(); }
 };
 
+// Objects are identified by region and local id (the full UUID also
+// exists, but updates refer to the local id).
+struct ObjectKey
+{
+    uint64_t region = 0;
+    uint32_t localId = 0;
+    bool operator==(const ObjectKey&) const = default;
+};
+
+struct ObjectKeyHash
+{
+    size_t operator()(const ObjectKey& k) const noexcept
+    {
+        return std::hash<uint64_t>{}(k.region * 0x9E3779B97F4A7C15ull ^ k.localId);
+    }
+};
+
+using ObjectMap = std::unordered_map<ObjectKey, Object, ObjectKeyHash>;
+
 class World
 {
 public:
@@ -54,10 +75,22 @@ public:
     const std::map<uint64_t, RegionTerrain>& terrain() const { return terrain_; }
     const RegionTerrain* terrain(uint64_t regionHandle) const;
 
+    const ObjectMap& objects() const { return objects_; }
+    const Object* object(uint64_t region, uint32_t localId) const;
+    // Bumped whenever any object is added, changed or removed.
+    uint64_t objectsRevision() const { return objectsRevision_; }
+
 private:
+    void handleObjectUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event);
+    void handleCompressedUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event);
+    void handleTerseUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event);
+    void apply(uint64_t regionHandle, const ObjectUpdateData& update);
+
     RegionTerrain& region(uint64_t handle);
 
     std::map<uint64_t, RegionTerrain> terrain_;
+    ObjectMap objects_;
+    uint64_t objectsRevision_ = 0;
 };
 
 } // namespace viewer::world

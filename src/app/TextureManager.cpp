@@ -151,6 +151,7 @@ void TextureManager::update()
     {
         Entry& e = entries_[ids[i]];
         e.texture = std::move(textures[i]);
+        e.alphaMode = e.pending.alphaMode;
         e.pending = {};
         e.state = e.texture ? State::Resident : State::Failed;
     }
@@ -260,6 +261,16 @@ void TextureManager::handleDownload(Download& download)
     cache_.request(assets::TextureRequest{download.id,
                                           [bytes]() -> std::optional<std::vector<uint8_t>>
                                           { return std::move(*bytes); }});
+}
+
+std::optional<image::AlphaMode> TextureManager::alphaMode(const Uuid& id) const
+{
+    const auto it = entries_.find(id);
+    if(it == entries_.end() || it->second.state != State::Resident)
+    {
+        return std::nullopt;
+    }
+    return it->second.alphaMode;
 }
 
 TextureManager::Stats TextureManager::stats() const

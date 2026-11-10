@@ -41,6 +41,9 @@ struct ObjectDraw
     const Mesh* mesh = nullptr;
     glm::mat4 transform{1.0f};
     std::variant<BlinnPhongMaterial, PbrMaterial> material;
+    // Texture coordinate transform, rows of a 2x3 matrix applied to (u, v, 1).
+    glm::vec3 uvRow0{1.0f, 0.0f, 0.0f};
+    glm::vec3 uvRow1{0.0f, 1.0f, 0.0f};
 };
 
 struct TerrainDraw

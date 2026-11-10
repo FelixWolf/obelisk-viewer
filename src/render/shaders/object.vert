@@ -17,6 +17,8 @@ layout(set = 1, binding = 1) uniform ObjectVS
 {
     mat4 model;
     mat4 normalMatrix; // inverse transpose of model (upper 3x3 used)
+    vec4 uvRow0;       // texture transform: u' = dot(uvRow0.xyz, (u, v, 1))
+    vec4 uvRow1;       //                    v' = dot(uvRow1.xyz, (u, v, 1))
 };
 
 layout(location = 0) out vec3 outWorldPosition;
@@ -30,6 +32,6 @@ void main()
     outWorldPosition = world.xyz;
     outNormal = mat3(normalMatrix) * inNormal;
     outTangent = vec4(mat3(model) * inTangent.xyz, inTangent.w);
-    outUv = inUv;
+    outUv = vec2(dot(uvRow0.xyz, vec3(inUv, 1.0)), dot(uvRow1.xyz, vec3(inUv, 1.0)));
     gl_Position = viewProjection * world;
 }

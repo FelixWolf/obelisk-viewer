@@ -11,12 +11,14 @@
 #include "viewer/protocol/Messages.hpp"
 #include "viewer/session/Credentials.hpp"
 #include "viewer/session/Session.hpp"
+#include "viewer/world/World.hpp"
 
 #include <charconv>
 #include <chrono>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <map>
 #include <print>
 #include <thread>
 
@@ -133,6 +135,7 @@ int main(int argc, char** argv)
 
     // Log in and stay for the requested time (or until something ends it).
     std::vector<RegionMessage> messages;
+    world::World world;
     int dumped = 0;
     if(!dumpDirectory.empty())
     {
@@ -146,6 +149,14 @@ int main(int argc, char** argv)
         session.drainRegionMessages(messages);
         for(const auto& m : messages)
         {
+            if(m.kind == RegionMessage::Kind::RegionRemoved)
+            {
+                world.removeRegion(m.regionHandle);
+            }
+            else
+            {
+                world.handleMessage(m.regionHandle, m.event);
+            }
             if(dumpDirectory.empty() || !m.event.is<protocol::msg::LayerData>())
             {
                 continue;
@@ -174,6 +185,38 @@ int main(int argc, char** argv)
     }
 
     printSession(session);
+    {
+        std::map<int, size_t> byType;
+        size_t prims = 0;
+        size_t sculpts = 0;
+        size_t meshes = 0;
+        size_t children = 0;
+        std::map<int, size_t> shapes;
+        for(const auto& [key, o] : world.objects())
+        {
+            byType[o.type]++;
+            if(o.type == world::ObjectType::Prim)
+            {
+                prims++;
+                const uint8_t sculpt = o.sculptType & world::SculptType::Mask;
+                sculpts += sculpt != 0 && sculpt != world::SculptType::Mesh;
+                meshes += sculpt == world::SculptType::Mesh;
+                shapes[o.volume.profile.curve * 256 + o.volume.path.curve]++;
+            }
+            children += o.parentId != 0;
+        }
+        std::println("objects: {} ({} prims: {} sculpted, {} mesh; {} linked children)",
+                     world.objects().size(), prims, sculpts, meshes, children);
+        for(const auto& [type, count] : byType)
+        {
+            std::println("  type {:3}: {}", type, count);
+        }
+        std::println("prim shapes (profile/path curve):");
+        for(const auto& [shape, count] : shapes)
+        {
+            std::println("  0x{:02x}/0x{:02x}: {}", shape >> 8, shape & 0xFF, count);
+        }
+    }
     if(const auto* failure = session.failure())
     {
         std::println(stderr, "failed ({}): {}", failure->reason, failure->message);

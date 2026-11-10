@@ -7,12 +7,14 @@ add_executable(viewer_tests
   LlsdTests.cpp
   LoginTests.cpp
   Md5Tests.cpp
+  ObjectTests.cpp
   ProtocolTests.cpp
   SessionTests.cpp
   TerrainTests.cpp
   TextureCacheTests.cpp
   TextureProcessingTests.cpp
   UuidTests.cpp
+  VolumeTests.cpp
 )
 target_link_libraries(viewer_tests PRIVATE
   doctest::doctest
@@ -24,6 +26,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::protocol
   viewer::session
   viewer::world
+  viewer::volume
   viewer_warnings
 )
 target_compile_definitions(viewer_tests PRIVATE

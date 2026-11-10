@@ -44,6 +44,9 @@ public:
     // it's loaded.
     const image::TextureData* data(const Uuid& id);
 
+    // How the texture uses alpha, once it's resident.
+    std::optional<image::AlphaMode> alphaMode(const Uuid& id) const;
+
     // Processes downloads and decodes, and uploads up to a per-frame budget.
     void update();
 
@@ -76,6 +79,7 @@ private:
     {
         State state = State::CacheLookup;
         render::GpuTexture texture;
+        image::AlphaMode alphaMode = image::AlphaMode::Opaque;
         image::TextureData pending; // decoded, waiting for upload
         std::unique_ptr<image::TextureData> cpuCopy;
         bool keepCpuCopy = false;

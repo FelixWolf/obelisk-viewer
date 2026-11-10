@@ -11,6 +11,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <span>
@@ -33,6 +34,8 @@ struct ObjectVS
 {
     glm::mat4 model;
     glm::mat4 normalMatrix;
+    glm::vec4 uvRow0;
+    glm::vec4 uvRow1;
 };
 struct TerrainVS
 {
@@ -159,7 +162,7 @@ bool Renderer::createPipelines()
     };
 
     auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, bool terrain,
-                             const char* name) -> SDL_GPUGraphicsPipeline*
+                             const char* name, bool blend = false) -> SDL_GPUGraphicsPipeline*
     {
         if(!vert || !frag)
         {
@@ -167,6 +170,16 @@ bool Renderer::createPipelines()
         }
         SDL_GPUColorTargetDescription color = {};
         color.format = kHdrFormat;
+        if(blend)
+        {
+            color.blend_state.enable_blend = true;
+            color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+            color.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            color.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+            color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+            color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+        }
 
         SDL_GPUGraphicsPipelineCreateInfo info = {};
         info.vertex_shader = vert;
@@ -183,7 +196,7 @@ bool Renderer::createPipelines()
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
         info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
         info.depth_stencil_state.enable_depth_test = true;
-        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.enable_depth_write = !blend;
         info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
         info.target_info.color_target_descriptions = &color;
         info.target_info.num_color_targets = 1;
@@ -198,6 +211,8 @@ bool Renderer::createPipelines()
     };
 
     p.blinnPhong = scenePipeline(objectVert, blinnPhongFrag, false, "Blinn-Phong");
+    p.blinnPhongBlend =
+        scenePipeline(objectVert, blinnPhongFrag, false, "Blinn-Phong (blended)", true);
     p.pbr = scenePipeline(objectVert, pbrFrag, false, "PBR");
     p.terrainBlinnPhong =
         scenePipeline(terrainVert, terrainBlinnPhongFrag, true, "terrain Blinn-Phong");
@@ -247,8 +262,8 @@ bool Renderer::createPipelines()
     sampler.enable_anisotropy = false;
     p.clampSampler = SDL_CreateGPUSampler(device_, &sampler);
 
-    return p.blinnPhong && p.pbr && p.terrainBlinnPhong && p.terrainPbr && p.tonemap &&
-           p.repeatSampler && p.clampSampler;
+    return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.terrainBlinnPhong && p.terrainPbr &&
+           p.tonemap && p.repeatSampler && p.clampSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -461,26 +476,52 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         SDL_DrawGPUIndexedPrimitives(pass, draw.mesh->indexCount, 1, 0, 0, 0);
     }
 
+    // Opaque objects, then blended ones from far to near.
+    std::vector<const ObjectDraw*> opaque;
+    std::vector<std::pair<float, const ObjectDraw*>> blended;
     for(const ObjectDraw& draw : scene.objects)
     {
         if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Object)
         {
             continue;
         }
-        const ObjectVS objectVs{draw.transform, glm::transpose(glm::inverse(draw.transform))};
+        const auto* bp = std::get_if<BlinnPhongMaterial>(&draw.material);
+        if(bp && bp->blend)
+        {
+            const glm::vec3 center(draw.transform[3]);
+            const glm::vec3 d = center - camera.position;
+            blended.emplace_back(glm::dot(d, d), &draw);
+        }
+        else
+        {
+            opaque.push_back(&draw);
+        }
+    }
+    std::ranges::sort(blended, [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::vector<const ObjectDraw*> order = std::move(opaque);
+    for(const auto& [distance, draw] : blended)
+    {
+        order.push_back(draw);
+    }
+
+    for(const ObjectDraw* drawPointer : order)
+    {
+        const ObjectDraw& draw = *drawPointer;
+        const ObjectVS objectVs{draw.transform, glm::transpose(glm::inverse(draw.transform)),
+                                glm::vec4(draw.uvRow0, 0.0f), glm::vec4(draw.uvRow1, 0.0f)};
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {
-            bindPipeline(p.blinnPhong);
+            bindPipeline(m->blend ? p.blinnPhongBlend : p.blinnPhong);
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(m->diffuse, white_), p.repeatSampler},
                 {texture(m->normal, flatNormal_), p.repeatSampler},
                 {texture(m->specular, white_), p.repeatSampler},
             };
             SDL_BindGPUFragmentSamplers(pass, 0, samplers, 3);
-            pushFragmentUniforms(commands, 1,
-                                 BlinnPhongFS{m->diffuseTint,
-                                              glm::vec4(m->specularTint, m->maxExponent),
-                                              glm::vec4(m->alphaCutoff, 0.0f, 0.0f, 0.0f)});
+            pushFragmentUniforms(
+                commands, 1,
+                BlinnPhongFS{m->diffuseTint, glm::vec4(m->specularTint, m->maxExponent),
+                             glm::vec4(m->alphaCutoff, m->fullbright ? 1.0f : 0.0f, 0.0f, 0.0f)});
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {

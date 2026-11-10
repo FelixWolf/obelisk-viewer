@@ -16,6 +16,7 @@ add_executable(viewer
   App.cpp
   CameraController.cpp
   LoginPanel.cpp
+  ObjectView.cpp
   Procedural.cpp
   SceneAssets.cpp
   TerrainTextures.cpp
@@ -38,6 +39,7 @@ target_link_libraries(viewer PRIVATE
   viewer::net
   viewer::session
   viewer::world
+  viewer::volume
   viewer::render
   viewer::ui
   viewer_warnings

@@ -22,7 +22,7 @@ layout(set = 3, binding = 1) uniform MaterialFS
 {
     vec4 diffuseTint;   // RGB color, A opacity
     vec4 specularTint;  // RGB color, A max exponent
-    vec4 options;       // x alpha cutoff (< 0: none)
+    vec4 options;       // x alpha cutoff (< 0: none), y fullbright (unlit) if > 0
 } material;
 
 layout(location = 0) out vec4 outColor;
@@ -33,6 +33,11 @@ void main()
     if(albedo.a < material.options.x)
     {
         discard;
+    }
+    if(material.options.y > 0.0)
+    {
+        outColor = albedo;
+        return;
     }
     vec4 normalTexel = texture(normalMap, inUv);
     vec3 n = perturbNormal(inNormal, inTangent, decodeNormal(normalTexel));

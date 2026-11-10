@@ -12,6 +12,7 @@ struct Renderer::Pipelines
 {
     SDL_GPUDevice* device = nullptr;
     SDL_GPUGraphicsPipeline* blinnPhong = nullptr;
+    SDL_GPUGraphicsPipeline* blinnPhongBlend = nullptr;
     SDL_GPUGraphicsPipeline* pbr = nullptr;
     SDL_GPUGraphicsPipeline* terrainBlinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
@@ -21,7 +22,8 @@ struct Renderer::Pipelines
 
     ~Pipelines()
     {
-        for(SDL_GPUGraphicsPipeline* p : {blinnPhong, pbr, terrainBlinnPhong, terrainPbr, tonemap})
+        for(SDL_GPUGraphicsPipeline* p :
+            {blinnPhong, blinnPhongBlend, pbr, terrainBlinnPhong, terrainPbr, tonemap})
         {
             if(p)
             {

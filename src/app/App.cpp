@@ -208,6 +208,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         cacheRoot / "textures", *app->jobs_, *app->j2kDecoder_);
     app->textures_ =
         std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_, *app->http_);
+    app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_);
     app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
                                                     VIEWER_VERSION, options.loginUri);
     if(!options.loginFile.empty())
@@ -411,6 +412,8 @@ render::Scene App::buildScene()
                                return terrainTextures_.material(*world_->terrain(handle),
                                                                 *textures_, placeholder);
                            });
+        objects_->update();
+        objects_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
     }
@@ -468,6 +471,13 @@ void App::drawUi()
         ImGui::Text("Textures: %zu resident, %zu loading, %zu downloading, %zu queued, %zu failed",
                     t.resident, t.loading, t.downloading, t.queued, t.failed);
         ImGui::Text("Downloaded: %.1f MB", static_cast<double>(t.bytesDownloaded) / 1e6);
+        if(world_)
+        {
+            const auto o = objects_->stats();
+            ImGui::Text("Objects: %zu known, %zu prims drawn (%zu faces), %zu not drawable yet",
+                        world_->objects().size(), o.drawn, o.faces, o.skipped);
+            ImGui::Text("Prim meshes: %zu cached, %zu generating", o.meshes, o.pending);
+        }
         ImGui::TextDisabled("Right-drag: look, wheel: zoom, middle-drag: pan, WASD/QE: move");
     }
     ImGui::End();

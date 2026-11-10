@@ -26,6 +26,8 @@ struct BlinnPhongMaterial
     glm::vec3 specularTint{1.0f};
     float maxExponent = 128.0f; // specular exponent at full glossiness
     float alphaCutoff = -1.0f;  // < 0: no alpha test
+    bool fullbright = false;    // unlit: the texture's color as is
+    bool blend = false;         // alpha-blended (drawn after opaque, back to front)
 };
 
 // PBR objects (glTF metallic-roughness).
