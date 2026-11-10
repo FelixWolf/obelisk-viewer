@@ -193,3 +193,23 @@ if(VIEWER_BUNDLED_GLSLANG OR NOT VIEWER_GLSLANG_EXECUTABLE)
   set(VIEWER_GLSLANG_DEPENDS glslang-standalone)
 endif()
 message(STATUS "Shader compiler: ${VIEWER_GLSLANG_EXECUTABLE}")
+
+# --- zlib: inflating mesh assets (zlib-compressed LLSD) ----------------------
+CPMAddPackage(
+  NAME zlib
+  GITHUB_REPOSITORY madler/zlib
+  GIT_TAG v1.3.2
+  DOWNLOAD_ONLY YES
+)
+if(zlib_ADDED)
+  # Built from its sources directly, so its CMake options don't matter.
+  add_library(viewer_zlib STATIC
+    ${zlib_SOURCE_DIR}/adler32.c ${zlib_SOURCE_DIR}/compress.c ${zlib_SOURCE_DIR}/crc32.c
+    ${zlib_SOURCE_DIR}/deflate.c ${zlib_SOURCE_DIR}/infback.c ${zlib_SOURCE_DIR}/inffast.c
+    ${zlib_SOURCE_DIR}/inflate.c ${zlib_SOURCE_DIR}/inftrees.c ${zlib_SOURCE_DIR}/trees.c
+    ${zlib_SOURCE_DIR}/uncompr.c ${zlib_SOURCE_DIR}/zutil.c
+  )
+  target_include_directories(viewer_zlib SYSTEM PUBLIC ${zlib_SOURCE_DIR})
+  set_target_properties(viewer_zlib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  add_library(viewer::zlib ALIAS viewer_zlib)
+endif()

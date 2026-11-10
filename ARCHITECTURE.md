@@ -48,8 +48,9 @@ bottom row. We store images top-down; anything sampled with Second Life UVs
 ```
 src/core     Uuid, JobSystem, MessageQueue, logging                -> viewer::core
 src/image    J2kDecoder (OpenJPEG), mips, alpha mode, KTX2 I/O     -> viewer::image
-src/assets   TextureCache: J2K -> KTX2 on disk, on worker threads   -> viewer::assets
-src/llsd     LLSD Value, LLSD+XML read/write (tinyxml2)            -> viewer::llsd
+src/assets   TextureCache: J2K -> KTX2 on disk, on worker threads;
+             mesh assets (header, zlib + binary LLSD LODs)         -> viewer::assets
+src/llsd     LLSD Value, LLSD+XML (tinyxml2) and binary read/write -> viewer::llsd
 src/net      HttpClient interface (libcurl backend), request groups,
              UdpSocket (POSIX sockets / Winsock)                   -> viewer::net
 src/protocol Message structs generated from the message template,
@@ -270,7 +271,13 @@ rendering changes get checked without someone looking at the window.
 ImprovedTerseObjectUpdate and KillObject into `world::Object`s keyed by
 (region, local id): transform, shape parameters, texture entry (per face:
 texture, color, repeats/offset/rotation, fullbright, shiny, glow) and extra
-parameters (sculpt/mesh, flexible). Formats follow llviewerobject.cpp,
+parameters (sculpt 0x30 and mesh 0x60, both an asset id plus a sculpt type
+where 5 means mesh; flexible). Terse updates' texture entries carry a 4-byte
+length first, unlike the full updates'.
+
+Simulators only send objects around the camera the viewer reports in
+`AgentUpdate` (and within its far distance), so the session passes the real
+camera (`Session::setCamera`), 128 m far. Formats follow llviewerobject.cpp,
 llvovolume.cpp, llprimitive.cpp and llvolumemessage.cpp. Terse updates for
 objects we haven't seen are dropped for now (the official viewer asks for the
 full update).
@@ -290,5 +297,15 @@ xform) and fullbright flag. Transparent faces (color alpha, or textures with
 blended alpha) go through a blended pipeline after opaque geometry, sorted
 back to front; masked alpha uses an alpha test.
 
-Not drawn yet: sculpted prims, mesh, attachments (need avatars), trees, grass,
-flexible prims (drawn straight), planar texture mapping, materials.
+Mesh objects (sculpt type 5) take their geometry from `MeshManager` (app):
+for each mesh it fetches the header with a Range request for the first 4 KiB
+of `<ViewerAsset>/?mesh_id=<uuid>` (`Accept: application/vnd.ll.mesh`), then
+the level of detail the object needs (or the nearest the asset has) as
+another Range request; `assets::decodeMeshLod` inflates it (zlib) and decodes
+the binary LLSD faces (16-bit quantized positions, normals, texture
+coordinates, triangle lists) on a worker. While a level loads, the nearest
+ready one is drawn. Meshes aren't cached on disk yet.
+
+Not drawn yet: sculpted prims, attachments (need avatars), rigged mesh (needs
+skeletons), trees, grass, flexible prims (drawn straight), planar texture
+mapping, materials.

@@ -118,6 +118,51 @@ TEST_CASE("Terse updates decode motion")
     CHECK(update->rotation.w == doctest::Approx(1.0f).epsilon(0.001));
     CHECK(glm::length(update->velocity) < 0.01f);
 
+    // A texture entry in a terse update carries a 4-byte length first.
+    // Every field's default and no overrides: texture, color, repeats u/v,
+    // offsets u/v, rotation, bump, media, glow (last: no terminator).
+    std::vector<uint8_t> fields(16, 0x5A);
+    fields.push_back(0);
+    fields.insert(fields.end(), {0, 0, 0, 0, 0});
+    for(int i = 0; i < 2; i++)
+    {
+        fields.insert(fields.end(), {0, 0, 0x80, 0x3F, 0}); // 1.0f
+    }
+    for(int i = 0; i < 3; i++)
+    {
+        fields.insert(fields.end(), {0, 0, 0});
+    }
+    fields.insert(fields.end(), {0, 0, 0, 0, 0});
+    std::vector<uint8_t> te = {static_cast<uint8_t>(fields.size()), 0, 0, 0};
+    te.insert(te.end(), fields.begin(), fields.end());
+    const auto withTexture = decodeTerseObject(data, te);
+    REQUIRE(withTexture.has_value());
+    REQUIRE(withTexture->faces.has_value());
+    CHECK(withTexture->faces->at(3).texture.bytes[0] == 0x5A);
+
     data.resize(20);
     CHECK_FALSE(decodeTerseObject(data, {}).has_value());
+}
+
+TEST_CASE("Extra parameters: sculpts and meshes")
+{
+    // Captured from a mesh object on Aditi: one parameter, type 0x0060
+    // (mesh), 17 bytes: asset id, sculpt type 5.
+    const std::vector<uint8_t> mesh = {0x01, 0x60, 0x00, 0x11, 0x00, 0x00, 0x00, 0x67,
+                                       0x36, 0x6a, 0x75, 0x41, 0xfa, 0x93, 0x6e, 0x51,
+                                       0x63, 0xfa, 0xa7, 0xa2, 0x5c, 0x83, 0x59, 0x05};
+    Object o;
+    applyExtraParams(o, mesh);
+    CHECK((o.sculptType & SculptType::Mask) == SculptType::Mesh);
+    CHECK(o.sculptTexture.toString() == "67366a75-41fa-936e-5163-faa7a25c8359");
+
+    // A sculpt (type 0x30) with sphere stitching, plus a flexible block.
+    std::vector<uint8_t> sculpt = {0x02, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                   0x30, 0x00, 0x11, 0x00, 0x00, 0x00};
+    sculpt.insert(sculpt.end(), 16, 0xAB);
+    sculpt.push_back(0x01);
+    applyExtraParams(o, sculpt);
+    CHECK(o.flexible);
+    CHECK(o.sculptType == SculptType::Sphere);
+    CHECK(o.sculptTexture.bytes[0] == 0xAB);
 }

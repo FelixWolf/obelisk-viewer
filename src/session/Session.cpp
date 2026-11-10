@@ -681,10 +681,17 @@ void Session::sendAgentUpdate(const Region& region)
     msg::AgentUpdate update;
     update.AgentData.AgentID = login_->agentId;
     update.AgentData.SessionID = login_->sessionId;
-    update.AgentData.CameraAtAxis = {1, 0, 0};
-    update.AgentData.CameraLeftAxis = {0, 1, 0};
-    update.AgentData.CameraUpAxis = {0, 0, 1};
-    update.AgentData.Far = 64;
+    CameraView camera;
+    camera.position = agentPosition_;
+    if(camera_)
+    {
+        camera = *camera_;
+    }
+    update.AgentData.CameraCenter = camera.position;
+    update.AgentData.CameraAtAxis = camera.atAxis;
+    update.AgentData.CameraLeftAxis = camera.leftAxis;
+    update.AgentData.CameraUpAxis = camera.upAxis;
+    update.AgentData.Far = camera.farDistance;
     send(region, update);
     lastAgentUpdate_ = Clock::now();
 }

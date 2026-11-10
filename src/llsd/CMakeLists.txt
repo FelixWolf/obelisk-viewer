@@ -1,4 +1,5 @@
 add_library(viewer_llsd STATIC
+  Binary.cpp
   BinaryEncoding.cpp
   Value.cpp
   Xml.cpp

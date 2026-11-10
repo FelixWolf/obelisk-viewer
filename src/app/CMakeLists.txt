@@ -15,7 +15,9 @@ add_executable(viewer
   main.cpp
   App.cpp
   CameraController.cpp
+  FaceUpload.cpp
   LoginPanel.cpp
+  MeshManager.cpp
   ObjectView.cpp
   Procedural.cpp
   SceneAssets.cpp

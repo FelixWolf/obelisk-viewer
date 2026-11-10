@@ -38,6 +38,7 @@ struct AppOptions
     std::filesystem::path loginFile;            // optional: log in at startup (see Credentials.hpp)
     bool testScene = false;                     // show the material test scene
     bool pbrTerrain = false;                    // start with the PBR terrain shader
+    std::string start;                          // login start: last, home, Region[/x/y/z]
     std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
     float screenshotDelay = 3.0f;               // seconds after startup
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
@@ -104,6 +105,7 @@ private:
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<TextureManager> textures_;
+    std::unique_ptr<MeshManager> meshes_;
     std::unique_ptr<ObjectView> objects_;
     TerrainTextures terrainTextures_;
     std::unique_ptr<LoginPanel> loginPanel_;

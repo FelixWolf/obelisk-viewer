@@ -6,9 +6,12 @@
 // with its texture entry: texture, color, texture transform, fullbright and
 // transparency.
 //
-// Not drawn yet: sculpted and mesh prims, attachments (they need avatars),
-// trees and grass.
+// Mesh objects get their geometry from the MeshManager instead.
+//
+// Not drawn yet: sculpted prims, attachments (they need avatars), trees and
+// grass.
 
+#include "MeshManager.hpp"
 #include "TextureManager.hpp"
 
 #include "viewer/core/JobSystem.hpp"
@@ -41,18 +44,19 @@ public:
 
     // Adds the prims within `drawDistance` of the camera.
     void addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-               TextureManager& textures, float drawDistance);
+               TextureManager& textures, MeshManager& meshes, float drawDistance);
 
     // Drops cached geometry (e.g. on logout).
     void clear();
 
     struct Stats
     {
-        size_t meshes = 0;  // cached (shape, detail) meshes
-        size_t pending = 0; // being generated
-        size_t drawn = 0;   // prims drawn last frame
-        size_t faces = 0;   // faces drawn last frame
-        size_t skipped = 0; // sculpted/mesh/attached prims not drawn
+        size_t meshes = 0;      // cached (shape, detail) meshes
+        size_t pending = 0;     // being generated
+        size_t drawn = 0;       // prims drawn last frame
+        size_t faces = 0;       // faces drawn last frame
+        size_t meshObjects = 0; // of drawn, how many are mesh
+        size_t skipped = 0;     // sculpted/attached prims not drawn
     };
     Stats stats() const { return stats_; }
 

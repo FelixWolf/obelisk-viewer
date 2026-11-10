@@ -413,7 +413,16 @@ std::expected<Value, std::string> parse(std::string_view data)
     case Format::Notation:
         return std::unexpected(std::string("LLSD: notation format is not supported yet"));
     case Format::Binary:
-        return std::unexpected(std::string("LLSD: binary format is not supported yet"));
+    {
+        // Skip the "<?llsd/binary?>" line.
+        const size_t newline = data.find('\n');
+        if(newline == std::string_view::npos)
+        {
+            return std::unexpected(std::string("LLSD: binary header without data"));
+        }
+        const auto rest = data.substr(newline + 1);
+        return fromBinary(std::span(reinterpret_cast<const uint8_t*>(rest.data()), rest.size()));
+    }
     }
     return std::unexpected(std::string("LLSD: unrecognized serialization format"));
 }

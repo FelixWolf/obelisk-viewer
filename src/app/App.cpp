@@ -93,6 +93,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             options.testScene = true;
         }
+        else if(arg == "--start" && hasValue)
+        {
+            i++;
+            options.start = args[i];
+        }
         else if(arg == "--pbr-terrain")
         {
             options.pbrTerrain = true;
@@ -208,11 +213,13 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         cacheRoot / "textures", *app->jobs_, *app->j2kDecoder_);
     app->textures_ =
         std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_, *app->http_);
+    app->meshes_ = std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_);
     app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
                                                     VIEWER_VERSION, options.loginUri);
     if(!options.loginFile.empty())
     {
+        app->loginPanel_->setStart(options.start);
         if(auto credentials = session::readCredentialsFile(options.loginFile))
         {
             app->handleLoginAction(app->loginPanel_->logInWith(*credentials));
@@ -329,6 +336,16 @@ int App::run()
             if(image::writePng(screenshotPath_, *shot))
             {
                 log::info("screenshot saved to {}", screenshotPath_.string());
+                if(world_)
+                {
+                    const auto o = objects_->stats();
+                    const auto m = meshes_->stats();
+                    const auto t = textures_->stats();
+                    log::info("objects: {} drawn ({} mesh), {} faces; mesh assets: {} known, {} "
+                              "levels ready, {} failed; textures: {} resident, {} failed",
+                              o.drawn, o.meshObjects, o.faces, m.meshes, m.lodsReady, m.failed,
+                              t.resident, t.failed);
+                }
             }
             else
             {
@@ -374,7 +391,25 @@ void App::updateSession()
         }
     }
 
-    textures_->setViewerAssetUrl(std::string(session_->capability("ViewerAsset").value_or("")));
+    // Tell the region where our camera is (its coordinates are the origin
+    // region's, which is where the agent arrived).
+    if(originHandle_)
+    {
+        const render::Camera c = camera_.camera();
+        const glm::vec3 at = glm::normalize(c.target - c.position);
+        const glm::vec3 left = glm::normalize(glm::cross(glm::vec3(0, 0, 1), at));
+        const glm::vec3 up = glm::cross(at, left);
+        session::Session::CameraView view;
+        view.position = {c.position.x, c.position.y, c.position.z};
+        view.atAxis = {at.x, at.y, at.z};
+        view.leftAxis = {left.x, left.y, left.z};
+        view.upAxis = {up.x, up.y, up.z};
+        view.farDistance = 128.0f;
+        session_->setCamera(view);
+    }
+    const std::string viewerAsset(session_->capability("ViewerAsset").value_or(""));
+    textures_->setViewerAssetUrl(viewerAsset);
+    meshes_->setViewerAssetUrl(viewerAsset);
 
     if(session_->state() == session::SessionState::LoggedOut)
     {
@@ -385,6 +420,7 @@ void App::updateSession()
 void App::endSession()
 {
     textures_->setViewerAssetUrl({});
+    meshes_->setViewerAssetUrl({});
     session_.reset();
     world_.reset();
     terrainView_.clear();
@@ -413,7 +449,8 @@ render::Scene App::buildScene()
                                                                 *textures_, placeholder);
                            });
         objects_->update();
-        objects_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
+        meshes_->update();
+        objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, 128.0f);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
     }
@@ -477,6 +514,11 @@ void App::drawUi()
             ImGui::Text("Objects: %zu known, %zu prims drawn (%zu faces), %zu not drawable yet",
                         world_->objects().size(), o.drawn, o.faces, o.skipped);
             ImGui::Text("Prim meshes: %zu cached, %zu generating", o.meshes, o.pending);
+            const auto m = meshes_->stats();
+            ImGui::Text("Mesh assets: %zu known, %zu levels ready, %zu downloading, %zu decoding, "
+                        "%zu failed (%.1f MB); %zu mesh objects drawn",
+                        m.meshes, m.lodsReady, m.downloading, m.decoding, m.failed,
+                        static_cast<double>(m.bytesDownloaded) / 1e6, o.meshObjects);
         }
         ImGui::TextDisabled("Right-drag: look, wheel: zoom, middle-drag: pan, WASD/QE: move");
     }

@@ -149,7 +149,7 @@ TEST_CASE("LLSD format detection")
     CHECK(detectFormat("<?llsd/notation?>\n{}") == Format::Notation);
     CHECK(detectFormat("<?LLSD/Binary?>\n") == Format::Binary);
     CHECK_FALSE(detectFormat("{'a':1}").has_value());
-    CHECK_FALSE(parse("<?llsd/binary?>\n").has_value()); // not implemented yet
+    CHECK_FALSE(parse("<?llsd/binary?>\n").has_value()); // header without data
 }
 
 TEST_CASE("LLSD value conversions")
@@ -199,4 +199,42 @@ TEST_CASE("LLSD mutable access creates containers")
     CHECK(v["a"]["b"].asInteger() == 1);
     CHECK(v["list"].size() == 3);
     CHECK(v["list"][0].isUndefined());
+}
+
+TEST_CASE("LLSD binary: round trip and known bytes")
+{
+    Value v;
+    v["int"] = -5;
+    v["real"] = 2.5;
+    v["text"] = "hello";
+    v["id"] = *viewer::Uuid::parse("d7f4aeca-88f1-42a1-b385-b9db18abb255");
+    v["flag"] = true;
+    v["blob"] = Binary{1, 2, 3};
+    v["link"] = Uri{"https://example.com"};
+    v["when"] = *parseDate("2024-05-06T07:08:09Z");
+    v["list"].append(1);
+    v["list"].append(Value());
+    const auto bytes = toBinary(v);
+    size_t consumed = 0;
+    const auto back = fromBinary(bytes, &consumed);
+    REQUIRE(back.has_value());
+    CHECK(*back == v);
+    CHECK(consumed == bytes.size());
+
+    // Integers are big-endian; map keys are 'k' + length + bytes.
+    const std::vector<uint8_t> known = {'{', 0,   0,   0, 1, 'k', 0, 0,  0,
+                                        1,   'a', 'i', 0, 0, 1,   0, '}'};
+    const auto parsed = fromBinary(known);
+    REQUIRE(parsed.has_value());
+    CHECK((*parsed)["a"].asInteger() == 256);
+
+    // Through parse() with the header line.
+    std::string withHeader = "<?llsd/binary?>\n";
+    withHeader.append(bytes.begin(), bytes.end());
+    CHECK(parse(withHeader).value() == v);
+
+    // Truncated and garbage data fail cleanly.
+    CHECK_FALSE(fromBinary(std::span(bytes).first(bytes.size() / 2)).has_value());
+    CHECK_FALSE(fromBinary(std::vector<uint8_t>{'z'}).has_value());
+    CHECK_FALSE(fromBinary(std::vector<uint8_t>{'[', 0xFF, 0xFF, 0xFF, 0xFF}).has_value());
 }

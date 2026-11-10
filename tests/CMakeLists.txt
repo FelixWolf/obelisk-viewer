@@ -7,6 +7,7 @@ add_executable(viewer_tests
   LlsdTests.cpp
   LoginTests.cpp
   Md5Tests.cpp
+  MeshTests.cpp
   ObjectTests.cpp
   ProtocolTests.cpp
   SessionTests.cpp
@@ -27,6 +28,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::session
   viewer::world
   viewer::volume
+  viewer::zlib
   viewer_warnings
 )
 target_compile_definitions(viewer_tests PRIVATE

@@ -133,6 +133,19 @@ public:
     std::optional<uint64_t> agentRegion() const { return agentRegion_; }
     protocol::Vector3 agentPosition() const { return agentPosition_; }
 
+    // Where the camera is, in the agent's region's coordinates. Simulators
+    // send objects around the camera (within `farDistance`), so this decides
+    // what we get to see. Until it's set, the camera is at the agent.
+    struct CameraView
+    {
+        protocol::Vector3 position{};
+        protocol::Vector3 atAxis{1, 0, 0};
+        protocol::Vector3 leftAxis{0, 1, 0};
+        protocol::Vector3 upAxis{0, 0, 1};
+        float farDistance = 128.0f;
+    };
+    void setCamera(const CameraView& camera) { camera_ = camera; }
+
     // Set once the login server accepted us.
     const LoginSuccess* login() const { return login_ ? &*login_ : nullptr; }
     // Set when state() is Failed.
@@ -211,6 +224,7 @@ private:
     std::vector<RegionMessage> regionMessages_;
     std::optional<uint64_t> agentRegion_;
     protocol::Vector3 agentPosition_{};
+    std::optional<CameraView> camera_;
 
     // Declaration order is destruction order in reverse: the HTTP groups go
     // first (no more callbacks), then the circuits (network thread joined),

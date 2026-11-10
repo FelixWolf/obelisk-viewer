@@ -39,6 +39,9 @@ public:
     // in the form so retries (TOS, MFA) work as if they had been typed.
     LoginAction logInWith(const session::Credentials& credentials);
 
+    // Start location for the next login: "last", "home" or "Region[/x/y/z]".
+    void setStart(const std::string& where);
+
 private:
     LoginAction drawForm(const session::Session* session);
     void selectGrid(const std::string& loginUri);

@@ -1,0 +1,123 @@
+#pragma once
+
+// Mesh assets by id, ready for drawing. Asking for one starts loading it:
+// the header first (a Range request for its first 4 KiB, as the official
+// viewer does), then the level of detail asked for (or the closest one the
+// asset has), decoded on a worker thread and uploaded. While a level loads,
+// get() returns another level that is ready, if any.
+//
+// Downloads use the region's ViewerAsset capability
+// (<cap>/?mesh_id=<uuid>); setViewerAssetUrl() works like TextureManager's.
+// Not cached on disk yet.
+
+#include "viewer/assets/MeshAsset.hpp"
+#include "viewer/core/JobSystem.hpp"
+#include "viewer/core/MessageQueue.hpp"
+#include "viewer/core/Uuid.hpp"
+#include "viewer/net/HttpClient.hpp"
+#include "viewer/render/Renderer.hpp"
+
+#include <array>
+#include <atomic>
+#include <deque>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace viewer
+{
+
+class MeshManager
+{
+public:
+    MeshManager(net::HttpClient& http, JobSystem& jobs, render::Renderer& renderer);
+    // Cancels downloads and waits for decode jobs.
+    ~MeshManager();
+
+    MeshManager(const MeshManager&) = delete;
+    MeshManager& operator=(const MeshManager&) = delete;
+
+    void setViewerAssetUrl(std::string url);
+
+    // Faces (one GPU mesh per texture entry) at level of detail `lod`
+    // (0 lowest .. 3 highest), or the nearest ready one; nullptr if none is.
+    const std::vector<render::Mesh>* get(const Uuid& id, int lod);
+
+    // Handles finished downloads and decodes.
+    void update();
+
+    struct Stats
+    {
+        size_t meshes = 0;
+        size_t lodsReady = 0;
+        size_t downloading = 0;
+        size_t decoding = 0;
+        size_t failed = 0;
+        uint64_t bytesDownloaded = 0;
+    };
+    Stats stats() const;
+
+private:
+    enum class State : uint8_t
+    {
+        None,
+        Queued,
+        Downloading,
+        Decoding,
+        Ready,
+        Failed,
+    };
+    struct Lod
+    {
+        State state = State::None;
+        std::vector<render::Mesh> faces;
+    };
+    struct Entry
+    {
+        State header = State::None;
+        assets::MeshHeader parsed{};
+        std::array<Lod, 4> lods{};
+    };
+    // What a download or decode was for: the header (lod = -1) or a level.
+    struct Request
+    {
+        Uuid id;
+        int lod = -1;
+    };
+    struct Download
+    {
+        Request request;
+        int64_t begin = 0; // the byte range asked for
+        net::HttpResponse response;
+    };
+    struct Decoded
+    {
+        Request request;
+        std::vector<volume::VolumeFace> faces;
+        std::string error;
+    };
+
+    void queue(const Request& request);
+    void startDownloads();
+    void handleDownload(Download& download);
+
+    net::HttpClient& http_;
+    JobSystem& jobs_;
+    render::Renderer& renderer_;
+    std::string viewerAssetUrl_;
+    std::unordered_map<Uuid, Entry> entries_;
+    std::deque<Request> queue_;
+    size_t downloading_ = 0;
+    uint64_t bytesDownloaded_ = 0;
+    std::atomic<int> decoding_{0};
+
+    MessageQueue<Download> downloads_;
+    MessageQueue<Decoded> decoded_;
+    std::vector<Download> drainedDownloads_;
+    std::vector<Decoded> drainedDecoded_;
+    // Last: destroyed first, so no download callback outlives the queues.
+    std::unique_ptr<net::HttpRequestGroup> requests_;
+};
+
+} // namespace viewer

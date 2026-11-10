@@ -1,7 +1,7 @@
 #pragma once
 
-// Reading and writing LLSD. Only LLSD+XML is implemented so far; notation
-// and binary are detected (so callers get a clear error) but not parsed yet.
+// Reading and writing LLSD: XML and binary. Notation is detected (so callers
+// get a clear error) but not parsed yet.
 
 #include "viewer/llsd/Value.hpp"
 
@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace viewer::llsd
 {
@@ -46,6 +47,14 @@ struct XmlWriteOptions
 std::string toXml(const Value& value, const XmlWriteOptions& options = {});
 
 std::expected<Value, std::string> fromXml(std::string_view xml);
+
+// Binary LLSD (as llsdserialize.cpp's LLSDBinaryParser/Formatter): one-byte
+// type tags, big-endian integers, reals and lengths. `data` starts at the
+// first value (no "<?llsd/binary?>" header). If `consumed` is given, it gets
+// the number of bytes the value took.
+std::expected<Value, std::string> fromBinary(std::span<const uint8_t> data,
+                                             size_t* consumed = nullptr);
+std::vector<uint8_t> toBinary(const Value& value);
 
 // Detects the serialization from the first bytes of the document.
 std::optional<Format> detectFormat(std::string_view data);

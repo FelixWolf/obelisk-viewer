@@ -60,6 +60,11 @@ std::expected<AgentName, std::string> parseAgentName(std::string_view username);
 // the session data we use today; inventory skeletons etc. come later.
 std::vector<std::string> defaultLoginOptions();
 
+// The login start location from "last", "home", "Region Name" or
+// "Region Name/x/y/z" (as in secondlife:// links); a region alone means its
+// center.
+std::string startLocation(std::string_view where);
+
 struct LoginParameters
 {
     std::string loginUri{kAgniLoginUri};

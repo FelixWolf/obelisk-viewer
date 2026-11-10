@@ -303,7 +303,8 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
         case 0x10: // flexible
             object.flexible = true;
             break;
-        case 0x30: // sculpt (also marks mesh)
+        case 0x30: // sculpt: texture (or mesh asset) and type
+        case 0x60: // mesh: same layout (asset id, type 5)
             object.sculptTexture = p.uuid();
             object.sculptType = p.u8();
             break;
@@ -448,7 +449,13 @@ std::optional<ObjectUpdateData> decodeTerseObject(std::span<const uint8_t> data,
     {
         return std::nullopt;
     }
-    update.faces = decodeTextureEntry(textureEntry);
+    // Here the texture entry is length-prefixed (it goes through the binary
+    // packer, as in llvovolume.cpp's terse path).
+    if(textureEntry.size() > 4)
+    {
+        Reader te(textureEntry);
+        update.faces = decodeTextureEntry(te.binary());
+    }
     return update;
 }
 

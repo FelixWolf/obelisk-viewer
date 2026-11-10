@@ -72,9 +72,14 @@ void World::handleCompressedUpdate(uint64_t regionHandle, const protocol::Circui
     }
     for(const auto& block : m->ObjectData)
     {
+        stats_.compressedUpdates++;
         if(auto update = decodeCompressedObject(block.Data, block.UpdateFlags))
         {
             apply(regionHandle, *update);
+        }
+        else
+        {
+            stats_.undecodable++;
         }
     }
 }
@@ -88,9 +93,14 @@ void World::handleTerseUpdate(uint64_t regionHandle, const protocol::CircuitEven
     }
     for(const auto& block : m->ObjectData)
     {
+        stats_.terseUpdates++;
         if(auto update = decodeTerseObject(block.Data, block.TextureEntry))
         {
             apply(regionHandle, *update);
+        }
+        else
+        {
+            stats_.undecodable++;
         }
     }
 }
@@ -104,6 +114,7 @@ void World::handleObjectUpdate(uint64_t regionHandle, const protocol::CircuitEve
     }
     for(const auto& b : m->ObjectData)
     {
+        stats_.fullUpdates++;
         ObjectUpdateData update;
         update.kind = ObjectUpdateData::Kind::Full;
         update.localId = b.ID;

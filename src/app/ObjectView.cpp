@@ -1,5 +1,7 @@
 #include "ObjectView.hpp"
 
+#include "FaceUpload.hpp"
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
@@ -47,51 +49,6 @@ void uvTransform(const world::TextureFace& face, glm::vec3& row0, glm::vec3& row
     row1 = glm::vec3(d, e, -0.5f * d - 0.5f * e + face.offset.y + 0.5f);
 }
 
-// Tangents along +u (Lengyel's method), for normal maps.
-std::vector<glm::vec4> tangents(const volume::VolumeFace& face)
-{
-    std::vector<glm::vec3> tan(face.positions.size(), glm::vec3(0.0f));
-    std::vector<glm::vec3> bitan(face.positions.size(), glm::vec3(0.0f));
-    for(size_t i = 0; i + 2 < face.indices.size(); i += 3)
-    {
-        const uint32_t i0 = face.indices[i];
-        const uint32_t i1 = face.indices[i + 1];
-        const uint32_t i2 = face.indices[i + 2];
-        const glm::vec3 e1 = face.positions[i1] - face.positions[i0];
-        const glm::vec3 e2 = face.positions[i2] - face.positions[i0];
-        const glm::vec2 d1 = face.texCoords[i1] - face.texCoords[i0];
-        const glm::vec2 d2 = face.texCoords[i2] - face.texCoords[i0];
-        const float det = d1.x * d2.y - d2.x * d1.y;
-        if(std::abs(det) < 1e-12f)
-        {
-            continue;
-        }
-        const float r = 1.0f / det;
-        const glm::vec3 sdir = (e1 * d2.y - e2 * d1.y) * r;
-        const glm::vec3 tdir = (e2 * d1.x - e1 * d2.x) * r;
-        for(const uint32_t v : {i0, i1, i2})
-        {
-            tan[v] += sdir;
-            bitan[v] += tdir;
-        }
-    }
-    std::vector<glm::vec4> out(face.positions.size());
-    for(size_t v = 0; v < out.size(); v++)
-    {
-        const glm::vec3& n = face.normals[v];
-        glm::vec3 t = tan[v] - n * glm::dot(n, tan[v]);
-        if(glm::dot(t, t) < 1e-12f)
-        {
-            out[v] = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
-            continue;
-        }
-        t = glm::normalize(t);
-        const float handedness = glm::dot(glm::cross(n, t), bitan[v]) < 0.0f ? -1.0f : 1.0f;
-        out[v] = glm::vec4(t, handedness);
-    }
-    return out;
-}
-
 } // namespace
 
 ObjectView::ObjectView(JobSystem& jobs, render::Renderer& renderer)
@@ -137,34 +94,19 @@ void ObjectView::update()
     for(Generated& g : drained_)
     {
         Geometry& geo = cache_[g.key];
-        geo.faces.clear();
-        for(const volume::VolumeFace& face : g.faces)
-        {
-            if(face.indices.empty())
-            {
-                geo.faces.emplace_back();
-                continue;
-            }
-            const auto tan = tangents(face);
-            std::vector<render::ObjectVertex> vertices(face.positions.size());
-            for(size_t v = 0; v < vertices.size(); v++)
-            {
-                vertices[v] = {face.positions[v], face.normals[v], tan[v], face.texCoords[v]};
-            }
-            geo.faces.push_back(renderer_.createMesh(
-                std::span<const render::ObjectVertex>(vertices), face.indices));
-        }
+        geo.faces = uploadFaces(renderer_, g.faces);
         geo.ready = true;
     }
     drained_.clear();
 }
 
 void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-                       TextureManager& textures, float drawDistance)
+                       TextureManager& textures, MeshManager& meshes, float drawDistance)
 {
     stats_.drawn = 0;
     stats_.faces = 0;
     stats_.skipped = 0;
+    stats_.meshObjects = 0;
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
     const auto originX = static_cast<int64_t>(originHandle >> 32);
@@ -177,7 +119,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
         const uint8_t sculpt = object.sculptType & world::SculptType::Mask;
-        if(sculpt != world::SculptType::None)
+        const bool isMesh = sculpt == world::SculptType::Mesh;
+        if(sculpt != world::SculptType::None && !isMesh)
         {
             stats_.skipped++;
             continue;
@@ -210,9 +153,19 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
 
-        const Key k{object.volume, detailFor(radius, distance)};
-        Geometry& geo = geometry(k);
-        if(!geo.ready)
+        const int detail = detailFor(radius, distance);
+        const std::vector<render::Mesh>* faces = nullptr;
+        if(isMesh)
+        {
+            faces = meshes.get(object.sculptTexture, detail);
+            stats_.meshObjects += faces != nullptr;
+        }
+        else
+        {
+            Geometry& geo = geometry(Key{object.volume, detail});
+            faces = geo.ready ? &geo.faces : nullptr;
+        }
+        if(!faces)
         {
             continue;
         }
@@ -221,9 +174,9 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                                     glm::mat4_cast(rotation) *
                                     glm::scale(glm::mat4(1.0f), object.scale);
         stats_.drawn++;
-        for(size_t f = 0; f < geo.faces.size() && f < world::kMaxFaces; f++)
+        for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
         {
-            const render::Mesh& mesh = geo.faces[f];
+            const render::Mesh& mesh = (*faces)[f];
             const world::TextureFace& face = object.faces[f];
             if(!mesh || face.color.a <= 0.0f || face.texture == kTransparentTexture)
             {

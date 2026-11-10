@@ -85,6 +85,35 @@ std::vector<std::string> defaultLoginOptions()
     };
 }
 
+std::string startLocation(std::string_view where)
+{
+    where = trim(where);
+    if(where.empty() || where == "last" || where == "home")
+    {
+        return where.empty() ? std::string("last") : std::string(where);
+    }
+    std::string region(where);
+    std::string x = "128";
+    std::string y = "128";
+    std::string z = "0";
+    if(const size_t slash = region.find('/'); slash != std::string::npos)
+    {
+        std::string coordinates = region.substr(slash + 1);
+        region.resize(slash);
+        std::string* parts[] = {&x, &y, &z};
+        for(std::string* part : parts)
+        {
+            const size_t next = coordinates.find('/');
+            if(!coordinates.empty())
+            {
+                *part = coordinates.substr(0, next);
+            }
+            coordinates = next == std::string::npos ? std::string() : coordinates.substr(next + 1);
+        }
+    }
+    return std::format("uri:{}&{}&{}&{}", region, x, y, z);
+}
+
 llsd::Value buildLoginRequest(const LoginParameters& p)
 {
     llsd::Array options;

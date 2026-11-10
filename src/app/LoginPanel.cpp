@@ -55,6 +55,23 @@ void LoginPanel::selectGrid(const std::string& loginUri)
     }
 }
 
+void LoginPanel::setStart(const std::string& where)
+{
+    if(where.empty() || where == "last")
+    {
+        start_ = 0;
+    }
+    else if(where == "home")
+    {
+        start_ = 1;
+    }
+    else
+    {
+        start_ = 2;
+        startRegion_ = where;
+    }
+}
+
 LoginAction LoginPanel::logInWith(const session::Credentials& credentials)
 {
     username_ = credentials.name.first + " " + credentials.name.last;
@@ -70,9 +87,7 @@ LoginAction LoginPanel::makeLogIn(session::AgentName name, std::string passwordH
     p.loginUri = std::move(loginUri);
     p.name = std::move(name);
     p.passwordHash = std::move(passwordHash);
-    p.start = start_ == 0   ? "last"
-              : start_ == 1 ? "home"
-                            : std::format("uri:{}&128&128&0", startRegion_);
+    p.start = start_ == 0 ? "last" : start_ == 1 ? "home" : session::startLocation(startRegion_);
     p.channel = channel_;
     p.version = version_;
     p.machine = machine_;
@@ -279,7 +294,7 @@ LoginAction LoginPanel::drawForm(const session::Session* session)
                  static_cast<int>(kStartLocations.size()));
     if(start_ == 2)
     {
-        ImGui::InputText("Region name", &startRegion_);
+        ImGui::InputText("Region[/x/y/z]", &startRegion_);
     }
 
     if(ImGui::Button("Log in") || entered)

@@ -80,6 +80,15 @@ public:
     // Bumped whenever any object is added, changed or removed.
     uint64_t objectsRevision() const { return objectsRevision_; }
 
+    struct Stats
+    {
+        uint64_t fullUpdates = 0;
+        uint64_t compressedUpdates = 0;
+        uint64_t terseUpdates = 0;
+        uint64_t undecodable = 0; // object updates we couldn't parse
+    };
+    const Stats& stats() const { return stats_; }
+
 private:
     void handleObjectUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event);
     void handleCompressedUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event);
@@ -91,6 +100,7 @@ private:
     std::map<uint64_t, RegionTerrain> terrain_;
     ObjectMap objects_;
     uint64_t objectsRevision_ = 0;
+    Stats stats_;
 };
 
 } // namespace viewer::world

@@ -2,8 +2,12 @@
 // while, prints what happened, then logs out. For testing the session and
 // circuit code against a real grid with a test account.
 //
-// Usage: logintest --login-file PATH [--seconds N] [--start last|home|REGION]
+// Usage: logintest --login-file PATH [--seconds N] [--start last|home|REGION[/X/Y/Z]]
 //                  [--dump-layer-data DIR]
+//
+// Environment variables for debugging object decoding:
+//   LOGINTEST_NEAR=x,y              list objects within 20 m of (x, y)
+//   LOGINTEST_FIND_TEXTURE=prefix   list objects using a texture id starting so
 //
 // --dump-layer-data writes each land LayerData message to DIR/layer_<region handle>_<n>.bin
 // (one byte layer type, then the packed data), for test fixtures.
@@ -15,6 +19,8 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -31,9 +37,10 @@ namespace
 
 int usage()
 {
-    std::println(stderr,
-                 "usage: logintest --login-file PATH [--seconds N] [--start last|home|REGION] "
-                 "[--dump-layer-data DIR]");
+    std::println(
+        stderr,
+        "usage: logintest --login-file PATH [--seconds N] [--start last|home|REGION[/X/Y/Z]] "
+        "[--dump-layer-data DIR]");
     return 2;
 }
 
@@ -124,8 +131,7 @@ int main(int argc, char** argv)
     parameters.loginUri = credentials->loginUri;
     parameters.name = credentials->name;
     parameters.passwordHash = std::move(credentials->passwordHash);
-    parameters.start =
-        start == "last" || start == "home" ? start : std::format("uri:{}&128&128&0", start);
+    parameters.start = startLocation(start);
     parameters.channel = "viewer";
     parameters.version = VIEWER_VERSION;
     parameters.machine = queryMachineInfo();
@@ -204,6 +210,63 @@ int main(int argc, char** argv)
                 shapes[o.volume.profile.curve * 256 + o.volume.path.curve]++;
             }
             children += o.parentId != 0;
+        }
+        const auto& ws = world.stats();
+        std::println("updates: {} full, {} compressed, {} terse, {} undecodable", ws.fullUpdates,
+                     ws.compressedUpdates, ws.terseUpdates, ws.undecodable);
+        std::map<int, size_t> sculptTypes;
+        for(const auto& [key, o] : world.objects())
+        {
+            if(o.sculptType != 0)
+            {
+                sculptTypes[o.sculptType]++;
+            }
+        }
+        for(const auto& [type, count] : sculptTypes)
+        {
+            std::println("  sculpt type 0x{:02x}: {}", type, count);
+        }
+        if(const char* find = std::getenv("LOGINTEST_FIND_TEXTURE"))
+        {
+            for(const auto& [key, o] : world.objects())
+            {
+                for(size_t f = 0; f < world::kMaxFaces; f++)
+                {
+                    if(o.faces[f].texture.toString().starts_with(find))
+                    {
+                        std::println(
+                            "  texture {} on face {} of local {} type {} sculpt 0x{:02x} parent {}",
+                            find, f, o.localId, o.type, o.sculptType, o.parentId);
+                        break;
+                    }
+                }
+            }
+        }
+        if(const char* near = std::getenv("LOGINTEST_NEAR"))
+        {
+            float nx = 0;
+            float ny = 0;
+            std::sscanf(near, "%f,%f", &nx, &ny);
+            for(const auto& [key, o] : world.objects())
+            {
+                glm::vec3 p = o.position;
+                if(o.parentId != 0)
+                {
+                    if(const auto* parent = world.object(o.region, o.parentId))
+                    {
+                        p = parent->position + parent->rotation * o.position;
+                    }
+                }
+                if(glm::length(glm::vec2(p.x - nx, p.y - ny)) < 20.0f)
+                {
+                    std::println(
+                        "  near: local {} type {} parent {} pos ({:.1f},{:.1f},{:.1f}) scale "
+                        "({:.1f},{:.1f},{:.1f}) curves 0x{:02x}/0x{:02x} sculpt 0x{:02x} {}",
+                        o.localId, o.type, o.parentId, p.x, p.y, p.z, o.scale.x, o.scale.y,
+                        o.scale.z, o.volume.profile.curve, o.volume.path.curve, o.sculptType,
+                        o.sculptTexture.toString());
+                }
+            }
         }
         std::println("objects: {} ({} prims: {} sculpted, {} mesh; {} linked children)",
                      world.objects().size(), prims, sculpts, meshes, children);
