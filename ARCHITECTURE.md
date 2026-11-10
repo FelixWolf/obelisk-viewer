@@ -26,11 +26,14 @@
 src/core     Uuid, JobSystem, MessageQueue, logging                -> viewer::core
 src/image    J2kDecoder (OpenJPEG), mips, alpha mode, KTX2 I/O     -> viewer::image
 src/assets   TextureCache: J2K -> KTX2 on disk, on worker threads   -> viewer::assets
+src/llsd     LLSD Value, LLSD+XML read/write (tinyxml2)            -> viewer::llsd
+src/net      HttpClient interface (libcurl backend), request groups -> viewer::net
 src/render   SDL GPU device, frames, texture upload                -> viewer::render
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
 src/app      App (owns everything), TextureBrowser panel, main()
 tests/       doctest unit tests (fixtures in tests/data)
 tools/j2kbench   benchmarks J2kDecoder implementations
+tools/httpget    one request through HttpClient; pretty-prints LLSD replies
 cmake/           CPM bootstrap + Dependencies.cmake (all versions pinned)
 ```
 
@@ -68,7 +71,22 @@ can't enforce that). Run `clang-format -i` on the files you touch.
 
 ## Swappable backends
 
-Third-party codecs sit behind interfaces in our own modules, so they can be
-swapped later. For JPEG 2000 that's `viewer::image::J2kDecoder`, with
-`createJ2kDecoder()` defined by the backend's .cpp (currently
-`src/image/OpenJpegDecoder.cpp`).
+Third-party libraries sit behind interfaces in our own modules, so they can be
+swapped later. The backend's .cpp defines the factory function:
+
+| Interface | Factory | Current backend |
+|---|---|---|
+| `viewer::image::J2kDecoder` | `createJ2kDecoder()` | `src/image/OpenJpegDecoder.cpp` (OpenJPEG) |
+| `viewer::net::HttpClient` | `createHttpClient()` | `src/net/CurlHttpClient.cpp` (libcurl) |
+
+## HTTP
+
+`HttpClient` runs its own I/O thread. Callbacks run on that thread, so they
+should copy what they need into a `MessageQueue` and return.
+
+Once `cancel(id)` returns, that request's callback won't run and isn't still
+running. Destroying the client gives the same guarantee for every request.
+Per-login owners (the future `Session`, capabilities, the event queue poller)
+send through an `HttpRequestGroup` member, which cancels whatever is still
+pending when it is destroyed. That's what makes tearing down a `Session`
+mid-request safe.

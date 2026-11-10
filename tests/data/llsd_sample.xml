@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<llsd>
+  <map>
+    <key>undef</key>
+      <array>
+        <undef />
+      </array>
+    <key>boolean</key>
+      <array>
+        <!-- true -->
+        <boolean>1</boolean>
+        <boolean>true</boolean>
+        
+        <!-- false -->
+        <boolean>0</boolean>
+        <boolean>false</boolean>
+        <boolean />
+      </array>
+    <key>integer</key>
+      <array>
+        <integer>289343</integer>
+        <integer>-3</integer>
+        <integer /> <!-- zero -->
+      </array>
+    <key>real</key>
+      <array>
+        <real>-0.28334</real>
+        <real>2983287453.3848387</real>
+        <real /> <!-- exactly zero -->
+      </array>
+    <key>uuid</key>
+      <array>
+        <uuid>d7f4aeca-88f1-42a1-b385-b9db18abb255</uuid>
+        <uuid /> <!-- null uuid '00000000-0000-0000-0000-000000000000' -->
+      </array>
+    <key>string</key>
+      <array>
+        <string>The quick brown fox jumped over the lazy dog.</string>
+        <string>540943c1-7142-4fdd-996f-fc90ed5dd3fa</string>
+        <string /> <!-- empty string -->
+      </array>
+    <key>binary</key>
+      <array>
+        <binary encoding="base64">cmFuZG9t</binary> <!-- base 64 encoded binary data -->
+        <binary>dGhlIHF1aWNrIGJyb3duIGZveA==</binary> <!-- base 64 encoded binary data is default -->
+        <binary encoding="base85">YISXJWn>_4c4cxPbZBJ</binary>
+        <binary encoding="base16">6C617A7920646F67</binary>
+        <binary /> <!-- empty binary blob -->
+      </array>
+    <key>date</key>
+      <array>
+        <date>2006-02-01T14:29:53.43Z</date>
+        <date /> <!-- epoch -->
+      </array>
+    <key>uri</key>
+      <array>
+        <uri>http://sim956.agni.lindenlab.com:12035/runtime/agents</uri>
+        <uri /> <!-- an empty link -->
+      </array>
+  </map>
+</llsd>

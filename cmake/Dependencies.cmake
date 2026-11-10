@@ -95,3 +95,59 @@ if(VIEWER_BUILD_TESTS)
     OPTIONS "DOCTEST_WITH_TESTS OFF" "DOCTEST_NO_INSTALL ON"
   )
 endif()
+
+# --- tinyxml2: LLSD+XML parsing and writing ---------------------------------
+CPMAddPackage(
+  NAME tinyxml2
+  GITHUB_REPOSITORY leethomason/tinyxml2
+  GIT_TAG 11.0.0
+  OPTIONS
+    "tinyxml2_BUILD_TESTING OFF"
+    "BUILD_SHARED_LIBS OFF"
+)
+
+# --- libcurl: the first HttpClient backend (behind viewer::net::HttpClient) --
+# HTTP(S) only. TLS comes from the platform: Schannel on Windows, OpenSSL elsewhere.
+if(WIN32)
+  set(VIEWER_CURL_TLS "CURL_USE_SCHANNEL ON")
+else()
+  set(VIEWER_CURL_TLS "CURL_USE_OPENSSL ON")
+endif()
+CPMAddPackage(
+  NAME curl
+  GITHUB_REPOSITORY curl/curl
+  GIT_TAG curl-8_23_0
+  OPTIONS
+    "BUILD_CURL_EXE OFF"
+    "BUILD_SHARED_LIBS OFF"
+    "BUILD_STATIC_LIBS ON"
+    "BUILD_TESTING OFF"
+    "BUILD_EXAMPLES OFF"
+    "BUILD_LIBCURL_DOCS OFF"
+    "BUILD_MISC_DOCS OFF"
+    "ENABLE_CURL_MANUAL OFF"
+    "CURL_DISABLE_INSTALL ON"
+    "CURL_DISABLE_DICT ON"
+    "CURL_DISABLE_FILE ON"
+    "CURL_DISABLE_FTP ON"
+    "CURL_DISABLE_GOPHER ON"
+    "CURL_DISABLE_IMAP ON"
+    "CURL_DISABLE_IPFS ON"
+    "CURL_DISABLE_LDAP ON"
+    "CURL_DISABLE_MQTT ON"
+    "CURL_DISABLE_POP3 ON"
+    "CURL_DISABLE_RTSP ON"
+    "CURL_DISABLE_SMTP ON"
+    "CURL_DISABLE_TELNET ON"
+    "CURL_DISABLE_TFTP ON"
+    "CURL_DISABLE_WEBSOCKETS ON"
+    "CURL_USE_LIBPSL OFF"
+    "CURL_USE_LIBSSH2 OFF"
+    "CURL_USE_LIBSSH OFF"
+    "USE_LIBIDN2 OFF"
+    "USE_NGHTTP2 OFF"
+    "CURL_BROTLI OFF"
+    "CURL_ZSTD OFF"
+    "CURL_ZLIB OFF"
+    "${VIEWER_CURL_TLS}"
+)

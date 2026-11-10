@@ -10,6 +10,8 @@
 add_subdirectory(core)
 add_subdirectory(image)
 add_subdirectory(assets)
+add_subdirectory(llsd)
+add_subdirectory(net)
 add_subdirectory(render)
 add_subdirectory(ui)
 add_subdirectory(app)

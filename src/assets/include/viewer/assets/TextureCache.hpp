@@ -35,7 +35,7 @@ using J2kSource = std::function<std::optional<std::vector<uint8_t>>()>;
 struct TextureRequest
 {
     Uuid id;
-    J2kSource source;          // may be empty: then only the cache is consulted
+    J2kSource source{};        // may be empty: then only the cache is consulted
     uint32_t discardLevel = 0; // J2K resolution level to decode on a miss
     uint32_t maxDimension = 0; // drop larger mips from the *result* (the cache keeps all)
 };
@@ -52,8 +52,8 @@ struct TextureResult
 
     Uuid id;
     Status status = Status::Failed;
-    image::TextureData texture; // empty unless LoadedFromCache or Decoded
-    double milliseconds = 0;    // worker time spent on this request
+    image::TextureData texture{}; // empty unless LoadedFromCache or Decoded
+    double milliseconds = 0;      // worker time spent on this request
 };
 
 class TextureCache

@@ -64,7 +64,7 @@ TEST_CASE("TextureCache reports missing and undecodable textures")
     const auto decoder = image::createJ2kDecoder();
     assets::TextureCache cache(dir.path(), jobs, *decoder);
 
-    cache.request({.id = kId, .source = {}});
+    cache.request({.id = kId});
     auto noSource = runToCompletion(jobs, cache);
     REQUIRE(noSource.size() == 1);
     CHECK(noSource[0].status == Status::NotFound);
