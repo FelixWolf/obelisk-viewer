@@ -27,8 +27,12 @@ src/core     Uuid, JobSystem, MessageQueue, logging                -> viewer::co
 src/image    J2kDecoder (OpenJPEG), mips, alpha mode, KTX2 I/O     -> viewer::image
 src/assets   TextureCache: J2K -> KTX2 on disk, on worker threads   -> viewer::assets
 src/llsd     LLSD Value, LLSD+XML read/write (tinyxml2)            -> viewer::llsd
-src/net      HttpClient interface (libcurl backend), request groups -> viewer::net
-src/session  Login, Session (one login's state), MD5 for login     -> viewer::session
+src/net      HttpClient interface (libcurl backend), request groups,
+             UdpSocket (POSIX sockets / Winsock)                   -> viewer::net
+src/protocol Message structs generated from the message template,
+             packet framing, CircuitManager (UDP circuits)         -> viewer::protocol
+src/session  Login, Session (one login: regions, circuits, caps,
+             event queues)                                         -> viewer::session
 src/render   SDL GPU device, frames, texture upload                -> viewer::render
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
 src/app      App (owns everything), LoginPanel, TextureBrowser panel, main()
@@ -36,6 +40,7 @@ tests/       doctest unit tests (fixtures in tests/data)
 tools/j2kbench   benchmarks J2kDecoder implementations
 tools/httpget    one request through HttpClient; pretty-prints LLSD replies
 cmake/           CPM bootstrap + Dependencies.cmake (all versions pinned)
+external/master-message-template   git submodule: Linden Lab's message_template.msg
 ```
 
 ## Texture pipeline
@@ -54,6 +59,7 @@ KTX2 entries are RGBA8 with zstd supercompression, plus `viewer.alphaMode` and
 ## Building
 
 ```
+git submodule update --init                 # the message template
 cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
 ./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
@@ -115,6 +121,42 @@ wiped from the input buffer as soon as it's hashed.
 them violates the Second Life Terms of Service, so there's no way to override
 them.
 
-Field names and formats follow pymetaverse's `login.py`. The UDP circuit
-(`UseCircuitCode`, `CompleteAgentMovement`) and the event queue are next.
-Until they exist, the region drops a logged-in agent after its timeout.
+Field names and formats follow pymetaverse's `login.py`.
+
+After login the session is in several simulators at once. Each one is a
+`Region` with its own UDP circuit, capabilities, event queue poller and
+`HttpRequestGroup`:
+
+1. The main region (from the login reply) gets `UseCircuitCode` and
+   `CompleteAgentMovement`, plus a seed capability request.
+2. When its `RegionHandshake` arrives we reply, send throttles, FOV, window
+   size and the first `AgentUpdate` (then one per second). Once the main
+   region's capabilities have arrived as well, the session is `Connected`.
+3. The main region's event queue announces neighbours (`EnableSimulator`); each
+   gets its own circuit and `UseCircuitCode`. `EstablishAgentCommunication`
+   later hands over the neighbour's seed capability. `DisableSimulator` (or a
+   circuit going silent) removes a neighbour.
+4. Logging out sends `LogoutRequest` and waits up to 5 s for `LogoutReply`.
+   The App does this on quit too.
+
+Teleports and region crossings (`TeleportFinish`, `CrossedRegion`) aren't
+handled yet.
+
+## UDP circuits
+
+`protocol::CircuitManager` runs one network thread for all circuits. Each
+circuit has its own UDP socket `connect()`ed to its simulator, so the OS
+drops datagrams from anyone else. The thread handles the transport layer by
+itself: sequence numbers, acks (appended to outgoing packets, or `PacketAck`
+after 50 ms), resending reliable packets (3x the round trip, at least 500 ms,
+up to 4 times), duplicate suppression, and pings both ways. Every other
+message reaches the owner as a `CircuitEvent` holding the still-encoded
+message; decode the ones you need with `event.decode<msg::Foo>()`, so
+messages nobody reads cost no decode time.
+
+Message code is generated at build time: `viewer_msggen` reads
+`external/master-message-template/message_template.msg` and writes one struct
+per message (`viewer::protocol::msg::UseCircuitCode`, ...) with
+`encode`/`decode`, keeping the template's field names. A block with the same
+name as its message gets a trailing underscore (`SimulatorLoad_`). The byte
+layout is checked against pymetaverse in `tests/ProtocolTests.cpp`.

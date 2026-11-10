@@ -3,16 +3,18 @@
 #
 #   core  <-  image  <-  assets        (J2K decode, KTX2, texture cache)
 #   core  <-  image  <-  render  <-  ui
-#   core  <-  llsd, net  <-  session   (login, capabilities; later the circuit)
+#   core  <-  net  <-  protocol         (generated messages, UDP circuits)
+#   core  <-  llsd, net, protocol  <-  session   (login, regions, caps, event queues)
 #   app sees everything
 #
-# Planned: protocol, world, xr, voice.
+# Planned: world, xr, voice.
 
 add_subdirectory(core)
 add_subdirectory(image)
 add_subdirectory(assets)
 add_subdirectory(llsd)
 add_subdirectory(net)
+add_subdirectory(protocol)
 add_subdirectory(session)
 add_subdirectory(render)
 add_subdirectory(ui)

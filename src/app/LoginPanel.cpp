@@ -81,10 +81,12 @@ LoginAction LoginPanel::draw(const session::Session* session)
 
 void LoginPanel::drawSession(const session::Session& session, LoginAction& action)
 {
+    using session::SessionState;
     const session::LoginSuccess* login = session.login();
-    if(session.state() != session::SessionState::LoggedIn)
+    const SessionState state = session.state();
+    if(state == SessionState::LoggingIn || !login)
     {
-        ImGui::Text("%s...", std::string(session::stateName(session.state())).c_str());
+        ImGui::TextUnformatted("Logging in...");
         if(ImGui::Button("Cancel"))
         {
             action.kind = LoginAction::Kind::LogOut;
@@ -92,32 +94,74 @@ void LoginPanel::drawSession(const session::Session& session, LoginAction& actio
         return;
     }
 
-    ImGui::Text("Logged in as %s %s", login->name.first.c_str(), login->name.last.c_str());
+    ImGui::Text("%s %s (%s)", login->name.first.c_str(), login->name.last.c_str(),
+                std::string(session::stateName(state)).c_str());
     ImGui::TextDisabled("%s", login->agentId.toString().c_str());
-    ImGui::Text("Region at %s:%u, grid position (%u, %u)", login->simIp.c_str(), login->simPort,
-                login->regionX / 256, login->regionY / 256);
     if(!login->message.empty())
     {
-        ImGui::Separator();
         ImGui::TextWrapped("%s", login->message.c_str());
     }
-    ImGui::Separator();
-    const std::string capsLabel =
-        std::format("Capabilities ({})###caps", session.capabilities().size());
-    if(ImGui::TreeNode(capsLabel.c_str()))
-    {
-        for(const auto& [name, url] : session.capabilities())
-        {
-            ImGui::TextUnformatted(name.c_str());
-            ImGui::SetItemTooltip("%s", url.c_str());
-        }
-        ImGui::TreePop();
-    }
-    ImGui::TextDisabled("The UDP circuit isn't implemented yet, so the region will time us out.");
-    if(ImGui::Button("Log out"))
+    ImGui::BeginDisabled(state == SessionState::LoggingOut);
+    if(ImGui::Button(state == SessionState::Connecting ? "Cancel" : "Log out"))
     {
         action.kind = LoginAction::Kind::LogOut;
     }
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Regions");
+    for(const auto& [id, region] : session.regions())
+    {
+        const std::string label =
+            std::format("{}{} ({}, {})###region{}",
+                        region->name.empty() ? region->endpoint.toString() : region->name,
+                        region->isMain ? " [main]" : "", region->gridX(), region->gridY(), id);
+        if(!ImGui::TreeNode(label.c_str()))
+        {
+            continue;
+        }
+        ImGui::Text("Simulator %s", region->endpoint.toString().c_str());
+        if(const auto stats = session.circuitStats(id))
+        {
+            ImGui::Text("Ping %lld ms, packets in %llu / out %llu",
+                        static_cast<long long>(stats->roundTrip.count()),
+                        static_cast<unsigned long long>(stats->packetsIn),
+                        static_cast<unsigned long long>(stats->packetsOut));
+            ImGui::Text("Resent %llu, unacked %zu, duplicates %llu, dropped %llu",
+                        static_cast<unsigned long long>(stats->resent), stats->unacked,
+                        static_cast<unsigned long long>(stats->duplicates),
+                        static_cast<unsigned long long>(stats->reliableDropped));
+        }
+        ImGui::Text("Handshake: %s, event queue: %s", region->handshakeReceived ? "yes" : "no",
+                    region->eventQueueRunning ? "running" : "stopped");
+        const std::string capsLabel =
+            std::format("Capabilities ({})###caps", region->capabilities.size());
+        if(ImGui::TreeNode(capsLabel.c_str()))
+        {
+            for(const auto& [name, url] : region->capabilities)
+            {
+                ImGui::TextUnformatted(name.c_str());
+                ImGui::SetItemTooltip("%s", url.c_str());
+            }
+            ImGui::TreePop();
+        }
+        ImGui::TreePop();
+    }
+
+    auto drawCounts = [](const char* title, const auto& counts)
+    {
+        const std::string label = std::format("{} ({})###{}", title, counts.size(), title);
+        if(ImGui::TreeNode(label.c_str()))
+        {
+            for(const auto& [name, count] : counts)
+            {
+                ImGui::Text("%6llu  %s", static_cast<unsigned long long>(count), name.c_str());
+            }
+            ImGui::TreePop();
+        }
+    };
+    ImGui::SeparatorText("Traffic");
+    drawCounts("UDP messages", session.messageCounts());
+    drawCounts("Event queue", session.eventCounts());
 }
 
 LoginAction LoginPanel::drawForm(const session::Session* session)

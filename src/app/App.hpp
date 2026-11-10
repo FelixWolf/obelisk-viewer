@@ -58,6 +58,8 @@ private:
 
     void drawUi();
     void handleLoginAction(LoginAction action);
+    void updateSession();
+    void logOutBeforeExit();
 
     struct SdlRuntime
     {

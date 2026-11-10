@@ -154,6 +154,7 @@ public:
     bool cancel(HttpRequestId id);
     void cancelAll();
     size_t pendingCount() const;
+    HttpClient& client() const { return client_; }
 
 private:
     HttpClient& client_;

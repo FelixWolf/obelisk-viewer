@@ -1,11 +1,13 @@
 add_executable(viewer_tests
   main.cpp
+  CircuitTests.cpp
   HttpClientTests.cpp
   JobSystemTests.cpp
   Ktx2Tests.cpp
   LlsdTests.cpp
   LoginTests.cpp
   Md5Tests.cpp
+  ProtocolTests.cpp
   SessionTests.cpp
   TextureCacheTests.cpp
   TextureProcessingTests.cpp
@@ -18,6 +20,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::assets
   viewer::llsd
   viewer::net
+  viewer::protocol
   viewer::session
   viewer_warnings
 )

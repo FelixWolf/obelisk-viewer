@@ -163,8 +163,10 @@ void App::handleLoginAction(LoginAction action)
         session_ = std::make_unique<session::Session>(*http_, std::move(action.parameters));
         break;
     case LoginAction::Kind::LogOut:
-        session_.reset();
-        log::info("logged out");
+        if(session_)
+        {
+            session_->requestLogout(); // update() destroys it once it's done
+        }
         break;
     }
 }
@@ -190,6 +192,9 @@ int App::run()
             }
         }
 
+        // Keep the session going even while minimized.
+        updateSession();
+
         if(SDL_GetWindowFlags(window_.get()) & SDL_WINDOW_MINIMIZED)
         {
             SDL_Delay(10);
@@ -197,10 +202,6 @@ int App::run()
         }
 
         textureBrowser_->update();
-        if(session_)
-        {
-            session_->update();
-        }
 
         ui_->beginFrame();
         drawUi();
@@ -213,7 +214,38 @@ int App::run()
         }
         renderer_->endFrame();
     }
+    logOutBeforeExit();
     return 0;
+}
+
+void App::updateSession()
+{
+    if(!session_)
+    {
+        return;
+    }
+    session_->update();
+    if(session_->state() == session::SessionState::LoggedOut)
+    {
+        session_.reset();
+    }
+}
+
+void App::logOutBeforeExit()
+{
+    if(!session_)
+    {
+        return;
+    }
+    // Tell the region we're leaving, so the avatar doesn't linger until the
+    // circuit times out. update() gives up on its own after a few seconds.
+    session_->requestLogout();
+    while(session_ && session_->state() == session::SessionState::LoggingOut)
+    {
+        SDL_Delay(10);
+        updateSession();
+    }
+    session_.reset();
 }
 
 void App::drawUi()
