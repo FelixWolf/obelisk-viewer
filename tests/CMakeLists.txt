@@ -4,6 +4,9 @@ add_executable(viewer_tests
   JobSystemTests.cpp
   Ktx2Tests.cpp
   LlsdTests.cpp
+  LoginTests.cpp
+  Md5Tests.cpp
+  SessionTests.cpp
   TextureCacheTests.cpp
   TextureProcessingTests.cpp
   UuidTests.cpp
@@ -15,6 +18,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::assets
   viewer::llsd
   viewer::net
+  viewer::session
   viewer_warnings
 )
 target_compile_definitions(viewer_tests PRIVATE

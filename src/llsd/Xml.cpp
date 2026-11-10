@@ -98,6 +98,13 @@ std::expected<Value, std::string> parseElement(const XMLElement& element, int de
         {
             return fail(element, std::format("has invalid value '{}'", v));
         }
+        // Values in the uint32 range keep their bit pattern: SL sends U32
+        // fields (circuit codes, flags) as LLSD integers.
+        if(parsed > std::numeric_limits<int32_t>::max() &&
+           parsed <= std::numeric_limits<uint32_t>::max())
+        {
+            return Value(static_cast<int32_t>(static_cast<uint32_t>(parsed)));
+        }
         parsed = std::clamp<int64_t>(parsed, std::numeric_limits<int32_t>::min(),
                                      std::numeric_limits<int32_t>::max());
         return Value(static_cast<int32_t>(parsed));

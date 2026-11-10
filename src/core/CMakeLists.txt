@@ -1,5 +1,6 @@
 add_library(viewer_core STATIC
   JobSystem.cpp
+  Md5.cpp
   Uuid.cpp
 )
 add_library(viewer::core ALIAS viewer_core)

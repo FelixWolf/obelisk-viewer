@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <cstdlib>
+#include <format>
 #include <print>
 
 namespace viewer
@@ -46,7 +47,8 @@ fs::path defaultCacheDirectory()
 
 void printUsage()
 {
-    std::println(stderr, "usage: viewer [--cache-dir PATH] [--import-textures DIR]");
+    std::println(stderr,
+                 "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]");
 }
 
 } // namespace
@@ -67,6 +69,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.importDirectory = args[i];
+        }
+        else if(arg == "--grid" && hasValue)
+        {
+            i++;
+            options.loginUri = args[i];
         }
         else
         {
@@ -136,7 +143,30 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         app->textureBrowser_->importDirectory(options.importDirectory);
     }
 
+    app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
+    app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
+                                                    VIEWER_VERSION, options.loginUri);
+
     return app;
+}
+
+void App::handleLoginAction(LoginAction action)
+{
+    switch(action.kind)
+    {
+    case LoginAction::Kind::None:
+        break;
+    case LoginAction::Kind::LogIn:
+        // Destroy the old session first so its requests are cancelled before
+        // the new one starts.
+        session_.reset();
+        session_ = std::make_unique<session::Session>(*http_, std::move(action.parameters));
+        break;
+    case LoginAction::Kind::LogOut:
+        session_.reset();
+        log::info("logged out");
+        break;
+    }
 }
 
 int App::run()
@@ -167,6 +197,10 @@ int App::run()
         }
 
         textureBrowser_->update();
+        if(session_)
+        {
+            session_->update();
+        }
 
         ui_->beginFrame();
         drawUi();
@@ -199,6 +233,7 @@ void App::drawUi()
     ImGui::End();
 
     textureBrowser_->draw();
+    handleLoginAction(loginPanel_->draw(session_.get()));
 
     if(showDemoWindow_)
     {

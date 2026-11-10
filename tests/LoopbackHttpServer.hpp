@@ -10,6 +10,7 @@
 //   *    /status/<code>  that status, empty body
 //   GET  /redirect       302 -> /hello
 //   *    /slow           waits up to 3 s (until the server stops), then 200 "slow"
+// A custom handler, if given, is asked first and can answer any path.
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -20,7 +21,9 @@
 #include <chrono>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -28,10 +31,28 @@
 namespace viewer::test
 {
 
+struct LoopbackRequest
+{
+    std::string method;
+    std::string path;
+    std::string body;
+};
+
+struct LoopbackReply
+{
+    int status = 200;
+    std::string body{};
+    std::string headers{}; // extra header lines, each ending in "\r\n"
+};
+
+// Called on a connection thread; return nullopt to fall through to the
+// built-in routes.
+using LoopbackHandler = std::function<std::optional<LoopbackReply>(const LoopbackRequest&)>;
+
 class LoopbackHttpServer
 {
 public:
-    LoopbackHttpServer()
+    explicit LoopbackHttpServer(LoopbackHandler handler = {}) : handler_(std::move(handler))
     {
         listenFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         int yes = 1;
@@ -146,7 +167,18 @@ private:
         int status = 200;
         std::string extraHeaders;
         std::string responseBody;
-        if(path == "/hello")
+        std::optional<LoopbackReply> custom;
+        if(handler_)
+        {
+            custom = handler_(LoopbackRequest{method, path, body});
+        }
+        if(custom)
+        {
+            status = custom->status;
+            extraHeaders = std::move(custom->headers);
+            responseBody = std::move(custom->body);
+        }
+        else if(path == "/hello")
         {
             responseBody = "hello";
             extraHeaders = "X-Test: yes\r\n";
@@ -187,6 +219,7 @@ private:
         ::close(fd);
     }
 
+    LoopbackHandler handler_;
     int listenFd_ = -1;
     uint16_t port_ = 0;
     std::atomic<bool> stopping_{false};

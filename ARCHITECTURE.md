@@ -28,9 +28,10 @@ src/image    J2kDecoder (OpenJPEG), mips, alpha mode, KTX2 I/O     -> viewer::im
 src/assets   TextureCache: J2K -> KTX2 on disk, on worker threads   -> viewer::assets
 src/llsd     LLSD Value, LLSD+XML read/write (tinyxml2)            -> viewer::llsd
 src/net      HttpClient interface (libcurl backend), request groups -> viewer::net
+src/session  Login, Session (one login's state), MD5 for login     -> viewer::session
 src/render   SDL GPU device, frames, texture upload                -> viewer::render
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
-src/app      App (owns everything), TextureBrowser panel, main()
+src/app      App (owns everything), LoginPanel, TextureBrowser panel, main()
 tests/       doctest unit tests (fixtures in tests/data)
 tools/j2kbench   benchmarks J2kDecoder implementations
 tools/httpget    one request through HttpClient; pretty-prints LLSD replies
@@ -55,7 +56,7 @@ KTX2 entries are RGBA8 with zstd supercompression, plus `viewer.alphaMode` and
 ```
 cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
-./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR]
+./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
 
@@ -86,7 +87,34 @@ should copy what they need into a `MessageQueue` and return.
 
 Once `cancel(id)` returns, that request's callback won't run and isn't still
 running. Destroying the client gives the same guarantee for every request.
-Per-login owners (the future `Session`, capabilities, the event queue poller)
+Per-login owners (`Session`, and later capabilities and the event queue poller)
 send through an `HttpRequestGroup` member, which cancels whatever is still
 pending when it is destroyed. That's what makes tearing down a `Session`
 mid-request safe.
+
+## Login and Session
+
+`App` owns a `std::unique_ptr<session::Session>`. Pressing "Log in" destroys
+any old session and constructs a new one, which immediately POSTs the LLSD+XML
+login request (`buildLoginRequest`). `Session::update()`, called every frame
+on the main thread, then:
+
+1. parses the login reply (`parseLoginReply`) and stores a `LoginSuccess`;
+2. POSTs the list of wanted capability names to the region's seed capability
+   (three attempts, backing off 1 s and 2 s) and stores the granted URLs;
+3. ends in `LoggedIn`, or in `Failed` with a `LoginFailure{reason, message}`.
+
+The login server's prompts come back as failures with a reason: `tos` and
+`critical` (the user must accept, then we retry with `agree_to_tos` /
+`read_critical`), and `mfa_challenge` (retry with the user's token). The
+retry reuses the last attempt's parameters, so the password isn't needed
+again. Only the `$1$` MD5 hash of the password is kept, and the plain text is
+wiped from the input buffer as soon as it's hashed.
+
+`mac` and `id0` must describe the real machine (`queryMachineInfo`). Falsifying
+them violates the Second Life Terms of Service, so there's no way to override
+them.
+
+Field names and formats follow pymetaverse's `login.py`. The UDP circuit
+(`UseCircuitCode`, `CompleteAgentMovement`) and the event queue are next.
+Until they exist, the region drops a logged-in agent after its timeout.

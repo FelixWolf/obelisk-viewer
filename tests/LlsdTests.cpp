@@ -168,6 +168,10 @@ TEST_CASE("LLSD value conversions")
     CHECK(Value("d7f4aeca-88f1-42a1-b385-b9db18abb255").asUuid().toString() ==
           "d7f4aeca-88f1-42a1-b385-b9db18abb255");
     CHECK(Value(0xFFFFFFFFu).asInteger() == -1); // U32 keeps its bit pattern
+    CHECK(static_cast<uint32_t>(
+              fromXml("<llsd><integer>3000000000</integer></llsd>").value().asInteger()) ==
+          3000000000u);
+    CHECK(fromXml("<llsd><integer>99999999999</integer></llsd>").value().asInteger() == 2147483647);
 
     Value missing;
     CHECK(std::as_const(missing)["nope"]["deeper"].isUndefined()); // const: no insertion
