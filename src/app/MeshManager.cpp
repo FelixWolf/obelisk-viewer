@@ -5,6 +5,7 @@
 #include "viewer/core/Log.hpp"
 
 #include <format>
+#include <fstream>
 #include <thread>
 
 namespace viewer
@@ -17,8 +18,9 @@ constexpr size_t kMaxDownloads = 8;
 
 } // namespace
 
-MeshManager::MeshManager(net::HttpClient& http, JobSystem& jobs, render::Renderer& renderer)
-    : http_(http), jobs_(jobs), renderer_(renderer),
+MeshManager::MeshManager(net::HttpClient& http, JobSystem& jobs, render::Renderer& renderer,
+                         std::filesystem::path cacheRoot)
+    : http_(http), jobs_(jobs), renderer_(renderer), cacheRoot_(std::move(cacheRoot)),
       requests_(std::make_unique<net::HttpRequestGroup>(http))
 {
 }
@@ -26,10 +28,50 @@ MeshManager::MeshManager(net::HttpClient& http, JobSystem& jobs, render::Rendere
 MeshManager::~MeshManager()
 {
     requests_.reset();
-    while(decoding_.load() > 0)
+    while(jobsRunning_.load() > 0)
     {
         std::this_thread::yield();
     }
+}
+
+void MeshManager::submit(std::function<void()> job)
+{
+    jobsRunning_++;
+    jobs_.submit(
+        [this, job = std::move(job)]
+        {
+            job();
+            jobsRunning_--;
+        });
+}
+
+std::filesystem::path MeshManager::pathFor(const Request& request) const
+{
+    const std::string id = request.id.toString();
+    const std::string name =
+        request.lod < 0 ? id + ".header" : std::format("{}.lod{}", id, request.lod);
+    return cacheRoot_ / id.substr(0, 2) / name;
+}
+
+// Disk cache first; a miss queues the download.
+void MeshManager::request(const Request& r)
+{
+    submit(
+        [this, r, path = pathFor(r)]
+        {
+            DiskResult result{r, std::nullopt};
+            std::ifstream in(path, std::ios::binary);
+            if(in)
+            {
+                std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                           std::istreambuf_iterator<char>());
+                if(!bytes.empty())
+                {
+                    result.bytes = std::move(bytes);
+                }
+            }
+            diskResults_.push(std::move(result));
+        });
 }
 
 void MeshManager::setViewerAssetUrl(std::string url)
@@ -61,11 +103,6 @@ void MeshManager::setViewerAssetUrl(std::string url)
     }
 }
 
-void MeshManager::queue(const Request& request)
-{
-    queue_.push_back(request);
-}
-
 const std::vector<render::Mesh>* MeshManager::get(const Uuid& id, int lod)
 {
     if(id.isNull())
@@ -73,10 +110,10 @@ const std::vector<render::Mesh>* MeshManager::get(const Uuid& id, int lod)
         return nullptr;
     }
     Entry& e = entries_[id];
-    if(e.header == State::None && !viewerAssetUrl_.empty())
+    if(e.header == State::None)
     {
-        e.header = State::Queued;
-        queue({id, -1});
+        e.header = State::Loading;
+        request({id, -1});
     }
     if(e.header != State::Ready)
     {
@@ -89,10 +126,10 @@ const std::vector<render::Mesh>* MeshManager::get(const Uuid& id, int lod)
         return nullptr;
     }
     Lod& slot = e.lods[static_cast<size_t>(wanted)];
-    if(slot.state == State::None && !viewerAssetUrl_.empty())
+    if(slot.state == State::None)
     {
-        slot.state = State::Queued;
-        queue({id, wanted});
+        slot.state = State::Loading;
+        request({id, wanted});
     }
     if(slot.state == State::Ready)
     {
@@ -201,13 +238,53 @@ void MeshManager::handleDownload(Download& download)
         }
         bytes.erase(bytes.begin(), bytes.begin() + download.begin);
     }
+    if(lod >= 0)
+    {
+        const size_t size = static_cast<size_t>(e.parsed.lods[static_cast<size_t>(lod)].size);
+        if(bytes.size() > size)
+        {
+            bytes.resize(size);
+        }
+    }
+
+    // Keep a copy on disk (atomically: write a temporary file, then rename).
+    submit(
+        [path = pathFor(download.request), data = bytes]
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(path.parent_path(), ec);
+            const auto temporary = std::filesystem::path(path).concat(".tmp");
+            {
+                std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+                out.write(reinterpret_cast<const char*>(data.data()),
+                          static_cast<std::streamsize>(data.size()));
+                if(!out)
+                {
+                    return;
+                }
+            }
+            std::filesystem::rename(temporary, path, ec);
+        });
+    handleBytes(download.request, std::move(bytes));
+}
+
+void MeshManager::handleBytes(const Request& request, std::vector<uint8_t> bytes)
+{
+    auto it = entries_.find(request.id);
+    if(it == entries_.end())
+    {
+        return;
+    }
+    Entry& e = it->second;
+    const int lod = request.lod;
+    State& state = lod < 0 ? e.header : e.lods[static_cast<size_t>(lod)].state;
 
     if(lod < 0)
     {
         auto header = assets::parseMeshHeader(bytes);
         if(!header)
         {
-            log::warn("mesh {}: {}", download.request.id.toString(), header.error());
+            log::warn("mesh {}: {}", request.id.toString(), header.error());
             state = State::Failed;
             return;
         }
@@ -218,14 +295,9 @@ void MeshManager::handleDownload(Download& download)
 
     // Decode on a worker.
     state = State::Decoding;
-    const size_t size = static_cast<size_t>(e.parsed.lods[static_cast<size_t>(lod)].size);
-    if(bytes.size() > size)
-    {
-        bytes.resize(size);
-    }
     decoding_++;
-    jobs_.submit(
-        [this, request = download.request, data = std::move(bytes)]
+    submit(
+        [this, request, data = std::move(bytes)]
         {
             Decoded result{request, {}, {}};
             if(auto faces = assets::decodeMeshLod(data))
@@ -243,6 +315,34 @@ void MeshManager::handleDownload(Download& download)
 
 void MeshManager::update()
 {
+    diskResults_.drain(drainedDisk_);
+    for(DiskResult& d : drainedDisk_)
+    {
+        auto it = entries_.find(d.request.id);
+        if(it == entries_.end())
+        {
+            continue;
+        }
+        State& state = d.request.lod < 0
+                           ? it->second.header
+                           : it->second.lods[static_cast<size_t>(d.request.lod)].state;
+        if(state != State::Loading)
+        {
+            continue;
+        }
+        if(d.bytes)
+        {
+            diskHits_++;
+            handleBytes(d.request, std::move(*d.bytes));
+        }
+        else
+        {
+            state = State::Queued;
+            queue_.push_back(d.request);
+        }
+    }
+    drainedDisk_.clear();
+
     downloads_.drain(drainedDownloads_);
     for(Download& d : drainedDownloads_)
     {
@@ -280,6 +380,7 @@ MeshManager::Stats MeshManager::stats() const
     s.downloading = downloading_;
     s.decoding = static_cast<size_t>(std::max(decoding_.load(), 0));
     s.bytesDownloaded = bytesDownloaded_;
+    s.diskHits = diskHits_;
     for(const auto& [id, e] : entries_)
     {
         s.failed += e.header == State::Failed;

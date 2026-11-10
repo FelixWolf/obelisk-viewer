@@ -213,7 +213,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         cacheRoot / "textures", *app->jobs_, *app->j2kDecoder_);
     app->textures_ =
         std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_, *app->http_);
-    app->meshes_ = std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_);
+    app->meshes_ = std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_,
+                                                 cacheRoot / "meshes");
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_);
     app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
                                                     VIEWER_VERSION, options.loginUri);
@@ -341,10 +342,11 @@ int App::run()
                     const auto o = objects_->stats();
                     const auto m = meshes_->stats();
                     const auto t = textures_->stats();
-                    log::info("objects: {} drawn ({} mesh), {} faces; mesh assets: {} known, {} "
-                              "levels ready, {} failed; textures: {} resident, {} failed",
-                              o.drawn, o.meshObjects, o.faces, m.meshes, m.lodsReady, m.failed,
-                              t.resident, t.failed);
+                    log::info(
+                        "objects: {} drawn ({} mesh), {} faces; mesh assets: {} known, {} "
+                        "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
+                        o.drawn, o.meshObjects, o.faces, m.meshes, m.lodsReady, m.diskHits,
+                        m.failed, t.resident, t.failed);
                 }
             }
             else
@@ -448,6 +450,20 @@ render::Scene App::buildScene()
                                return terrainTextures_.material(*world_->terrain(handle),
                                                                 *textures_, placeholder);
                            });
+        const float seconds = static_cast<float>(SDL_GetTicksNS() - startTicks_) * 1e-9f;
+        for(const auto& [handle, terrain] : world_->terrain())
+        {
+            if(!terrain.hasComposition)
+            {
+                continue;
+            }
+            const glm::vec2 corner(
+                static_cast<float>(static_cast<int64_t>(handle >> 32) -
+                                   static_cast<int64_t>(*originHandle_ >> 32)),
+                static_cast<float>(static_cast<int64_t>(handle & 0xFFFFFFFFu) -
+                                   static_cast<int64_t>(*originHandle_ & 0xFFFFFFFFu)));
+            sceneAssets_->addWater(scene, corner, terrain.composition.waterHeight, seconds);
+        }
         objects_->update();
         meshes_->update();
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, 128.0f);

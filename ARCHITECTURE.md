@@ -251,6 +251,10 @@ Terrain follows the official viewer's behavior (our own implementation; see
   under 10% weight, so slopes don't stretch. Both use global coordinates, so
   textures line up across region borders.
 
+Water: each region gets a 256 m square at its RegionHandshake water height,
+drawn as blended Blinn-Phong with a procedural ripple normal map that drifts
+over time. No reflections, refraction or water outside known regions yet.
+
 Terrain textures come from the grid (see the texture pipeline); the
 procedural ones stand in until they're loaded. PBR terrain materials from the
 grid aren't supported yet, so the PBR terrain toggle uses procedural ones.
@@ -304,7 +308,9 @@ the level of detail the object needs (or the nearest the asset has) as
 another Range request; `assets::decodeMeshLod` inflates it (zlib) and decodes
 the binary LLSD faces (16-bit quantized positions, normals, texture
 coordinates, triangle lists) on a worker. While a level loads, the nearest
-ready one is drawn. Meshes aren't cached on disk yet.
+ready one is drawn. Downloaded parts are cached on disk as received (header
+bytes and each level's compressed block, `<cache>/meshes/<xx>/<uuid>.header`
+and `.lod<N>`, written atomically), so later sessions read them from disk.
 
 Not drawn yet: sculpted prims, attachments (need avatars), rigged mesh (needs
 skeletons), trees, grass, flexible prims (drawn straight), planar texture

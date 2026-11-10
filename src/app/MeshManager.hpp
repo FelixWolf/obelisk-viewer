@@ -8,7 +8,10 @@
 //
 // Downloads use the region's ViewerAsset capability
 // (<cap>/?mesh_id=<uuid>); setViewerAssetUrl() works like TextureManager's.
-// Not cached on disk yet.
+//
+// Downloaded parts are cached on disk as they arrived (the header bytes and
+// each level's compressed block) under <cache>/<xx>/<uuid>.header and
+// .lod<N>, written atomically; disk reads and writes run on worker threads.
 
 #include "viewer/assets/MeshAsset.hpp"
 #include "viewer/core/JobSystem.hpp"
@@ -20,7 +23,10 @@
 #include <array>
 #include <atomic>
 #include <deque>
+#include <filesystem>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -31,7 +37,8 @@ namespace viewer
 class MeshManager
 {
 public:
-    MeshManager(net::HttpClient& http, JobSystem& jobs, render::Renderer& renderer);
+    MeshManager(net::HttpClient& http, JobSystem& jobs, render::Renderer& renderer,
+                std::filesystem::path cacheRoot);
     // Cancels downloads and waits for decode jobs.
     ~MeshManager();
 
@@ -55,6 +62,7 @@ public:
         size_t decoding = 0;
         size_t failed = 0;
         uint64_t bytesDownloaded = 0;
+        uint64_t diskHits = 0;
     };
     Stats stats() const;
 
@@ -62,6 +70,7 @@ private:
     enum class State : uint8_t
     {
         None,
+        Loading, // reading the disk cache
         Queued,
         Downloading,
         Decoding,
@@ -91,6 +100,11 @@ private:
         int64_t begin = 0; // the byte range asked for
         net::HttpResponse response;
     };
+    struct DiskResult
+    {
+        Request request;
+        std::optional<std::vector<uint8_t>> bytes;
+    };
     struct Decoded
     {
         Request request;
@@ -98,9 +112,13 @@ private:
         std::string error;
     };
 
-    void queue(const Request& request);
+    void request(const Request& request);
     void startDownloads();
     void handleDownload(Download& download);
+    // Bytes of a header or level, from the network or the disk cache.
+    void handleBytes(const Request& request, std::vector<uint8_t> bytes);
+    std::filesystem::path pathFor(const Request& request) const;
+    void submit(std::function<void()> job);
 
     net::HttpClient& http_;
     JobSystem& jobs_;
@@ -110,10 +128,15 @@ private:
     std::deque<Request> queue_;
     size_t downloading_ = 0;
     uint64_t bytesDownloaded_ = 0;
+    std::filesystem::path cacheRoot_;
     std::atomic<int> decoding_{0};
+    std::atomic<int> jobsRunning_{0};
+    uint64_t diskHits_ = 0;
 
     MessageQueue<Download> downloads_;
     MessageQueue<Decoded> decoded_;
+    MessageQueue<DiskResult> diskResults_;
+    std::vector<DiskResult> drainedDisk_;
     std::vector<Download> drainedDownloads_;
     std::vector<Decoded> drainedDecoded_;
     // Last: destroyed first, so no download callback outlives the queues.
