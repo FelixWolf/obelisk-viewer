@@ -23,7 +23,9 @@ struct TerrainVertex
 {
     glm::vec3 position{0.0f}; // region-local meters
     glm::vec3 normal{0.0f, 0.0f, 1.0f};
-    float composition = 0.0f; // 0..3: which of the four detail layers
+    // x: layer value 0..3 (which of the four detail layers), y: blend noise
+    // 0..1 (how sharp the transition between layers is here).
+    glm::vec2 blend{0.0f, 0.5f};
 };
 
 enum class VertexLayout : uint8_t

@@ -33,7 +33,7 @@ render::Mesh testTerrain(render::Renderer& renderer, float offsetX)
                                          height(x, y - d) - height(x, y + d), 2.0f * d));
             // Left to right as well as low to high, so all four layers show.
             const float composition = glm::clamp(x / kSize * 3.0f + (h - 1.5f) * 0.3f, 0.0f, 3.0f);
-            vertices.push_back({{x, y, h}, normal, composition});
+            vertices.push_back({{x, y, h}, normal, glm::vec2(composition, 0.5f)});
         }
     }
     std::vector<uint32_t> indices;
@@ -95,7 +95,7 @@ SceneAssets::SceneAssets(render::Renderer& renderer)
 
 render::TerrainBlinnPhongMaterial SceneAssets::terrainBlinnPhong() const
 {
-    return render::TerrainBlinnPhongMaterial{&terrainDiffuse_, 1.0f / 8.0f};
+    return render::TerrainBlinnPhongMaterial{&terrainDiffuse_};
 }
 
 render::TerrainPbrMaterial SceneAssets::terrainPbr() const
@@ -104,7 +104,6 @@ render::TerrainPbrMaterial SceneAssets::terrainPbr() const
     m.albedoLayers = &terrainDiffuse_;
     m.ormLayers = &terrainOrm_;
     m.normalLayers = &terrainNormal_;
-    m.textureRepeatsPerMeter = 1.0f / 8.0f;
     return m;
 }
 

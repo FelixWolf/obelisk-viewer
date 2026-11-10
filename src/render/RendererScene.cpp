@@ -11,6 +11,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <cmath>
 #include <cstring>
 #include <span>
 
@@ -131,10 +132,10 @@ bool Renderer::createPipelines()
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 2}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 2}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
@@ -154,7 +155,7 @@ bool Renderer::createPipelines()
     const SDL_GPUVertexAttribute terrainAttributes[] = {
         {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(TerrainVertex, position)},
         {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(TerrainVertex, normal)},
-        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT, offsetof(TerrainVertex, composition)},
+        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(TerrainVertex, blend)},
     };
 
     auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, bool terrain,
@@ -272,9 +273,36 @@ bool Renderer::createDefaultTextures()
     const image::TextureData* blacks[] = {&black, &black, &black, &black};
     const image::TextureData* flats[] = {&flat, &flat, &flat, &flat};
     whiteLayers_ = uploadTextureArray(whites, false);
+
+    // Terrain blend ramp: rows (v = blend noise) of falloffs from ~1 to ~0
+    // across u. Stands in for the official viewer's alpha_gradient_2d image,
+    // with transitions of varying position and sharpness.
+    image::TextureData ramp;
+    image::MipLevel rampLevel{256, 256, std::vector<uint8_t>(256 * 256 * 4)};
+    for(uint32_t y = 0; y < 256; y++)
+    {
+        const float v = static_cast<float>(y) / 255.0f;
+        const float center =
+            0.5f + 0.15f * std::sin(v * 12.566f) + 0.05f * std::sin(v * 43.98f + 1.3f);
+        const float width = 0.3f + 0.12f * std::sin(v * 18.85f + 0.7f);
+        for(uint32_t x = 0; x < 256; x++)
+        {
+            const float u = static_cast<float>(x) / 255.0f;
+            const float t = glm::clamp((u - (center - width)) / (2.0f * width), 0.0f, 1.0f);
+            const float alpha = 1.0f - t * t * (3.0f - 2.0f * t);
+            const auto value = static_cast<uint8_t>(8.0f + alpha * 246.0f);
+            uint8_t* px = &rampLevel.pixels[(y * 256 + x) * 4];
+            px[0] = px[1] = px[2] = value;
+            px[3] = 255;
+        }
+    }
+    ramp.levels.push_back(std::move(rampLevel));
+    const image::TextureData* rampPointer = &ramp;
+    terrainBlendRamp_ = std::move(uploadTextures({&rampPointer, 1}, false)[0]);
     blackLayers_ = uploadTextureArray(blacks, false);
     flatNormalLayers_ = uploadTextureArray(flats, false);
-    return white_ && black_ && flatNormal_ && whiteLayers_ && blackLayers_ && flatNormalLayers_;
+    return white_ && black_ && flatNormal_ && whiteLayers_ && blackLayers_ && flatNormalLayers_ &&
+           terrainBlendRamp_;
 }
 
 bool Renderer::ensureTargets(uint32_t width, uint32_t height)
@@ -375,6 +403,21 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         pushFragmentUniforms(commands, 0, frameFs);
     };
 
+    // Texture position of the scene origin, so terrain textures follow
+    // global coordinates. Computed in double precision: global coordinates
+    // are large.
+    auto textureOffset = [&](float repeatsPerMeter)
+    {
+        const double period = 1.0 / static_cast<double>(repeatsPerMeter);
+        return glm::vec2(static_cast<float>(std::fmod(scene.worldOrigin.x, period) / period),
+                         static_cast<float>(std::fmod(scene.worldOrigin.y, period) / period));
+    };
+    auto terrainVs = [&](const glm::mat4& model, float repeatsPerMeter)
+    {
+        const glm::vec2 offset = textureOffset(repeatsPerMeter);
+        return TerrainVS{model, glm::vec4(repeatsPerMeter, 0.0f, offset.x, offset.y)};
+    };
+
     // Terrain first: it covers the most screen, so it fills depth early.
     for(const TerrainDraw& draw : scene.terrain)
     {
@@ -386,10 +429,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         {
             bindPipeline(p.terrainBlinnPhong);
             const SDL_GPUTextureSamplerBinding samplers[] = {
-                {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler}};
-            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 1);
-            pushVertexUniforms(commands, 1,
-                               TerrainVS{draw.transform, glm::vec4(m->textureRepeatsPerMeter)});
+                {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler},
+                {terrainBlendRamp_.get(), p.clampSampler}};
+            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 2);
+            pushVertexUniforms(commands, 1, terrainVs(draw.transform, m->textureRepeatsPerMeter));
         }
         else if(const auto* t = std::get_if<TerrainPbrMaterial>(&draw.material))
         {
@@ -399,10 +442,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->ormLayers, whiteLayers_), p.repeatSampler},
                 {texture(t->emissiveLayers, blackLayers_), p.repeatSampler},
                 {texture(t->normalLayers, flatNormalLayers_), p.repeatSampler},
+                {terrainBlendRamp_.get(), p.clampSampler},
             };
-            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 4);
-            pushVertexUniforms(commands, 1,
-                               TerrainVS{draw.transform, glm::vec4(t->textureRepeatsPerMeter)});
+            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 5);
+            pushVertexUniforms(commands, 1, terrainVs(draw.transform, t->textureRepeatsPerMeter));
             TerrainPbrFS fs{};
             for(size_t i = 0; i < 4; i++)
             {
@@ -554,6 +597,15 @@ void Renderer::finishScreenshot()
 }
 
 // --- resources -------------------------------------------------------------------
+
+void Renderer::setTerrainBlendRamp(const image::TextureData& ramp)
+{
+    const image::TextureData* pointer = &ramp;
+    if(GpuTexture texture = std::move(uploadTextures({&pointer, 1}, false)[0]))
+    {
+        terrainBlendRamp_ = std::move(texture);
+    }
+}
 
 Mesh Renderer::createMesh(std::span<const ObjectVertex> vertices, std::span<const uint32_t> indices)
 {

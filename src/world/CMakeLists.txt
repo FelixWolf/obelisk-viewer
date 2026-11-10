@@ -1,5 +1,6 @@
 add_library(viewer_world STATIC
   TerrainDecoder.cpp
+  TerrainLayers.cpp
   World.cpp
 )
 add_library(viewer::world ALIAS viewer_world)

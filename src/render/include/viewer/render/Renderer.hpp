@@ -72,6 +72,10 @@ public:
     // layer must have the same size and number of mip levels.
     GpuTexture uploadTextureArray(std::span<const image::TextureData* const> layers, bool srgb);
 
+    // Replaces the terrain blend ramp (the generated stand-in) with this one:
+    // u = position between two layers, v = blend noise; red channel used.
+    void setTerrainBlendRamp(const image::TextureData& ramp);
+
     Mesh createMesh(std::span<const ObjectVertex> vertices, std::span<const uint32_t> indices);
     Mesh createMesh(std::span<const TerrainVertex> vertices, std::span<const uint32_t> indices);
 
@@ -111,6 +115,7 @@ private:
     GpuTexture whiteLayers_;
     GpuTexture blackLayers_;
     GpuTexture flatNormalLayers_;
+    GpuTexture terrainBlendRamp_;
 
     bool screenshotRequested_ = false;
     SDL_GPUTexture* screenshotTexture_ = nullptr;

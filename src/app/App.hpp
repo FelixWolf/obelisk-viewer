@@ -70,6 +70,7 @@ private:
 
     void drawUi();
     void handleLoginAction(LoginAction action);
+    void loadTerrainBlendRamp();
     void updateSession();
     void logOutBeforeExit();
     render::Scene buildScene();

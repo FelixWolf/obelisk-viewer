@@ -52,6 +52,10 @@ struct TerrainDraw
 
 struct Scene
 {
+    // Global position (meters) of the scene's origin. Terrain textures are
+    // laid out in global coordinates, so they line up across regions and
+    // don't shift when the origin moves.
+    glm::dvec2 worldOrigin{0.0};
     Camera camera;
     Lighting lighting;
     std::vector<TerrainDraw> terrain;

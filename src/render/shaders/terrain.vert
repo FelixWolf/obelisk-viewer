@@ -1,11 +1,11 @@
 #version 450
 
 // Vertex shader for both terrain variants. Texture coordinates come from the
-// world position, so textures tile seamlessly across regions.
+// global position, so textures tile seamlessly across regions.
 
 layout(location = 0) in vec3 inPosition; // region-local meters
 layout(location = 1) in vec3 inNormal;
-layout(location = 2) in float inComposition; // 0..3: which detail texture
+layout(location = 2) in vec2 inBlend; // x: layer value 0..3, y: blend noise 0..1
 
 layout(set = 1, binding = 0) uniform FrameVS
 {
@@ -14,21 +14,21 @@ layout(set = 1, binding = 0) uniform FrameVS
 };
 layout(set = 1, binding = 1) uniform TerrainVS
 {
-    mat4 model;        // region placement (translation only)
-    vec4 textureScale; // x: texture repeats per meter
+    mat4 model;         // region placement (translation only)
+    vec4 textureScale;  // x: repeats per meter, zw: texture offset of the scene origin
 };
 
 layout(location = 0) out vec3 outWorldPosition;
 layout(location = 1) out vec3 outNormal;
-layout(location = 2) out vec2 outUv;
-layout(location = 3) out float outComposition;
+layout(location = 2) out vec3 outTexturePosition; // position in texture repeats
+layout(location = 3) out vec2 outBlend;
 
 void main()
 {
     vec4 world = model * vec4(inPosition, 1.0);
     outWorldPosition = world.xyz;
     outNormal = inNormal;
-    outUv = world.xy * textureScale.x;
-    outComposition = inComposition;
+    outTexturePosition = vec3(world.xy * textureScale.x + textureScale.zw, world.z * textureScale.x);
+    outBlend = inBlend;
     gl_Position = viewProjection * world;
 }

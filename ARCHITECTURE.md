@@ -13,6 +13,16 @@ implementation; we don't copy its code. Where an implementation follows the
 official viewer's algorithm closely, a comment names the viewer file it was
 checked against (e.g. "matches llvolume.cpp's profile generation").
 
+Viewer artwork we ship (in `assets/`) is Linden Lab's, licensed CC-BY-SA 3.0;
+`assets/LICENSE-artwork.txt` carries their notice and lists each file and how
+we use it. The build copies `LICENSE` and `LICENSE-artwork.txt` next to the
+binary. Add new artwork to that list.
+
+Texture orientation: the official viewer stores decoded images bottom-up
+(OpenGL style), so Second Life texture coordinates have v = 0 at the image's
+bottom row. We store images top-down; anything sampled with Second Life UVs
+(object faces, the terrain blend ramp) must account for the flip.
+
 ## Rules
 
 1. **No singletons or mutable globals.** Everything is owned by `App` (or by
@@ -204,10 +214,26 @@ Four material families, each its own pipeline:
 | `TerrainPbrMaterial` | terrain.vert + terrain_pbr.frag | 4-layer arrays of albedo, ORM, emissive and normal, with per-layer factors |
 
 Missing textures fall back to neutral defaults (white, flat normal, no
-emission). Terrain blends between adjacent layers by a per-vertex composition
-value (0..3), computed like the official viewer: the height plus noise,
-against the region's start heights and ranges. Terrain textures are
-procedural placeholders until texture fetching exists.
+emission).
+
+Terrain follows the official viewer's behavior (our own implementation; see
+`src/world/TerrainLayers.cpp`):
+- Each vertex gets a layer value (0..3): height plus Perlin noise, against the
+  region's start heights and ranges, and a blend noise value. The noise is
+  bit-identical to the viewer's (checked against its noise.cpp); its tables
+  come from a fixed seed through the Microsoft C runtime's rand(), i.e. what
+  the Windows viewer shows (the official viewer differs per platform here).
+  On a region's far edges the value comes from the neighbour, as the viewer
+  does.
+- Layer weights come from a 2D blend ramp indexed by the layer value and the
+  blend noise: the official viewer's `alpha_gradient_2d` image, shipped in
+  `assets/` (CC-BY-SA artwork, see below) and embedded in the binary.
+- Classic terrain projects textures straight down, 12 m per repeat. PBR
+  terrain is sampled triplanar (sharpness 8), 8 m per repeat, and drops layers
+  under 10% weight, so slopes don't stretch. Both use global coordinates, so
+  textures line up across region borders.
+
+Terrain textures are procedural placeholders until texture fetching exists.
 
 Shaders are GLSL in `src/render/shaders`, compiled to SPIR-V by glslang at
 build time (the installed `glslangValidator` if there is one, otherwise

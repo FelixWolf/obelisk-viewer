@@ -47,11 +47,12 @@ struct PbrMaterial
 // Classic terrain: one 4-layer array of diffuse textures.
 struct TerrainBlinnPhongMaterial
 {
-    const GpuTexture* diffuseLayers = nullptr; // 2D array, 4 layers
-    float textureRepeatsPerMeter = 1.0f / 16.0f;
+    const GpuTexture* diffuseLayers = nullptr;   // 2D array, 4 layers
+    float textureRepeatsPerMeter = 1.0f / 12.0f; // official viewer default: 12 m
 };
 
-// PBR terrain: four PBR materials, each map as a 4-layer array.
+// PBR terrain: four PBR materials, each map as a 4-layer array. Sampled
+// triplanar, so steep slopes don't stretch the textures.
 struct TerrainPbrMaterial
 {
     const GpuTexture* albedoLayers = nullptr;
@@ -68,7 +69,7 @@ struct TerrainPbrMaterial
         float occlusionStrength = 1.0f;
     };
     std::array<Layer, 4> layers{};
-    float textureRepeatsPerMeter = 1.0f / 16.0f;
+    float textureRepeatsPerMeter = 1.0f / 8.0f; // official viewer default: 8 m
 };
 
 } // namespace viewer::render

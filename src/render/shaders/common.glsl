@@ -106,3 +106,18 @@ vec3 pbrAmbient(vec3 n, vec3 v, vec3 baseColor, float roughness, float metallic,
     vec3 fresnel = f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - nDotV, 5.0);
     return diffuse + env * fresnel;
 }
+
+// --- Terrain layer blending ---------------------------------------------------
+
+// Weights of the four terrain layers. The layer value picks the pair of
+// layers; the blend ramp (indexed by the fractional position and the blend
+// noise) shapes the transition, as in the official viewer's terrain shaders.
+vec4 terrainLayerWeights(sampler2D ramp, vec2 blend)
+{
+    float value = blend.x;
+    float alpha1 = texture(ramp, vec2(value, blend.y)).r;       // layer 0 vs 1
+    float alphaFinal = texture(ramp, vec2(value - 1.0, blend.y)).r; // 0/1 vs 2/3
+    float alpha2 = texture(ramp, vec2(value - 2.0, blend.y)).r; // layer 2 vs 3
+    return vec4(alphaFinal * alpha1, alphaFinal * (1.0 - alpha1), (1.0 - alphaFinal) * alpha2,
+                (1.0 - alphaFinal) * (1.0 - alpha2));
+}

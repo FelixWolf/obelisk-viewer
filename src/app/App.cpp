@@ -2,10 +2,14 @@
 
 #include "viewer/core/Log.hpp"
 #include "viewer/image/Png.hpp"
+#include "viewer/image/TextureProcessing.hpp"
+
+#include "EmbeddedAssets.hpp"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
@@ -182,6 +186,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     }
 
     app->sceneAssets_ = std::make_unique<SceneAssets>(*app->renderer_);
+    app->loadTerrainBlendRamp();
     app->showTestScene_ = options.testScene;
     app->pbrTerrain_ = options.pbrTerrain;
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
@@ -212,6 +217,32 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     }
 
     return app;
+}
+
+void App::loadTerrainBlendRamp()
+{
+    // The official viewer's terrain blend ramp (CC-BY-SA artwork, see
+    // assets/LICENSE-artwork.txt). Its decoder stores rows bottom-up, so the
+    // first row it samples (v = 0) is the image's last row; ours are stored
+    // top-down, hence the flip.
+    auto ramp = image::textureFromJ2k(*j2kDecoder_, assets_embedded::kAlphaGradient2dJ2c);
+    if(!ramp)
+    {
+        log::warn("couldn't decode the terrain blend ramp; using the generated one");
+        return;
+    }
+    for(image::MipLevel& level : ramp->levels)
+    {
+        const size_t row = static_cast<size_t>(level.width) * 4;
+        for(uint32_t y = 0; y < level.height / 2; y++)
+        {
+            std::swap_ranges(level.pixels.begin() + static_cast<ptrdiff_t>(y * row),
+                             level.pixels.begin() + static_cast<ptrdiff_t>((y + 1) * row),
+                             level.pixels.begin() +
+                                 static_cast<ptrdiff_t>((level.height - 1 - y) * row));
+        }
+    }
+    renderer_->setTerrainBlendRamp(*ramp);
 }
 
 void App::handleLoginAction(LoginAction action)
@@ -372,6 +403,8 @@ render::Scene App::buildScene()
             material = sceneAssets_->terrainPbr();
         }
         terrainView_.addTo(scene, *originHandle_, material);
+        scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
+                                       static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
     }
     if(showTestScene_ || !originHandle_)
     {

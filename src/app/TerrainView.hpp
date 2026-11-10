@@ -23,13 +23,14 @@ struct TerrainMeshData
     std::vector<uint32_t> indices;
 };
 
-// Height lookup in global meters; returns nothing where no terrain is known.
-using HeightSampler = std::function<std::optional<float>(int64_t globalX, int64_t globalY)>;
+// Finds a region's terrain by handle; nullptr if unknown.
+using RegionLookup = std::function<const world::RegionTerrain*(uint64_t handle)>;
 
-// One region as a 257x257 vertex grid (the last row and column come from
-// the neighbours when known, so regions meet without gaps). Composition
-// follows the region's start heights and ranges, roughened with noise.
-TerrainMeshData buildTerrainMesh(const world::RegionTerrain& region, const HeightSampler& heightAt);
+// One region as a 257x257 vertex grid. The last row and column come from
+// the east/north neighbours when known, so regions meet without gaps. Layer
+// values and blend noise follow the official viewer (see TerrainLayers.hpp),
+// including how it takes layer values from the neighbour at the far edges.
+TerrainMeshData buildTerrainMesh(const world::RegionTerrain& region, const RegionLookup& lookup);
 
 class TerrainView
 {
@@ -47,7 +48,7 @@ private:
     struct Region
     {
         render::Mesh mesh;
-        uint32_t revision = 0;
+        uint64_t revision = 0; // of this region and the neighbours its edges use
         std::chrono::steady_clock::time_point builtAt{};
     };
     std::map<uint64_t, Region> regions_;

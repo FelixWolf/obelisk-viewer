@@ -2,15 +2,17 @@
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
 
-// Classic terrain: four diffuse textures (a 4-layer array), blended by the
-// per-vertex composition value (0 = lowest layer ... 3 = highest).
+// Classic terrain: four diffuse textures (a 4-layer array), projected
+// straight down (like the official viewer's classic terrain), blended by
+// the layer weights.
 
 layout(location = 0) in vec3 inWorldPosition;
 layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec2 inUv;
-layout(location = 3) in float inComposition;
+layout(location = 2) in vec3 inTexturePosition;
+layout(location = 3) in vec2 inBlend;
 
 layout(set = 2, binding = 0) uniform sampler2DArray diffuseMaps;
+layout(set = 2, binding = 1) uniform sampler2D blendRamp;
 
 FRAME_FS_BLOCK
 
@@ -18,11 +20,12 @@ layout(location = 0) out vec4 outColor;
 
 void main()
 {
-    float c = clamp(inComposition, 0.0, 3.0);
-    float lower = min(floor(c), 2.0);
-    float blend = c - lower;
-    vec3 albedo = mix(texture(diffuseMaps, vec3(inUv, lower)).rgb,
-                      texture(diffuseMaps, vec3(inUv, lower + 1.0)).rgb, blend);
+    vec4 weights = terrainLayerWeights(blendRamp, inBlend);
+    vec2 uv = inTexturePosition.xy;
+    vec3 albedo = weights.x * texture(diffuseMaps, vec3(uv, 0.0)).rgb +
+                  weights.y * texture(diffuseMaps, vec3(uv, 1.0)).rgb +
+                  weights.z * texture(diffuseMaps, vec3(uv, 2.0)).rgb +
+                  weights.w * texture(diffuseMaps, vec3(uv, 3.0)).rgb;
 
     vec3 n = normalize(inNormal);
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);

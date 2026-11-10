@@ -1,8 +1,10 @@
 #include "TerrainView.hpp"
 
-#include "Procedural.hpp"
+#include "viewer/world/TerrainLayers.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
+
+#include <cmath>
 
 namespace viewer
 {
@@ -23,20 +25,55 @@ int64_t regionY(uint64_t handle)
     return static_cast<int64_t>(handle & 0xFFFFFFFFu);
 }
 
-// Bilinear over the four corners: southwest, northwest, southeast, northeast.
-float corners(const std::array<float, 4>& c, float fx, float fy)
+uint64_t makeHandle(int64_t x, int64_t y)
 {
-    const float south = glm::mix(c[0], c[2], fx);
-    const float north = glm::mix(c[1], c[3], fx);
-    return glm::mix(south, north, fy);
+    return static_cast<uint64_t>(x) << 32 | static_cast<uint64_t>(y);
+}
+
+bool hasPatch(const world::RegionTerrain& t, uint32_t x, uint32_t y)
+{
+    constexpr uint32_t kPatches = kWidth / world::kPatchSize;
+    return t.patchesReceived.test((y / world::kPatchSize) * kPatches + x / world::kPatchSize);
+}
+
+// The regions east, north and north-east of `handle`, whose samples the
+// far edges use.
+std::array<uint64_t, 3> edgeNeighbours(uint64_t handle)
+{
+    const int64_t x = regionX(handle);
+    const int64_t y = regionY(handle);
+    return {makeHandle(x + kWidth, y), makeHandle(x, y + kWidth),
+            makeHandle(x + kWidth, y + kWidth)};
 }
 
 } // namespace
 
-TerrainMeshData buildTerrainMesh(const world::RegionTerrain& region, const HeightSampler& heightAt)
+TerrainMeshData buildTerrainMesh(const world::RegionTerrain& region, const RegionLookup& lookup)
 {
     const int64_t originX = regionX(region.handle);
     const int64_t originY = regionY(region.handle);
+
+    // The region (if known, with that sample received) owning local sample
+    // (x, y), which may lie outside this region by up to one row/column.
+    auto owner = [&](int64_t x, int64_t y) -> std::pair<const world::RegionTerrain*, glm::uvec2>
+    {
+        const int64_t gx = originX + x;
+        const int64_t gy = originY + y;
+        if(gx < 0 || gy < 0)
+        {
+            return {nullptr, {}};
+        }
+        const int64_t rx = gx / kWidth * kWidth;
+        const int64_t ry = gy / kWidth * kWidth;
+        const world::RegionTerrain* t =
+            rx == originX && ry == originY ? &region : lookup(makeHandle(rx, ry));
+        const glm::uvec2 local(static_cast<uint32_t>(gx - rx), static_cast<uint32_t>(gy - ry));
+        if(!t || !hasPatch(*t, local.x, local.y))
+        {
+            return {nullptr, {}};
+        }
+        return {t, local};
+    };
 
     // Heights with a one-sample border, for the shared edge and normals.
     // Unknown samples fall back to the nearest one of this region.
@@ -52,9 +89,9 @@ TerrainMeshData buildTerrainMesh(const world::RegionTerrain& region, const Heigh
             {
                 h = region.height(static_cast<uint32_t>(x), static_cast<uint32_t>(y));
             }
-            else if(auto neighbour = heightAt(originX + x, originY + y))
+            else if(const auto [t, local] = owner(x, y); t)
             {
-                h = *neighbour;
+                h = t->height(local.x, local.y);
             }
             else
             {
@@ -64,15 +101,37 @@ TerrainMeshData buildTerrainMesh(const world::RegionTerrain& region, const Heigh
             grid[static_cast<size_t>((y + kBorder) * kGrid + x + kBorder)] = h;
         }
     }
-    auto at = [&](int64_t x, int64_t y)
+    auto heightAt = [&](int64_t x, int64_t y)
     { return grid[static_cast<size_t>((y + kBorder) * kGrid + x + kBorder)]; };
 
-    world::TerrainComposition composition = region.composition;
-    if(!region.hasComposition)
+    const std::vector<float> layers = world::terrainLayerValues(region);
+    auto ownLayer = [&](int64_t x, int64_t y)
     {
-        composition.startHeight = {10.0f, 10.0f, 10.0f, 10.0f};
-        composition.heightRange = {60.0f, 60.0f, 60.0f, 60.0f};
-    }
+        return layers[static_cast<size_t>(std::min<int64_t>(y, kWidth - 1) * kWidth +
+                                          std::min<int64_t>(x, kWidth - 1))];
+    };
+    // On the far edges, use the neighbour's value, shifted by whole layers to
+    // within 1 of ours (neighbours may use different layer settings), as the
+    // official viewer does (llviewerregion.cpp getCompositionXY).
+    auto layerAt = [&](int64_t x, int64_t y)
+    {
+        const float own = ownLayer(x, y);
+        if(x < kWidth && y < kWidth)
+        {
+            return own;
+        }
+        const auto [t, local] = owner(x, y);
+        if(!t)
+        {
+            return own;
+        }
+        float adjacent = world::terrainLayerValue(*t, local.x, local.y);
+        while(std::abs(own - adjacent) >= 1.0f)
+        {
+            adjacent += own > adjacent ? 1.0f : -1.0f;
+        }
+        return adjacent;
+    };
 
     TerrainMeshData mesh;
     mesh.vertices.reserve(kVertices * kVertices);
@@ -80,23 +139,14 @@ TerrainMeshData buildTerrainMesh(const world::RegionTerrain& region, const Heigh
     {
         for(int64_t x = 0; x < kVertices; x++)
         {
-            const float h = at(x, y);
-            const glm::vec3 normal = glm::normalize(
-                glm::vec3(at(x - 1, y) - at(x + 1, y), at(x, y - 1) - at(x, y + 1), 2.0f));
-
-            // As the official viewer: (height + noise - start) * 4 / range.
-            const float fx = static_cast<float>(x) / kWidth;
-            const float fy = static_cast<float>(y) / kWidth;
-            const float start = corners(composition.startHeight, fx, fy);
-            const float range = std::max(corners(composition.heightRange, fx, fy), 0.1f);
-            const float gx = static_cast<float>(originX + x);
-            const float gy = static_cast<float>(originY + y);
-            const float twiddle =
-                (procedural::fbm(gx * 0.04f, gy * 0.04f, 3, 1 << 20) - 0.5f) * 10.0f;
-            const float value = glm::clamp((h + twiddle - start) * 4.0f / range, 0.0f, 3.0f);
-
-            mesh.vertices.push_back(
-                {glm::vec3(static_cast<float>(x), static_cast<float>(y), h), normal, value});
+            const float h = heightAt(x, y);
+            const glm::vec3 normal =
+                glm::normalize(glm::vec3(heightAt(x - 1, y) - heightAt(x + 1, y),
+                                         heightAt(x, y - 1) - heightAt(x, y + 1), 2.0f));
+            const float noise = world::terrainBlendNoise(static_cast<double>(originX + x),
+                                                         static_cast<double>(originY + y));
+            mesh.vertices.push_back({glm::vec3(static_cast<float>(x), static_cast<float>(y), h),
+                                     normal, glm::vec2(layerAt(x, y), noise)});
         }
     }
     mesh.indices.reserve(kWidth * kWidth * 6);
@@ -116,34 +166,25 @@ void TerrainView::update(const world::World& world, render::Renderer& renderer)
 {
     const auto now = std::chrono::steady_clock::now();
     std::erase_if(regions_, [&](const auto& entry) { return !world.terrain(entry.first); });
-
-    const HeightSampler heightAt = [&](int64_t gx, int64_t gy) -> std::optional<float>
-    {
-        if(gx < 0 || gy < 0)
-        {
-            return std::nullopt;
-        }
-        const uint64_t handle = static_cast<uint64_t>(gx / kWidth * kWidth) << 32 |
-                                static_cast<uint64_t>(gy / kWidth * kWidth);
-        const world::RegionTerrain* t = world.terrain(handle);
-        if(!t)
-        {
-            return std::nullopt;
-        }
-        const auto lx = static_cast<uint32_t>(gx % kWidth);
-        const auto ly = static_cast<uint32_t>(gy % kWidth);
-        constexpr uint32_t kPatches = kWidth / world::kPatchSize;
-        if(!t->patchesReceived.test((ly / world::kPatchSize) * kPatches + lx / world::kPatchSize))
-        {
-            return std::nullopt;
-        }
-        return t->height(lx, ly);
-    };
+    const RegionLookup lookup = [&](uint64_t handle) { return world.terrain(handle); };
 
     for(const auto& [handle, terrain] : world.terrain())
     {
+        if(terrain.patchesReceived.none())
+        {
+            continue;
+        }
+        // The far edges use the neighbours, so their changes count too.
+        uint64_t revision = terrain.revision;
+        for(const uint64_t neighbour : edgeNeighbours(handle))
+        {
+            if(const world::RegionTerrain* t = world.terrain(neighbour))
+            {
+                revision = revision * 31 + t->revision + 1;
+            }
+        }
         Region& region = regions_[handle];
-        if(region.mesh && region.revision == terrain.revision)
+        if(region.mesh && region.revision == revision)
         {
             continue;
         }
@@ -153,14 +194,10 @@ void TerrainView::update(const world::World& world, render::Renderer& renderer)
         {
             continue;
         }
-        if(terrain.patchesReceived.none())
-        {
-            continue;
-        }
-        const TerrainMeshData data = buildTerrainMesh(terrain, heightAt);
+        const TerrainMeshData data = buildTerrainMesh(terrain, lookup);
         region.mesh = renderer.createMesh(std::span<const render::TerrainVertex>(data.vertices),
                                           data.indices);
-        region.revision = terrain.revision;
+        region.revision = revision;
         region.builtAt = now;
     }
 }
