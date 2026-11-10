@@ -615,7 +615,11 @@ void Session::handleRegionHandshake(Region& region, const protocol::CircuitEvent
     msg::RegionHandshakeReply reply;
     reply.AgentData.AgentID = login_->agentId;
     reply.AgentData.SessionID = login_->sessionId;
-    reply.RegionInfo.Flags = 0x1; // we have no object cache for this region yet
+    // 0x2: our object cache for this region is empty, so the simulator sends
+    // full object updates instead of cache probes. (0x1 would ask for all
+    // cacheable objects as probes; 0x4 means we support self-appearance.
+    // Checked against llviewerregion.cpp.)
+    reply.RegionInfo.Flags = 0x2;
     send(region, reply, true);
 
     const bool first = !region.handshakeReceived;

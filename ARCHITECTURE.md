@@ -1,5 +1,18 @@
 # Architecture
 
+## License and references
+
+The project is licensed under the GNU Lesser General Public License,
+version 2.1 (see `LICENSE`), the same license as the official Second Life
+viewer.
+
+The official viewer source is used as a reference for behavior (protocol
+details, prim geometry, avatars, rendering rules), kept outside this
+repository. We read it to understand what it does and then write our own
+implementation; we don't copy its code. Where an implementation follows the
+official viewer's algorithm closely, a comment names the viewer file it was
+checked against (e.g. "matches llvolume.cpp's profile generation").
+
 ## Rules
 
 1. **No singletons or mutable globals.** Everything is owned by `App` (or by
