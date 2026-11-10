@@ -79,6 +79,21 @@ external/master-message-template   git submodule: Linden Lab's message_template.
 3. The result goes into a `MessageQueue`. The main thread drains it and uploads
    to the GPU in batches capped per frame.
 
+Textures of the world go through `TextureManager` (app): `get(uuid)` returns
+the GPU texture once it's ready and otherwise starts loading it. It asks the
+disk cache first; on a miss it downloads the J2K from the region's
+`ViewerAsset` capability (`<cap>/?texture_id=<uuid>`, `Accept: image/x-j2c`,
+as the official viewer; full downloads, at most 16 at a time, retried on
+failure, 404 = missing) and hands the bytes to the cache, which decodes and
+stores them. Uploads to the GPU are capped per frame. Images are flipped to
+bottom-up rows on load, so Second Life texture coordinates apply unchanged.
+`TerrainTextures` builds each region's 4-layer terrain array once all four
+textures are in (region textures from RegionHandshake, the official
+defaults otherwise), scaled to a common size of at most 1024.
+
+Each `TextureCache` instance has one results queue, so the texture browser
+and the world use separate instances on the same directory.
+
 KTX2 entries are RGBA8 with zstd supercompression, plus `viewer.alphaMode` and
 `viewer.discardLevel` metadata. The cache root defaults to
 `$XDG_CACHE_HOME/viewer` (or `~/.cache/viewer`); override it with `--cache-dir`.
@@ -233,7 +248,9 @@ Terrain follows the official viewer's behavior (our own implementation; see
   under 10% weight, so slopes don't stretch. Both use global coordinates, so
   textures line up across region borders.
 
-Terrain textures are procedural placeholders until texture fetching exists.
+Terrain textures come from the grid (see the texture pipeline); the
+procedural ones stand in until they're loaded. PBR terrain materials from the
+grid aren't supported yet, so the PBR terrain toggle uses procedural ones.
 
 Shaders are GLSL in `src/render/shaders`, compiled to SPIR-V by glslang at
 build time (the installed `glslangValidator` if there is one, otherwise

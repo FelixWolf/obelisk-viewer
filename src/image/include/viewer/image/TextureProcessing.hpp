@@ -23,6 +23,15 @@ AlphaMode classifyAlpha(const MipLevel& rgba);
 // Note: filters the stored bytes directly (no sRGB linearization).
 std::vector<MipLevel> buildMipChain(MipLevel base);
 
+// Resamples RGBA8 to the given size (bilinear; averages when shrinking by
+// more than 2x). Bytes are filtered as stored (no sRGB linearization).
+MipLevel resizeRgba8(const MipLevel& source, uint32_t width, uint32_t height);
+
+// Reverses the row order of every mip level. Second Life texture
+// coordinates assume rows stored bottom-up (v = 0 is the image's bottom row,
+// as the official viewer stores them); decoded images are top-down.
+void flipRows(TextureData& texture);
+
 // Decode + RGBA expansion + alpha classification + mips.
 std::optional<TextureData> textureFromJ2k(const J2kDecoder& decoder, std::span<const uint8_t> j2k,
                                           uint32_t discardLevel = 0);

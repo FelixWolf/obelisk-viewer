@@ -3,8 +3,10 @@
 #include "CameraController.hpp"
 #include "LoginPanel.hpp"
 #include "SceneAssets.hpp"
+#include "TerrainTextures.hpp"
 #include "TerrainView.hpp"
 #include "TextureBrowser.hpp"
+#include "TextureManager.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
 #include "viewer/core/JobSystem.hpp"
@@ -96,9 +98,12 @@ private:
     std::unique_ptr<ui::ImGuiLayer> ui_;
     std::unique_ptr<JobSystem> jobs_;
     std::unique_ptr<image::J2kDecoder> j2kDecoder_;
-    std::unique_ptr<assets::TextureCache> textureCache_;
+    std::unique_ptr<assets::TextureCache> textureCache_;      // texture browser panel
+    std::unique_ptr<assets::TextureCache> worldTextureCache_; // textures of the world
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
+    std::unique_ptr<TextureManager> textures_;
+    TerrainTextures terrainTextures_;
     std::unique_ptr<LoginPanel> loginPanel_;
     std::unique_ptr<SceneAssets> sceneAssets_;
     std::unique_ptr<session::Session> session_;

@@ -146,4 +146,67 @@ std::optional<TextureData> textureFromJ2k(const J2kDecoder& decoder, std::span<c
     return texture;
 }
 
+MipLevel resizeRgba8(const MipLevel& source, uint32_t width, uint32_t height)
+{
+    if(source.width == width && source.height == height)
+    {
+        return source;
+    }
+    // Halve with a box filter while that's at least 2x too big, then bilinear.
+    MipLevel current = source;
+    while(current.width >= width * 2 && current.height >= height * 2)
+    {
+        current = buildMipChain(current).at(1);
+    }
+    MipLevel out;
+    out.width = width;
+    out.height = height;
+    out.pixels.resize(static_cast<size_t>(width) * height * 4);
+    const float scaleX = static_cast<float>(current.width) / static_cast<float>(width);
+    const float scaleY = static_cast<float>(current.height) / static_cast<float>(height);
+    auto texel = [&](uint32_t x, uint32_t y, uint32_t c)
+    {
+        x = std::min(x, current.width - 1);
+        y = std::min(y, current.height - 1);
+        return static_cast<float>(
+            current.pixels[(static_cast<size_t>(y) * current.width + x) * 4 + c]);
+    };
+    for(uint32_t y = 0; y < height; y++)
+    {
+        const float sy = std::max(0.0f, (static_cast<float>(y) + 0.5f) * scaleY - 0.5f);
+        const auto y0 = static_cast<uint32_t>(sy);
+        const float fy = sy - static_cast<float>(y0);
+        for(uint32_t x = 0; x < width; x++)
+        {
+            const float sx = std::max(0.0f, (static_cast<float>(x) + 0.5f) * scaleX - 0.5f);
+            const auto x0 = static_cast<uint32_t>(sx);
+            const float fx = sx - static_cast<float>(x0);
+            for(uint32_t c = 0; c < 4; c++)
+            {
+                const float top = texel(x0, y0, c) * (1.0f - fx) + texel(x0 + 1, y0, c) * fx;
+                const float bottom =
+                    texel(x0, y0 + 1, c) * (1.0f - fx) + texel(x0 + 1, y0 + 1, c) * fx;
+                out.pixels[(static_cast<size_t>(y) * width + x) * 4 + c] = static_cast<uint8_t>(
+                    std::clamp(top * (1.0f - fy) + bottom * fy + 0.5f, 0.0f, 255.0f));
+            }
+        }
+    }
+    return out;
+}
+
+void flipRows(TextureData& texture)
+{
+    for(MipLevel& level : texture.levels)
+    {
+        const size_t row = static_cast<size_t>(level.width) * 4;
+        for(uint32_t y = 0; y < level.height / 2; y++)
+        {
+            std::swap_ranges(level.pixels.begin() + static_cast<ptrdiff_t>(y * row),
+                             level.pixels.begin() + static_cast<ptrdiff_t>((y + 1) * row),
+                             level.pixels.begin() +
+                                 static_cast<ptrdiff_t>((level.height - 1 - y) * row));
+        }
+    }
+}
+
 } // namespace viewer::image

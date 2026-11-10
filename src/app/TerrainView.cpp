@@ -202,7 +202,8 @@ void TerrainView::update(const world::World& world, render::Renderer& renderer)
     }
 }
 
-void TerrainView::addTo(render::Scene& scene, uint64_t originHandle, const Material& material) const
+void TerrainView::addTo(render::Scene& scene, uint64_t originHandle,
+                        const MaterialFor& materialFor) const
 {
     for(const auto& [handle, region] : regions_)
     {
@@ -212,7 +213,8 @@ void TerrainView::addTo(render::Scene& scene, uint64_t originHandle, const Mater
         }
         const glm::vec3 offset(static_cast<float>(regionX(handle) - regionX(originHandle)),
                                static_cast<float>(regionY(handle) - regionY(originHandle)), 0.0f);
-        scene.terrain.push_back({&region.mesh, glm::translate(glm::mat4(1.0f), offset), material});
+        scene.terrain.push_back(
+            {&region.mesh, glm::translate(glm::mat4(1.0f), offset), materialFor(handle)});
     }
 }
 

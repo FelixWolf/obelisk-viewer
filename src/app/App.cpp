@@ -202,6 +202,12 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->lastFrameTicks_ = app->startTicks_;
 
     app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
+    // A second cache instance on the same directory: each instance has one
+    // results queue, and the texture browser drains its own.
+    app->worldTextureCache_ = std::make_unique<assets::TextureCache>(
+        cacheRoot / "textures", *app->jobs_, *app->j2kDecoder_);
+    app->textures_ =
+        std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_, *app->http_);
     app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
                                                     VIEWER_VERSION, options.loginUri);
     if(!options.loginFile.empty())
@@ -231,17 +237,7 @@ void App::loadTerrainBlendRamp()
         log::warn("couldn't decode the terrain blend ramp; using the generated one");
         return;
     }
-    for(image::MipLevel& level : ramp->levels)
-    {
-        const size_t row = static_cast<size_t>(level.width) * 4;
-        for(uint32_t y = 0; y < level.height / 2; y++)
-        {
-            std::swap_ranges(level.pixels.begin() + static_cast<ptrdiff_t>(y * row),
-                             level.pixels.begin() + static_cast<ptrdiff_t>((y + 1) * row),
-                             level.pixels.begin() +
-                                 static_cast<ptrdiff_t>((level.height - 1 - y) * row));
-        }
-    }
+    image::flipRows(*ramp);
     renderer_->setTerrainBlendRamp(*ramp);
 }
 
@@ -302,6 +298,7 @@ int App::run()
         }
 
         textureBrowser_->update();
+        textures_->update();
         const uint64_t now = SDL_GetTicksNS();
         if(!ImGui::GetIO().WantCaptureKeyboard)
         {
@@ -376,6 +373,8 @@ void App::updateSession()
         }
     }
 
+    textures_->setViewerAssetUrl(std::string(session_->capability("ViewerAsset").value_or("")));
+
     if(session_->state() == session::SessionState::LoggedOut)
     {
         endSession();
@@ -384,6 +383,7 @@ void App::updateSession()
 
 void App::endSession()
 {
+    textures_->setViewerAssetUrl({});
     session_.reset();
     world_.reset();
     terrainView_.clear();
@@ -397,12 +397,20 @@ render::Scene App::buildScene()
     if(world_ && originHandle_)
     {
         terrainView_.update(*world_, *renderer_);
-        TerrainView::Material material = sceneAssets_->terrainBlinnPhong();
-        if(pbrTerrain_)
-        {
-            material = sceneAssets_->terrainPbr();
-        }
-        terrainView_.addTo(scene, *originHandle_, material);
+        terrainTextures_.update(*textures_, *renderer_);
+        const auto placeholder = sceneAssets_->terrainBlinnPhong();
+        terrainView_.addTo(scene, *originHandle_,
+                           [&](uint64_t handle) -> TerrainView::Material
+                           {
+                               if(pbrTerrain_)
+                               {
+                                   // PBR terrain materials from the grid aren't
+                                   // supported yet: procedural stand-ins.
+                                   return sceneAssets_->terrainPbr();
+                               }
+                               return terrainTextures_.material(*world_->terrain(handle),
+                                                                *textures_, placeholder);
+                           });
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
     }
@@ -453,8 +461,13 @@ void App::drawUi()
                     static_cast<double>(target.y), static_cast<double>(target.z));
         if(world_)
         {
-            ImGui::Text("Terrain regions: %zu", world_->terrain().size());
+            ImGui::Text("Terrain regions: %zu (%zu texture sets ready)", world_->terrain().size(),
+                        terrainTextures_.readyCount());
         }
+        const auto t = textures_->stats();
+        ImGui::Text("Textures: %zu resident, %zu loading, %zu downloading, %zu queued, %zu failed",
+                    t.resident, t.loading, t.downloading, t.queued, t.failed);
+        ImGui::Text("Downloaded: %.1f MB", static_cast<double>(t.bytesDownloaded) / 1e6);
         ImGui::TextDisabled("Right-drag: look, wheel: zoom, middle-drag: pan, WASD/QE: move");
     }
     ImGui::End();

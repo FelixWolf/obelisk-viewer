@@ -38,9 +38,11 @@ public:
     // Rebuilds meshes for regions whose terrain changed.
     void update(const world::World& world, render::Renderer& renderer);
 
-    // Adds every region's terrain, positioned relative to `originHandle`.
+    // Adds every region's terrain, positioned relative to `originHandle`,
+    // with the material `materialFor` picks for each region.
     using Material = std::variant<render::TerrainBlinnPhongMaterial, render::TerrainPbrMaterial>;
-    void addTo(render::Scene& scene, uint64_t originHandle, const Material& material) const;
+    using MaterialFor = std::function<Material(uint64_t regionHandle)>;
+    void addTo(render::Scene& scene, uint64_t originHandle, const MaterialFor& materialFor) const;
 
     void clear() { regions_.clear(); }
 

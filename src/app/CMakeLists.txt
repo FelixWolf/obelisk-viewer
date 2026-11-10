@@ -18,7 +18,9 @@ add_executable(viewer
   LoginPanel.cpp
   Procedural.cpp
   SceneAssets.cpp
+  TerrainTextures.cpp
   TerrainView.cpp
+  TextureManager.cpp
   TextureBrowser.cpp
 )
 
