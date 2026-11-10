@@ -34,8 +34,11 @@ LoginParameters testParameters(const viewer::test::LoopbackHttpServer& server)
     p.passwordHash = hashPassword("secret");
     p.channel = "viewer-tests";
     p.version = "0.0.0";
-    p.machine = {
-        .platform = "Lnx", .platformVersion = "test", .mac = "AA:BB:CC:DD:EE:FF", .id0 = "0"};
+    p.machine = {.platform = "Lnx",
+                 .platformVersion = "0.0.0",
+                 .platformString = "test",
+                 .mac = "0",
+                 .id0 = "0"};
     return p;
 }
 

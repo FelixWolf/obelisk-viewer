@@ -7,6 +7,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <fstream>
 
 using namespace viewer::session;
@@ -72,15 +73,18 @@ TEST_CASE("Login request contains the expected fields and no plain password")
     p.channel = "viewer";
     p.version = "0.1.0";
     p.machine = {.platform = "Lnx",
-                 .platformVersion = "Linux 6.0",
-                 .mac = "AA:BB:CC:DD:EE:FF",
+                 .platformVersion = "2.42.0",
+                 .platformString = "Linux 6.0",
+                 .mac = "0123456789abcdef0123456789abcdef",
                  .id0 = "613b85f2def676b5a7f9318183da00e6"};
 
     const llsd::Value request = buildLoginRequest(p);
     CHECK(request["first"].asString() == "Test");
     CHECK(request["last"].asString() == "Resident");
     CHECK(request["passwd"].asString() == p.passwordHash);
-    CHECK(request["mac"].asString() == "AA:BB:CC:DD:EE:FF");
+    CHECK(request["mac"].asString() == p.machine.mac);
+    CHECK(request["platform_string"].asString() == "Linux 6.0");
+    CHECK(request["address_size"].asInteger() == 64);
     CHECK(request["id0"].asString() == p.machine.id0);
     CHECK(request["start"].asString() == "last");
     CHECK(request["agent_flags"].asInteger() == 0);
@@ -92,12 +96,17 @@ TEST_CASE("Login request contains the expected fields and no plain password")
     CHECK(xml.find("hunter2") == std::string::npos);
 }
 
-TEST_CASE("queryMachineInfo builds id0 from the other fields")
+TEST_CASE("queryMachineInfo uses the official viewer's formats")
 {
     const MachineInfo info = queryMachineInfo();
+    auto isMd5Hex = [](const std::string& s)
+    { return s.size() == 32 && s.find_first_not_of("0123456789abcdef") == std::string::npos; };
     CHECK_FALSE(info.platform.empty());
-    CHECK(info.mac.size() == 17);
-    CHECK(info.id0 == viewer::md5Hex(info.platform + ":" + info.mac + ":" + info.platformVersion));
+    CHECK(isMd5Hex(info.mac)); // never the raw MAC address
+    CHECK(isMd5Hex(info.id0));
+    // "major.minor.build"
+    CHECK(std::ranges::count(info.platformVersion, '.') == 2);
+    CHECK_FALSE(info.platformString.empty());
 }
 
 TEST_CASE("Login reply: success")

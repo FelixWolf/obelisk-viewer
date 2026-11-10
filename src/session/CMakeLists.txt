@@ -13,4 +13,6 @@ target_link_libraries(viewer_session
 )
 if(WIN32)
   target_link_libraries(viewer_session PRIVATE iphlpapi)
+elseif(APPLE)
+  target_link_libraries(viewer_session PRIVATE "-framework IOKit" "-framework CoreFoundation")
 endif()

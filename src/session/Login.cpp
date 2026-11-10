@@ -101,6 +101,8 @@ llsd::Value buildLoginRequest(const LoginParameters& p)
     // OS
     request["platform"] = p.machine.platform;
     request["platform_version"] = p.machine.platformVersion;
+    request["platform_string"] = p.machine.platformString;
+    request["address_size"] = static_cast<int32_t>(sizeof(void*) * 8);
     // Viewer
     request["channel"] = p.channel;
     request["version"] = p.version;

@@ -1,28 +1,37 @@
+// Machine identification for the login request, matching what the official
+// viewer sends. Behavior checked against (not copied from):
+//   mac: llhasheduniqueid.cpp, llmachineid.cpp, lluuid.cpp (getNodeID)
+//   id0: llappviewerlinux.cpp / llappviewerwin32.cpp / llappviewermacosx.cpp
+//        (generateSerialNumber)
+//   platform strings: llsys.cpp (LLOSInfo)
+
 #include "viewer/core/Log.hpp"
 #include "viewer/core/Md5.hpp"
 #include "viewer/session/Login.hpp"
 
-#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <format>
 #include <optional>
 #include <string>
-#include <tuple>
-#include <vector>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <iphlpapi.h>
+// clang-format off
 #include <windows.h>
+#include <iphlpapi.h>
+// clang-format on
 #elif defined(__APPLE__)
-#include <ifaddrs.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
-#include <sys/socket.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOKitLib.h>
+#include <sys/sysctl.h>
 #include <sys/utsname.h>
 #else
+#include <gnu/libc-version.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <sys/socket.h>
 #include <sys/utsname.h>
 
 #include <cstdio>
@@ -36,46 +45,19 @@ namespace viewer::session
 namespace
 {
 
-using MacBytes = std::array<uint8_t, 6>;
+using MachineId = std::array<uint8_t, 6>;
 
-struct Candidate
+// Folds a serial-number string into 6 bytes by adding each character to
+// byte (index % 6), as the official viewer does for hardware serials.
+[[maybe_unused]] MachineId foldSerial(std::string_view serial)
 {
-    std::string name;
-    MacBytes mac{};
-    bool physical = false;
-};
-
-bool isUsable(const MacBytes& mac)
-{
-    bool allZero = true;
-    for(const uint8_t b : mac)
+    MachineId id{};
+    for(size_t i = 0; i < serial.size(); i++)
     {
-        if(b != 0)
-        {
-            allZero = false;
-        }
+        id[i % id.size()] =
+            static_cast<uint8_t>(id[i % id.size()] + static_cast<uint8_t>(serial[i]));
     }
-    const bool multicast = (mac[0] & 0x01) != 0;
-    return !allZero && !multicast;
-}
-
-// Prefers physical devices, then universally administered addresses (the ones
-// burned in by the manufacturer), then interface name order.
-std::optional<MacBytes> pickInterface(std::vector<Candidate> candidates)
-{
-    std::erase_if(candidates, [](const Candidate& c) { return !isUsable(c.mac); });
-    if(candidates.empty())
-    {
-        return std::nullopt;
-    }
-    auto rank = [](const Candidate& c)
-    {
-        const bool universal = (c.mac[0] & 0x02) == 0;
-        return std::tuple(!c.physical, !universal, c.name);
-    };
-    std::ranges::sort(candidates,
-                      [&](const Candidate& a, const Candidate& b) { return rank(a) < rank(b); });
-    return candidates.front().mac;
+    return id;
 }
 
 #if defined(_WIN32)
@@ -85,7 +67,7 @@ std::string platformName()
     return "Win";
 }
 
-std::string platformVersion()
+std::optional<OSVERSIONINFOW> windowsVersion()
 {
     // GetVersionEx lies to unmanifested programs; RtlGetVersion doesn't.
     using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
@@ -97,43 +79,78 @@ std::string platformVersion()
             reinterpret_cast<RtlGetVersionFn>(GetProcAddress(ntdll, "RtlGetVersion"));
         if(rtlGetVersion && rtlGetVersion(&info) == 0)
         {
-            return std::format("Microsoft Windows {}.{}.{}", info.dwMajorVersion,
-                               info.dwMinorVersion, info.dwBuildNumber);
+            return info;
         }
     }
-    return "Microsoft Windows";
+    return std::nullopt;
 }
 
-std::vector<Candidate> interfaces()
+std::string platformVersion()
 {
-    std::vector<Candidate> result;
+    const auto v = windowsVersion();
+    return v ? std::format("{}.{}.{}", v->dwMajorVersion, v->dwMinorVersion, v->dwBuildNumber)
+             : "0.0.0";
+}
+
+std::string platformString()
+{
+    const auto v = windowsVersion();
+    if(!v)
+    {
+        return "Unsupported Windows version ";
+    }
+    // Windows 11 still reports 10.0; build 22000 is where 11 starts.
+    if(v->dwMajorVersion == 10 && v->dwBuildNumber >= 22000)
+    {
+        return "Microsoft Windows 11 ";
+    }
+    if(v->dwMajorVersion == 10)
+    {
+        return "Microsoft Windows 10 ";
+    }
+    return "Unsupported Windows version ";
+}
+
+std::optional<MachineId> machineId()
+{
+    // TODO: the official viewer uses the WMI Win32_ComputerSystemProduct UUID
+    // (folded like a serial), falling back to the Windows product id. Until
+    // that's implemented, use the first adapter's MAC, which is the source it
+    // uses where neither exists. Must be done before Windows builds ship.
     ULONG size = 16 * 1024;
     std::vector<uint8_t> buffer(size);
-    auto* addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-    ULONG status = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, addresses, &size);
-    if(status == ERROR_BUFFER_OVERFLOW)
+    auto* adapters = reinterpret_cast<IP_ADAPTER_INFO*>(buffer.data());
+    if(GetAdaptersInfo(adapters, &size) == ERROR_BUFFER_OVERFLOW)
     {
         buffer.resize(size);
-        addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-        status = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, addresses, &size);
+        adapters = reinterpret_cast<IP_ADAPTER_INFO*>(buffer.data());
     }
-    if(status != NO_ERROR)
+    if(GetAdaptersInfo(adapters, &size) != NO_ERROR)
     {
-        return result;
+        return std::nullopt;
     }
-    for(auto* a = addresses; a; a = a->Next)
+    for(auto* a = adapters; a; a = a->Next)
     {
-        if(a->PhysicalAddressLength != 6 || a->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
+        if(a->AddressLength == 6)
         {
-            continue;
+            MachineId id{};
+            std::copy_n(a->Address, 6, id.begin());
+            return id;
         }
-        Candidate c;
-        c.name = a->AdapterName;
-        std::copy_n(a->PhysicalAddress, 6, c.mac.begin());
-        c.physical = a->IfType == IF_TYPE_ETHERNET_CSMACD || a->IfType == IF_TYPE_IEEE80211;
-        result.push_back(std::move(c));
     }
-    return result;
+    return std::nullopt;
+}
+
+std::string serialNumberHash()
+{
+    // The system drive's volume serial number, as 4 raw bytes.
+    DWORD serial = 0;
+    if(!GetVolumeInformationW(L"C:\\", nullptr, 0, &serial, nullptr, nullptr, nullptr, 0))
+    {
+        log::warn("GetVolumeInformation failed; id0 will be empty");
+        return {};
+    }
+    return toHex(md5(std::span(reinterpret_cast<const uint8_t*>(&serial), sizeof(serial))));
 }
 
 #elif defined(__APPLE__)
@@ -143,47 +160,75 @@ std::string platformName()
     return "Mac";
 }
 
+std::string macOsVersion()
+{
+    char version[64] = {};
+    size_t size = sizeof(version);
+    if(sysctlbyname("kern.osproductversion", version, &size, nullptr, 0) != 0)
+    {
+        return "0.0.0";
+    }
+    int major = 0;
+    int minor = 0;
+    int patch = 0;
+    std::sscanf(version, "%d.%d.%d", &major, &minor, &patch);
+    return std::format("{}.{}.{}", major, minor, patch);
+}
+
 std::string platformVersion()
 {
-    utsname u{};
-    if(uname(&u) != 0)
-    {
-        return "macOS";
-    }
-    return std::format("{} {}", u.sysname, u.release);
+    return macOsVersion();
 }
 
-std::vector<Candidate> interfaces()
+std::string platformString()
 {
-    std::vector<Candidate> result;
-    ifaddrs* list = nullptr;
-    if(getifaddrs(&list) != 0)
-    {
-        return result;
-    }
-    for(ifaddrs* i = list; i; i = i->ifa_next)
-    {
-        if(!i->ifa_addr || i->ifa_addr->sa_family != AF_LINK)
-        {
-            continue;
-        }
-        const auto* link = reinterpret_cast<const sockaddr_dl*>(i->ifa_addr);
-        if(link->sdl_alen != 6 || link->sdl_type != IFT_ETHER)
-        {
-            continue;
-        }
-        Candidate c;
-        c.name = i->ifa_name;
-        const auto* bytes = reinterpret_cast<const uint8_t*>(LLADDR(link));
-        std::copy_n(bytes, 6, c.mac.begin());
-        c.physical = c.name.starts_with("en");
-        result.push_back(std::move(c));
-    }
-    freeifaddrs(list);
-    return result;
+    // TODO: check the exact wording against llsys.cpp's Darwin branch.
+    return "macOS " + macOsVersion();
 }
 
-#else // Linux and other POSIX
+std::optional<std::string> platformSerial()
+{
+    io_service_t expert = IOServiceGetMatchingService(kIOMainPortDefault,
+                                                      IOServiceMatching("IOPlatformExpertDevice"));
+    if(!expert)
+    {
+        return std::nullopt;
+    }
+    auto serial = static_cast<CFStringRef>(IORegistryEntryCreateCFProperty(
+        expert, CFSTR(kIOPlatformSerialNumberKey), kCFAllocatorDefault, 0));
+    IOObjectRelease(expert);
+    if(!serial)
+    {
+        return std::nullopt;
+    }
+    char buffer[256] = {};
+    const bool ok = CFStringGetCString(serial, buffer, sizeof(buffer), kCFStringEncodingUTF8);
+    CFRelease(serial);
+    if(!ok || buffer[0] == 0)
+    {
+        return std::nullopt;
+    }
+    return std::string(buffer);
+}
+
+std::optional<MachineId> machineId()
+{
+    // The platform serial number folded into 6 bytes. (The official viewer
+    // falls back to the MAC address; not implemented yet.)
+    if(auto serial = platformSerial())
+    {
+        return foldSerial(*serial);
+    }
+    return std::nullopt;
+}
+
+std::string serialNumberHash()
+{
+    const auto serial = platformSerial();
+    return serial ? md5Hex(*serial) : std::string();
+}
+
+#else // Linux
 
 std::string platformName()
 {
@@ -192,60 +237,95 @@ std::string platformName()
 
 std::string platformVersion()
 {
+    // The glibc version stands in for the OS version, as major.minor.build.
+    int major = 0;
+    int minor = 0;
+    int build = 0;
+    std::sscanf(gnu_get_libc_version(), "%d.%d.%d", &major, &minor, &build);
+    return std::format("{}.{}.{}", major, minor, build);
+}
+
+std::string platformString()
+{
     utsname u{};
     if(uname(&u) != 0)
     {
-        return "Linux";
+        return "Unable to collect OS info";
     }
-    return std::format("{} {}", u.sysname, u.release);
+    std::string simple = std::format("{} {}", u.sysname, u.release);
+    if(std::string_view(u.sysname) == "Linux")
+    {
+        // Major and minor kernel version only: cut at the second dot.
+        const size_t first = simple.find('.');
+        const size_t second = first == std::string::npos ? first : simple.find('.', first + 1);
+        simple = simple.substr(0, second);
+    }
+    return simple;
 }
 
-std::optional<MacBytes> parseMac(const std::string& text)
+std::optional<MachineId> readMac(const std::string& interfaceName)
 {
-    MacBytes mac{};
+    std::ifstream in("/sys/class/net/" + interfaceName + "/address");
+    std::string text;
+    if(!std::getline(in, text))
+    {
+        return std::nullopt;
+    }
     unsigned int b[6] = {};
     if(std::sscanf(text.c_str(), "%x:%x:%x:%x:%x:%x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) !=
        6)
     {
         return std::nullopt;
     }
+    MachineId id{};
     for(size_t i = 0; i < 6; i++)
     {
-        mac[i] = static_cast<uint8_t>(b[i]);
+        id[i] = static_cast<uint8_t>(b[i]);
     }
-    return mac;
+    return id;
 }
 
-std::vector<Candidate> interfaces()
+std::optional<MachineId> machineId()
 {
-    namespace fs = std::filesystem;
-    std::vector<Candidate> result;
-    std::error_code ec;
-    for(const auto& entry : fs::directory_iterator("/sys/class/net", ec))
+    // The hardware address of the first interface that has an IPv4 address
+    // and a non-zero hardware address (loopback's is all zeros), in the
+    // kernel's interface order.
+    ifaddrs* list = nullptr;
+    if(getifaddrs(&list) != 0)
     {
-        Candidate c;
-        c.name = entry.path().filename().string();
-        if(c.name == "lo")
-        {
-            continue;
-        }
-        std::ifstream in(entry.path() / "address");
-        std::string text;
-        if(!std::getline(in, text))
-        {
-            continue;
-        }
-        const auto mac = parseMac(text);
-        if(!mac)
-        {
-            continue;
-        }
-        c.mac = *mac;
-        // Virtual interfaces (bridges, veth, docker, tun) have no device link.
-        c.physical = fs::exists(entry.path() / "device", ec);
-        result.push_back(std::move(c));
+        return std::nullopt;
     }
+    std::optional<MachineId> result;
+    for(ifaddrs* i = list; i && !result; i = i->ifa_next)
+    {
+        if(!i->ifa_addr || i->ifa_addr->sa_family != AF_INET)
+        {
+            continue;
+        }
+        if(auto id = readMac(i->ifa_name); id && *id != MachineId{})
+        {
+            result = id;
+        }
+    }
+    freeifaddrs(list);
     return result;
+}
+
+std::string serialNumberHash()
+{
+    // The longest (then alphabetically last) filesystem UUID; empty if none.
+    namespace fs = std::filesystem;
+    std::string best;
+    std::error_code ec;
+    for(const auto& entry : fs::directory_iterator("/dev/disk/by-uuid", ec))
+    {
+        const std::string name = entry.path().filename().string();
+        if(name.size() > best.size() || (name.size() == best.size() && name > best))
+        {
+            best = name;
+        }
+    }
+    return md5Hex(best);
 }
 
 #endif
@@ -257,19 +337,23 @@ MachineInfo queryMachineInfo()
     MachineInfo info;
     info.platform = platformName();
     info.platformVersion = platformVersion();
+    info.platformString = platformString();
 
-    const auto mac = pickInterface(interfaces());
-    if(!mac)
+    if(const auto id = machineId())
     {
-        // Report the truth (no MAC found) rather than inventing one.
-        log::warn("no network interface with a MAC address found; sending zeros");
+        info.mac = toHex(md5(std::span<const uint8_t>(*id)));
     }
-    const MacBytes bytes = mac.value_or(MacBytes{});
-    info.mac = std::format("{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", bytes[0], bytes[1],
-                           bytes[2], bytes[3], bytes[4], bytes[5]);
-
-    // WARNING: deviating from this format may violate the Terms of Service.
-    info.id0 = md5Hex(std::format("{}:{}:{}", info.platform, info.mac, info.platformVersion));
+    else
+    {
+        // Report the truth (no id) rather than inventing one.
+        log::warn("couldn't find a unique machine id; sending zeros");
+        info.mac = std::string(32, '0');
+    }
+    info.id0 = serialNumberHash();
+    if(info.id0.empty())
+    {
+        info.id0 = md5Hex("");
+    }
     return info;
 }
 

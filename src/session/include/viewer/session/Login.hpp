@@ -21,20 +21,24 @@ inline constexpr std::string_view kAgniLoginUri =
 inline constexpr std::string_view kAditiLoginUri =
     "https://login.aditi.lindenlab.com/cgi-bin/login.cgi"; // beta grid
 
-// What the login server learns about this machine.
+// What the login server learns about this machine, in the official viewer's
+// format (checked against lllogininstance.cpp, llhasheduniqueid.cpp,
+// llmachineid.cpp, llappviewer{linux,win32,macosx}.cpp and llsys.cpp).
 //
 // WARNING: mac and id0 must describe the real machine. Falsifying them is a
-// violation of the Second Life Terms of Service, and so is deviating from the
-// id0 format. Don't add a way to override them.
+// violation of the Second Life Terms of Service. Don't add a way to override
+// them.
 struct MachineInfo
 {
     std::string platform;        // "Lnx", "Win", "Mac"
-    std::string platformVersion; // OS name and version
-    std::string mac;             // "AA:BB:CC:DD:EE:FF"
-    std::string id0;             // md5("<platform>:<mac>:<platformVersion>")
+    std::string platformVersion; // dotted version: glibc on Linux, the OS elsewhere
+    std::string platformString;  // OS name and version, e.g. "Linux 7.2"
+    std::string mac;             // md5 hex of a 6-byte machine id (MAC address on Linux)
+    std::string id0;             // md5 hex of a disk or hardware serial number
 };
 
-// Reads the platform, OS version and primary network interface's MAC address.
+// Gathers the above. Missing ids come back as 32 zeros (mac) or the md5 of
+// an empty string (id0), as the official viewer does.
 MachineInfo queryMachineInfo();
 
 // "$1$" + md5 of the password, as the login server expects. SL passwords are
