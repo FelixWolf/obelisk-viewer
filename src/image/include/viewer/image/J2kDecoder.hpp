@@ -14,9 +14,11 @@
 #include <span>
 #include <string_view>
 
-namespace viewer::image {
+namespace viewer::image
+{
 
-struct J2kDecodeOptions {
+struct J2kDecodeOptions
+{
     // Skip this many of the highest resolution levels: 0 = full size,
     // 1 = half width and height, and so on. Matches Second Life's
     // "discard level".
@@ -27,7 +29,8 @@ struct J2kDecodeOptions {
     uint32_t threads = 1;
 };
 
-class J2kDecoder {
+class J2kDecoder
+{
 public:
     virtual ~J2kDecoder() = default;
 

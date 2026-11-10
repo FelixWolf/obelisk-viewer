@@ -11,10 +11,12 @@
 #include <utility>
 #include <vector>
 
-namespace viewer {
+namespace viewer
+{
 
 template <typename T>
-class MessageQueue {
+class MessageQueue
+{
 public:
     void push(T message)
     {
@@ -28,7 +30,8 @@ public:
     {
         out.clear();
         std::lock_guard lock(mutex_);
-        if (pending_.empty()) {
+        if(pending_.empty())
+        {
             return false;
         }
         std::swap(out, pending_);

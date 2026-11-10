@@ -8,14 +8,16 @@
 
 struct ImGuiContext;
 
-namespace viewer::ui {
+namespace viewer::ui
+{
 
 // Owns an ImGui context and its SDL3 + SDL GPU backends.
 //
 // ImGui itself keeps a "current context" pointer internally; we create our own
 // context explicitly and own its lifetime here rather than relying on a
 // process-wide default.
-class ImGuiLayer {
+class ImGuiLayer
+{
 public:
     static std::unique_ptr<ImGuiLayer> create(SDL_Window* window, render::Renderer& renderer);
     ~ImGuiLayer();

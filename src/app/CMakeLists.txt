@@ -1,10 +1,13 @@
 add_executable(viewer
   main.cpp
   App.cpp
+  TextureBrowser.cpp
 )
 
 target_link_libraries(viewer PRIVATE
   viewer::core
+  viewer::image
+  viewer::assets
   viewer::render
   viewer::ui
   viewer_warnings

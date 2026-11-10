@@ -32,10 +32,12 @@ if(imgui_ADDED)
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlgpu3.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
   )
   target_include_directories(imgui SYSTEM PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
+    ${imgui_SOURCE_DIR}/misc/cpp
   )
   target_link_libraries(imgui PUBLIC SDL3::SDL3)
   target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
@@ -62,4 +64,34 @@ if(openjpeg_ADDED)
     ${openjpeg_BINARY_DIR}/src/lib/openjp2
   )
   add_library(OpenJPEG::openjp2 ALIAS openjpeg_iface)
+endif()
+
+# --- zstd: supercompression for the KTX2 texture cache ----------------------
+CPMAddPackage(
+  NAME zstd
+  GITHUB_REPOSITORY facebook/zstd
+  GIT_TAG v1.5.7
+  SOURCE_SUBDIR build/cmake
+  OPTIONS
+    "ZSTD_BUILD_PROGRAMS OFF"
+    "ZSTD_BUILD_SHARED OFF"
+    "ZSTD_BUILD_STATIC ON"
+    "ZSTD_BUILD_TESTS OFF"
+    "ZSTD_LEGACY_SUPPORT OFF"
+)
+if(zstd_ADDED)
+  add_library(zstd_iface INTERFACE)
+  target_link_libraries(zstd_iface INTERFACE libzstd_static)
+  target_include_directories(zstd_iface SYSTEM INTERFACE ${zstd_SOURCE_DIR}/lib)
+  add_library(zstd::zstd ALIAS zstd_iface)
+endif()
+
+# --- doctest: unit tests ----------------------------------------------------
+if(VIEWER_BUILD_TESTS)
+  CPMAddPackage(
+    NAME doctest
+    GITHUB_REPOSITORY doctest/doctest
+    GIT_TAG v2.5.3
+    OPTIONS "DOCTEST_WITH_TESTS OFF" "DOCTEST_NO_INSTALL ON"
+  )
 endif()

@@ -16,6 +16,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(VIEWER_BUILD_TOOLS "Build developer tools (j2kbench, ...)" ON)
+option(VIEWER_BUILD_TESTS "Build unit tests" ON)
 
 include(cmake/CPM.cmake)
 include(cmake/Dependencies.cmake)
@@ -37,4 +38,9 @@ add_subdirectory(src)
 
 if(VIEWER_BUILD_TOOLS)
   add_subdirectory(tools)
+endif()
+
+if(VIEWER_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
 endif()

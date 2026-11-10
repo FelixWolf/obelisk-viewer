@@ -4,7 +4,8 @@
 
 #include <cstdint>
 
-namespace viewer::image {
+namespace viewer::image
+{
 
 // Converts planar decoder output (one int plane per component, any bit depth,
 // signed or unsigned) to an 8-bit interleaved Image. Decoder backends share it
@@ -21,12 +22,15 @@ void interleaveTo8Bit(Image& out, uint32_t width, uint32_t height, uint32_t comp
     out.components = components;
     out.pixels.resize(static_cast<size_t>(width) * height * components);
 
-    for (uint32_t c = 0; c < components; ++c) {
+    for(uint32_t c = 0; c < components; c++)
+    {
         const int shift = static_cast<int>(precision[c]) - 8;
         const int32_t bias = isSigned[c] ? (1 << (precision[c] - 1)) : 0;
         uint8_t* dst = out.pixels.data() + c;
-        for (uint32_t y = 0; y < height; ++y) {
-            for (uint32_t x = 0; x < width; ++x) {
+        for(uint32_t y = 0; y < height; y++)
+        {
+            for(uint32_t x = 0; x < width; x++)
+            {
                 int32_t v = getSample(c, x, y) + bias;
                 v = shift > 0 ? (v >> shift) : (v << -shift);
                 v = v < 0 ? 0 : (v > 255 ? 255 : v);

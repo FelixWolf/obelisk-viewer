@@ -6,10 +6,13 @@
 #include <algorithm>
 #include <cstring>
 
-namespace viewer::image {
-namespace {
+namespace viewer::image
+{
+namespace
+{
 
-struct MemoryStream {
+struct MemoryStream
+{
     const uint8_t* data;
     size_t size;
     size_t pos;
@@ -18,7 +21,8 @@ struct MemoryStream {
 OPJ_SIZE_T streamRead(void* buffer, OPJ_SIZE_T bytes, void* user)
 {
     auto* s = static_cast<MemoryStream*>(user);
-    if (s->pos >= s->size) {
+    if(s->pos >= s->size)
+    {
         return static_cast<OPJ_SIZE_T>(-1);
     }
     const size_t n = std::min<size_t>(bytes, s->size - s->pos);
@@ -40,7 +44,8 @@ OPJ_OFF_T streamSkip(OPJ_OFF_T bytes, void* user)
 OPJ_BOOL streamSeek(OPJ_OFF_T pos, void* user)
 {
     auto* s = static_cast<MemoryStream*>(user);
-    if (pos < 0 || static_cast<size_t>(pos) > s->size) {
+    if(pos < 0 || static_cast<size_t>(pos) > s->size)
+    {
         return OPJ_FALSE;
     }
     s->pos = static_cast<size_t>(pos);
@@ -57,7 +62,8 @@ bool isJp2Container(std::span<const uint8_t> data)
            std::memcmp(data.data(), kJp2Signature, sizeof(kJp2Signature)) == 0;
 }
 
-class OpenJpegDecoder final : public J2kDecoder {
+class OpenJpegDecoder final : public J2kDecoder
+{
 public:
     std::string_view name() const override { return "openjpeg"; }
 
@@ -73,7 +79,8 @@ public:
         opj_stream_set_skip_function(stream, streamSkip);
         opj_stream_set_seek_function(stream, streamSeek);
 
-        opj_codec_t* codec = opj_create_decompress(isJp2Container(data) ? OPJ_CODEC_JP2 : OPJ_CODEC_J2K);
+        opj_codec_t* codec =
+            opj_create_decompress(isJp2Container(data) ? OPJ_CODEC_JP2 : OPJ_CODEC_J2K);
         opj_set_info_handler(codec, quietHandler, nullptr);
         opj_set_warning_handler(codec, quietHandler, nullptr);
         opj_set_error_handler(codec, quietHandler, nullptr);
@@ -85,29 +92,32 @@ public:
         opj_image_t* image = nullptr;
         bool ok = opj_setup_decoder(codec, &params) &&
                   opj_codec_set_threads(codec, static_cast<int>(options.threads)) &&
-                  opj_read_header(stream, codec, &image) &&
-                  opj_decode(codec, stream, image) &&
+                  opj_read_header(stream, codec, &image) && opj_decode(codec, stream, image) &&
                   opj_end_decompress(codec, stream);
 
-        if (ok && image->numcomps > 0 && image->numcomps <= 4) {
+        if(ok && image->numcomps > 0 && image->numcomps <= 4)
+        {
             const uint32_t n = image->numcomps;
             uint8_t precision[4];
             bool isSigned[4];
-            for (uint32_t c = 0; c < n; ++c) {
+            for(uint32_t c = 0; c < n; c++)
+            {
                 precision[c] = static_cast<uint8_t>(image->comps[c].prec);
                 isSigned[c] = image->comps[c].sgnd != 0;
             }
             const uint32_t w = image->comps[0].w;
             const uint32_t h = image->comps[0].h;
-            interleaveTo8Bit(out, w, h, n, precision, isSigned,
-                             [&](uint32_t c, uint32_t x, uint32_t y) {
-                                 return image->comps[c].data[static_cast<size_t>(y) * image->comps[c].w + x];
-                             });
-        } else {
+            interleaveTo8Bit(
+                out, w, h, n, precision, isSigned, [&](uint32_t c, uint32_t x, uint32_t y)
+                { return image->comps[c].data[static_cast<size_t>(y) * image->comps[c].w + x]; });
+        }
+        else
+        {
             ok = false;
         }
 
-        if (image) {
+        if(image)
+        {
             opj_image_destroy(image);
         }
         opj_destroy_codec(codec);

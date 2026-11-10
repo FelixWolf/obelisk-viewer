@@ -1,0 +1,29 @@
+# Project style: Allman braces on everything (functions, classes, control
+# statements), no space between a keyword and its parenthesis: if(...), for(...).
+# Run: clang-format -i <files>   (or let the editor format on save)
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -4
+
+BreakBeforeBraces: Allman
+SpaceBeforeParens: Never
+
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: All
+AllowShortEnumsOnASingleLine: false
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+IndentCaseLabels: false
+NamespaceIndentation: None
+FixNamespaceComments: true
+AlwaysBreakTemplateDeclarations: Yes
+IncludeBlocks: Preserve
+SortIncludes: CaseSensitive

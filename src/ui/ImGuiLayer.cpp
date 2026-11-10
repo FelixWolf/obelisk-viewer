@@ -6,7 +6,8 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
-namespace viewer::ui {
+namespace viewer::ui
+{
 
 std::unique_ptr<ImGuiLayer> ImGuiLayer::create(SDL_Window* window, render::Renderer& renderer)
 {
@@ -24,7 +25,8 @@ std::unique_ptr<ImGuiLayer> ImGuiLayer::create(SDL_Window* window, render::Rende
     style.ScaleAllSizes(scale);
     style.FontScaleDpi = scale;
 
-    if (!ImGui_ImplSDL3_InitForSDLGPU(window)) {
+    if(!ImGui_ImplSDL3_InitForSDLGPU(window))
+    {
         log::error("ImGui_ImplSDL3_InitForSDLGPU failed");
         ImGui::DestroyContext(context);
         return nullptr;
@@ -34,7 +36,8 @@ std::unique_ptr<ImGuiLayer> ImGuiLayer::create(SDL_Window* window, render::Rende
     info.Device = renderer.device();
     info.ColorTargetFormat = renderer.swapchainFormat();
     info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
-    if (!ImGui_ImplSDLGPU3_Init(&info)) {
+    if(!ImGui_ImplSDLGPU3_Init(&info))
+    {
         log::error("ImGui_ImplSDLGPU3_Init failed");
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext(context);
@@ -60,7 +63,8 @@ bool ImGuiLayer::processEvent(const SDL_Event& event)
     ImGui_ImplSDL3_ProcessEvent(&event);
 
     const ImGuiIO& io = ImGui::GetIO();
-    switch (event.type) {
+    switch(event.type)
+    {
     case SDL_EVENT_MOUSE_MOTION:
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -93,7 +97,8 @@ void ImGuiLayer::record(const render::Frame& frame)
 {
     ImGui::SetCurrentContext(context_);
     ImDrawData* drawData = ImGui::GetDrawData();
-    if (!drawData || drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f) {
+    if(!drawData || drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f)
+    {
         return;
     }
 
