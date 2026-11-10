@@ -37,17 +37,48 @@ LoginPanel::LoginPanel(session::MachineInfo machine, std::string channel, std::s
 {
     if(!loginUri.empty())
     {
-        const auto known = std::ranges::find(kGrids, std::string_view(loginUri), &Grid::uri);
-        if(known != kGrids.end() && !known->uri.empty())
-        {
-            grid_ = static_cast<int>(known - kGrids.begin());
-        }
-        else
-        {
-            grid_ = static_cast<int>(kGrids.size()) - 1;
-            customLoginUri_ = std::move(loginUri);
-        }
+        selectGrid(loginUri);
     }
+}
+
+void LoginPanel::selectGrid(const std::string& loginUri)
+{
+    const auto known = std::ranges::find(kGrids, std::string_view(loginUri), &Grid::uri);
+    if(known != kGrids.end() && !known->uri.empty())
+    {
+        grid_ = static_cast<int>(known - kGrids.begin());
+    }
+    else
+    {
+        grid_ = static_cast<int>(kGrids.size()) - 1;
+        customLoginUri_ = loginUri;
+    }
+}
+
+LoginAction LoginPanel::logInWith(const session::Credentials& credentials)
+{
+    username_ = credentials.name.first + " " + credentials.name.last;
+    selectGrid(credentials.loginUri);
+    return makeLogIn(credentials.name, credentials.passwordHash, credentials.loginUri);
+}
+
+LoginAction LoginPanel::makeLogIn(session::AgentName name, std::string passwordHash,
+                                  std::string loginUri)
+{
+    LoginAction action;
+    session::LoginParameters& p = action.parameters;
+    p.loginUri = std::move(loginUri);
+    p.name = std::move(name);
+    p.passwordHash = std::move(passwordHash);
+    p.start = start_ == 0   ? "last"
+              : start_ == 1 ? "home"
+                            : std::format("uri:{}&128&128&0", startRegion_);
+    p.channel = channel_;
+    p.version = version_;
+    p.machine = machine_;
+    lastAttempt_ = p;
+    action.kind = LoginAction::Kind::LogIn;
+    return action;
 }
 
 LoginPanel::~LoginPanel()
@@ -275,19 +306,8 @@ LoginAction LoginPanel::drawForm(const session::Session* session)
         }
         else
         {
-            session::LoginParameters& p = action.parameters;
-            p.loginUri = loginUri;
-            p.name = std::move(*name);
-            p.passwordHash = session::hashPassword(password_);
-            p.start = start_ == 0   ? "last"
-                      : start_ == 1 ? "home"
-                                    : std::format("uri:{}&128&128&0", startRegion_);
-            p.channel = channel_;
-            p.version = version_;
-            p.machine = machine_;
+            action = makeLogIn(std::move(*name), session::hashPassword(password_), loginUri);
             wipePassword();
-            lastAttempt_ = p;
-            action.kind = LoginAction::Kind::LogIn;
         }
     }
     if(!formError_.empty())

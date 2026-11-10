@@ -26,6 +26,7 @@ struct AppOptions
     std::filesystem::path cacheDirectory;  // empty = platform default
     std::filesystem::path importDirectory; // optional: texture browser import on startup
     std::string loginUri;                  // empty = Second Life main grid
+    std::filesystem::path loginFile;       // optional: log in at startup (see Credentials.hpp)
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.

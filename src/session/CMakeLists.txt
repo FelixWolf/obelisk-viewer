@@ -1,4 +1,5 @@
 add_library(viewer_session STATIC
+  Credentials.cpp
   Login.cpp
   MachineInfo.cpp
   Session.cpp

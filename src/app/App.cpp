@@ -48,7 +48,8 @@ fs::path defaultCacheDirectory()
 void printUsage()
 {
     std::println(stderr,
-                 "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]");
+                 "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
+                 "[--login-file PATH]");
 }
 
 } // namespace
@@ -69,6 +70,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.importDirectory = args[i];
+        }
+        else if(arg == "--login-file" && hasValue)
+        {
+            i++;
+            options.loginFile = args[i];
         }
         else if(arg == "--grid" && hasValue)
         {
@@ -146,6 +152,17 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
     app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
                                                     VIEWER_VERSION, options.loginUri);
+    if(!options.loginFile.empty())
+    {
+        if(auto credentials = session::readCredentialsFile(options.loginFile))
+        {
+            app->handleLoginAction(app->loginPanel_->logInWith(*credentials));
+        }
+        else
+        {
+            log::error("{}", credentials.error());
+        }
+    }
 
     return app;
 }

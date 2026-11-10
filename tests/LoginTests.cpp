@@ -1,8 +1,13 @@
+#include "TestUtil.hpp"
+
 #include "viewer/core/Md5.hpp"
 #include "viewer/llsd/Serialization.hpp"
+#include "viewer/session/Credentials.hpp"
 #include "viewer/session/Login.hpp"
 
 #include <doctest/doctest.h>
+
+#include <fstream>
 
 using namespace viewer::session;
 namespace llsd = viewer::llsd;
@@ -143,4 +148,37 @@ TEST_CASE("Login reply: failures")
     CHECK(indeterminate.error().reason == "indeterminate");
 
     CHECK(parseLoginReply(llsd::Value(5)).error().reason == "llsd");
+}
+
+TEST_CASE("Credentials files")
+{
+    viewer::test::TempDirectory dir("credentials");
+    auto write = [&](const std::string& name, const std::string& text)
+    {
+        const auto path = dir.path() / name;
+        std::ofstream(path) << text;
+        std::filesystem::permissions(path, std::filesystem::perms::owner_read |
+                                               std::filesystem::perms::owner_write);
+        return path;
+    };
+
+    const auto plain = readCredentialsFile(write("plain.txt", "Test Resident\nsecret\n"));
+    REQUIRE(plain.has_value());
+    CHECK(plain->name.first == "Test");
+    CHECK(plain->name.last == "Resident");
+    CHECK(plain->passwordHash == hashPassword("secret"));
+    CHECK(plain->loginUri == kAditiLoginUri); // test grid unless told otherwise
+
+    const std::string hash = hashPassword("secret");
+    const auto hashed =
+        readCredentialsFile(write("hashed.txt", "tester\r\n  " + hash + "  \r\nhttps://x/login\n"));
+    REQUIRE(hashed.has_value());
+    CHECK(hashed->name.last == "Resident");
+    CHECK(hashed->passwordHash == hash);
+    CHECK(hashed->loginUri == "https://x/login");
+
+    CHECK_FALSE(readCredentialsFile(write("short.txt", "only a name\n")).has_value());
+    CHECK_FALSE(readCredentialsFile(write("blank.txt", "name\n\n")).has_value());
+    CHECK_FALSE(readCredentialsFile(dir.path() / "missing.txt").has_value());
+    CHECK_FALSE(readCredentialsFile(dir.path()).has_value()); // a directory
 }

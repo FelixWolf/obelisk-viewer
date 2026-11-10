@@ -2,3 +2,6 @@
 /.cache/
 imgui.ini
 .vscode/
+# Login credentials for test accounts (see src/session/.../Credentials.hpp)
+*.credentials
+login*.txt

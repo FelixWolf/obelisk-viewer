@@ -63,6 +63,7 @@ git submodule update --init                 # the message template
 cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
 ./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
+./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
 
@@ -116,6 +117,11 @@ The login server's prompts come back as failures with a reason: `tos` and
 retry reuses the last attempt's parameters, so the password isn't needed
 again. Only the `$1$` MD5 hash of the password is kept, and the plain text is
 wiped from the input buffer as soon as it's hashed.
+
+For development, `--login-file PATH` (viewer) and `logintest` (headless) read
+a test account from a text file: username, then password or `$1$<md5>`, then
+optionally a login URI (default: the Aditi beta grid). See
+`src/session/include/viewer/session/Credentials.hpp`.
 
 `mac` and `id0` must describe the real machine (`queryMachineInfo`). Falsifying
 them violates the Second Life Terms of Service, so there's no way to override

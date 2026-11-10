@@ -5,6 +5,7 @@
 // lives only in the input buffer until "Log in" is pressed, and is then
 // replaced by its hash.
 
+#include "viewer/session/Credentials.hpp"
 #include "viewer/session/Login.hpp"
 #include "viewer/session/Session.hpp"
 
@@ -34,8 +35,14 @@ public:
 
     LoginAction draw(const session::Session* session);
 
+    // Logs in with details from a credentials file (--login-file), filling
+    // in the form so retries (TOS, MFA) work as if they had been typed.
+    LoginAction logInWith(const session::Credentials& credentials);
+
 private:
     LoginAction drawForm(const session::Session* session);
+    void selectGrid(const std::string& loginUri);
+    LoginAction makeLogIn(session::AgentName name, std::string passwordHash, std::string loginUri);
     void drawSession(const session::Session& session, LoginAction& action);
     void wipePassword();
 
