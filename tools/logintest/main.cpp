@@ -3,13 +3,20 @@
 // circuit code against a real grid with a test account.
 //
 // Usage: logintest --login-file PATH [--seconds N] [--start last|home|REGION]
+//                  [--dump-layer-data DIR]
+//
+// --dump-layer-data writes each land LayerData message to DIR/layer_<region handle>_<n>.bin
+// (one byte layer type, then the packed data), for test fixtures.
 
+#include "viewer/protocol/Messages.hpp"
 #include "viewer/session/Credentials.hpp"
 #include "viewer/session/Session.hpp"
 
 #include <charconv>
 #include <chrono>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <print>
 #include <thread>
 
@@ -23,7 +30,8 @@ namespace
 int usage()
 {
     std::println(stderr,
-                 "usage: logintest --login-file PATH [--seconds N] [--start last|home|REGION]");
+                 "usage: logintest --login-file PATH [--seconds N] [--start last|home|REGION] "
+                 "[--dump-layer-data DIR]");
     return 2;
 }
 
@@ -65,6 +73,7 @@ int main(int argc, char** argv)
     std::string loginFile;
     int seconds = 20;
     std::string start = "last";
+    std::filesystem::path dumpDirectory;
     for(int i = 1; i < argc; i++)
     {
         const std::string_view arg = argv[i];
@@ -87,6 +96,10 @@ int main(int argc, char** argv)
         else if(arg == "--start")
         {
             start = argv[++i];
+        }
+        else if(arg == "--dump-layer-data")
+        {
+            dumpDirectory = argv[++i];
         }
         else
         {
@@ -119,11 +132,35 @@ int main(int argc, char** argv)
     Session session(*http, std::move(parameters));
 
     // Log in and stay for the requested time (or until something ends it).
+    std::vector<RegionMessage> messages;
+    int dumped = 0;
+    if(!dumpDirectory.empty())
+    {
+        std::filesystem::create_directories(dumpDirectory);
+    }
     SessionState last = session.state();
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     while(std::chrono::steady_clock::now() < deadline)
     {
         session.update();
+        session.drainRegionMessages(messages);
+        for(const auto& m : messages)
+        {
+            if(dumpDirectory.empty() || !m.event.is<protocol::msg::LayerData>())
+            {
+                continue;
+            }
+            const auto layer = m.event.decode<protocol::msg::LayerData>();
+            if(layer && layer->LayerID.Type == 'L')
+            {
+                std::ofstream out(dumpDirectory / std::format("layer_{:016x}_{:03}.bin",
+                                                              m.regionHandle, dumped++),
+                                  std::ios::binary);
+                out.put(static_cast<char>(layer->LayerID.Type));
+                out.write(reinterpret_cast<const char*>(layer->LayerData_.Data.data()),
+                          static_cast<std::streamsize>(layer->LayerData_.Data.size()));
+            }
+        }
         if(session.state() != last)
         {
             last = session.state();

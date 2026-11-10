@@ -1,10 +1,12 @@
 #include "App.hpp"
 
 #include "viewer/core/Log.hpp"
+#include "viewer/image/Png.hpp"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <format>
 #include <print>
@@ -70,6 +72,36 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.importDirectory = args[i];
+        }
+        else if(arg == "--camera" && hasValue)
+        {
+            i++;
+            std::array<float, 6> c{};
+            if(std::sscanf(args[i], "%f %f %f %f %f %f", &c[0], &c[1], &c[2], &c[3], &c[4],
+                           &c[5]) != 6)
+            {
+                printUsage();
+                return std::nullopt;
+            }
+            options.camera = c;
+        }
+        else if(arg == "--test-scene")
+        {
+            options.testScene = true;
+        }
+        else if(arg == "--pbr-terrain")
+        {
+            options.pbrTerrain = true;
+        }
+        else if(arg == "--screenshot" && hasValue)
+        {
+            i++;
+            options.screenshotPath = args[i];
+        }
+        else if(arg == "--screenshot-delay" && hasValue)
+        {
+            i++;
+            options.screenshotDelay = std::strtof(args[i], nullptr);
         }
         else if(arg == "--login-file" && hasValue)
         {
@@ -149,6 +181,21 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         app->textureBrowser_->importDirectory(options.importDirectory);
     }
 
+    app->sceneAssets_ = std::make_unique<SceneAssets>(*app->renderer_);
+    app->showTestScene_ = options.testScene;
+    app->pbrTerrain_ = options.pbrTerrain;
+    app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
+    if(options.camera)
+    {
+        const auto& c = *options.camera;
+        app->camera_.lookAt(glm::vec3(c[0], c[1], c[2]), c[3], c[4], c[5]);
+    }
+    app->fixedCamera_ = options.camera.has_value();
+    app->screenshotPath_ = options.screenshotPath;
+    app->screenshotDelay_ = options.screenshotDelay;
+    app->startTicks_ = SDL_GetTicksNS();
+    app->lastFrameTicks_ = app->startTicks_;
+
     app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
     app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
                                                     VIEWER_VERSION, options.loginUri);
@@ -176,8 +223,9 @@ void App::handleLoginAction(LoginAction action)
     case LoginAction::Kind::LogIn:
         // Destroy the old session first so its requests are cancelled before
         // the new one starts.
-        session_.reset();
+        endSession();
         session_ = std::make_unique<session::Session>(*http_, std::move(action.parameters));
+        world_ = std::make_unique<world::World>();
         break;
     case LoginAction::Kind::LogOut:
         if(session_)
@@ -196,7 +244,11 @@ int App::run()
         while(SDL_PollEvent(&event))
         {
             const bool uiConsumed = ui_->processEvent(event);
-            (void)uiConsumed; // later: forward unconsumed input to the camera/avatar
+            const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
+            if(!uiConsumed || releasing)
+            {
+                camera_.handleEvent(event);
+            }
 
             if(event.type == SDL_EVENT_QUIT)
             {
@@ -219,6 +271,18 @@ int App::run()
         }
 
         textureBrowser_->update();
+        const uint64_t now = SDL_GetTicksNS();
+        if(!ImGui::GetIO().WantCaptureKeyboard)
+        {
+            camera_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f);
+        }
+        lastFrameTicks_ = now;
+        if(!screenshotPath_.empty() && !screenshotRequested_ &&
+           static_cast<float>(now - startTicks_) * 1e-9f >= screenshotDelay_)
+        {
+            renderer_->requestScreenshot();
+            screenshotRequested_ = true;
+        }
 
         ui_->beginFrame();
         drawUi();
@@ -226,10 +290,23 @@ int App::run()
 
         if(auto frame = renderer_->beginFrame())
         {
-            renderer_->drawScene(*frame);
+            renderer_->drawScene(*frame, buildScene());
             ui_->record(*frame);
         }
         renderer_->endFrame();
+
+        if(auto shot = renderer_->takeScreenshot())
+        {
+            if(image::writePng(screenshotPath_, *shot))
+            {
+                log::info("screenshot saved to {}", screenshotPath_.string());
+            }
+            else
+            {
+                log::error("couldn't write {}", screenshotPath_.string());
+            }
+            running_ = false;
+        }
     }
     logOutBeforeExit();
     return 0;
@@ -242,10 +319,68 @@ void App::updateSession()
         return;
     }
     session_->update();
+
+    session_->drainRegionMessages(regionMessages_);
+    for(const auto& m : regionMessages_)
+    {
+        if(m.kind == session::RegionMessage::Kind::RegionRemoved)
+        {
+            world_->removeRegion(m.regionHandle);
+        }
+        else
+        {
+            world_->handleMessage(m.regionHandle, m.event);
+        }
+    }
+
+    // Once we know where the agent is, put the world origin at its region
+    // and the camera behind it.
+    if(!originHandle_ && session_->agentRegion())
+    {
+        originHandle_ = session_->agentRegion();
+        const auto p = session_->agentPosition();
+        if(!fixedCamera_)
+        {
+            camera_.lookAt(glm::vec3(p.x, p.y, p.z), 25.0f, 90.0f, 25.0f);
+        }
+    }
+
     if(session_->state() == session::SessionState::LoggedOut)
     {
-        session_.reset();
+        endSession();
     }
+}
+
+void App::endSession()
+{
+    session_.reset();
+    world_.reset();
+    terrainView_.clear();
+    originHandle_.reset();
+}
+
+render::Scene App::buildScene()
+{
+    render::Scene scene;
+    scene.camera = camera_.camera();
+    if(world_ && originHandle_)
+    {
+        terrainView_.update(*world_, *renderer_);
+        TerrainView::Material material = sceneAssets_->terrainBlinnPhong();
+        if(pbrTerrain_)
+        {
+            material = sceneAssets_->terrainPbr();
+        }
+        terrainView_.addTo(scene, *originHandle_, material);
+    }
+    if(showTestScene_ || !originHandle_)
+    {
+        // Logged in: next to the camera's target, so it's easy to find.
+        const glm::vec3 origin =
+            originHandle_ ? camera_.target() + glm::vec3(0.0f, 30.0f, 0.0f) : glm::vec3(0.0f);
+        sceneAssets_->addTestScene(scene, origin);
+    }
+    return scene;
 }
 
 void App::logOutBeforeExit()
@@ -262,7 +397,7 @@ void App::logOutBeforeExit()
         SDL_Delay(10);
         updateSession();
     }
-    session_.reset();
+    endSession();
 }
 
 void App::drawUi()
@@ -277,7 +412,17 @@ void App::drawUi()
         ImGui::Text("GPU driver: %s", renderer_->driverName());
         ImGui::Text("Worker threads: %u (%zu jobs queued)", jobs_->threadCount(),
                     jobs_->pendingCount());
+        ImGui::Checkbox("Material test scene", &showTestScene_);
+        ImGui::Checkbox("PBR terrain shader", &pbrTerrain_);
         ImGui::Checkbox("ImGui demo window", &showDemoWindow_);
+        const glm::vec3 target = camera_.target();
+        ImGui::Text("Camera target %.1f, %.1f, %.1f", static_cast<double>(target.x),
+                    static_cast<double>(target.y), static_cast<double>(target.z));
+        if(world_)
+        {
+            ImGui::Text("Terrain regions: %zu", world_->terrain().size());
+        }
+        ImGui::TextDisabled("Right-drag: look, wheel: zoom, middle-drag: pan, WASD/QE: move");
     }
     ImGui::End();
 

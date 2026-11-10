@@ -85,6 +85,21 @@ struct Region
     uint32_t gridY() const { return static_cast<uint32_t>(handle) / 256; }
 };
 
+// A message for the rest of the viewer (world state etc.), tagged with the
+// region it came from. Session handles the connection-level messages itself
+// and passes everything along.
+struct RegionMessage
+{
+    enum class Kind : uint8_t
+    {
+        Message,       // `event` holds a message from the region
+        RegionRemoved, // the region's circuit was closed
+    };
+    Kind kind = Kind::Message;
+    uint64_t regionHandle = 0;
+    protocol::CircuitEvent event{};
+};
+
 class Session
 {
 public:
@@ -104,6 +119,19 @@ public:
     void requestLogout();
 
     SessionState state() const { return state_; }
+
+    // Messages for the world, in arrival order. Drain every frame; they
+    // queue up otherwise.
+    void drainRegionMessages(std::vector<RegionMessage>& out)
+    {
+        out.clear();
+        std::swap(out, regionMessages_);
+    }
+
+    // Where the agent is: its region's handle and the position in it
+    // (from AgentMovementComplete; updated by later messages in time).
+    std::optional<uint64_t> agentRegion() const { return agentRegion_; }
+    protocol::Vector3 agentPosition() const { return agentPosition_; }
 
     // Set once the login server accepted us.
     const LoginSuccess* login() const { return login_ ? &*login_ : nullptr; }
@@ -180,6 +208,9 @@ private:
     std::chrono::steady_clock::time_point lastAgentUpdate_{};
     std::map<std::string, uint64_t, std::less<>> messageCounts_;
     std::map<std::string, uint64_t, std::less<>> eventCounts_;
+    std::vector<RegionMessage> regionMessages_;
+    std::optional<uint64_t> agentRegion_;
+    protocol::Vector3 agentPosition_{};
 
     // Declaration order is destruction order in reverse: the HTTP groups go
     // first (no more callbacks), then the circuits (network thread joined),

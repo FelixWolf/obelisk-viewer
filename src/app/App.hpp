@@ -1,6 +1,9 @@
 #pragma once
 
+#include "CameraController.hpp"
 #include "LoginPanel.hpp"
+#include "SceneAssets.hpp"
+#include "TerrainView.hpp"
 #include "TextureBrowser.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
@@ -10,11 +13,14 @@
 #include "viewer/render/Renderer.hpp"
 #include "viewer/session/Session.hpp"
 #include "viewer/ui/ImGuiLayer.hpp"
+#include "viewer/world/World.hpp"
 
 #include <SDL3/SDL_video.h>
 
+#include <array>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -23,10 +29,15 @@ namespace viewer
 
 struct AppOptions
 {
-    std::filesystem::path cacheDirectory;  // empty = platform default
-    std::filesystem::path importDirectory; // optional: texture browser import on startup
-    std::string loginUri;                  // empty = Second Life main grid
-    std::filesystem::path loginFile;       // optional: log in at startup (see Credentials.hpp)
+    std::filesystem::path cacheDirectory;       // empty = platform default
+    std::filesystem::path importDirectory;      // optional: texture browser import on startup
+    std::string loginUri;                       // empty = Second Life main grid
+    std::filesystem::path loginFile;            // optional: log in at startup (see Credentials.hpp)
+    bool testScene = false;                     // show the material test scene
+    bool pbrTerrain = false;                    // start with the PBR terrain shader
+    std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
+    float screenshotDelay = 3.0f;               // seconds after startup
+    std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -61,6 +72,8 @@ private:
     void handleLoginAction(LoginAction action);
     void updateSession();
     void logOutBeforeExit();
+    render::Scene buildScene();
+    void endSession();
 
     struct SdlRuntime
     {
@@ -86,10 +99,25 @@ private:
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<LoginPanel> loginPanel_;
+    std::unique_ptr<SceneAssets> sceneAssets_;
     std::unique_ptr<session::Session> session_;
+    // Session-lifetime, created and destroyed together with session_.
+    std::unique_ptr<world::World> world_;
+    TerrainView terrainView_;
+    std::vector<session::RegionMessage> regionMessages_;
+    std::optional<uint64_t> originHandle_; // world coordinates are relative to this region
 
+    CameraController camera_;
     bool running_ = true;
     bool showDemoWindow_ = false;
+    bool showTestScene_ = false;
+    bool pbrTerrain_ = false;
+    bool fixedCamera_ = false; // --camera given: don't move it to the agent
+    std::filesystem::path screenshotPath_;
+    float screenshotDelay_ = 0.0f;
+    bool screenshotRequested_ = false;
+    uint64_t startTicks_ = 0;
+    uint64_t lastFrameTicks_ = 0;
 };
 
 } // namespace viewer

@@ -5,9 +5,10 @@
 #   core  <-  image  <-  render  <-  ui
 #   core  <-  net  <-  protocol         (generated messages, UDP circuits)
 #   core  <-  llsd, net, protocol  <-  session   (login, regions, caps, event queues)
+#   core  <-  protocol  <-  world      (terrain; later objects, avatars)
 #   app sees everything
 #
-# Planned: world, xr, voice.
+# Planned: xr, voice.
 
 add_subdirectory(core)
 add_subdirectory(image)
@@ -16,6 +17,7 @@ add_subdirectory(llsd)
 add_subdirectory(net)
 add_subdirectory(protocol)
 add_subdirectory(session)
+add_subdirectory(world)
 add_subdirectory(render)
 add_subdirectory(ui)
 add_subdirectory(app)

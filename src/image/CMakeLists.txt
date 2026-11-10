@@ -1,6 +1,7 @@
 add_library(viewer_image STATIC
   OpenJpegDecoder.cpp # defines createJ2kDecoder(); swap this file to change backend
   Ktx2.cpp
+  Png.cpp
   TextureProcessing.cpp
 )
 add_library(viewer::image ALIAS viewer_image)

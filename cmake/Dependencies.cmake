@@ -151,3 +151,45 @@ CPMAddPackage(
     "CURL_ZLIB OFF"
     "${VIEWER_CURL_TLS}"
 )
+
+# --- GLM: vector/matrix math (header-only) -----------------------------------
+CPMAddPackage(
+  NAME glm
+  GITHUB_REPOSITORY g-truc/glm
+  GIT_TAG 1.0.3
+  DOWNLOAD_ONLY YES
+)
+if(glm_ADDED)
+  add_library(viewer_glm INTERFACE)
+  target_include_directories(viewer_glm SYSTEM INTERFACE ${glm_SOURCE_DIR})
+  # Right-handed, depth 0..1 (SDL GPU's convention on every backend).
+  target_compile_definitions(viewer_glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_RADIANS)
+  add_library(glm::glm ALIAS viewer_glm)
+endif()
+
+# --- glslang: compiles our GLSL shaders to SPIR-V at build time ---------------
+# Uses an installed glslangValidator / glslang when there is one; otherwise
+# builds glslang's command-line compiler from source.
+option(VIEWER_BUNDLED_GLSLANG "Always build glslang instead of using an installed one" OFF)
+if(NOT VIEWER_BUNDLED_GLSLANG)
+  find_program(VIEWER_GLSLANG_EXECUTABLE NAMES glslangValidator glslang)
+endif()
+if(VIEWER_BUNDLED_GLSLANG OR NOT VIEWER_GLSLANG_EXECUTABLE)
+  CPMAddPackage(
+    NAME glslang
+    GITHUB_REPOSITORY KhronosGroup/glslang
+    GIT_TAG 16.6.0
+    OPTIONS
+      "ENABLE_OPT OFF"
+      "ENABLE_HLSL OFF"
+      "ENABLE_SPVREMAPPER OFF"
+      "ENABLE_GLSLANG_BINARIES ON"
+      "GLSLANG_TESTS OFF"
+      "GLSLANG_ENABLE_INSTALL OFF"
+      "BUILD_EXTERNAL OFF"
+      "BUILD_SHARED_LIBS OFF"
+  )
+  set(VIEWER_GLSLANG_EXECUTABLE $<TARGET_FILE:glslang-standalone>)
+  set(VIEWER_GLSLANG_DEPENDS glslang-standalone)
+endif()
+message(STATUS "Shader compiler: ${VIEWER_GLSLANG_EXECUTABLE}")

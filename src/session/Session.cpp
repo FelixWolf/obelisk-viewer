@@ -358,6 +358,8 @@ void Session::removeRegion(protocol::CircuitId circuit, std::string_view why)
     }
     log::info("closing circuit {} to {} ('{}'): {}", circuit, it->second->endpoint.toString(),
               it->second->name, why);
+    regionMessages_.push_back(
+        RegionMessage{RegionMessage::Kind::RegionRemoved, it->second->handle, {}});
     circuits_.close(circuit);
     regions_.erase(it); // cancels its HTTP requests
 }
@@ -554,6 +556,7 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
     }
 
     messageCounts_[messageName(event.messageId)]++;
+    regionMessages_.push_back(RegionMessage{RegionMessage::Kind::Message, region->handle, event});
 
     if(event.is<msg::RegionHandshake>())
     {
@@ -563,6 +566,8 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
     {
         if(auto m = event.decode<msg::AgentMovementComplete>())
         {
+            agentRegion_ = region->handle;
+            agentPosition_ = m->Data.Position;
             log::info("arrived at ({:.1f}, {:.1f}, {:.1f}); simulator {}",
                       static_cast<double>(m->Data.Position.x),
                       static_cast<double>(m->Data.Position.y),

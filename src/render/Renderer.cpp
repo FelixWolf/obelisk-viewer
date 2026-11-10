@@ -1,5 +1,7 @@
 #include "viewer/render/Renderer.hpp"
 
+#include "RendererPipelines.hpp"
+
 #include "viewer/core/Log.hpp"
 
 #include <SDL3/SDL_error.h>
@@ -12,8 +14,9 @@ namespace viewer::render
 
 std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOptions& options)
 {
-    const SDL_GPUShaderFormat formats =
-        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL;
+    // Shaders are built as SPIR-V only for now, which selects Vulkan (Linux,
+    // Windows). Metal (MSL) and D3D12 (DXIL) need converted shaders first.
+    const SDL_GPUShaderFormat formats = SDL_GPU_SHADERFORMAT_SPIRV;
 
     SDL_GPUDevice* device = SDL_CreateGPUDevice(formats, options.gpuDebug, nullptr);
     if(!device)
@@ -33,7 +36,12 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
                                   SDL_GPU_PRESENTMODE_VSYNC);
 
     log::info("GPU device created (driver: {})", SDL_GetGPUDeviceDriver(device));
-    return std::unique_ptr<Renderer>(new Renderer(window, device));
+    std::unique_ptr<Renderer> renderer(new Renderer(window, device));
+    if(!renderer->createPipelines() || !renderer->createDefaultTextures())
+    {
+        return nullptr;
+    }
+    return renderer;
 }
 
 Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device) : window_(window), device_(device) {}
@@ -41,6 +49,25 @@ Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device) : window_(window),
 Renderer::~Renderer()
 {
     SDL_WaitForGPUIdle(device_);
+    // Everything created on the device goes before the device itself.
+    pipelines_.reset();
+    white_.reset();
+    black_.reset();
+    flatNormal_.reset();
+    whiteLayers_.reset();
+    blackLayers_.reset();
+    flatNormalLayers_.reset();
+    for(SDL_GPUTexture* t : {hdrTarget_, depthTarget_, screenshotTexture_})
+    {
+        if(t)
+        {
+            SDL_ReleaseGPUTexture(device_, t);
+        }
+    }
+    if(screenshotTransfer_)
+    {
+        SDL_ReleaseGPUTransferBuffer(device_, screenshotTransfer_);
+    }
     SDL_ReleaseWindowFromGPUDevice(device_, window_);
     SDL_DestroyGPUDevice(device_);
 }
@@ -79,18 +106,6 @@ std::optional<Frame> Renderer::beginFrame()
         return std::nullopt; // minimized or too many frames in flight
     }
     return frame;
-}
-
-void Renderer::drawScene(const Frame& frame)
-{
-    SDL_GPUColorTargetInfo color = {};
-    color.texture = frame.target;
-    color.clear_color = SDL_FColor{0.08f, 0.10f, 0.14f, 1.0f};
-    color.load_op = SDL_GPU_LOADOP_CLEAR;
-    color.store_op = SDL_GPU_STOREOP_STORE;
-
-    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(frame.commands, &color, 1, nullptr);
-    SDL_EndGPURenderPass(pass);
 }
 
 std::vector<GpuTexture>
@@ -213,6 +228,20 @@ void Renderer::endFrame()
 {
     if(!currentCommands_)
     {
+        return;
+    }
+    if(screenshotPending_)
+    {
+        // Rare (screenshots only), so simply wait for this frame to finish.
+        SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(currentCommands_);
+        currentCommands_ = nullptr;
+        if(fence)
+        {
+            SDL_WaitForGPUFences(device_, true, &fence, 1);
+            SDL_ReleaseGPUFence(device_, fence);
+            finishScreenshot();
+        }
+        screenshotPending_ = false;
         return;
     }
     if(!SDL_SubmitGPUCommandBuffer(currentCommands_))

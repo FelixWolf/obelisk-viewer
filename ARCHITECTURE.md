@@ -33,9 +33,13 @@ src/protocol Message structs generated from the message template,
              packet framing, CircuitManager (UDP circuits)         -> viewer::protocol
 src/session  Login, Session (one login: regions, circuits, caps,
              event queues)                                         -> viewer::session
-src/render   SDL GPU device, frames, texture upload                -> viewer::render
+src/render   SDL GPU device, scene pass (HDR + depth), tonemap,
+             the four material pipelines, meshes, texture upload   -> viewer::render
+src/render/shaders  GLSL, compiled to SPIR-V at build time and embedded
+src/world    World state: terrain (LayerData decode) per region    -> viewer::world
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
-src/app      App (owns everything), LoginPanel, TextureBrowser panel, main()
+src/app      App (owns everything), LoginPanel, TextureBrowser, camera,
+             TerrainView (terrain meshes), procedural test scene, main()
 tests/       doctest unit tests (fixtures in tests/data)
 tools/j2kbench   benchmarks J2kDecoder implementations
 tools/httpget    one request through HttpClient; pretty-prints LLSD replies
@@ -63,6 +67,8 @@ git submodule update --init                 # the message template
 cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
 ./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
+    [--login-file PATH] [--test-scene] [--pbr-terrain]
+    [--screenshot OUT.png [--screenshot-delay S]] [--camera "X Y Z DISTANCE YAW PITCH"]
 ./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
@@ -166,3 +172,36 @@ per message (`viewer::protocol::msg::UseCircuitCode`, ...) with
 `encode`/`decode`, keeping the template's field names. A block with the same
 name as its message gets a trailing underscore (`SimulatorLoad_`). The byte
 layout is checked against pymetaverse in `tests/ProtocolTests.cpp`.
+
+## Rendering
+
+Each frame the App builds a `render::Scene`: camera, lighting, and lists of
+terrain and object draws referring to meshes, textures and materials it
+owns. `Renderer::drawScene` renders it into an RGBA16F target with a depth
+buffer, then a tonemap pass (exposure, ACES fit, sRGB encoding) writes the
+swapchain image, and ImGui draws on top.
+
+Four material families, each its own pipeline:
+
+| Material | Shaders | Textures |
+|---|---|---|
+| `BlinnPhongMaterial` (default objects) | object.vert + blinnphong.frag | diffuse (A: opacity), normal (A: glossiness), specular (RGB color) |
+| `PbrMaterial` (PBR objects) | object.vert + pbr.frag | albedo, packed occlusion/roughness/metallic (RGB), emissive with tint, MikkTSpace normal; roughness and metallic factors |
+| `TerrainBlinnPhongMaterial` | terrain.vert + terrain_blinnphong.frag | one 4-layer array of diffuse textures |
+| `TerrainPbrMaterial` | terrain.vert + terrain_pbr.frag | 4-layer arrays of albedo, ORM, emissive and normal, with per-layer factors |
+
+Missing textures fall back to neutral defaults (white, flat normal, no
+emission). Terrain blends between adjacent layers by a per-vertex composition
+value (0..3), computed like the official viewer: the height plus noise,
+against the region's start heights and ranges. Terrain textures are
+procedural placeholders until texture fetching exists.
+
+Shaders are GLSL in `src/render/shaders`, compiled to SPIR-V by glslang at
+build time (the installed `glslangValidator` if there is one, otherwise
+glslang is built from source; `-DVIEWER_BUNDLED_GLSLANG=ON` forces that) and
+embedded in the binary. Only SPIR-V is built, so SDL uses Vulkan (Linux,
+Windows). Metal and D3D12 need the SPIR-V converted (SPIRV-Cross /
+shadercross) first.
+
+`--screenshot` saves the scene (without UI) as a PNG and quits, which is how
+rendering changes get checked without someone looking at the window.

@@ -9,6 +9,7 @@ add_executable(viewer_tests
   Md5Tests.cpp
   ProtocolTests.cpp
   SessionTests.cpp
+  TerrainTests.cpp
   TextureCacheTests.cpp
   TextureProcessingTests.cpp
   UuidTests.cpp
@@ -22,6 +23,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::net
   viewer::protocol
   viewer::session
+  viewer::world
   viewer_warnings
 )
 target_compile_definitions(viewer_tests PRIVATE

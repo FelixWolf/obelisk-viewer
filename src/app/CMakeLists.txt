@@ -1,7 +1,11 @@
 add_executable(viewer
   main.cpp
   App.cpp
+  CameraController.cpp
   LoginPanel.cpp
+  Procedural.cpp
+  SceneAssets.cpp
+  TerrainView.cpp
   TextureBrowser.cpp
 )
 
@@ -11,6 +15,7 @@ target_link_libraries(viewer PRIVATE
   viewer::assets
   viewer::net
   viewer::session
+  viewer::world
   viewer::render
   viewer::ui
   viewer_warnings
