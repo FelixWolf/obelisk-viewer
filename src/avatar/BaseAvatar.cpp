@@ -65,6 +65,12 @@ void addBones(Skeleton& skeleton, const tinyxml2::XMLElement* element, int paren
             !bone->Attribute("support") || std::string_view(bone->Attribute("support")) == "base";
         const int index = static_cast<int>(skeleton.joints.size());
         skeleton.byName[j.name] = index;
+        // Other names animations may use ("hip", "avatar_mPelvis", ...).
+        std::istringstream aliases(bone->Attribute("aliases") ? bone->Attribute("aliases") : "");
+        for(std::string alias; aliases >> alias;)
+        {
+            skeleton.byName.try_emplace(alias, index);
+        }
         skeleton.joints.push_back(std::move(j));
         addBones(skeleton, bone, index);
     }
@@ -410,6 +416,52 @@ std::expected<BaseAvatar, std::string> BaseAvatar::load(const std::filesystem::p
             return std::unexpected(mesh.error());
         }
         avatar.meshes.push_back(std::move(*mesh));
+    }
+
+    // Where each joint was when the meshes were made: the sum of its base
+    // ancestors' pivots (llavatarjointmesh.cpp totalSkinOffset).
+    const auto& joints = avatar.skeleton.joints;
+    for(size_t i = 0; i < joints.size(); i++)
+    {
+        const glm::vec3 own = joints[i].base ? joints[i].pivot : glm::vec3(0.0f);
+        avatar.bindPositions.push_back(
+            joints[i].parent < 0
+                ? own
+                : avatar.bindPositions[static_cast<size_t>(joints[i].parent)] + own);
+    }
+    // The joints a weighted mesh's vertex weights index (llavatarjointmesh.cpp
+    // setupJoint): its skin joints in skeleton order, each preceded by its
+    // nearest base ancestor unless that was the previous entry.
+    for(size_t m = 0; m < avatar.meshes.size(); m++)
+    {
+        std::vector<int> entries;
+        const BodyMesh& mesh = avatar.meshes[m];
+        if(mesh.weights.empty())
+        {
+            const int joint = kBodyParts[m].joint ? avatar.skeleton.find(kBodyParts[m].joint) : -1;
+            entries.push_back(joint);
+        }
+        for(int j = 0; j < static_cast<int>(joints.size()) && !mesh.weights.empty(); j++)
+        {
+            const bool skin = std::ranges::any_of(mesh.jointNames, [&](const std::string& name)
+                                                  { return avatar.skeleton.find(name) == j; });
+            if(!skin)
+            {
+                continue;
+            }
+            int ancestor = joints[static_cast<size_t>(j)].parent;
+            while(ancestor >= 0 && joints[static_cast<size_t>(ancestor)].parent >= 0 &&
+                  !joints[static_cast<size_t>(ancestor)].base)
+            {
+                ancestor = joints[static_cast<size_t>(ancestor)].parent;
+            }
+            if(entries.empty() || entries.back() != ancestor)
+            {
+                entries.push_back(ancestor);
+            }
+            entries.push_back(j);
+        }
+        avatar.skinJoints.push_back(std::move(entries));
     }
 
     collectParams(avatar, lad.RootElement(), std::nullopt);

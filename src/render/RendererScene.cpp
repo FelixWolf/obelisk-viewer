@@ -37,6 +37,10 @@ struct ObjectVS
     glm::vec4 uvRow0;
     glm::vec4 uvRow1;
 };
+struct SkinVS
+{
+    glm::uvec4 skin;
+};
 struct TerrainVS
 {
     glm::mat4 model;
@@ -79,6 +83,7 @@ struct ShaderDesc
     SDL_GPUShaderStage stage;
     uint32_t samplers;
     uint32_t uniformBuffers;
+    uint32_t storageBuffers = 0;
 };
 
 SDL_GPUShader* createShader(SDL_GPUDevice* device, const ShaderDesc& desc, const char* name)
@@ -91,6 +96,7 @@ SDL_GPUShader* createShader(SDL_GPUDevice* device, const ShaderDesc& desc, const
     info.stage = desc.stage;
     info.num_samplers = desc.samplers;
     info.num_uniform_buffers = desc.uniformBuffers;
+    info.num_storage_buffers = desc.storageBuffers;
     SDL_GPUShader* shader = SDL_CreateGPUShader(device, &info);
     if(!shader)
     {
@@ -128,6 +134,8 @@ bool Renderer::createPipelines()
     using namespace shaders;
     SDL_GPUShader* objectVert =
         createShader(device_, {kObjectVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "object.vert");
+    SDL_GPUShader* skinnedVert =
+        createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 3, 1}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
         device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 2}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
@@ -153,6 +161,16 @@ bool Renderer::createPipelines()
         {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(ObjectVertex, tangent)},
         {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(ObjectVertex, uv)},
     };
+    const SDL_GPUVertexBufferDescription skinnedBuffer = {0, sizeof(SkinnedVertex),
+                                                          SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+    const SDL_GPUVertexAttribute skinnedAttributes[] = {
+        {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, position)},
+        {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, normal)},
+        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(SkinnedVertex, tangent)},
+        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(SkinnedVertex, uv)},
+        {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4, offsetof(SkinnedVertex, joints)},
+        {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(SkinnedVertex, weights)},
+    };
     const SDL_GPUVertexBufferDescription terrainBuffer = {0, sizeof(TerrainVertex),
                                                           SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
     const SDL_GPUVertexAttribute terrainAttributes[] = {
@@ -161,7 +179,7 @@ bool Renderer::createPipelines()
         {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(TerrainVertex, blend)},
     };
 
-    auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, bool terrain,
+    auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, VertexLayout layout,
                              const char* name, bool blend = false) -> SDL_GPUGraphicsPipeline*
     {
         if(!vert || !frag)
@@ -184,13 +202,28 @@ bool Renderer::createPipelines()
         SDL_GPUGraphicsPipelineCreateInfo info = {};
         info.vertex_shader = vert;
         info.fragment_shader = frag;
-        info.vertex_input_state.vertex_buffer_descriptions =
-            terrain ? &terrainBuffer : &objectBuffer;
         info.vertex_input_state.num_vertex_buffers = 1;
-        info.vertex_input_state.vertex_attributes = terrain ? terrainAttributes : objectAttributes;
-        info.vertex_input_state.num_vertex_attributes =
-            terrain ? static_cast<Uint32>(std::size(terrainAttributes))
-                    : static_cast<Uint32>(std::size(objectAttributes));
+        switch(layout)
+        {
+        case VertexLayout::Object:
+            info.vertex_input_state.vertex_buffer_descriptions = &objectBuffer;
+            info.vertex_input_state.vertex_attributes = objectAttributes;
+            info.vertex_input_state.num_vertex_attributes =
+                static_cast<Uint32>(std::size(objectAttributes));
+            break;
+        case VertexLayout::Skinned:
+            info.vertex_input_state.vertex_buffer_descriptions = &skinnedBuffer;
+            info.vertex_input_state.vertex_attributes = skinnedAttributes;
+            info.vertex_input_state.num_vertex_attributes =
+                static_cast<Uint32>(std::size(skinnedAttributes));
+            break;
+        case VertexLayout::Terrain:
+            info.vertex_input_state.vertex_buffer_descriptions = &terrainBuffer;
+            info.vertex_input_state.vertex_attributes = terrainAttributes;
+            info.vertex_input_state.num_vertex_attributes =
+                static_cast<Uint32>(std::size(terrainAttributes));
+            break;
+        }
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
@@ -210,13 +243,21 @@ bool Renderer::createPipelines()
         return pipeline;
     };
 
-    p.blinnPhong = scenePipeline(objectVert, blinnPhongFrag, false, "Blinn-Phong");
+    constexpr auto kObject = VertexLayout::Object;
+    constexpr auto kSkinned = VertexLayout::Skinned;
+    constexpr auto kTerrain = VertexLayout::Terrain;
+    p.blinnPhong = scenePipeline(objectVert, blinnPhongFrag, kObject, "Blinn-Phong");
     p.blinnPhongBlend =
-        scenePipeline(objectVert, blinnPhongFrag, false, "Blinn-Phong (blended)", true);
-    p.pbr = scenePipeline(objectVert, pbrFrag, false, "PBR");
+        scenePipeline(objectVert, blinnPhongFrag, kObject, "Blinn-Phong (blended)", true);
+    p.pbr = scenePipeline(objectVert, pbrFrag, kObject, "PBR");
+    p.blinnPhongSkinned =
+        scenePipeline(skinnedVert, blinnPhongFrag, kSkinned, "Blinn-Phong (skinned)");
+    p.blinnPhongSkinnedBlend = scenePipeline(skinnedVert, blinnPhongFrag, kSkinned,
+                                             "Blinn-Phong (skinned, blended)", true);
+    p.pbrSkinned = scenePipeline(skinnedVert, pbrFrag, kSkinned, "PBR (skinned)");
     p.terrainBlinnPhong =
-        scenePipeline(terrainVert, terrainBlinnPhongFrag, true, "terrain Blinn-Phong");
-    p.terrainPbr = scenePipeline(terrainVert, terrainPbrFrag, true, "terrain PBR");
+        scenePipeline(terrainVert, terrainBlinnPhongFrag, kTerrain, "terrain Blinn-Phong");
+    p.terrainPbr = scenePipeline(terrainVert, terrainPbrFrag, kTerrain, "terrain PBR");
 
     if(fullscreenVert && tonemapFrag)
     {
@@ -236,8 +277,8 @@ bool Renderer::createPipelines()
         }
     }
 
-    for(SDL_GPUShader* s : {objectVert, blinnPhongFrag, pbrFrag, terrainVert, terrainBlinnPhongFrag,
-                            terrainPbrFrag, fullscreenVert, tonemapFrag})
+    for(SDL_GPUShader* s : {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert,
+                            terrainBlinnPhongFrag, terrainPbrFrag, fullscreenVert, tonemapFrag})
     {
         if(s)
         {
@@ -262,7 +303,8 @@ bool Renderer::createPipelines()
     sampler.enable_anisotropy = false;
     p.clampSampler = SDL_CreateGPUSampler(device_, &sampler);
 
-    return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.terrainBlinnPhong && p.terrainPbr &&
+    return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.blinnPhongSkinned &&
+           p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
            p.tonemap && p.repeatSampler && p.clampSampler;
 }
 
@@ -386,6 +428,9 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         glm::vec4(light.groundAmbient, 1.0f),
     };
 
+    // Joint matrices go up before the render pass (copy passes can't nest).
+    const std::vector<uint32_t> jointBases = uploadJoints(commands, scene);
+
     SDL_GPUColorTargetInfo color = {};
     color.texture = hdrTarget_;
     color.clear_color = SDL_FColor{light.skyColor.r, light.skyColor.g, light.skyColor.b, 1.0f};
@@ -481,7 +526,11 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     std::vector<std::pair<float, const ObjectDraw*>> blended;
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Object)
+        if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain)
+        {
+            continue;
+        }
+        if(draw.mesh->layout == VertexLayout::Skinned && (draw.joints.empty() || !jointBuffer_))
         {
             continue;
         }
@@ -507,11 +556,13 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     for(const ObjectDraw* drawPointer : order)
     {
         const ObjectDraw& draw = *drawPointer;
+        const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
         const ObjectVS objectVs{draw.transform, glm::transpose(glm::inverse(draw.transform)),
                                 glm::vec4(draw.uvRow0, 0.0f), glm::vec4(draw.uvRow1, 0.0f)};
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {
-            bindPipeline(m->blend ? p.blinnPhongBlend : p.blinnPhong);
+            bindPipeline(skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
+                                 : (m->blend ? p.blinnPhongBlend : p.blinnPhong));
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(m->diffuse, white_), p.repeatSampler},
                 {texture(m->normal, flatNormal_), p.repeatSampler},
@@ -525,7 +576,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {
-            bindPipeline(p.pbr);
+            bindPipeline(skinned ? p.pbrSkinned : p.pbr);
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(t->albedo, white_), p.repeatSampler},
                 {texture(t->orm, white_), p.repeatSampler},
@@ -539,6 +590,13 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                       glm::vec4(t->roughness, t->metallic, t->occlusionStrength, t->alphaCutoff)});
         }
         pushVertexUniforms(commands, 1, objectVs);
+        if(skinned)
+        {
+            SDL_GPUBuffer* joints = jointBuffer_.get();
+            SDL_BindGPUVertexStorageBuffers(pass, 0, &joints, 1);
+            const auto index = static_cast<size_t>(drawPointer - scene.objects.data());
+            pushVertexUniforms(commands, 2, SkinVS{glm::uvec4(jointBases[index], 0, 0, 0)});
+        }
         bindMesh(*draw.mesh);
         SDL_DrawGPUIndexedPrimitives(pass, draw.mesh->indexCount, 1, 0, 0, 0);
     }
@@ -651,6 +709,71 @@ void Renderer::setTerrainBlendRamp(const image::TextureData& ramp)
 Mesh Renderer::createMesh(std::span<const ObjectVertex> vertices, std::span<const uint32_t> indices)
 {
     return createMesh(vertices.data(), vertices.size_bytes(), indices, VertexLayout::Object);
+}
+
+Mesh Renderer::createMesh(std::span<const SkinnedVertex> vertices,
+                          std::span<const uint32_t> indices)
+{
+    return createMesh(vertices.data(), vertices.size_bytes(), indices, VertexLayout::Skinned);
+}
+
+std::vector<uint32_t> Renderer::uploadJoints(SDL_GPUCommandBuffer* commands, const Scene& scene)
+{
+    std::vector<uint32_t> bases(scene.objects.size(), 0);
+    size_t count = 0;
+    for(size_t i = 0; i < scene.objects.size(); i++)
+    {
+        bases[i] = static_cast<uint32_t>(count);
+        count += scene.objects[i].joints.size();
+    }
+    if(count == 0)
+    {
+        return bases;
+    }
+    const auto bytes = static_cast<uint32_t>(count * sizeof(glm::mat4));
+    if(jointBuffer_.size() < bytes)
+    {
+        // Grow to the next power of two, so it settles quickly.
+        uint32_t size = 4096;
+        while(size < bytes)
+        {
+            size *= 2;
+        }
+        SDL_GPUBufferCreateInfo info = {};
+        info.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
+        info.size = size;
+        jointBuffer_ = GpuBuffer(device_, SDL_CreateGPUBuffer(device_, &info), size);
+        if(jointTransfer_)
+        {
+            SDL_ReleaseGPUTransferBuffer(device_, jointTransfer_);
+        }
+        SDL_GPUTransferBufferCreateInfo transferInfo = {};
+        transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        transferInfo.size = size;
+        jointTransfer_ = SDL_CreateGPUTransferBuffer(device_, &transferInfo);
+        jointTransferSize_ = jointTransfer_ ? size : 0;
+        if(!jointBuffer_ || !jointTransfer_)
+        {
+            log::error("creating the joint buffer failed: {}", SDL_GetError());
+            jointBuffer_.reset();
+            return bases;
+        }
+    }
+
+    // Cycling: the previous frame may still be reading the old contents.
+    auto* mapped = static_cast<glm::mat4*>(SDL_MapGPUTransferBuffer(device_, jointTransfer_, true));
+    for(size_t i = 0; i < scene.objects.size(); i++)
+    {
+        const auto& joints = scene.objects[i].joints;
+        std::memcpy(mapped + bases[i], joints.data(), joints.size_bytes());
+    }
+    SDL_UnmapGPUTransferBuffer(device_, jointTransfer_);
+    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
+    const SDL_GPUTransferBufferLocation source = {jointTransfer_, 0};
+    const SDL_GPUBufferRegion destination = {jointBuffer_.get(), 0, bytes};
+    SDL_UploadToGPUBuffer(copy, &source, &destination, true);
+    SDL_EndGPUCopyPass(copy);
+    return bases;
 }
 
 Mesh Renderer::createMesh(std::span<const TerrainVertex> vertices,

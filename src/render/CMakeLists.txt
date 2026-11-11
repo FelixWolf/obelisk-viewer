@@ -1,6 +1,7 @@
 # --- Shaders: GLSL -> SPIR-V at build time, embedded as byte arrays ----------
 set(shader_sources
   object.vert
+  skinned.vert
   blinnphong.frag
   pbr.frag
   terrain.vert

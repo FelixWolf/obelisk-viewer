@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AnimationManager.hpp"
 #include "AvatarView.hpp"
 #include "CameraController.hpp"
 #include "LoginPanel.hpp"
@@ -107,6 +108,7 @@ private:
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<TextureManager> textures_;
     std::unique_ptr<MeshManager> meshes_;
+    std::unique_ptr<AnimationManager> animations_; // with avatars_
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;
     TerrainTextures terrainTextures_;

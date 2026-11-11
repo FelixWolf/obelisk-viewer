@@ -88,6 +88,14 @@ public:
         uint64_t serial = 0; // bumped on every change
     };
     const Appearance* appearance(const Uuid& avatar) const;
+    // The animations an avatar is playing (from AvatarAnimation: the full
+    // list each time), with the sequence number each was started with.
+    struct PlayingAnimation
+    {
+        Uuid id;
+        int32_t sequence = 0;
+    };
+    const std::vector<PlayingAnimation>* animations(const Uuid& avatar) const;
     // Bumped whenever any object is added, changed or removed.
     uint64_t objectsRevision() const { return objectsRevision_; }
 
@@ -112,6 +120,7 @@ private:
     ObjectMap objects_;
     std::unordered_map<Uuid, Appearance> appearances_;
     uint64_t appearanceSerial_ = 0;
+    std::unordered_map<Uuid, std::vector<PlayingAnimation>> animations_;
     uint64_t objectsRevision_ = 0;
     Stats stats_;
 };

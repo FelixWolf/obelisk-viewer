@@ -74,7 +74,7 @@ private:
         Decoding,  // bytes handed to the cache to decode and store
         Uploading, // decoded; waiting for the GPU upload budget
         Resident,
-        Missing, // the grid doesn't have it (404)
+        Missing, // the grid doesn't have it (404, or 503: see AssetResponse.hpp)
         Failed,
     };
 

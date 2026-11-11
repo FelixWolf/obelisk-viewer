@@ -78,6 +78,7 @@ public:
 
     Mesh createMesh(std::span<const ObjectVertex> vertices, std::span<const uint32_t> indices);
     Mesh createMesh(std::span<const TerrainVertex> vertices, std::span<const uint32_t> indices);
+    Mesh createMesh(std::span<const SkinnedVertex> vertices, std::span<const uint32_t> indices);
 
     // Captures the scene (without UI) the next time drawScene runs; collect
     // it with takeScreenshot() after endFrame(). RGBA8, sRGB-encoded.
@@ -96,6 +97,9 @@ private:
     void drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, float exposure,
                      bool clear);
     void finishScreenshot();
+    // Uploads every skinned draw's joint matrices into jointBuffer_; returns
+    // each draw's first matrix (by index into scene.objects).
+    std::vector<uint32_t> uploadJoints(SDL_GPUCommandBuffer* commands, const Scene& scene);
 
     SDL_Window* window_ = nullptr;
     SDL_GPUDevice* device_ = nullptr;
@@ -116,6 +120,10 @@ private:
     GpuTexture blackLayers_;
     GpuTexture flatNormalLayers_;
     GpuTexture terrainBlendRamp_;
+
+    GpuBuffer jointBuffer_; // this frame's joint matrices (storage buffer)
+    SDL_GPUTransferBuffer* jointTransfer_ = nullptr;
+    uint32_t jointTransferSize_ = 0;
 
     bool screenshotRequested_ = false;
     SDL_GPUTexture* screenshotTexture_ = nullptr;

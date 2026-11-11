@@ -14,6 +14,7 @@ add_executable(viewer
   ${asset_header}
   main.cpp
   App.cpp
+  AnimationManager.cpp
   AvatarView.cpp
   CameraController.cpp
   FaceUpload.cpp

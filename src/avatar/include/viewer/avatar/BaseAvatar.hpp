@@ -33,8 +33,8 @@ struct Joint
 
 struct Skeleton
 {
-    std::vector<Joint> joints; // parents come before children
-    std::map<std::string, int, std::less<>> byName;
+    std::vector<Joint> joints;                      // parents come before children
+    std::map<std::string, int, std::less<>> byName; // names and aliases
 
     int find(std::string_view name) const;
     // Joint transforms relative to the avatar root, in the rest pose with the
@@ -153,6 +153,11 @@ struct BaseAvatar
     Skeleton skeleton;
     std::vector<BodyMesh> meshes; // one per kBodyParts entry
     std::map<int, AttachmentPoint> attachmentPoints;
+    // Per joint: where it was when the body meshes were made.
+    std::vector<glm::vec3> bindPositions;
+    // Per body part: the joints its vertex weights index (-1: the avatar
+    // root); for unweighted meshes, the one joint they ride on.
+    std::vector<std::vector<int>> skinJoints;
     std::map<int, VisualParam> params;
     std::vector<int> transmitted; // ids in the appearance message's order
     glm::vec3 pelvisBind{0.0f};   // the pelvis position the meshes were made with

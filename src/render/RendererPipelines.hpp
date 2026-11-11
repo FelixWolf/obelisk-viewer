@@ -14,6 +14,9 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* blinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* blinnPhongBlend = nullptr;
     SDL_GPUGraphicsPipeline* pbr = nullptr;
+    SDL_GPUGraphicsPipeline* blinnPhongSkinned = nullptr;
+    SDL_GPUGraphicsPipeline* blinnPhongSkinnedBlend = nullptr;
+    SDL_GPUGraphicsPipeline* pbrSkinned = nullptr;
     SDL_GPUGraphicsPipeline* terrainBlinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
     SDL_GPUGraphicsPipeline* tonemap = nullptr;
@@ -23,7 +26,8 @@ struct Renderer::Pipelines
     ~Pipelines()
     {
         for(SDL_GPUGraphicsPipeline* p :
-            {blinnPhong, blinnPhongBlend, pbr, terrainBlinnPhong, terrainPbr, tonemap})
+            {blinnPhong, blinnPhongBlend, pbr, blinnPhongSkinned, blinnPhongSkinnedBlend,
+             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap})
         {
             if(p)
             {

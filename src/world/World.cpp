@@ -34,6 +34,12 @@ void World::removeRegion(uint64_t regionHandle)
     objectsRevision_++;
 }
 
+const std::vector<World::PlayingAnimation>* World::animations(const Uuid& avatar) const
+{
+    const auto it = animations_.find(avatar);
+    return it == animations_.end() ? nullptr : &it->second;
+}
+
 const World::Appearance* World::appearance(const Uuid& avatar) const
 {
     const auto it = appearances_.find(avatar);
@@ -199,6 +205,18 @@ void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
     else if(event.is<msg::ObjectUpdate>())
     {
         handleObjectUpdate(regionHandle, event);
+    }
+    else if(event.is<msg::AvatarAnimation>())
+    {
+        if(const auto m = event.decode<msg::AvatarAnimation>())
+        {
+            auto& list = animations_[m->Sender.ID];
+            list.clear();
+            for(const auto& a : m->AnimationList)
+            {
+                list.push_back({a.AnimID, a.AnimSequenceID});
+            }
+        }
     }
     else if(event.is<msg::AvatarAppearance>())
     {

@@ -1,15 +1,17 @@
 #pragma once
 
 // An avatar's shape: visual parameter weights (from the appearance
-// message), the skeleton they deform and the body meshes morphed and skinned
-// to it. Follows llvoavatar.cpp (appearance message), lldriverparam.cpp,
-// llpolymorph.cpp, llpolyskeletaldistortion.cpp, llavatarjointmesh.cpp and
+// message), the skeleton they deform and the body meshes they morph; and
+// posing that skeleton, for skinning the meshes to it. Follows llvoavatar.cpp
+// (appearance message), lldriverparam.cpp, llpolymorph.cpp,
+// llpolyskeletaldistortion.cpp, llavatarjointmesh.cpp, avatarSkinV.glsl and
 // llavatarappearance.cpp computeBodySize; our own implementation.
 
 #include "viewer/avatar/BaseAvatar.hpp"
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -39,7 +41,8 @@ private:
     std::map<int, float> weights_;
 };
 
-// A body mesh after morphs and skinning, in the avatar root's space.
+// A body mesh after morphs, still where it was made (skeleton space, or the
+// joint's space for unweighted meshes); skinning places it.
 struct ShapedMesh
 {
     std::vector<glm::vec3> positions;
@@ -49,8 +52,11 @@ struct ShapedMesh
 
 struct Shape
 {
-    std::vector<glm::mat4> joints;  // per joint, relative to the avatar root
-    std::vector<ShapedMesh> meshes; // one per kBodyParts entry
+    // Per joint, relative to its parent, after skeletal parameters. The
+    // pelvis is at the root.
+    std::vector<glm::vec3> jointPositions;
+    std::vector<glm::vec3> jointScales;
+    std::vector<ShapedMesh> meshes; // one per kBodyParts entry (shapeAvatar only)
     float pelvisToFoot = 0.0f;
     float bodyHeight = 0.0f;
     float hover = 0.0f;
@@ -58,7 +64,41 @@ struct Shape
 
 // The skeleton only (cheap): joints, body size and hover.
 Shape shapeSkeleton(const BaseAvatar& base, const ParamWeights& weights);
-// The skeleton and the meshes.
+// The skeleton and the morphed meshes.
 Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights);
+
+// A joint's animated local transform; what isn't set keeps the rest pose
+// (rotation) or the shape (position).
+struct JointPose
+{
+    std::optional<glm::quat> rotation;
+    std::optional<glm::vec3> position;
+};
+
+// Joint transforms relative to the avatar root. `pose` is empty (the rest
+// pose) or has one entry per joint.
+std::vector<glm::mat4> poseJoints(const BaseAvatar& base, const Shape& shape,
+                                  std::span<const JointPose> pose = {});
+
+// The matrices a body part's vertex influences refer to, for joints posed by
+// poseJoints: each takes a vertex from where the mesh was made to where its
+// joint is now.
+void skinPalette(const BaseAvatar& base, size_t part, std::span<const glm::mat4> joints,
+                 std::vector<glm::mat4>& out);
+
+// A vertex's influences: palette entries `first` and `second`, blended by
+// `blend` (0: all first). From the .llm weight: an index plus a fraction.
+struct Influence
+{
+    uint8_t first = 0;
+    uint8_t second = 0;
+    float blend = 0.0f;
+};
+Influence vertexInfluence(const BaseAvatar& base, size_t part, size_t vertex);
+
+// Skins a shaped mesh on the CPU (for tests and tools; drawing does it on
+// the GPU).
+ShapedMesh skinMesh(const BaseAvatar& base, size_t part, const ShapedMesh& mesh,
+                    std::span<const glm::mat4> joints);
 
 } // namespace viewer::avatar

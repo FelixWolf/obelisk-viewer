@@ -221,6 +221,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         const fs::path character = fs::path(base ? base : "") / "assets" / "character";
         if(auto avatar = avatar::BaseAvatar::load(character))
         {
+            app->animations_ = std::make_unique<AnimationManager>(
+                *app->http_, *app->jobs_, avatar->skeleton, cacheRoot / "animations");
             app->avatars_ = std::make_unique<AvatarView>(std::move(*avatar), *app->renderer_);
         }
         else
@@ -360,6 +362,12 @@ int App::run()
                         "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
                         avatars_ ? avatars_->drawn() : size_t{0}, o.drawn, o.meshObjects, o.faces,
                         m.meshes, m.lodsReady, m.diskHits, m.failed, t.resident, t.failed);
+                    if(animations_)
+                    {
+                        const auto a = animations_->stats();
+                        log::info("animations: {} ready, {} loading, {} failed", a.ready, a.loading,
+                                  a.failed);
+                    }
                     for(const auto& [key, object] : world_->objects())
                     {
                         if(object.type == world::ObjectType::Avatar)
@@ -439,6 +447,10 @@ void App::updateSession()
             login ? login->reply["agent_appearance_service"].asString() : std::string());
     }
     meshes_->setViewerAssetUrl(viewerAsset);
+    if(animations_)
+    {
+        animations_->setViewerAssetUrl(viewerAsset);
+    }
 
     if(session_->state() == session::SessionState::LoggedOut)
     {
@@ -450,6 +462,10 @@ void App::endSession()
 {
     textures_->setViewerAssetUrl({});
     meshes_->setViewerAssetUrl({});
+    if(animations_)
+    {
+        animations_->setViewerAssetUrl({});
+    }
     session_.reset();
     world_.reset();
     terrainView_.clear();
@@ -495,7 +511,9 @@ render::Scene App::buildScene()
         meshes_->update();
         if(avatars_)
         {
-            avatars_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
+            animations_->update();
+            const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
+            avatars_->addTo(scene, *world_, *originHandle_, *textures_, *animations_, now, 128.0f);
         }
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, avatars_.get(),
                         128.0f);

@@ -10,6 +10,7 @@
 
 #include <glm/glm.hpp>
 
+#include <span>
 #include <variant>
 #include <vector>
 
@@ -44,6 +45,9 @@ struct ObjectDraw
     // Texture coordinate transform, rows of a 2x3 matrix applied to (u, v, 1).
     glm::vec3 uvRow0{1.0f, 0.0f, 0.0f};
     glm::vec3 uvRow1{0.0f, 1.0f, 0.0f};
+    // Skinned meshes: joint matrices (relative to `transform`) the vertices'
+    // joint indices refer to. Must stay valid until the frame is drawn.
+    std::span<const glm::mat4> joints{};
 };
 
 struct TerrainDraw

@@ -2,6 +2,8 @@
 
 #include "FaceUpload.hpp"
 
+#include "AssetResponse.hpp"
+
 #include "viewer/core/Log.hpp"
 
 #include <format>
@@ -215,7 +217,7 @@ void MeshManager::handleDownload(Download& download)
     net::HttpResponse& response = download.response;
     if(!response.ok() || response.body.empty())
     {
-        if(response.status != 404)
+        if(!assetMissing(response))
         {
             log::warn("mesh {} download failed: {}", download.request.id.toString(),
                       response.error != net::HttpError::None

@@ -65,9 +65,13 @@ Renderer::~Renderer()
             SDL_ReleaseGPUTexture(device_, t);
         }
     }
-    if(screenshotTransfer_)
+    jointBuffer_.reset();
+    for(SDL_GPUTransferBuffer* t : {screenshotTransfer_, jointTransfer_})
     {
-        SDL_ReleaseGPUTransferBuffer(device_, screenshotTransfer_);
+        if(t)
+        {
+            SDL_ReleaseGPUTransferBuffer(device_, t);
+        }
     }
     SDL_ReleaseWindowFromGPUDevice(device_, window_);
     SDL_DestroyGPUDevice(device_);

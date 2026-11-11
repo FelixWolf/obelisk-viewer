@@ -2,6 +2,7 @@
 
 #include "viewer/render/GpuBuffer.hpp"
 
+#include <glm/ext/vector_uint4_sized.hpp>
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -18,6 +19,18 @@ struct ObjectVertex
     glm::vec2 uv{0.0f};
 };
 
+// Vertex layout for skinned objects: an object vertex plus up to four joints
+// (indices into the draw's joint matrices) and their weights (summing to 1).
+struct SkinnedVertex
+{
+    glm::vec3 position{0.0f};
+    glm::vec3 normal{0.0f, 0.0f, 1.0f};
+    glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec2 uv{0.0f};
+    glm::u8vec4 joints{0};
+    glm::vec4 weights{1.0f, 0.0f, 0.0f, 0.0f};
+};
+
 // Vertex layout for terrain. Texture coordinates come from the world position.
 struct TerrainVertex
 {
@@ -31,6 +44,7 @@ struct TerrainVertex
 enum class VertexLayout : uint8_t
 {
     Object,
+    Skinned,
     Terrain,
 };
 

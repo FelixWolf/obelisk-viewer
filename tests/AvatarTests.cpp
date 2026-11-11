@@ -24,7 +24,11 @@ TEST_CASE("Base avatar: skeleton, meshes and attachment points load")
     REQUIRE(avatar->meshes.size() == std::size(kBodyParts));
     CHECK(avatar->meshes[2].positions.size() == 2211); // upper body
     CHECK_FALSE(avatar->meshes[2].jointNames.empty());
-    CHECK(avatar->meshes[6].weights.empty()); // eyes are rigid
+    CHECK(avatar->meshes[6].weights.empty());                                // eyes are rigid
+    CHECK(avatar->skeleton.find("hip") == avatar->skeleton.find("mPelvis")); // alias
+    REQUIRE(avatar->skinJoints.size() == avatar->meshes.size());
+    CHECK(avatar->skinJoints[6].size() == 1);
+    CHECK(avatar->skinJoints[2].size() <= 255);
 
     // In the rest pose, the head is about pelvis-to-head above the pelvis.
     const auto pose = avatar->skeleton.restPose();
@@ -89,17 +93,19 @@ TEST_CASE("Shape: weight-zero skeleton skins meshes back to the rest pose")
     const Shape shape = shapeAvatar(*avatar, weights);
     CHECK(shape.pelvisToFoot == doctest::Approx(avatar->pelvisToFoot));
     CHECK(shape.bodyHeight == doctest::Approx(avatar->bodyHeight));
+    const auto joints = poseJoints(*avatar, shape);
     for(size_t m = 0; m < avatar->meshes.size(); m++)
     {
         if(avatar->meshes[m].weights.empty())
         {
             continue;
         }
+        const ShapedMesh skinned = skinMesh(*avatar, m, shape.meshes[m], joints);
         float worst = 0.0f;
-        for(size_t v = 0; v < shape.meshes[m].positions.size(); v++)
+        for(size_t v = 0; v < skinned.positions.size(); v++)
         {
             const glm::vec3 expected = avatar->meshes[m].positions[v] - avatar->pelvisBind;
-            worst = std::max(worst, glm::length(shape.meshes[m].positions[v] - expected));
+            worst = std::max(worst, glm::length(skinned.positions[v] - expected));
         }
         INFO("mesh " << std::string(kBodyParts[m].file));
         CHECK(worst < 2e-3f); // joint positions are rounded, pivots aren't
@@ -111,4 +117,120 @@ TEST_CASE("Shape: weight-zero skeleton skins meshes back to the rest pose")
                               << defaults.pelvisToFoot);
     CHECK(defaults.bodyHeight > 1.5f);
     CHECK(defaults.bodyHeight < 2.3f);
+}
+
+#include "viewer/avatar/Animation.hpp"
+
+#include <cstring>
+
+namespace
+{
+
+// A tiny .anim: one joint turning a quarter turn about Z over 2 seconds,
+// with one position key.
+std::vector<uint8_t> makeAnimation(int32_t priority, const char* joint, float turn)
+{
+    std::vector<uint8_t> out;
+    auto put = [&](const auto& value)
+    {
+        const auto* p = reinterpret_cast<const uint8_t*>(&value);
+        out.insert(out.end(), p, p + sizeof(value));
+    };
+    auto putString = [&](const char* s) { out.insert(out.end(), s, s + std::strlen(s) + 1); };
+    auto quantize = [](float v, float lo, float hi)
+    { return static_cast<uint16_t>(std::lround((v - lo) / (hi - lo) * 65535.0f)); };
+    put(uint16_t{1});
+    put(uint16_t{0});
+    put(priority);
+    put(2.0f);        // duration
+    putString("");    // emote
+    put(0.0f);        // loop in
+    put(2.0f);        // loop out
+    put(int32_t{1});  // loop
+    put(0.5f);        // ease in
+    put(0.5f);        // ease out
+    put(uint32_t{0}); // hand pose
+    put(uint32_t{1}); // joints
+    putString(joint);
+    put(int32_t{-1}); // the animation's priority
+    put(int32_t{2});  // rotation keys
+    const float s = std::sin(turn * 0.5f);
+    for(const auto& [t, z] : {std::pair{0.0f, 0.0f}, std::pair{2.0f, s}})
+    {
+        put(quantize(t, 0.0f, 2.0f));
+        put(quantize(0.0f, -1.0f, 1.0f));
+        put(quantize(0.0f, -1.0f, 1.0f));
+        put(quantize(z, -1.0f, 1.0f));
+    }
+    put(int32_t{1}); // position keys
+    put(quantize(0.0f, 0.0f, 2.0f));
+    put(quantize(0.0f, -5.0f, 5.0f));
+    put(quantize(0.0f, -5.0f, 5.0f));
+    put(quantize(0.1f, -5.0f, 5.0f));
+    put(int32_t{0}); // constraints
+    return out;
+}
+
+float angleAboutZ(const glm::quat& q)
+{
+    return 2.0f * std::atan2(q.z, q.w);
+}
+
+} // namespace
+
+TEST_CASE("Animation: parse, sample, ease and blend")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    const float quarter = 3.14159265f / 2.0f;
+
+    auto parsed = parseAnimation(makeAnimation(2, "hip", quarter));
+    INFO((parsed ? std::string() : parsed.error()));
+    REQUIRE(parsed.has_value());
+    CHECK(parsed->duration == doctest::Approx(2.0f));
+    CHECK(parsed->loop);
+    CHECK(parsed->basePriority == 2);
+    REQUIRE(parsed->joints.size() == 1);
+    CHECK(parsed->joints[0].priority == 2);
+    parsed->bind(avatar->skeleton);
+    const int pelvis = avatar->skeleton.find("mPelvis");
+    CHECK(parsed->joints[0].joint == pelvis); // through the "hip" alias
+    CHECK(angleAboutZ(sampleRotation(parsed->joints[0], 1.0f)) ==
+          doctest::Approx(quarter / 2.0f).epsilon(0.01));
+    CHECK(samplePosition(parsed->joints[0], 1.0f).z == doctest::Approx(0.1f).epsilon(0.01));
+
+    CHECK_FALSE(parseAnimation(std::vector<uint8_t>{1, 0}).has_value());
+
+    // A higher priority animation wins the joint outright.
+    auto low = std::make_shared<Animation>(*parsed);
+    auto high = parseAnimation(makeAnimation(4, "mPelvis", -quarter));
+    REQUIRE(high.has_value());
+    high->bind(avatar->skeleton);
+    auto highShared = std::make_shared<Animation>(std::move(*high));
+
+    Animator animator;
+    const viewer::Uuid a = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000a");
+    const viewer::Uuid b = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000b");
+    animator.start(a, low, 0.0);
+    std::vector<JointPose> pose;
+    animator.evaluate(1.0, avatar->skeleton.joints.size(), pose);
+    REQUIRE(pose[static_cast<size_t>(pelvis)].rotation.has_value());
+    CHECK(angleAboutZ(*pose[static_cast<size_t>(pelvis)].rotation) ==
+          doctest::Approx(quarter / 2.0f).epsilon(0.01));
+    CHECK_FALSE(pose[static_cast<size_t>(avatar->skeleton.find("mHead"))].rotation.has_value());
+
+    animator.start(b, highShared, 1.0);
+    animator.evaluate(2.0, avatar->skeleton.joints.size(), pose); // b fully in, 1 s along
+    CHECK(angleAboutZ(*pose[static_cast<size_t>(pelvis)].rotation) ==
+          doctest::Approx(-quarter / 2.0f).epsilon(0.01));
+
+    // Stopped animations ease out, then go.
+    animator.stop(b, 2.0);
+    animator.stop(a, 2.0);
+    CHECK_FALSE(animator.isPlaying(a));
+    animator.evaluate(2.25, avatar->skeleton.joints.size(), pose);
+    CHECK(animator.count() == 2);
+    animator.evaluate(2.6, avatar->skeleton.joints.size(), pose);
+    CHECK(animator.count() == 0);
+    CHECK_FALSE(pose[static_cast<size_t>(pelvis)].rotation.has_value());
 }

@@ -63,11 +63,11 @@ src/render/shaders  GLSL, compiled to SPIR-V at build time and embedded
 src/volume   Prim geometry from shape parameters (as llvolume.cpp)  -> viewer::volume
 src/world    World state: terrain (LayerData decode) and objects
              (full/compressed/terse updates, texture entries)       -> viewer::world
-src/avatar   Default avatar: skeleton, .llm body meshes, attachment
+src/avatar   Default avatar: skeleton, .llm body meshes, shape, animation, attachment
              points (from assets/character)                        -> viewer::avatar
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
 src/app      App (owns everything), LoginPanel, TextureBrowser, camera,
-             TerrainView, ObjectView, AvatarView, TextureManager, procedural test scene, main()
+             TerrainView, ObjectView, AvatarView, AnimationManager, TextureManager, procedural test scene, main()
 tests/       doctest unit tests (fixtures in tests/data)
 tools/j2kbench   benchmarks J2kDecoder implementations
 tools/httpget    one request through HttpClient; pretty-prints LLSD replies
@@ -236,6 +236,13 @@ Four material families, each its own pipeline:
 Missing textures fall back to neutral defaults (white, flat normal, no
 emission).
 
+Skinned meshes (`SkinnedVertex`: up to four joint indices and weights per
+vertex) use skinned.vert with the Blinn-Phong or PBR fragment shaders. Each
+`ObjectDraw` carries its joint matrices; before the scene pass, all of the
+frame's are copied into one storage buffer (SDL's uniform pushes are limited
+to 4 KiB, too small for rigged mesh's joint counts), and each draw is told
+where its matrices start.
+
 Terrain follows the official viewer's behavior (our own implementation; see
 `src/world/TerrainLayers.cpp`):
 - Each vertex gets a layer value (0..3): height plus Perlin noise, against the
@@ -336,8 +343,9 @@ plateau and ramp down over the driver's range). `ParamWeights` turns the
 AvatarAppearance message's VisualParam bytes into weights: one byte per
 parameter of group 0 or 3, in id order, mapped onto the parameter's range.
 Parameters for the other sex (the "male" parameter, 80) stay at their
-default. `shapeAvatar` deforms the skeleton, morphs the meshes and skins
-them to it: each vertex weight is an index into the mesh's skin joint list
+default. `shapeAvatar` deforms the skeleton and morphs the meshes;
+`poseJoints` poses the skeleton (rest pose or animated) and `skinPalette`
+gives each mesh the matrices its vertices are skinned with: each vertex weight is an index into the mesh's skin joint list
 (llavatarjointmesh.cpp's order: skin joints in skeleton order, each preceded
 by its nearest base ancestor) plus a blend towards the next one, and each
 joint maps from where the mesh was made (the sum of its base ancestors'
@@ -345,9 +353,10 @@ pivots) to where it is now. A child joint's offset is scaled by its parent's
 scale, but scale doesn't otherwise carry down (llxform.cpp). Body height and
 pelvis-to-foot follow computeBodySize.
 
-`AvatarView` (app) shapes each avatar when its appearance arrives or changes
-(on the CPU; bodies are still in the rest pose) and draws it; until then it
-uses the default shape. As in llvoavatar.cpp, the root (pelvis) is
+`AvatarView` (app) morphs each avatar's body when its appearance arrives or
+changes (on the CPU, uploaded once), and skins it on the GPU every frame to
+its animated skeleton; until the appearance arrives it uses the default
+shape. As in llvoavatar.cpp, the root (pelvis) is
 `pelvisToFoot` above the feet, and the feet are half the body height below
 the object's position, raised by the hover offset (the message's
 AppearanceHover block). Each part is
@@ -361,7 +370,23 @@ default or invisible texture, or still loading.
 
 Attachments: an object whose parent is an avatar sits at the attachment
 point given by its state byte (`attachmentPointFromState`); `ObjectView`
-asks `AvatarView` for the point's frame on the shaped skeleton.
+asks `AvatarView` for the point's frame on the posed skeleton.
 
-Not yet: animation, rigged mesh skinning, clothing morph masks and the
-physics-driven morphs (breast, belly and butt physics).
+Animation: the simulator sends AvatarAnimation with the full list of
+animations an avatar plays (standing is one too), each with a sequence
+number. `AnimationManager` (app) loads them (disk cache
+`<cache>/animations/<xx>/<uuid>.anim`, else `<ViewerAsset>/?animatn_id=`),
+parses them (`avatar::parseAnimation`, llkeyframemotion.cpp's format:
+quantized rotation and position keys per joint, priorities, loop points,
+ease times) and binds joint names (and aliases) to the skeleton.
+`avatar::Animator` plays them: looping between the loop points, easing in
+and out with a cubic step, animations that don't loop stopping early enough
+to ease out by their end. Per joint, the highest priority (then latest)
+animation comes first and lower ones only fill what's left of a total weight
+of one (llpose.cpp's LLJointStateBlender). Animated rotations replace the
+joint's; animated positions replace the shaped ones. Attachments follow the
+animated skeleton.
+
+Not yet: rigged mesh skinning, IK constraints, the official viewer's
+procedural motions (head and eye movement, breathing, hand poses), clothing
+morph masks and the physics-driven morphs (breast, belly and butt physics).

@@ -1,5 +1,7 @@
 #include "TextureManager.hpp"
 
+#include "AssetResponse.hpp"
+
 #include "viewer/core/Log.hpp"
 #include "viewer/image/TextureProcessing.hpp"
 
@@ -254,7 +256,7 @@ void TextureManager::handleDownload(Download& download)
     }
     Entry& e = it->second;
     const net::HttpResponse& response = download.response;
-    if(response.error == net::HttpError::None && response.status == 404)
+    if(assetMissing(response))
     {
         e.state = State::Missing;
         return;
