@@ -12,6 +12,7 @@
 
 #include "viewer/volume/VolumeParams.hpp"
 
+#include <glm/ext/vector_uint4_sized.hpp>
 #include <glm/glm.hpp>
 
 #include <array>
@@ -46,6 +47,10 @@ struct VolumeFace
     std::vector<glm::vec3> normals; // normalized
     std::vector<glm::vec2> texCoords;
     std::vector<uint32_t> indices; // counter-clockwise triangles
+    // Rigged mesh only (else empty): per vertex, up to four joints (indices
+    // into the mesh's skin joint list) and their weights, summing to 1.
+    std::vector<glm::u8vec4> joints;
+    std::vector<glm::vec4> weights;
 };
 
 // The faces of a prim at the given detail (one of kDetailScales). Returns no

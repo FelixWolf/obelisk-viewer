@@ -17,6 +17,7 @@
 // eye movement, breathing, hand poses).
 
 #include "AnimationManager.hpp"
+#include "MeshManager.hpp"
 #include "TextureManager.hpp"
 
 #include "viewer/avatar/Animation.hpp"
@@ -37,6 +38,9 @@
 namespace viewer
 {
 
+// The avatar an object is attached to (through its link parents), if any.
+const world::Object* attachedAvatar(const world::World& world, const world::Object& object);
+
 class AvatarView
 {
 public:
@@ -56,11 +60,23 @@ public:
     std::optional<glm::mat4> attachmentFrame(const world::Object& avatar, const world::World& world,
                                              int point, uint64_t originHandle) const;
 
+    // Bake on Mesh: if `texture` is one of the placeholders that stand for
+    // an avatar's bakes, that bake of this avatar (nullptr while it loads);
+    // nothing for other textures.
+    std::optional<const render::GpuTexture*> bakeFor(const world::World& world,
+                                                     const world::Object& avatar,
+                                                     const Uuid& texture,
+                                                     TextureManager& textures) const;
+
+    // Joint transforms (relative to the root) as posed this frame.
+    const std::vector<glm::mat4>& posedJoints(const world::Object& avatar) const;
+
     // Reshapes avatars whose appearance changed, advances their animations
-    // to `now` (seconds) and draws them.
+    // to `now` (seconds), applies the joint positions their rigged
+    // attachments ask for, and draws them.
     void addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-               TextureManager& textures, AnimationManager& animations, double now,
-               float drawDistance);
+               TextureManager& textures, AnimationManager& animations, MeshManager& meshes,
+               double now, float drawDistance);
 
     size_t drawn() const { return drawn_; }
 
@@ -84,8 +100,24 @@ private:
         uint64_t seen = 0; // frame last updated
     };
 
+    // One of the avatar's bakes (texture entry index `slot`), nullptr while
+    // it loads or if it has none.
+    const render::GpuTexture* bake(const world::World& world, const world::Object& avatar, int slot,
+                                   const char* name, TextureManager& textures) const;
     std::shared_ptr<const Body> build(const avatar::ParamWeights& weights) const;
     const Body& bodyOf(const world::Object& avatar) const;
+    // Joint position (and scale lock) overrides from rigged attachments, by
+    // avatar: per joint, the one from the mesh with the lowest id (as the
+    // official viewer picks among conflicting ones).
+    struct Override
+    {
+        Uuid mesh;
+        glm::vec3 position{0.0f};
+        bool lockScale = false;
+    };
+    using Overrides = std::unordered_map<int, Override>;
+    void collectOverrides(const world::World& world, MeshManager& meshes);
+
     void animate(Avatar& a, const world::World& world, const Uuid& id, AnimationManager& animations,
                  double now);
 
@@ -94,6 +126,7 @@ private:
     std::shared_ptr<const Body> defaultBody_; // until an avatar's appearance arrives
     std::vector<glm::mat4> defaultJoints_;    // its rest pose
     std::unordered_map<Uuid, Avatar> avatars_;
+    std::unordered_map<Uuid, Overrides> overrides_; // rebuilt every frame
     std::string appearanceUrl_;
     uint64_t frame_ = 0;
     size_t drawn_ = 0;

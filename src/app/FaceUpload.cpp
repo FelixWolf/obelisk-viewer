@@ -68,6 +68,18 @@ std::vector<render::Mesh> uploadFaces(render::Renderer& renderer,
             continue;
         }
         const auto tan = tangents(face);
+        if(!face.weights.empty())
+        {
+            std::vector<render::SkinnedVertex> vertices(face.positions.size());
+            for(size_t v = 0; v < vertices.size(); v++)
+            {
+                vertices[v] = {face.positions[v], face.normals[v], tan[v],
+                               face.texCoords[v], face.joints[v],  face.weights[v]};
+            }
+            meshes.push_back(renderer.createMesh(std::span<const render::SkinnedVertex>(vertices),
+                                                 face.indices));
+            continue;
+        }
         std::vector<render::ObjectVertex> vertices(face.positions.size());
         for(size_t v = 0; v < vertices.size(); v++)
         {

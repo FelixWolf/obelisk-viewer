@@ -58,7 +58,8 @@ float effectiveWeight(const VisualParam& p, const ParamWeights& weights, Sex sex
 
 void deformSkeleton(const BaseAvatar& base, const ParamWeights& weights, Shape& shape)
 {
-    for(const Joint& j : base.skeleton.joints)
+    const auto& joints = base.skeleton.joints;
+    for(const Joint& j : joints)
     {
         // The pelvis sits at the root (llavatarappearance.cpp).
         shape.jointPositions.push_back(j.name == "mPelvis" ? glm::vec3(0.0f) : j.position);
@@ -67,7 +68,7 @@ void deformSkeleton(const BaseAvatar& base, const ParamWeights& weights, Shape& 
     const Sex sex = weights.sex();
     for(const auto& [id, p] : base.params)
     {
-        if(p.bones.empty())
+        if(p.bones.empty() && (p.volumes.empty() || p.morphs.empty()))
         {
             continue;
         }
@@ -76,6 +77,23 @@ void deformSkeleton(const BaseAvatar& base, const ParamWeights& weights, Shape& 
         {
             shape.jointScales[static_cast<size_t>(d.joint)] += w * d.scale;
             shape.jointPositions[static_cast<size_t>(d.joint)] += w * d.offset;
+            // Collision volumes inherit the bone's change, in proportion to
+            // their own scale (llpolyskeletaldistortion.cpp).
+            for(size_t c = 0; c < joints.size(); c++)
+            {
+                if(joints[c].volume && joints[c].parent == d.joint)
+                {
+                    shape.jointScales[c] += w * (joints[c].scale * d.scale);
+                }
+            }
+        }
+        if(!p.morphs.empty())
+        {
+            for(const VisualParam::BoneDeformation& d : p.volumes)
+            {
+                shape.jointScales[static_cast<size_t>(d.joint)] += w * d.scale;
+                shape.jointPositions[static_cast<size_t>(d.joint)] += w * d.offset;
+            }
         }
     }
 }
@@ -216,6 +234,11 @@ std::vector<glm::mat4> poseJoints(const BaseAvatar& base, const Shape& shape,
     const auto& joints = base.skeleton.joints;
     std::vector<glm::vec3> worldPosition(joints.size());
     std::vector<glm::quat> worldRotation(joints.size());
+    std::vector<glm::vec3> scales(shape.jointScales);
+    for(size_t i = 0; i < pose.size() && i < scales.size(); i++)
+    {
+        scales[i] = pose[i].scale.value_or(scales[i]);
+    }
     std::vector<glm::mat4> out(joints.size());
     for(size_t i = 0; i < joints.size(); i++)
     {
@@ -235,13 +258,11 @@ std::vector<glm::mat4> poseJoints(const BaseAvatar& base, const Shape& shape,
         else
         {
             const auto p = static_cast<size_t>(j.parent);
-            worldPosition[i] =
-                worldPosition[p] + worldRotation[p] * (shape.jointScales[p] * position);
+            worldPosition[i] = worldPosition[p] + worldRotation[p] * (scales[p] * position);
             worldRotation[i] = worldRotation[p] * rotation;
         }
         out[i] = glm::translate(glm::mat4(1.0f), worldPosition[i]) *
-                 glm::mat4_cast(worldRotation[i]) *
-                 glm::scale(glm::mat4(1.0f), shape.jointScales[i]);
+                 glm::mat4_cast(worldRotation[i]) * glm::scale(glm::mat4(1.0f), scales[i]);
     }
     return out;
 }

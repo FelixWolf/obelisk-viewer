@@ -54,6 +54,9 @@ public:
     // Whether the mesh is rigged (has skin weights); nothing until its header
     // has loaded.
     std::optional<bool> isRigged(const Uuid& id) const;
+    // A rigged mesh's skin (joints and bind matrices); starts loading it once
+    // the header is in. nullptr until then, or if it has none.
+    std::shared_ptr<const assets::MeshSkin> skin(const Uuid& id);
 
     // Handles finished downloads and decodes.
     void update();
@@ -91,12 +94,17 @@ private:
         State header = State::None;
         assets::MeshHeader parsed{};
         std::array<Lod, 4> lods{};
+        State skinState = State::None;
+        std::shared_ptr<const assets::MeshSkin> skin;
     };
-    // What a download or decode was for: the header (lod = -1) or a level.
+    // What a download or decode was for: the header (lod = kHeader), the
+    // skin (kSkin) or a level.
+    static constexpr int kHeader = -1;
+    static constexpr int kSkin = -2;
     struct Request
     {
         Uuid id;
-        int lod = -1;
+        int lod = kHeader;
     };
     struct Download
     {
@@ -113,6 +121,7 @@ private:
     {
         Request request;
         std::vector<volume::VolumeFace> faces;
+        std::shared_ptr<const assets::MeshSkin> skin; // for kSkin
         std::string error;
     };
 
@@ -122,6 +131,7 @@ private:
     // Bytes of a header or level, from the network or the disk cache.
     void handleBytes(const Request& request, std::vector<uint8_t> bytes);
     std::filesystem::path pathFor(const Request& request) const;
+    static State& stateOf(Entry& e, int lod);
     void submit(std::function<void()> job);
 
     net::HttpClient& http_;

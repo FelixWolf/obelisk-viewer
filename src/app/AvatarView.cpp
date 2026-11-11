@@ -24,7 +24,52 @@ glm::vec3 regionOffset(uint64_t region, uint64_t origin)
         0.0f);
 }
 
+// Bake on Mesh placeholders (indra_constants.cpp) and the bakes they stand
+// for: texture entry index and the name in the appearance service URL
+// (llavatarappearancedefines.cpp).
+struct BakeSlot
+{
+    Uuid placeholder;
+    int slot;
+    const char* name;
+};
+const BakeSlot kBakeSlots[] = {
+    {*Uuid::parse("5a9f4a74-30f2-821c-b88d-70499d3e7183"), 8, "head"},
+    {*Uuid::parse("ae2de45c-d252-50b8-5c6e-19f39ce79317"), 9, "upper"},
+    {*Uuid::parse("24daea5f-0539-cfcf-047f-fbc40b2786ba"), 10, "lower"},
+    {*Uuid::parse("52cc6bb6-2ee5-e632-d3ad-50197b1dcb8a"), 11, "eyes"},
+    {*Uuid::parse("43529ce8-7faa-ad92-165a-bc4078371687"), 19, "skirt"},
+    {*Uuid::parse("09aac1fb-6bce-0bee-7d44-caac6dbb6c63"), 20, "hair"},
+    {*Uuid::parse("ff62763f-d60a-9855-890b-0c96f8f8cd98"), 40, "leftarm"},
+    {*Uuid::parse("8e915e25-31d1-cc95-ae08-d58a47488251"), 41, "leftleg"},
+    {*Uuid::parse("9742065b-19b5-297c-858a-29711d539043"), 42, "aux1"},
+    {*Uuid::parse("03642e83-2bd1-4eb9-34b4-4c47ed586d2d"), 43, "aux2"},
+    {*Uuid::parse("edd51b77-fc10-ce7a-4b3d-011dfc349e4f"), 44, "aux3"},
+};
+
+// How far a rigged mesh's joint position must be from the default to count
+// (the official viewer's LLJoint::aboveJointPosThreshold).
+constexpr float kJointPositionThreshold = 0.0001f;
+
 } // namespace
+
+const world::Object* attachedAvatar(const world::World& world, const world::Object& object)
+{
+    const world::Object* o = &object;
+    for(int depth = 0; depth < 16 && o->parentId != 0; depth++)
+    {
+        o = world.object(o->region, o->parentId);
+        if(!o)
+        {
+            return nullptr;
+        }
+        if(o->type == world::ObjectType::Avatar)
+        {
+            return o;
+        }
+    }
+    return nullptr;
+}
 
 AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer)
     : base_(std::move(base)), renderer_(renderer)
@@ -109,6 +154,93 @@ std::optional<glm::mat4> AvatarView::attachmentFrame(const world::Object& avatar
     return rootFrame(avatar, world, originHandle) * joint * glm::mat4_cast(a.rotation);
 }
 
+const render::GpuTexture* AvatarView::bake(const world::World& world, const world::Object& avatar,
+                                           int slot, const char* name,
+                                           TextureManager& textures) const
+{
+    // From AvatarAppearance if we have it, else the object's own entry.
+    const world::World::Appearance* appearance = world.appearance(avatar.id);
+    const world::TextureEntry& faces = appearance ? appearance->faces : avatar.faces;
+    const Uuid& id = faces[static_cast<size_t>(slot)].texture;
+    if(id.isNull() || id == kDefaultAvatarTexture || id == kInvisibleTexture ||
+       appearanceUrl_.empty())
+    {
+        return nullptr;
+    }
+    // As the official viewer's getImageURL().
+    return textures.get(id, std::format("{}texture/{}/{}/{}", appearanceUrl_, avatar.id.toString(),
+                                        name, id.toString()));
+}
+
+std::optional<const render::GpuTexture*> AvatarView::bakeFor(const world::World& world,
+                                                             const world::Object& avatar,
+                                                             const Uuid& texture,
+                                                             TextureManager& textures) const
+{
+    for(const BakeSlot& b : kBakeSlots)
+    {
+        if(b.placeholder == texture)
+        {
+            return bake(world, avatar, b.slot, b.name, textures);
+        }
+    }
+    return std::nullopt;
+}
+
+const std::vector<glm::mat4>& AvatarView::posedJoints(const world::Object& avatar) const
+{
+    const auto it = avatars_.find(avatar.id);
+    return it != avatars_.end() && !it->second.joints.empty() ? it->second.joints : defaultJoints_;
+}
+
+void AvatarView::collectOverrides(const world::World& world, MeshManager& meshes)
+{
+    overrides_.clear();
+    const int pelvis = base_.skeleton.find("mPelvis");
+    for(const auto& [key, object] : world.objects())
+    {
+        if(object.type != world::ObjectType::Prim ||
+           (object.sculptType & world::SculptType::Mask) != world::SculptType::Mesh ||
+           !meshes.isRigged(object.sculptTexture).value_or(false))
+        {
+            continue;
+        }
+        const world::Object* avatar = attachedAvatar(world, object);
+        if(!avatar)
+        {
+            continue;
+        }
+        const auto skin = meshes.skin(object.sculptTexture);
+        if(!skin || skin->alternateBind.empty())
+        {
+            continue;
+        }
+        Overrides& overrides = overrides_[avatar->id];
+        for(size_t j = 0; j < skin->jointNames.size(); j++)
+        {
+            const int joint = base_.skeleton.find(skin->jointNames[j]);
+            // The pelvis stays at the root (its offset is a hover change in
+            // the official viewer; not done yet).
+            if(joint < 0 || joint == pelvis)
+            {
+                continue;
+            }
+            const glm::vec3 position(skin->alternateBind[j][3]);
+            const glm::vec3 defaultPosition =
+                base_.skeleton.joints[static_cast<size_t>(joint)].position;
+            if(glm::length(position - defaultPosition) <= kJointPositionThreshold)
+            {
+                continue;
+            }
+            const auto it = overrides.find(joint);
+            if(it == overrides.end() || object.sculptTexture < it->second.mesh)
+            {
+                overrides[joint] = {object.sculptTexture, position, skin->lockScaleIfJointPosition};
+            }
+        }
+    }
+}
+
 // Starts and stops animations to match what the simulator says is playing.
 void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
                          AnimationManager& animations, double now)
@@ -151,11 +283,12 @@ void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
 }
 
 void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-                       TextureManager& textures, AnimationManager& animations, double now,
-                       float drawDistance)
+                       TextureManager& textures, AnimationManager& animations, MeshManager& meshes,
+                       double now, float drawDistance)
 {
     frame_++;
     drawn_ = 0;
+    collectOverrides(world, meshes);
     for(const auto& [key, object] : world.objects())
     {
         if(object.type != world::ObjectType::Avatar)
@@ -181,6 +314,23 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // body is out of sight.
         animate(a, world, object.id, animations, now);
         a.animator.evaluate(now, base_.skeleton.joints.size(), a.pose);
+        // Rigged attachments' joint positions replace the shape's, but not
+        // animated ones.
+        if(const auto o = overrides_.find(object.id); o != overrides_.end())
+        {
+            for(const auto& [joint, override] : o->second)
+            {
+                avatar::JointPose& p = a.pose[static_cast<size_t>(joint)];
+                if(!p.position)
+                {
+                    p.position = override.position;
+                }
+                if(override.lockScale)
+                {
+                    p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
+                }
+            }
+        }
         a.joints = avatar::poseJoints(base_, body.shape, a.pose);
 
         const glm::mat4 root = rootFrame(object, world, originHandle);
@@ -188,30 +338,19 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             continue;
         }
-        // Bakes from AvatarAppearance if we have it, else the object's own.
-        const world::TextureEntry& faces = appearance ? appearance->faces : object.faces;
-
         drawn_++;
         for(size_t i = 0; i < std::size(avatar::kBodyParts); i++)
         {
             const avatar::BodyPart& part = avatar::kBodyParts[i];
-            const Uuid& bake = faces[static_cast<size_t>(part.bake)].texture;
-            if(bake.isNull() || bake == kDefaultAvatarTexture || bake == kInvisibleTexture ||
-               !body.meshes[i])
+            if(!body.meshes[i])
             {
                 continue;
             }
             render::BlinnPhongMaterial m;
-            if(!appearanceUrl_.empty())
-            {
-                // As the official viewer's getImageURL().
-                m.diffuse = textures.get(bake, std::format("{}texture/{}/{}/{}", appearanceUrl_,
-                                                           object.id.toString(), part.bakeName,
-                                                           bake.toString()));
-            }
+            m.diffuse = bake(world, object, part.bake, part.bakeName, textures);
             if(!m.diffuse)
             {
-                continue; // not drawn until its bake is in (avoids grey ghosts)
+                continue; // none, or not drawn until it's in (avoids grey ghosts)
             }
             m.alphaCutoff = 0.5f; // alpha layers cut holes in bakes
             m.specularTint = glm::vec3(0.03f);

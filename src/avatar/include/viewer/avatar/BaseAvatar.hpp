@@ -29,6 +29,7 @@ struct Joint
     glm::vec3 scale{1.0f};
     glm::vec3 pivot{0.0f}; // where the body meshes were made around it
     bool base = true;      // part of the base skeleton (not "extended")
+    bool volume = false;   // a collision volume (fitted mesh is skinned to them)
 };
 
 struct Skeleton
@@ -143,6 +144,7 @@ struct VisualParam
     Sex sex = Sex::Both;
     std::vector<MorphRef> morphs;
     std::vector<BoneDeformation> bones;
+    std::vector<BoneDeformation> volumes; // collision volumes a morph resizes
     std::vector<Driven> driven;
 
     bool transmitted() const { return group == 0 || group == 3; }

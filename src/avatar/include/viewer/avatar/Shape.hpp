@@ -73,6 +73,7 @@ struct JointPose
 {
     std::optional<glm::quat> rotation;
     std::optional<glm::vec3> position;
+    std::optional<glm::vec3> scale;
 };
 
 // Joint transforms relative to the avatar root. `pose` is empty (the rest

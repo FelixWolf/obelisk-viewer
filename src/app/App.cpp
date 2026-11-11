@@ -362,6 +362,8 @@ int App::run()
                         "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
                         avatars_ ? avatars_->drawn() : size_t{0}, o.drawn, o.meshObjects, o.faces,
                         m.meshes, m.lodsReady, m.diskHits, m.failed, t.resident, t.failed);
+                    log::info("rigged meshes drawn: {}; skipped objects: {}", o.palettes,
+                              o.skipped);
                     if(animations_)
                     {
                         const auto a = animations_->stats();
@@ -513,7 +515,8 @@ render::Scene App::buildScene()
         {
             animations_->update();
             const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
-            avatars_->addTo(scene, *world_, *originHandle_, *textures_, *animations_, now, 128.0f);
+            avatars_->addTo(scene, *world_, *originHandle_, *textures_, *animations_, *meshes_, now,
+                            128.0f);
         }
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, avatars_.get(),
                         128.0f);

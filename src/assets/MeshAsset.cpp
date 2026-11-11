@@ -4,8 +4,10 @@
 
 #include <zlib.h>
 
+#include <algorithm>
 #include <cstring>
 #include <format>
+#include <optional>
 
 namespace viewer::assets
 {
@@ -34,6 +36,23 @@ glm::vec3 vec3(const llsd::Value& v)
 uint16_t u16(const llsd::Binary& b, size_t index)
 {
     return static_cast<uint16_t>(b[index * 2] | b[index * 2 + 1] << 8);
+}
+
+// A 4x4 matrix as 16 numbers, in the official viewer's layout (row vectors,
+// translation in 12..14). Read straight into glm's column-major storage,
+// that's the same transform for column vectors.
+std::optional<glm::mat4> mat4(const llsd::Value& v)
+{
+    if(!v.isArray() || v.size() < 16)
+    {
+        return std::nullopt;
+    }
+    glm::mat4 m(1.0f);
+    for(int i = 0; i < 16; i++)
+    {
+        m[i / 4][i % 4] = static_cast<float>(v[static_cast<size_t>(i)].asReal());
+    }
+    return m;
 }
 
 } // namespace
@@ -214,6 +233,39 @@ decodeMeshLod(std::span<const uint8_t> compressed)
                 face.texCoords[v] = t / 65535.0f * uvRange + minUv;
             }
         }
+        if(f.has("Weights"))
+        {
+            // Per vertex: up to four (joint byte, 16-bit weight) pairs, ended
+            // early by 0xFF (llvolume.cpp unpackVolumeFaces).
+            const llsd::Binary weights = f["Weights"].asBinary();
+            face.joints.assign(vertexCount, glm::u8vec4(0));
+            face.weights.assign(vertexCount, glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+            size_t at = 0;
+            for(size_t v = 0; v < vertexCount && at < weights.size(); v++)
+            {
+                glm::u8vec4 joints(0);
+                glm::vec4 w(0.0f);
+                int count = 0;
+                uint8_t joint = weights[at++];
+                while(joint != 0xFF && at + 2 <= weights.size())
+                {
+                    const uint16_t influence =
+                        static_cast<uint16_t>(weights[at] | weights[at + 1] << 8);
+                    at += 2;
+                    joints[count] = joint;
+                    w[count] = std::clamp(static_cast<float>(influence) / 65535.0f, 0.001f, 0.999f);
+                    count++;
+                    if(count >= 4 || at >= weights.size())
+                    {
+                        break;
+                    }
+                    joint = weights[at++];
+                }
+                const float sum = w.x + w.y + w.z + w.w;
+                face.joints[v] = joints;
+                face.weights[v] = sum > 0.0f ? w / sum : glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            }
+        }
         face.indices.resize(indexCount);
         for(size_t j = 0; j < indexCount; j++)
         {
@@ -226,6 +278,56 @@ decodeMeshLod(std::span<const uint8_t> compressed)
         }
     }
     return faces;
+}
+
+std::expected<MeshSkin, std::string> decodeMeshSkin(std::span<const uint8_t> compressed)
+{
+    auto inflated = inflateZlib(compressed);
+    if(!inflated)
+    {
+        return std::unexpected("mesh skin: " + inflated.error());
+    }
+    auto value = llsd::fromBinary(*inflated);
+    if(!value || !value->isMap())
+    {
+        return std::unexpected(std::string("mesh skin isn't a map"));
+    }
+    const llsd::Value& v = *value;
+    MeshSkin skin;
+    const llsd::Value& names = v["joint_names"];
+    for(size_t i = 0; i < names.size(); i++)
+    {
+        skin.jointNames.push_back(names[i].asString());
+    }
+    const llsd::Value& inverse = v["inverse_bind_matrix"];
+    for(size_t i = 0; i < inverse.size(); i++)
+    {
+        skin.inverseBind.push_back(mat4(inverse[i]).value_or(glm::mat4(1.0f)));
+    }
+    if(skin.inverseBind.size() != skin.jointNames.size())
+    {
+        return std::unexpected(std::string("mesh skin: joint and bind matrix counts differ"));
+    }
+    if(skin.jointNames.size() > 255)
+    {
+        return std::unexpected(std::string("mesh skin has too many joints"));
+    }
+    skin.bindShape = mat4(v["bind_shape_matrix"]).value_or(glm::mat4(1.0f));
+    const llsd::Value& alternate = v["alt_inverse_bind_matrix"];
+    for(size_t i = 0; i < alternate.size(); i++)
+    {
+        skin.alternateBind.push_back(mat4(alternate[i]).value_or(glm::mat4(1.0f)));
+    }
+    if(skin.alternateBind.size() != skin.jointNames.size())
+    {
+        skin.alternateBind.clear();
+    }
+    if(v.has("pelvis_offset"))
+    {
+        skin.pelvisOffset = static_cast<float>(v["pelvis_offset"].asReal());
+    }
+    skin.lockScaleIfJointPosition = v["lock_scale_if_joint_position"].asBoolean();
+    return skin;
 }
 
 } // namespace viewer::assets

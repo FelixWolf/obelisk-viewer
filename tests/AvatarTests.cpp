@@ -11,7 +11,8 @@ TEST_CASE("Base avatar: skeleton, meshes and attachment points load")
     const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
     INFO((avatar ? std::string() : avatar.error()));
     REQUIRE(avatar.has_value());
-    CHECK(avatar->skeleton.joints.size() == 133);
+    CHECK(avatar->skeleton.joints.size() == 133 + 26); // bones and collision volumes
+    CHECK(avatar->skeleton.joints[static_cast<size_t>(avatar->skeleton.find("BELLY"))].volume);
     CHECK(avatar->skeleton.find("mHead") >= 0);
     CHECK(avatar->pelvisBind.z == doctest::Approx(1.067f));
     CHECK(avatar->pelvisToFoot > 0.8f);

@@ -321,7 +321,9 @@ ready one is drawn. Downloaded parts are cached on disk as received (header
 bytes and each level's compressed block, `<cache>/meshes/<xx>/<uuid>.header`
 and `.lod<N>`, written atomically), so later sessions read them from disk.
 
-Not drawn yet: sculpted prims, rigged mesh (needs skinning), trees, grass, flexible prims (drawn straight), planar texture
+Rigged mesh (a header `skin` block) is drawn skinned to the avatar wearing
+it; see Avatars. Not drawn yet: sculpted prims, animated objects (rigged mesh
+not worn), trees, grass, flexible prims (drawn straight), planar texture
 mapping, materials.
 
 ## Avatars
@@ -387,6 +389,22 @@ of one (llpose.cpp's LLJointStateBlender). Animated rotations replace the
 joint's; animated positions replace the shaped ones. Attachments follow the
 animated skeleton.
 
-Not yet: rigged mesh skinning, IK constraints, the official viewer's
+Rigged mesh: `MeshManager` also loads a mesh's skin block (`.skin` in the
+disk cache): joint names, inverse bind matrices, the bind shape matrix and
+optional joint positions (`alt_inverse_bind_matrix`). Levels of detail carry
+per-vertex weights (up to four joint/weight pairs, llvolume.cpp's format) and
+upload as skinned meshes. `ObjectView` skins a worn rigged mesh to its
+avatar's posed joints: joint * inverse bind * bind shape, with joints the
+skeleton doesn't have following the pelvis. Fitted mesh is weighted to the
+skeleton's collision volumes, which are joints too: they inherit their bone's
+skeletal changes in proportion to their own scale, and morph parameters'
+`volume_morph`s resize them. Joint positions a rigged attachment asks for
+replace the shape's (the mesh with the lowest id wins a conflict, as the
+official viewer picks) unless an animation moves that joint; the pelvis
+offset isn't applied yet. Bake on Mesh: attachment faces showing one of the
+`IMG_USE_BAKED_*` placeholders show the wearer's bake instead (head, upper,
+lower, eyes, skirt, hair, left arm, left leg, aux 1-3).
+
+Not yet: animated objects (animesh), IK constraints, the official viewer's
 procedural motions (head and eye movement, breathing, hand poses), clothing
 morph masks and the physics-driven morphs (breast, belly and butt physics).

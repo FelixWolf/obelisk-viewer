@@ -47,11 +47,19 @@ void MeshManager::submit(std::function<void()> job)
         });
 }
 
+MeshManager::State& MeshManager::stateOf(Entry& e, int lod)
+{
+    return lod == kHeader ? e.header
+           : lod == kSkin ? e.skinState
+                          : e.lods[static_cast<size_t>(lod)].state;
+}
+
 std::filesystem::path MeshManager::pathFor(const Request& request) const
 {
     const std::string id = request.id.toString();
-    const std::string name =
-        request.lod < 0 ? id + ".header" : std::format("{}.lod{}", id, request.lod);
+    const std::string name = request.lod == kHeader ? id + ".header"
+                             : request.lod == kSkin ? id + ".skin"
+                                                    : std::format("{}.lod{}", id, request.lod);
     return cacheRoot_ / id.substr(0, 2) / name;
 }
 
@@ -94,6 +102,10 @@ void MeshManager::setViewerAssetUrl(std::string url)
         if(e.header == State::Downloading || e.header == State::Queued)
         {
             e.header = State::None;
+        }
+        if(e.skinState == State::Downloading || e.skinState == State::Queued)
+        {
+            e.skinState = State::None;
         }
         for(Lod& lod : e.lods)
         {
@@ -166,26 +178,20 @@ void MeshManager::startDownloads()
 
         int64_t begin = 0;
         int64_t end = static_cast<int64_t>(assets::kMeshHeaderFetchSize) - 1;
-        if(request.lod < 0)
+        State& state = stateOf(e, request.lod);
+        if(state != State::Queued)
         {
-            if(e.header != State::Queued)
-            {
-                continue;
-            }
-            e.header = State::Downloading;
+            continue;
         }
-        else
+        if(request.lod != kHeader)
         {
-            Lod& slot = e.lods[static_cast<size_t>(request.lod)];
-            if(slot.state != State::Queued)
-            {
-                continue;
-            }
-            const assets::MeshBlock& block = e.parsed.lods[static_cast<size_t>(request.lod)];
+            const assets::MeshBlock& block = request.lod == kSkin
+                                                 ? e.parsed.skin
+                                                 : e.parsed.lods[static_cast<size_t>(request.lod)];
             begin = static_cast<int64_t>(e.parsed.headerSize) + block.offset;
             end = begin + block.size - 1;
-            slot.state = State::Downloading;
         }
+        state = State::Downloading;
 
         // As the official viewer: <ViewerAsset>/?mesh_id=<uuid>, byte ranges.
         net::HttpRequest http{
@@ -209,7 +215,7 @@ void MeshManager::handleDownload(Download& download)
     }
     Entry& e = it->second;
     const int lod = download.request.lod;
-    State& state = lod < 0 ? e.header : e.lods[static_cast<size_t>(lod)].state;
+    State& state = stateOf(e, lod);
     if(state != State::Downloading)
     {
         return;
@@ -240,9 +246,10 @@ void MeshManager::handleDownload(Download& download)
         }
         bytes.erase(bytes.begin(), bytes.begin() + download.begin);
     }
-    if(lod >= 0)
+    if(lod != kHeader)
     {
-        const size_t size = static_cast<size_t>(e.parsed.lods[static_cast<size_t>(lod)].size);
+        const size_t size = static_cast<size_t>(
+            lod == kSkin ? e.parsed.skin.size : e.parsed.lods[static_cast<size_t>(lod)].size);
         if(bytes.size() > size)
         {
             bytes.resize(size);
@@ -279,9 +286,9 @@ void MeshManager::handleBytes(const Request& request, std::vector<uint8_t> bytes
     }
     Entry& e = it->second;
     const int lod = request.lod;
-    State& state = lod < 0 ? e.header : e.lods[static_cast<size_t>(lod)].state;
+    State& state = stateOf(e, lod);
 
-    if(lod < 0)
+    if(lod == kHeader)
     {
         auto header = assets::parseMeshHeader(bytes);
         if(!header)
@@ -301,8 +308,19 @@ void MeshManager::handleBytes(const Request& request, std::vector<uint8_t> bytes
     submit(
         [this, request, data = std::move(bytes)]
         {
-            Decoded result{request, {}, {}};
-            if(auto faces = assets::decodeMeshLod(data))
+            Decoded result{request, {}, nullptr, {}};
+            if(request.lod == kSkin)
+            {
+                if(auto skin = assets::decodeMeshSkin(data))
+                {
+                    result.skin = std::make_shared<const assets::MeshSkin>(std::move(*skin));
+                }
+                else
+                {
+                    result.error = skin.error();
+                }
+            }
+            else if(auto faces = assets::decodeMeshLod(data))
             {
                 result.faces = std::move(*faces);
             }
@@ -325,9 +343,7 @@ void MeshManager::update()
         {
             continue;
         }
-        State& state = d.request.lod < 0
-                           ? it->second.header
-                           : it->second.lods[static_cast<size_t>(d.request.lod)].state;
+        State& state = stateOf(it->second, d.request.lod);
         if(state != State::Loading)
         {
             continue;
@@ -360,13 +376,19 @@ void MeshManager::update()
         {
             continue;
         }
-        Lod& slot = it->second.lods[static_cast<size_t>(d.request.lod)];
         if(!d.error.empty())
         {
             log::warn("mesh {}: {}", d.request.id.toString(), d.error);
-            slot.state = State::Failed;
+            stateOf(it->second, d.request.lod) = State::Failed;
             continue;
         }
+        if(d.request.lod == kSkin)
+        {
+            it->second.skin = std::move(d.skin);
+            it->second.skinState = State::Ready;
+            continue;
+        }
+        Lod& slot = it->second.lods[static_cast<size_t>(d.request.lod)];
         slot.faces = uploadFaces(renderer_, d.faces);
         slot.state = State::Ready;
     }
@@ -383,6 +405,23 @@ std::optional<bool> MeshManager::isRigged(const Uuid& id) const
         return std::nullopt;
     }
     return it->second.parsed.skin.present();
+}
+
+std::shared_ptr<const assets::MeshSkin> MeshManager::skin(const Uuid& id)
+{
+    const auto it = entries_.find(id);
+    if(it == entries_.end() || it->second.header != State::Ready ||
+       !it->second.parsed.skin.present())
+    {
+        return nullptr;
+    }
+    Entry& e = it->second;
+    if(e.skinState == State::None)
+    {
+        e.skinState = State::Loading;
+        request({id, kSkin});
+    }
+    return e.skin;
 }
 
 MeshManager::Stats MeshManager::stats() const

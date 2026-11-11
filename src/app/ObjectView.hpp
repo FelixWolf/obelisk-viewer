@@ -24,6 +24,7 @@
 #include "viewer/world/World.hpp"
 
 #include <atomic>
+#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
@@ -61,6 +62,7 @@ public:
         size_t faces = 0;       // faces drawn last frame
         size_t meshObjects = 0; // of drawn, how many are mesh
         size_t skipped = 0;     // sculpted/attached prims not drawn
+        size_t palettes = 0;    // rigged meshes skinned last frame
     };
     Stats stats() const { return stats_; }
 
@@ -83,6 +85,15 @@ private:
     };
 
     Geometry& geometry(const Key& key);
+    // A face's material; for faces worn by `wearer` showing a Bake on Mesh
+    // placeholder, its bake instead. Nothing while that bake loads.
+    static std::optional<render::BlinnPhongMaterial>
+    material(const world::TextureFace& face, TextureManager& textures, const world::World& world,
+             const world::Object* wearer, const AvatarView* avatars);
+    // A rigged mesh worn by an avatar, skinned to its posed skeleton.
+    void addRigged(render::Scene& scene, const world::World& world, const world::Object& object,
+                   uint64_t originHandle, TextureManager& textures, MeshManager& meshes,
+                   const AvatarView* avatars, float drawDistance);
     // An object's frame (position and rotation, no scale) in scene
     // coordinates, through its linkset root and, for attachments, its
     // avatar's attachment point. Nothing if a parent isn't known yet.
@@ -97,6 +108,9 @@ private:
     std::vector<Generated> drained_;
     std::atomic<int> running_{0};
     Stats stats_;
+    // This frame's joint matrices for rigged draws (the scene refers to them
+    // until it's drawn; a deque keeps them in place as it grows).
+    std::deque<std::vector<glm::mat4>> palettes_;
 };
 
 } // namespace viewer

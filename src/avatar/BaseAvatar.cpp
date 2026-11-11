@@ -49,14 +49,20 @@ glm::quat attachmentRotation(const glm::vec3& degrees)
     return qx * qy * qz;
 }
 
+// Bones and collision volumes, in document order (parents before children).
 void addBones(Skeleton& skeleton, const tinyxml2::XMLElement* element, int parent)
 {
-    for(const auto* bone = element->FirstChildElement("bone"); bone;
-        bone = bone->NextSiblingElement("bone"))
+    for(const auto* bone = element->FirstChildElement(); bone; bone = bone->NextSiblingElement())
     {
+        const std::string_view tag = bone->Name();
+        if(tag != "bone" && tag != "collision_volume")
+        {
+            continue;
+        }
         Joint j;
         j.name = bone->Attribute("name") ? bone->Attribute("name") : "";
         j.parent = parent;
+        j.volume = tag == "collision_volume";
         j.position = parseVec3(bone->Attribute("pos"));
         j.rotation = jointRotation(parseVec3(bone->Attribute("rot")));
         j.scale = parseVec3(bone->Attribute("scale"), glm::vec3(1.0f));
@@ -72,7 +78,10 @@ void addBones(Skeleton& skeleton, const tinyxml2::XMLElement* element, int paren
             skeleton.byName.try_emplace(alias, index);
         }
         skeleton.joints.push_back(std::move(j));
-        addBones(skeleton, bone, index);
+        if(tag == "bone")
+        {
+            addBones(skeleton, bone, index);
+        }
     }
 }
 
@@ -160,6 +169,22 @@ void collectParams(BaseAvatar& avatar, const tinyxml2::XMLElement* element,
             if(morph)
             {
                 p.morphs.push_back({*part, static_cast<size_t>(morph - mesh.morphs.data())});
+                // Collision volumes the morph also resizes (fitted mesh
+                // follows them).
+                for(const auto* v =
+                        child->FirstChildElement("param_morph")->FirstChildElement("volume_morph");
+                    v; v = v->NextSiblingElement("volume_morph"))
+                {
+                    VisualParam::BoneDeformation d;
+                    d.joint =
+                        avatar.skeleton.find(v->Attribute("name") ? v->Attribute("name") : "");
+                    d.scale = parseVec3(v->Attribute("scale"));
+                    d.offset = parseVec3(v->Attribute("pos"));
+                    if(d.joint >= 0 && avatar.skeleton.joints[static_cast<size_t>(d.joint)].volume)
+                    {
+                        p.volumes.push_back(d);
+                    }
+                }
             }
         }
         if(const auto* skeletal = child->FirstChildElement("param_skeleton"))

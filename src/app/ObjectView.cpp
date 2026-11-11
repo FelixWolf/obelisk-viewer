@@ -136,12 +136,117 @@ void ObjectView::update()
     drained_.clear();
 }
 
+std::optional<render::BlinnPhongMaterial> ObjectView::material(const world::TextureFace& face,
+                                                               TextureManager& textures,
+                                                               const world::World& world,
+                                                               const world::Object* wearer,
+                                                               const AvatarView* avatars)
+{
+    render::BlinnPhongMaterial m;
+    if(wearer && avatars)
+    {
+        if(const auto bake = avatars->bakeFor(world, *wearer, face.texture, textures))
+        {
+            if(!*bake)
+            {
+                return std::nullopt;
+            }
+            // Bakes cut holes where alpha layers are, like the body.
+            m.diffuse = *bake;
+            m.diffuseTint = face.color;
+            m.alphaCutoff = 0.5f;
+            m.specularTint = glm::vec3(0.03f);
+            m.maxExponent = 16.0f;
+            return m;
+        }
+    }
+    m.diffuse = textures.get(face.texture);
+    m.diffuseTint = face.color;
+    m.fullbright = face.fullbright();
+    // Legacy faces are matte unless shiny; keep a faint highlight.
+    m.specularTint = glm::vec3(0.04f + 0.3f * static_cast<float>(face.shiny()));
+    m.maxExponent = 32.0f + 96.0f * static_cast<float>(face.shiny());
+    const auto alpha = textures.alphaMode(face.texture);
+    if(alpha == image::AlphaMode::Mask)
+    {
+        m.alphaCutoff = 0.5f;
+    }
+    m.blend = face.color.a < 1.0f || alpha == image::AlphaMode::Blend;
+    return m;
+}
+
+void ObjectView::addRigged(render::Scene& scene, const world::World& world,
+                           const world::Object& object, uint64_t originHandle,
+                           TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
+                           float drawDistance)
+{
+    const world::Object* avatar = avatars ? attachedAvatar(world, object) : nullptr;
+    if(!avatar)
+    {
+        stats_.skipped++; // not worn (animated objects aren't drawn yet)
+        return;
+    }
+    const glm::mat4 root = avatars->rootFrame(*avatar, world, originHandle);
+    const float distance = glm::length(glm::vec3(root[3]) - scene.camera.position);
+    if(distance > drawDistance)
+    {
+        return;
+    }
+    const auto skin = meshes.skin(object.sculptTexture);
+    // Rigged mesh is avatar sized, whatever the object's scale says.
+    const auto* faces = meshes.get(object.sculptTexture, detailFor(1.0f, distance));
+    if(!skin || !faces)
+    {
+        return;
+    }
+
+    // The matrices the vertices' joints refer to: from the mesh's bind pose
+    // to the joint as posed now (joints the avatar doesn't have follow the
+    // pelvis).
+    const avatar::Skeleton& skeleton = avatars->base().skeleton;
+    const std::vector<glm::mat4>& joints = avatars->posedJoints(*avatar);
+    const int pelvis = skeleton.find("mPelvis");
+    std::vector<glm::mat4>& palette = palettes_.emplace_back();
+    palette.reserve(skin->jointNames.size());
+    for(size_t j = 0; j < skin->jointNames.size(); j++)
+    {
+        int joint = skeleton.find(skin->jointNames[j]);
+        joint = joint < 0 ? pelvis : joint;
+        palette.push_back(joints[static_cast<size_t>(joint)] * skin->inverseBind[j] *
+                          skin->bindShape);
+    }
+
+    stats_.drawn++;
+    stats_.meshObjects++;
+    for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
+    {
+        const render::Mesh& mesh = (*faces)[f];
+        const world::TextureFace& face = object.faces[f];
+        if(!mesh || mesh.layout != render::VertexLayout::Skinned || face.color.a <= 0.0f ||
+           face.texture == kTransparentTexture)
+        {
+            continue;
+        }
+        const auto m = material(face, textures, world, avatar, avatars);
+        if(!m)
+        {
+            continue;
+        }
+        render::ObjectDraw draw{&mesh, root, *m};
+        uvTransform(face, draw.uvRow0, draw.uvRow1);
+        draw.joints = palette;
+        scene.objects.push_back(draw);
+        stats_.faces++;
+    }
+}
+
 void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
                        TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
                        float drawDistance)
 {
     stats_.drawn = 0;
     stats_.faces = 0;
+    palettes_.clear(); // last frame's draws are done
     stats_.skipped = 0;
     stats_.meshObjects = 0;
     const glm::vec3 camera = scene.camera.position;
@@ -158,6 +263,14 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         if(sculpt != world::SculptType::None && !isMesh)
         {
             stats_.skipped++;
+            continue;
+        }
+
+        // Rigged mesh: skinned to the avatar it's attached to, wherever the
+        // attachment point is.
+        if(isMesh && meshes.isRigged(object.sculptTexture).value_or(false))
+        {
+            addRigged(scene, world, object, originHandle, textures, meshes, avatars, drawDistance);
             continue;
         }
 
@@ -182,13 +295,6 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const std::vector<render::Mesh>* faces = nullptr;
         if(isMesh)
         {
-            // Rigged mesh needs skinning to the avatar's skeleton (later);
-            // drawn rigidly it would be a mess of bind-pose pieces.
-            if(meshes.isRigged(object.sculptTexture).value_or(false))
-            {
-                stats_.skipped++;
-                continue;
-            }
             faces = meshes.get(object.sculptTexture, detail);
             stats_.meshObjects += faces != nullptr;
         }
@@ -203,6 +309,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
 
         const glm::mat4 transform = *frame * glm::scale(glm::mat4(1.0f), object.scale);
+        const world::Object* wearer =
+            object.parentId != 0 ? attachedAvatar(world, object) : nullptr;
         stats_.drawn++;
         for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
         {
@@ -212,21 +320,12 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             {
                 continue;
             }
-            render::BlinnPhongMaterial m;
-            m.diffuse = textures.get(face.texture);
-            m.diffuseTint = face.color;
-            m.fullbright = face.fullbright();
-            // Legacy faces are matte unless shiny; keep a faint highlight.
-            m.specularTint = glm::vec3(0.04f + 0.3f * static_cast<float>(face.shiny()));
-            m.maxExponent = 32.0f + 96.0f * static_cast<float>(face.shiny());
-            const auto alpha = textures.alphaMode(face.texture);
-            if(alpha == image::AlphaMode::Mask)
+            const auto m = material(face, textures, world, wearer, avatars);
+            if(!m)
             {
-                m.alphaCutoff = 0.5f;
+                continue;
             }
-            m.blend = face.color.a < 1.0f || alpha == image::AlphaMode::Blend;
-
-            render::ObjectDraw draw{&mesh, transform, m};
+            render::ObjectDraw draw{&mesh, transform, *m};
             uvTransform(face, draw.uvRow0, draw.uvRow1);
             scene.objects.push_back(draw);
             stats_.faces++;
@@ -234,6 +333,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     }
 
     stats_.meshes = cache_.size();
+    stats_.palettes = palettes_.size();
     stats_.pending = static_cast<size_t>(std::max(running_.load(), 0));
 }
 

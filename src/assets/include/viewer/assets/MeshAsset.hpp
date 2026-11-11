@@ -7,6 +7,8 @@
 
 #include "viewer/volume/Volume.hpp"
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -44,6 +46,24 @@ struct MeshHeader
 };
 
 std::expected<MeshHeader, std::string> parseMeshHeader(std::span<const uint8_t> data);
+
+// A rigged mesh's skin block (llmodel.cpp LLMeshSkinInfo). Matrices are
+// converted to column vectors: a vertex goes to
+// joint * inverseBind[j] * bindShape * position.
+struct MeshSkin
+{
+    std::vector<std::string> jointNames;
+    std::vector<glm::mat4> inverseBind; // per joint
+    glm::mat4 bindShape{1.0f};
+    // Optional: per joint, a transform whose translation is where the mesh
+    // wants that joint (relative to its parent); empty if none.
+    std::vector<glm::mat4> alternateBind;
+    float pelvisOffset = 0.0f;
+    bool lockScaleIfJointPosition = false;
+};
+
+// Decodes the skin block (still compressed).
+std::expected<MeshSkin, std::string> decodeMeshSkin(std::span<const uint8_t> compressed);
 
 // Inflates zlib data (refusing to grow beyond maxSize).
 std::expected<std::vector<uint8_t>, std::string> inflateZlib(std::span<const uint8_t> data,
