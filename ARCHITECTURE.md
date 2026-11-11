@@ -35,7 +35,8 @@ bottom row. We store images top-down; anything sampled with Second Life UVs
 3. **Threads share no mutable state.** They communicate through message queues
    (`viewer::MessageQueue`). One thread owns each piece of state:
    - main: SDL events, ImGui, GPU swapchain acquire and submit
-   - world: the only writer of world state; publishes snapshots for rendering
+   - world: decodes the regions' messages into `WorldUpdate`s (`WorldThread`);
+     the main thread owns `World` and applies them, which is cheap
    - network: UDP circuit plus HTTP (capabilities, event queue, asset fetch)
    - worker pool: J2K decode, KTX encode/write, mesh decode, disk I/O
 4. **Modules are libraries with one-way dependencies.** `src/<module>` builds
@@ -279,6 +280,12 @@ shadercross) first.
 rendering changes get checked without someone looking at the window.
 
 ## Objects
+
+Every region message for the world goes through `WorldThread`, which decodes
+it on its own thread (`world::decodeMessage`: no world state needed) into a
+`WorldUpdate`: object updates, kills, terrain patches, region handshake,
+appearance, animations, or a removed region. The main thread drains these
+once per frame, in order, and `World::apply`s them.
 
 `World` decodes ObjectUpdate, ObjectUpdateCompressed,
 ImprovedTerseObjectUpdate and KillObject into `world::Object`s keyed by

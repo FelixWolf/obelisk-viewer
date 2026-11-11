@@ -276,6 +276,7 @@ void App::handleLoginAction(LoginAction action)
         endSession();
         session_ = std::make_unique<session::Session>(*http_, std::move(action.parameters));
         world_ = std::make_unique<world::World>();
+        worldThread_ = std::make_unique<world::WorldThread>();
         break;
     case LoginAction::Kind::LogOut:
         if(session_)
@@ -399,17 +400,24 @@ void App::updateSession()
     }
     session_->update();
 
+    // Messages go to the world thread to decode; what it finished since the
+    // last frame is applied here.
     session_->drainRegionMessages(regionMessages_);
-    for(const auto& m : regionMessages_)
+    for(auto& m : regionMessages_)
     {
         if(m.kind == session::RegionMessage::Kind::RegionRemoved)
         {
-            world_->removeRegion(m.regionHandle);
+            worldThread_->postRegionRemoved(m.regionHandle);
         }
         else
         {
-            world_->handleMessage(m.regionHandle, m.event);
+            worldThread_->post(m.regionHandle, std::move(m.event));
         }
+    }
+    worldThread_->drain(worldUpdates_);
+    for(auto& update : worldUpdates_)
+    {
+        world_->apply(std::move(update));
     }
 
     // Once we know where the agent is, put the world origin at its region
@@ -469,6 +477,7 @@ void App::endSession()
         animations_->setViewerAssetUrl({});
     }
     session_.reset();
+    worldThread_.reset();
     world_.reset();
     terrainView_.clear();
     originHandle_.reset();

@@ -17,6 +17,7 @@ add_executable(viewer_tests
   TextureProcessingTests.cpp
   UuidTests.cpp
   VolumeTests.cpp
+  WorldThreadTests.cpp
 )
 target_link_libraries(viewer_tests PRIVATE
   doctest::doctest

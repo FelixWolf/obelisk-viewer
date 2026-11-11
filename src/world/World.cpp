@@ -52,7 +52,7 @@ const Object* World::object(uint64_t region, uint32_t localId) const
     return it == objects_.end() ? nullptr : &it->second;
 }
 
-void World::apply(uint64_t regionHandle, const ObjectUpdateData& update)
+void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update)
 {
     const ObjectKey key{regionHandle, update.localId};
     if(update.kind == ObjectUpdateData::Kind::Terse)
@@ -72,61 +72,22 @@ void World::apply(uint64_t regionHandle, const ObjectUpdateData& update)
         applyUpdate(object, update);
         object.region = regionHandle;
     }
-    objectsRevision_++;
 }
 
-void World::handleCompressedUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event)
+namespace
 {
-    const auto m = event.decode<msg::ObjectUpdateCompressed>();
-    if(!m)
-    {
-        return;
-    }
-    for(const auto& block : m->ObjectData)
-    {
-        stats_.compressedUpdates++;
-        if(auto update = decodeCompressedObject(block.Data, block.UpdateFlags))
-        {
-            apply(regionHandle, *update);
-        }
-        else
-        {
-            stats_.undecodable++;
-        }
-    }
-}
 
-void World::handleTerseUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event)
+WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
 {
-    const auto m = event.decode<msg::ImprovedTerseObjectUpdate>();
-    if(!m)
-    {
-        return;
-    }
-    for(const auto& block : m->ObjectData)
-    {
-        stats_.terseUpdates++;
-        if(auto update = decodeTerseObject(block.Data, block.TextureEntry))
-        {
-            apply(regionHandle, *update);
-        }
-        else
-        {
-            stats_.undecodable++;
-        }
-    }
-}
-
-void World::handleObjectUpdate(uint64_t regionHandle, const protocol::CircuitEvent& event)
-{
+    WorldUpdate::Objects out;
     const auto m = event.decode<msg::ObjectUpdate>();
     if(!m)
     {
-        return;
+        return out;
     }
     for(const auto& b : m->ObjectData)
     {
-        stats_.fullUpdates++;
+        out.full++;
         ObjectUpdateData update;
         update.kind = ObjectUpdateData::Kind::Full;
         update.localId = b.ID;
@@ -188,34 +149,85 @@ void World::handleObjectUpdate(uint64_t regionHandle, const protocol::CircuitEve
         {
             o.faces = *faces;
         }
-        apply(regionHandle, update);
+        out.updates.push_back(std::move(update));
     }
+    return out;
 }
 
-void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& event)
+WorldUpdate::Objects decodeCompressedUpdate(const protocol::CircuitEvent& event)
 {
+    WorldUpdate::Objects out;
+    const auto m = event.decode<msg::ObjectUpdateCompressed>();
+    if(!m)
+    {
+        return out;
+    }
+    for(const auto& block : m->ObjectData)
+    {
+        out.compressed++;
+        if(auto update = decodeCompressedObject(block.Data, block.UpdateFlags))
+        {
+            out.updates.push_back(std::move(*update));
+        }
+        else
+        {
+            out.undecodable++;
+        }
+    }
+    return out;
+}
+
+WorldUpdate::Objects decodeTerseUpdate(const protocol::CircuitEvent& event)
+{
+    WorldUpdate::Objects out;
+    const auto m = event.decode<msg::ImprovedTerseObjectUpdate>();
+    if(!m)
+    {
+        return out;
+    }
+    for(const auto& block : m->ObjectData)
+    {
+        out.terse++;
+        if(auto update = decodeTerseObject(block.Data, block.TextureEntry))
+        {
+            out.updates.push_back(std::move(*update));
+        }
+        else
+        {
+            out.undecodable++;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+WorldUpdate decodeMessage(uint64_t regionHandle, const protocol::CircuitEvent& event)
+{
+    WorldUpdate out;
+    out.region = regionHandle;
     if(event.is<msg::ObjectUpdateCompressed>())
     {
-        handleCompressedUpdate(regionHandle, event);
+        out.change = decodeCompressedUpdate(event);
     }
     else if(event.is<msg::ImprovedTerseObjectUpdate>())
     {
-        handleTerseUpdate(regionHandle, event);
+        out.change = decodeTerseUpdate(event);
     }
     else if(event.is<msg::ObjectUpdate>())
     {
-        handleObjectUpdate(regionHandle, event);
+        out.change = decodeObjectUpdate(event);
     }
     else if(event.is<msg::AvatarAnimation>())
     {
         if(const auto m = event.decode<msg::AvatarAnimation>())
         {
-            auto& list = animations_[m->Sender.ID];
-            list.clear();
-            for(const auto& a : m->AnimationList)
+            WorldUpdate::Animations a{m->Sender.ID, {}};
+            for(const auto& anim : m->AnimationList)
             {
-                list.push_back({a.AnimID, a.AnimSequenceID});
+                a.playing.push_back({anim.AnimID, anim.AnimSequenceID});
             }
+            out.change = std::move(a);
         }
     }
     else if(event.is<msg::AvatarAppearance>())
@@ -224,21 +236,19 @@ void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
         {
             if(auto faces = decodeTextureEntry(m->ObjectData.TextureEntry))
             {
-                Appearance& a = appearances_[m->Sender.ID];
-                a.faces = *faces;
-                a.visualParams.clear();
+                WorldUpdate::Appearance a{m->Sender.ID, {}};
+                a.appearance.faces = *faces;
                 for(const auto& p : m->VisualParam)
                 {
-                    a.visualParams.push_back(p.ParamValue);
+                    a.appearance.visualParams.push_back(p.ParamValue);
                 }
                 // No hover block: the region doesn't do hover (llvoavatar.cpp).
-                a.hover = m->AppearanceHover.empty()
-                              ? glm::vec3(0.0f)
-                              : glm::vec3(m->AppearanceHover[0].HoverHeight.x,
-                                          m->AppearanceHover[0].HoverHeight.y,
-                                          m->AppearanceHover[0].HoverHeight.z);
-                a.serial = ++appearanceSerial_;
-                objectsRevision_++;
+                if(!m->AppearanceHover.empty())
+                {
+                    const auto& h = m->AppearanceHover[0].HoverHeight;
+                    a.appearance.hover = glm::vec3(h.x, h.y, h.z);
+                }
+                out.change = std::move(a);
             }
         }
     }
@@ -246,11 +256,12 @@ void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
     {
         if(const auto m = event.decode<msg::KillObject>())
         {
+            WorldUpdate::Kill kill;
             for(const auto& b : m->ObjectData)
             {
-                objects_.erase(ObjectKey{regionHandle, b.ID});
+                kill.localIds.push_back(b.ID);
             }
-            objectsRevision_++;
+            out.change = std::move(kill);
         }
     }
     else if(event.is<msg::LayerData>())
@@ -258,22 +269,86 @@ void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
         const auto layer = event.decode<msg::LayerData>();
         if(!layer)
         {
-            return;
+            return out;
         }
         const auto type = static_cast<LayerType>(layer->LayerID.Type);
         if(type != LayerType::Land && type != LayerType::LandExtended)
         {
-            return; // wind, cloud, water: not used yet
+            return out; // wind, cloud, water: not used yet
         }
         auto patches = decodeLandLayer(layer->LayerID.Type, layer->LayerData_.Data);
         if(!patches)
         {
             log::warn("bad LayerData: {}", patches.error());
-            return;
+            return out;
         }
+        out.change = WorldUpdate::Terrain{std::move(*patches)};
+    }
+    else if(event.is<msg::RegionHandshake>())
+    {
+        const auto handshake = event.decode<msg::RegionHandshake>();
+        if(!handshake)
+        {
+            return out;
+        }
+        const auto& info = handshake->RegionInfo;
+        TerrainComposition c;
+        c.detailTextures = {info.TerrainDetail0, info.TerrainDetail1, info.TerrainDetail2,
+                            info.TerrainDetail3};
+        c.startHeight = {info.TerrainStartHeight00, info.TerrainStartHeight01,
+                         info.TerrainStartHeight10, info.TerrainStartHeight11};
+        c.heightRange = {info.TerrainHeightRange00, info.TerrainHeightRange01,
+                         info.TerrainHeightRange10, info.TerrainHeightRange11};
+        c.waterHeight = info.WaterHeight;
+        out.change = WorldUpdate::Handshake{c};
+    }
+    return out;
+}
+
+void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& event)
+{
+    apply(decodeMessage(regionHandle, event));
+}
+
+void World::apply(WorldUpdate update)
+{
+    const uint64_t regionHandle = update.region;
+    if(auto* objects = std::get_if<WorldUpdate::Objects>(&update.change))
+    {
+        stats_.fullUpdates += objects->full;
+        stats_.compressedUpdates += objects->compressed;
+        stats_.terseUpdates += objects->terse;
+        stats_.undecodable += objects->undecodable;
+        for(const ObjectUpdateData& u : objects->updates)
+        {
+            applyObject(regionHandle, u);
+        }
+        objectsRevision_ += !objects->updates.empty();
+    }
+    else if(auto* kill = std::get_if<WorldUpdate::Kill>(&update.change))
+    {
+        for(const uint32_t id : kill->localIds)
+        {
+            objects_.erase(ObjectKey{regionHandle, id});
+        }
+        objectsRevision_++;
+    }
+    else if(auto* animations = std::get_if<WorldUpdate::Animations>(&update.change))
+    {
+        animations_[animations->avatar] = std::move(animations->playing);
+    }
+    else if(auto* appearance = std::get_if<WorldUpdate::Appearance>(&update.change))
+    {
+        Appearance& a = appearances_[appearance->avatar];
+        a = std::move(appearance->appearance);
+        a.serial = ++appearanceSerial_;
+        objectsRevision_++;
+    }
+    else if(auto* terrainUpdate = std::get_if<WorldUpdate::Terrain>(&update.change))
+    {
         RegionTerrain& terrain = region(regionHandle);
         constexpr uint32_t kPatches = kRegionWidth / kPatchSize;
-        for(const TerrainPatch& patch : *patches)
+        for(const TerrainPatch& patch : terrainUpdate->patches)
         {
             if(patch.x >= kPatches || patch.y >= kPatches)
             {
@@ -291,25 +366,16 @@ void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
         }
         terrain.revision++;
     }
-    else if(event.is<msg::RegionHandshake>())
+    else if(auto* handshake = std::get_if<WorldUpdate::Handshake>(&update.change))
     {
-        const auto handshake = event.decode<msg::RegionHandshake>();
-        if(!handshake)
-        {
-            return;
-        }
-        const auto& info = handshake->RegionInfo;
         RegionTerrain& terrain = region(regionHandle);
-        TerrainComposition& c = terrain.composition;
-        c.detailTextures = {info.TerrainDetail0, info.TerrainDetail1, info.TerrainDetail2,
-                            info.TerrainDetail3};
-        c.startHeight = {info.TerrainStartHeight00, info.TerrainStartHeight01,
-                         info.TerrainStartHeight10, info.TerrainStartHeight11};
-        c.heightRange = {info.TerrainHeightRange00, info.TerrainHeightRange01,
-                         info.TerrainHeightRange10, info.TerrainHeightRange11};
-        c.waterHeight = info.WaterHeight;
+        terrain.composition = handshake->composition;
         terrain.hasComposition = true;
         terrain.revision++;
+    }
+    else if(std::holds_alternative<WorldUpdate::RegionRemoved>(update.change))
+    {
+        removeRegion(regionHandle);
     }
 }
 

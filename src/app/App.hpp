@@ -19,6 +19,7 @@
 #include "viewer/session/Session.hpp"
 #include "viewer/ui/ImGuiLayer.hpp"
 #include "viewer/world/World.hpp"
+#include "viewer/world/WorldThread.hpp"
 
 #include <SDL3/SDL_video.h>
 
@@ -115,8 +116,12 @@ private:
     std::unique_ptr<LoginPanel> loginPanel_;
     std::unique_ptr<SceneAssets> sceneAssets_;
     std::unique_ptr<session::Session> session_;
-    // Session-lifetime, created and destroyed together with session_.
+    // Session-lifetime, created and destroyed together with session_. The
+    // world thread decodes region messages; world_ (this thread's) applies
+    // the results.
+    std::unique_ptr<world::WorldThread> worldThread_;
     std::unique_ptr<world::World> world_;
+    std::vector<world::WorldUpdate> worldUpdates_;
     TerrainView terrainView_;
     std::vector<session::RegionMessage> regionMessages_;
     std::optional<uint64_t> originHandle_; // world coordinates are relative to this region
