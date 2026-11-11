@@ -417,7 +417,12 @@ replace the shape's (the mesh with the lowest id wins a conflict, as the
 official viewer picks) unless an animation moves that joint; the pelvis
 offset isn't applied yet. Bake on Mesh: attachment faces showing one of the
 `IMG_USE_BAKED_*` placeholders show the wearer's bake instead (head, upper,
-lower, eyes, skirt, hair, left arm, left leg, aux 1-3).
+lower, eyes, skirt, hair, left arm, left leg, aux 1-3), and the default body
+parts using those bakes are hidden (head and eyelashes, upper, lower, eyes,
+skirt, hair), as llvoavatar.cpp updateMeshVisibility does. A worn rigged
+mesh's level of detail comes from its avatar's size (the diagonal of its
+posed joints' box, used as a radius, as LLVOVolume::calcLOD does), not the
+object's scale.
 
 Not yet: animated objects (animesh), IK constraints, the official viewer's
 procedural motions (head and eye movement, breathing, hand poses), clothing

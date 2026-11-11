@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <format>
+#include <limits>
 
 namespace viewer
 {
@@ -193,20 +194,49 @@ const std::vector<glm::mat4>& AvatarView::posedJoints(const world::Object& avata
     return it != avatars_.end() && !it->second.joints.empty() ? it->second.joints : defaultJoints_;
 }
 
-void AvatarView::collectOverrides(const world::World& world, MeshManager& meshes)
+float AvatarView::extent(const world::Object& avatar) const
+{
+    const auto it = avatars_.find(avatar.id);
+    // Until posed: about a default avatar's.
+    return it != avatars_.end() && it->second.extent > 0.0f ? it->second.extent : 2.0f;
+}
+
+void AvatarView::collectAttachments(const world::World& world, MeshManager& meshes)
 {
     overrides_.clear();
+    bakesInUse_.clear();
     const int pelvis = base_.skeleton.find("mPelvis");
     for(const auto& [key, object] : world.objects())
     {
-        if(object.type != world::ObjectType::Prim ||
-           (object.sculptType & world::SculptType::Mask) != world::SculptType::Mesh ||
-           !meshes.isRigged(object.sculptTexture).value_or(false))
+        if(object.type != world::ObjectType::Prim || object.parentId == 0)
         {
             continue;
         }
         const world::Object* avatar = attachedAvatar(world, object);
         if(!avatar)
+        {
+            continue;
+        }
+
+        // Bake on Mesh: any face showing a bake.
+        uint64_t bakes = 0;
+        for(const world::TextureFace& face : object.faces)
+        {
+            for(const BakeSlot& b : kBakeSlots)
+            {
+                if(face.texture == b.placeholder)
+                {
+                    bakes |= uint64_t(1) << b.slot;
+                }
+            }
+        }
+        if(bakes != 0)
+        {
+            bakesInUse_[avatar->id] |= bakes;
+        }
+
+        if((object.sculptType & world::SculptType::Mask) != world::SculptType::Mesh ||
+           !meshes.isRigged(object.sculptTexture).value_or(false))
         {
             continue;
         }
@@ -288,7 +318,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
 {
     frame_++;
     drawn_ = 0;
-    collectOverrides(world, meshes);
+    collectAttachments(world, meshes);
     for(const auto& [key, object] : world.objects())
     {
         if(object.type != world::ObjectType::Avatar)
@@ -332,6 +362,14 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             }
         }
         a.joints = avatar::poseJoints(base_, body.shape, a.pose);
+        glm::vec3 low(a.joints.empty() ? 0.0f : std::numeric_limits<float>::max());
+        glm::vec3 high(a.joints.empty() ? 0.0f : std::numeric_limits<float>::lowest());
+        for(const glm::mat4& joint : a.joints)
+        {
+            low = glm::min(low, glm::vec3(joint[3]));
+            high = glm::max(high, glm::vec3(joint[3]));
+        }
+        a.extent = glm::length(high - low);
 
         const glm::mat4 root = rootFrame(object, world, originHandle);
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance)
@@ -339,12 +377,14 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
         drawn_++;
+        const auto inUse = bakesInUse_.find(object.id);
+        const uint64_t hidden = inUse != bakesInUse_.end() ? inUse->second : 0;
         for(size_t i = 0; i < std::size(avatar::kBodyParts); i++)
         {
             const avatar::BodyPart& part = avatar::kBodyParts[i];
-            if(!body.meshes[i])
+            if(!body.meshes[i] || (hidden >> part.bake & 1) != 0)
             {
-                continue;
+                continue; // none, or an attachment shows its bake instead
             }
             render::BlinnPhongMaterial m;
             m.diffuse = bake(world, object, part.bake, part.bakeName, textures);

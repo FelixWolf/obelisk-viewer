@@ -13,8 +13,11 @@
 // and the feet half a body height below the object's position, plus the
 // hover offset.
 //
-// Not yet: rigged mesh, the official viewer's procedural motions (head and
-// eye movement, breathing, hand poses).
+// Body parts whose bake an attachment shows (Bake on Mesh) are hidden, as
+// llvoavatar.cpp updateMeshVisibility does.
+//
+// Not yet: the official viewer's procedural motions (head and eye movement,
+// breathing, hand poses).
 
 #include "AnimationManager.hpp"
 #include "MeshManager.hpp"
@@ -70,6 +73,9 @@ public:
 
     // Joint transforms (relative to the root) as posed this frame.
     const std::vector<glm::mat4>& posedJoints(const world::Object& avatar) const;
+    // How large the avatar is as posed this frame (the diagonal of its
+    // joints' box), for choosing its rigged mesh's level of detail.
+    float extent(const world::Object& avatar) const;
 
     // Reshapes avatars whose appearance changed, advances their animations
     // to `now` (seconds), applies the joint positions their rigged
@@ -97,6 +103,7 @@ private:
         std::vector<avatar::JointPose> pose;
         std::vector<glm::mat4> joints; // posed this frame, relative to the root
         std::array<std::vector<glm::mat4>, std::size(avatar::kBodyParts)> palettes;
+        float extent = 0.0f;
         uint64_t seen = 0; // frame last updated
     };
 
@@ -116,7 +123,9 @@ private:
         bool lockScale = false;
     };
     using Overrides = std::unordered_map<int, Override>;
-    void collectOverrides(const world::World& world, MeshManager& meshes);
+    // What each avatar's attachments change about it: joint positions, and
+    // the bakes they use (Bake on Mesh), whose body parts are then hidden.
+    void collectAttachments(const world::World& world, MeshManager& meshes);
 
     void animate(Avatar& a, const world::World& world, const Uuid& id, AnimationManager& animations,
                  double now);
@@ -127,6 +136,7 @@ private:
     std::vector<glm::mat4> defaultJoints_;    // its rest pose
     std::unordered_map<Uuid, Avatar> avatars_;
     std::unordered_map<Uuid, Overrides> overrides_; // rebuilt every frame
+    std::unordered_map<Uuid, uint64_t> bakesInUse_; // bit per texture entry index; ditto
     std::string appearanceUrl_;
     uint64_t frame_ = 0;
     size_t drawn_ = 0;

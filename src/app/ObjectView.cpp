@@ -193,8 +193,11 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         return;
     }
     const auto skin = meshes.skin(object.sculptTexture);
-    // Rigged mesh is avatar sized, whatever the object's scale says.
-    const auto* faces = meshes.get(object.sculptTexture, detailFor(1.0f, distance));
+    // Rigged mesh is avatar sized, whatever the object's scale says: as the
+    // official viewer (LLVOVolume::calcLOD), its level of detail comes from
+    // the avatar's extent, which it uses as a radius.
+    const auto* faces =
+        meshes.get(object.sculptTexture, detailFor(avatars->extent(*avatar), distance));
     if(!skin || !faces)
     {
         return;
