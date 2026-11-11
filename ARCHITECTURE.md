@@ -111,15 +111,19 @@ git submodule update --init                 # the message template
 cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
 ./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
-    [--login-file PATH] [--test-scene] [--pbr-terrain]
-    [--screenshot OUT.png [--screenshot-delay S]] [--camera "X Y Z DISTANCE YAW PITCH"]
+    [--login-file PATH] [--start last|home|Region/x/y/z|secondlife://...] [--test-scene]
+    [--pbr-terrain] [--no-vsync] [--screenshot OUT.png [--screenshot-delay S]]
+    [--camera "X Y Z DISTANCE YAW PITCH"]
 ./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
 
 Package sources are cached in `build/_cpm-cache` unless the `CPM_SOURCE_CACHE`
 environment variable is set. Debug builds turn on SDL GPU validation; on Vulkan
-this only does something if the Khronos validation layer is installed.
+this only does something if the Khronos validation layer is installed. They
+compile with `-Og`: unoptimized, the per-object math alone holds a busy
+region under 20 FPS. `--no-vsync` shows how fast frames really are; the
+screenshot log line reports the frame rate over the last 240 frames.
 
 ## Code style
 
@@ -236,6 +240,15 @@ Four material families, each its own pipeline:
 
 Missing textures fall back to neutral defaults (white, flat normal, no
 emission).
+
+Meshes don't own buffers: `MeshPool` packs them into large shared vertex and
+index buffers (64 MiB and 32 MiB blocks, one set per vertex layout), and a
+`Mesh` is a range of a block, drawn with a first index and vertex offset. A
+range a mesh releases is reused only four frames later, when no frame in
+flight can still draw it. Thousands of separate buffers made frames slow:
+SDL's Vulkan backend searches a list of every buffer a command buffer has
+used on each bind. `drawScene` sorts opaque draws by pipeline, texture and
+block, and only sets state (pipeline, samplers, buffers) when it changes.
 
 Skinned meshes (`SkinnedVertex`: up to four joint indices and weights per
 vertex) use skinned.vert with the Blinn-Phong or PBR fragment shaders. Each

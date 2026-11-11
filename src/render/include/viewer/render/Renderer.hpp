@@ -1,8 +1,10 @@
 #pragma once
 
 #include "viewer/image/TextureData.hpp"
+#include "viewer/render/GpuBuffer.hpp"
 #include "viewer/render/GpuTexture.hpp"
 #include "viewer/render/Mesh.hpp"
+#include "viewer/render/MeshPool.hpp"
 #include "viewer/render/Scene.hpp"
 
 #include <SDL3/SDL_gpu.h>
@@ -30,6 +32,7 @@ struct Frame
 struct RendererOptions
 {
     bool gpuDebug = false; // enable backend validation layers
+    bool vsync = true;     // off: present as soon as a frame is done (for measuring)
 };
 
 // Owns the SDL GPU device and its binding to one window.
@@ -121,6 +124,7 @@ private:
     GpuTexture flatNormalLayers_;
     GpuTexture terrainBlendRamp_;
 
+    std::unique_ptr<MeshPool> meshPool_;
     GpuBuffer jointBuffer_; // this frame's joint matrices (storage buffer)
     SDL_GPUTransferBuffer* jointTransfer_ = nullptr;
     uint32_t jointTransferSize_ = 0;

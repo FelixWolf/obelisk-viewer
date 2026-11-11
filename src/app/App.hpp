@@ -41,6 +41,7 @@ struct AppOptions
     std::filesystem::path loginFile;            // optional: log in at startup (see Credentials.hpp)
     bool testScene = false;                     // show the material test scene
     bool pbrTerrain = false;                    // start with the PBR terrain shader
+    bool vsync = true;                          // --no-vsync: uncapped, for measuring
     std::string start;                          // login start: last, home, Region[/x/y/z]
     std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
     float screenshotDelay = 3.0f;               // seconds after startup

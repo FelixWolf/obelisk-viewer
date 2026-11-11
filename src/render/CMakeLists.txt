@@ -53,6 +53,7 @@ add_custom_command(
 add_library(viewer_render STATIC
   Renderer.cpp
   RendererScene.cpp
+  MeshPool.cpp
   ${shader_header}
 )
 add_library(viewer::render ALIAS viewer_render)

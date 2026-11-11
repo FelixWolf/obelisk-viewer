@@ -8,6 +8,7 @@ add_executable(viewer_tests
   LlsdTests.cpp
   LoginTests.cpp
   Md5Tests.cpp
+  MeshPoolTests.cpp
   MeshTests.cpp
   ObjectTests.cpp
   ProtocolTests.cpp
@@ -31,6 +32,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::world
   viewer::avatar
   viewer::volume
+  viewer::render
   viewer::zlib
   viewer_warnings
 )

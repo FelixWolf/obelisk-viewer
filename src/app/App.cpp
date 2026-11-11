@@ -55,7 +55,7 @@ void printUsage()
 {
     std::println(stderr,
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
-                 "[--login-file PATH]");
+                 "[--login-file PATH] [--no-vsync]");
 }
 
 } // namespace
@@ -97,6 +97,10 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.start = args[i];
+        }
+        else if(arg == "--no-vsync")
+        {
+            options.vsync = false;
         }
         else if(arg == "--pbr-terrain")
         {
@@ -162,6 +166,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
 #ifdef VIEWER_GPU_DEBUG
     renderOptions.gpuDebug = true;
 #endif
+    renderOptions.vsync = options.vsync;
     app->renderer_ = render::Renderer::create(app->window_.get(), renderOptions);
     if(!app->renderer_)
     {
@@ -358,6 +363,19 @@ int App::run()
             if(image::writePng(screenshotPath_, *shot))
             {
                 log::info("screenshot saved to {}", screenshotPath_.string());
+                if(!frameTimes_.empty())
+                {
+                    float total = 0.0f;
+                    float worst = 0.0f;
+                    for(const float ms : frameTimes_)
+                    {
+                        total += ms;
+                        worst = std::max(worst, ms);
+                    }
+                    const float average = total / static_cast<float>(frameTimes_.size());
+                    log::info("frames: {:.1f} FPS, {:.2f} ms average, {:.2f} ms worst (last {})",
+                              1000.0f / average, average, worst, frameTimes_.size());
+                }
                 if(world_)
                 {
                     const auto o = objects_->stats();

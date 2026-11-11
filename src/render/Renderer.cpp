@@ -32,8 +32,16 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
         return nullptr;
     }
 
-    SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
-                                  SDL_GPU_PRESENTMODE_VSYNC);
+    SDL_GPUPresentMode present = SDL_GPU_PRESENTMODE_VSYNC;
+    if(!options.vsync)
+    {
+        present = SDL_WindowSupportsGPUPresentMode(device, window, SDL_GPU_PRESENTMODE_IMMEDIATE)
+                      ? SDL_GPU_PRESENTMODE_IMMEDIATE
+                  : SDL_WindowSupportsGPUPresentMode(device, window, SDL_GPU_PRESENTMODE_MAILBOX)
+                      ? SDL_GPU_PRESENTMODE_MAILBOX
+                      : SDL_GPU_PRESENTMODE_VSYNC;
+    }
+    SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, present);
 
     log::info("GPU device created (driver: {})", SDL_GetGPUDeviceDriver(device));
     std::unique_ptr<Renderer> renderer(new Renderer(window, device));
@@ -44,7 +52,10 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
     return renderer;
 }
 
-Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device) : window_(window), device_(device) {}
+Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device)
+    : window_(window), device_(device), meshPool_(std::make_unique<MeshPool>(device))
+{
+}
 
 Renderer::~Renderer()
 {
@@ -66,6 +77,7 @@ Renderer::~Renderer()
         }
     }
     jointBuffer_.reset();
+    meshPool_.reset();
     for(SDL_GPUTransferBuffer* t : {screenshotTransfer_, jointTransfer_})
     {
         if(t)
@@ -247,6 +259,7 @@ void Renderer::endFrame()
             finishScreenshot();
         }
         screenshotPending_ = false;
+        meshPool_->endFrame();
         return;
     }
     if(!SDL_SubmitGPUCommandBuffer(currentCommands_))
@@ -254,6 +267,7 @@ void Renderer::endFrame()
         log::error("SDL_SubmitGPUCommandBuffer failed: {}", SDL_GetError());
     }
     currentCommands_ = nullptr;
+    meshPool_->endFrame();
 }
 
 } // namespace viewer::render

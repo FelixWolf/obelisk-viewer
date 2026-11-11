@@ -85,6 +85,60 @@ std::vector<std::string> defaultLoginOptions()
     };
 }
 
+namespace
+{
+
+// "%20" and the like.
+std::string unescape(std::string_view s)
+{
+    std::string out;
+    for(size_t i = 0; i < s.size(); i++)
+    {
+        const auto hex = [](char c) -> int
+        {
+            return c >= '0' && c <= '9'   ? c - '0'
+                   : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                   : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                          : -1;
+        };
+        if(s[i] == '%' && i + 2 < s.size() && hex(s[i + 1]) >= 0 && hex(s[i + 2]) >= 0)
+        {
+            out.push_back(static_cast<char>(hex(s[i + 1]) * 16 + hex(s[i + 2])));
+            i += 2;
+        }
+        else
+        {
+            out.push_back(s[i]);
+        }
+    }
+    return out;
+}
+
+// "Region/x/y/z" from a link: secondlife://Region/x/y/z, or one with a host
+// and a /secondlife/ path (secondlife://<grid>/secondlife/Region/x/y/z,
+// https://maps.secondlife.com/secondlife/Region/x/y/z).
+std::string_view stripLink(std::string_view where)
+{
+    const size_t scheme = where.find("://");
+    if(scheme == std::string_view::npos)
+    {
+        return where;
+    }
+    where.remove_prefix(scheme + 3);
+    constexpr std::string_view kPath = "/secondlife/";
+    if(const size_t path = where.find(kPath); path != std::string_view::npos)
+    {
+        where.remove_prefix(path + kPath.size());
+    }
+    while(!where.empty() && where.back() == '/')
+    {
+        where.remove_suffix(1);
+    }
+    return where;
+}
+
+} // namespace
+
 std::string startLocation(std::string_view where)
 {
     where = trim(where);
@@ -92,7 +146,7 @@ std::string startLocation(std::string_view where)
     {
         return where.empty() ? std::string("last") : std::string(where);
     }
-    std::string region(where);
+    std::string region = unescape(stripLink(where));
     std::string x = "128";
     std::string y = "128";
     std::string z = "0";

@@ -12,9 +12,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <span>
+#include <tuple>
 
 namespace viewer::render
 {
@@ -449,18 +451,53 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
 
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
     { return t && *t ? t->get() : fallback.get(); };
-    auto bindMesh = [&](const Mesh& mesh)
+    // State is only set when it changes: meshes share buffers (MeshPool) and
+    // draws are sorted so that neighbours share pipelines and textures.
+    SDL_GPUBuffer* boundVertices = nullptr;
+    SDL_GPUBuffer* boundIndices = nullptr;
+    SDL_GPUGraphicsPipeline* boundPipeline = nullptr;
+    std::array<SDL_GPUTextureSamplerBinding, 5> boundSamplers{};
+    size_t boundSamplerCount = 0;
+    auto drawMesh = [&](const Mesh& mesh)
     {
-        const SDL_GPUBufferBinding vertices = {mesh.vertices.get(), 0};
-        const SDL_GPUBufferBinding indices = {mesh.indices.get(), 0};
-        SDL_BindGPUVertexBuffers(pass, 0, &vertices, 1);
-        SDL_BindGPUIndexBuffer(pass, &indices, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        if(mesh.vertexBuffer() != boundVertices)
+        {
+            boundVertices = mesh.vertexBuffer();
+            const SDL_GPUBufferBinding binding = {boundVertices, 0};
+            SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
+        }
+        if(mesh.indexBuffer() != boundIndices)
+        {
+            boundIndices = mesh.indexBuffer();
+            const SDL_GPUBufferBinding binding = {boundIndices, 0};
+            SDL_BindGPUIndexBuffer(pass, &binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        }
+        SDL_DrawGPUIndexedPrimitives(pass, mesh.indexCount, 1, mesh.firstIndex,
+                                     static_cast<Sint32>(mesh.firstVertex), 0);
     };
     auto bindPipeline = [&](SDL_GPUGraphicsPipeline* pipeline)
     {
+        if(pipeline == boundPipeline)
+        {
+            return;
+        }
+        boundPipeline = pipeline;
         SDL_BindGPUGraphicsPipeline(pass, pipeline);
         pushVertexUniforms(commands, 0, frameVs);
         pushFragmentUniforms(commands, 0, frameFs);
+    };
+    auto bindSamplers = [&](std::span<const SDL_GPUTextureSamplerBinding> samplers)
+    {
+        if(samplers.size() == boundSamplerCount &&
+           std::equal(samplers.begin(), samplers.end(), boundSamplers.begin(),
+                      [](const auto& a, const auto& b)
+                      { return a.texture == b.texture && a.sampler == b.sampler; }))
+        {
+            return;
+        }
+        std::ranges::copy(samplers, boundSamplers.begin());
+        boundSamplerCount = samplers.size();
+        SDL_BindGPUFragmentSamplers(pass, 0, samplers.data(), static_cast<Uint32>(samplers.size()));
     };
 
     // Texture position of the scene origin, so terrain textures follow
@@ -491,7 +528,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler},
                 {terrainBlendRamp_.get(), p.clampSampler}};
-            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 2);
+            bindSamplers(samplers);
             pushVertexUniforms(commands, 1, terrainVs(draw.transform, m->textureRepeatsPerMeter));
         }
         else if(const auto* t = std::get_if<TerrainPbrMaterial>(&draw.material))
@@ -504,7 +541,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->normalLayers, flatNormalLayers_), p.repeatSampler},
                 {terrainBlendRamp_.get(), p.clampSampler},
             };
-            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 5);
+            bindSamplers(samplers);
             pushVertexUniforms(commands, 1, terrainVs(draw.transform, t->textureRepeatsPerMeter));
             TerrainPbrFS fs{};
             for(size_t i = 0; i < 4; i++)
@@ -517,8 +554,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             }
             pushFragmentUniforms(commands, 1, fs);
         }
-        bindMesh(*draw.mesh);
-        SDL_DrawGPUIndexedPrimitives(pass, draw.mesh->indexCount, 1, 0, 0, 0);
+        drawMesh(*draw.mesh);
     }
 
     // Opaque objects, then blended ones from far to near.
@@ -546,6 +582,34 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             opaque.push_back(&draw);
         }
     }
+    // Opaque draws need no order: group them by pipeline, then textures, then
+    // buffers, so state changes between neighbours are rare.
+    auto stateKey = [](const ObjectDraw* draw)
+    {
+        const void* firstTexture = nullptr;
+        if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw->material))
+        {
+            firstTexture = m->diffuse;
+        }
+        else if(const auto* t = std::get_if<PbrMaterial>(&draw->material))
+        {
+            firstTexture = t->albedo;
+        }
+        return std::tuple(draw->mesh->layout, draw->material.index(), firstTexture,
+                          static_cast<const void*>(draw->mesh->block));
+    };
+    using Keyed = std::pair<decltype(stateKey(nullptr)), const ObjectDraw*>;
+    std::vector<Keyed> keyed;
+    keyed.reserve(opaque.size());
+    for(const ObjectDraw* draw : opaque)
+    {
+        keyed.emplace_back(stateKey(draw), draw);
+    }
+    std::ranges::sort(keyed, {}, &Keyed::first);
+    for(size_t i = 0; i < keyed.size(); i++)
+    {
+        opaque[i] = keyed[i].second;
+    }
     std::ranges::sort(blended, [](const auto& a, const auto& b) { return a.first > b.first; });
     std::vector<const ObjectDraw*> order = std::move(opaque);
     for(const auto& [distance, draw] : blended)
@@ -553,6 +617,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         order.push_back(draw);
     }
 
+    bool jointsBound = false;
     for(const ObjectDraw* drawPointer : order)
     {
         const ObjectDraw& draw = *drawPointer;
@@ -568,7 +633,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(m->normal, flatNormal_), p.repeatSampler},
                 {texture(m->specular, white_), p.repeatSampler},
             };
-            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 3);
+            bindSamplers(samplers);
             pushFragmentUniforms(
                 commands, 1,
                 BlinnPhongFS{m->diffuseTint, glm::vec4(m->specularTint, m->maxExponent),
@@ -583,7 +648,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->emissive, black_), p.repeatSampler},
                 {texture(t->normal, flatNormal_), p.repeatSampler},
             };
-            SDL_BindGPUFragmentSamplers(pass, 0, samplers, 4);
+            bindSamplers(samplers);
             pushFragmentUniforms(
                 commands, 1,
                 PbrFS{t->baseColorFactor, glm::vec4(t->emissiveTint, t->emissiveStrength),
@@ -592,13 +657,16 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         pushVertexUniforms(commands, 1, objectVs);
         if(skinned)
         {
-            SDL_GPUBuffer* joints = jointBuffer_.get();
-            SDL_BindGPUVertexStorageBuffers(pass, 0, &joints, 1);
+            if(!jointsBound)
+            {
+                SDL_GPUBuffer* joints = jointBuffer_.get();
+                SDL_BindGPUVertexStorageBuffers(pass, 0, &joints, 1);
+                jointsBound = true;
+            }
             const auto index = static_cast<size_t>(drawPointer - scene.objects.data());
             pushVertexUniforms(commands, 2, SkinVS{glm::uvec4(jointBases[index], 0, 0, 0)});
         }
-        bindMesh(*draw.mesh);
-        SDL_DrawGPUIndexedPrimitives(pass, draw.mesh->indexCount, 1, 0, 0, 0);
+        drawMesh(*draw.mesh);
     }
     SDL_EndGPURenderPass(pass);
 
@@ -785,52 +853,14 @@ Mesh Renderer::createMesh(std::span<const TerrainVertex> vertices,
 Mesh Renderer::createMesh(const void* vertices, size_t vertexBytes,
                           std::span<const uint32_t> indices, VertexLayout layout)
 {
-    Mesh mesh;
-    const size_t indexBytes = indices.size_bytes();
-    if(vertexBytes == 0 || indexBytes == 0 || vertexBytes + indexBytes > UINT32_MAX)
+    const size_t stride = vertexStride(layout);
+    if(vertexBytes == 0 || indices.empty() || vertexBytes / stride > UINT32_MAX ||
+       indices.size() > UINT32_MAX)
     {
-        return mesh;
-    }
-
-    auto makeBuffer = [&](SDL_GPUBufferUsageFlags usage, size_t size)
-    {
-        SDL_GPUBufferCreateInfo info = {};
-        info.usage = usage;
-        info.size = static_cast<Uint32>(size);
-        return GpuBuffer(device_, SDL_CreateGPUBuffer(device_, &info), static_cast<uint32_t>(size));
-    };
-    mesh.vertices = makeBuffer(SDL_GPU_BUFFERUSAGE_VERTEX, vertexBytes);
-    mesh.indices = makeBuffer(SDL_GPU_BUFFERUSAGE_INDEX, indexBytes);
-    if(!mesh.vertices || !mesh.indices)
-    {
-        log::error("creating mesh buffers failed: {}", SDL_GetError());
         return {};
     }
-
-    SDL_GPUTransferBufferCreateInfo transferInfo = {};
-    transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    transferInfo.size = static_cast<Uint32>(vertexBytes + indexBytes);
-    SDL_GPUTransferBuffer* transfer = SDL_CreateGPUTransferBuffer(device_, &transferInfo);
-    auto* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device_, transfer, false));
-    std::memcpy(mapped, vertices, vertexBytes);
-    std::memcpy(mapped + vertexBytes, indices.data(), indexBytes);
-    SDL_UnmapGPUTransferBuffer(device_, transfer);
-
-    SDL_GPUCommandBuffer* commands = SDL_AcquireGPUCommandBuffer(device_);
-    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
-    SDL_GPUTransferBufferLocation source = {transfer, 0};
-    SDL_GPUBufferRegion destination = {mesh.vertices.get(), 0, static_cast<Uint32>(vertexBytes)};
-    SDL_UploadToGPUBuffer(copy, &source, &destination, false);
-    source.offset = static_cast<Uint32>(vertexBytes);
-    destination = {mesh.indices.get(), 0, static_cast<Uint32>(indexBytes)};
-    SDL_UploadToGPUBuffer(copy, &source, &destination, false);
-    SDL_EndGPUCopyPass(copy);
-    SDL_SubmitGPUCommandBuffer(commands);
-    SDL_ReleaseGPUTransferBuffer(device_, transfer);
-
-    mesh.indexCount = static_cast<uint32_t>(indices.size());
-    mesh.layout = layout;
-    return mesh;
+    return meshPool_->create(layout, vertices, static_cast<uint32_t>(vertexBytes / stride),
+                             indices);
 }
 
 GpuTexture Renderer::uploadTextureArray(std::span<const image::TextureData* const> layers,

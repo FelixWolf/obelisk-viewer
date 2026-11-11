@@ -191,3 +191,17 @@ TEST_CASE("Credentials files")
     CHECK_FALSE(readCredentialsFile(dir.path() / "missing.txt").has_value());
     CHECK_FALSE(readCredentialsFile(dir.path()).has_value()); // a directory
 }
+
+TEST_CASE("start locations from names and links")
+{
+    using viewer::session::startLocation;
+    CHECK(startLocation("") == "last");
+    CHECK(startLocation("home") == "home");
+    CHECK(startLocation("Mauve") == "uri:Mauve&128&128&0");
+    CHECK(startLocation("Mauve/121/37/34") == "uri:Mauve&121&37&34");
+    CHECK(startLocation("secondlife://Mauve/121/37/34") == "uri:Mauve&121&37&34");
+    CHECK(startLocation("secondlife://util.aditi.lindenlab.com/secondlife/Mauve/121/37/34") ==
+          "uri:Mauve&121&37&34");
+    CHECK(startLocation("https://maps.secondlife.com/secondlife/Da%20Boom/10/20/30/") ==
+          "uri:Da Boom&10&20&30");
+}

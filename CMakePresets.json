@@ -12,7 +12,11 @@
       "name": "debug",
       "displayName": "Debug",
       "inherits": "base",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_FLAGS_DEBUG": "-Og -g",
+        "CMAKE_CXX_FLAGS_DEBUG": "-Og -g"
+      }
     },
     {
       "name": "release",

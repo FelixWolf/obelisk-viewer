@@ -1,11 +1,13 @@
 #pragma once
 
-#include "viewer/render/GpuBuffer.hpp"
+#include <SDL3/SDL_gpu.h>
 
 #include <glm/ext/vector_uint4_sized.hpp>
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <span>
+#include <utility>
 
 namespace viewer::render
 {
@@ -48,15 +50,37 @@ enum class VertexLayout : uint8_t
     Terrain,
 };
 
-// Indexed triangle list on the GPU (32-bit indices).
-struct Mesh
+class MeshPool;
+struct MeshBlock;
+
+// Indexed triangle list on the GPU (32-bit indices, relative to the mesh's
+// first vertex): a range of a MeshPool block's buffers. Move-only; must not
+// outlive its Renderer. Destroying it while the GPU may still draw it is
+// safe (the pool reuses the range only frames later).
+class Mesh
 {
-    GpuBuffer vertices;
-    GpuBuffer indices;
+public:
+    Mesh() = default;
+    ~Mesh() { reset(); }
+    Mesh(Mesh&& other) noexcept { *this = std::move(other); }
+    Mesh& operator=(Mesh&& other) noexcept;
+    Mesh(const Mesh&) = delete;
+    Mesh& operator=(const Mesh&) = delete;
+
+    void reset();
+
+    explicit operator bool() const { return block != nullptr && indexCount > 0; }
+
+    SDL_GPUBuffer* vertexBuffer() const;
+    SDL_GPUBuffer* indexBuffer() const;
+
+    MeshPool* pool = nullptr;
+    MeshBlock* block = nullptr;
+    uint32_t firstVertex = 0;
+    uint32_t vertexCount = 0;
+    uint32_t firstIndex = 0;
     uint32_t indexCount = 0;
     VertexLayout layout = VertexLayout::Object;
-
-    explicit operator bool() const { return vertices && indices && indexCount > 0; }
 };
 
 } // namespace viewer::render
