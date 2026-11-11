@@ -275,8 +275,8 @@ void App::handleLoginAction(LoginAction action)
         // the new one starts.
         endSession();
         session_ = std::make_unique<session::Session>(*http_, std::move(action.parameters));
-        world_ = std::make_unique<world::World>();
         worldThread_ = std::make_unique<world::WorldThread>();
+        world_ = worldThread_->snapshot();
         break;
     case LoginAction::Kind::LogOut:
         if(session_)
@@ -328,6 +328,12 @@ int App::run()
         {
             camera_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f);
         }
+        constexpr size_t kFrameHistory = 240;
+        if(frameTimes_.size() >= kFrameHistory)
+        {
+            frameTimes_.erase(frameTimes_.begin());
+        }
+        frameTimes_.push_back(static_cast<float>(now - lastFrameTicks_) * 1e-6f);
         lastFrameTicks_ = now;
         if(!screenshotPath_.empty() && !screenshotRequested_ &&
            static_cast<float>(now - startTicks_) * 1e-9f >= screenshotDelay_)
@@ -400,8 +406,8 @@ void App::updateSession()
     }
     session_->update();
 
-    // Messages go to the world thread to decode; what it finished since the
-    // last frame is applied here.
+    // Messages go to the world thread; this frame reads its latest snapshot
+    // (the previous one is released over there).
     session_->drainRegionMessages(regionMessages_);
     for(auto& m : regionMessages_)
     {
@@ -414,10 +420,9 @@ void App::updateSession()
             worldThread_->post(m.regionHandle, std::move(m.event));
         }
     }
-    worldThread_->drain(worldUpdates_);
-    for(auto& update : worldUpdates_)
+    if(auto latest = worldThread_->snapshot(); latest != world_)
     {
-        world_->apply(std::move(update));
+        worldThread_->retire(std::exchange(world_, std::move(latest)));
     }
 
     // Once we know where the agent is, put the world origin at its region
@@ -477,8 +482,8 @@ void App::endSession()
         animations_->setViewerAssetUrl({});
     }
     session_.reset();
-    worldThread_.reset();
     world_.reset();
+    worldThread_.reset();
     terrainView_.clear();
     originHandle_.reset();
 }
@@ -559,6 +564,47 @@ void App::logOutBeforeExit()
     endSession();
 }
 
+// Top-right corner: frames per second and frame times over the last second
+// (average and worst), with a graph of recent frames.
+void App::drawFpsOverlay()
+{
+    if(frameTimes_.empty())
+    {
+        return;
+    }
+    float total = 0.0f;
+    float worst = 0.0f;
+    size_t count = 0;
+    for(auto it = frameTimes_.rbegin(); it != frameTimes_.rend() && total < 1000.0f; ++it)
+    {
+        total += *it;
+        worst = std::max(worst, *it);
+        count++;
+    }
+    const float average = total / static_cast<float>(count);
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    constexpr float kMargin = 10.0f;
+    ImGui::SetNextWindowPos(
+        ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - kMargin, viewport->WorkPos.y + kMargin),
+        ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    constexpr ImGuiWindowFlags kFlags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    if(ImGui::Begin("##fps", nullptr, kFlags))
+    {
+        ImGui::Text("%.0f FPS", static_cast<double>(average > 0.0f ? 1000.0f / average : 0.0f));
+        ImGui::Text("%.2f ms avg, %.2f ms worst", static_cast<double>(average),
+                    static_cast<double>(worst));
+        ImGui::PlotLines("##frames", frameTimes_.data(), static_cast<int>(frameTimes_.size()), 0,
+                         nullptr, 0.0f, std::max(33.3f, worst), ImVec2(200.0f, 40.0f));
+    }
+    ImGui::End();
+}
+
 void App::drawUi()
 {
     ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
@@ -571,6 +617,7 @@ void App::drawUi()
         ImGui::Text("GPU driver: %s", renderer_->driverName());
         ImGui::Text("Worker threads: %u (%zu jobs queued)", jobs_->threadCount(),
                     jobs_->pendingCount());
+        ImGui::Checkbox("FPS overlay", &showFps_);
         ImGui::Checkbox("Material test scene", &showTestScene_);
         ImGui::Checkbox("PBR terrain shader", &pbrTerrain_);
         ImGui::Checkbox("ImGui demo window", &showDemoWindow_);
@@ -602,6 +649,10 @@ void App::drawUi()
     }
     ImGui::End();
 
+    if(showFps_)
+    {
+        drawFpsOverlay();
+    }
     textureBrowser_->draw();
     handleLoginAction(loginPanel_->draw(session_.get()));
 

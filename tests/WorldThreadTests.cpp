@@ -39,11 +39,13 @@ msg::ObjectUpdate objectUpdate(uint32_t localId, float x)
 
 } // namespace
 
-TEST_CASE("World thread: decodes in order, World applies")
+TEST_CASE("World thread: applies messages in order and publishes snapshots")
 {
     constexpr uint64_t kRegion = (256000ull << 32) | 256000ull;
     world::WorldThread thread;
-    world::World world;
+    const auto empty = thread.snapshot();
+    REQUIRE(empty != nullptr);
+    CHECK(empty->objectCount() == 0);
 
     thread.post(kRegion, event(objectUpdate(1, 10.0f)));
     thread.post(kRegion, event(objectUpdate(2, 20.0f)));
@@ -58,33 +60,36 @@ TEST_CASE("World thread: decodes in order, World applies")
     thread.post(kRegion, protocol::CircuitEvent{}); // nothing for the world
     thread.flush();
 
-    std::vector<world::WorldUpdate> updates;
-    thread.drain(updates);
-    CHECK(updates.size() == 5); // the empty message produced nothing
-    for(auto& u : updates)
-    {
-        world.apply(std::move(u));
-    }
-    REQUIRE(world.object(kRegion, 1) != nullptr);
-    CHECK(world.object(kRegion, 1)->position.x == doctest::Approx(11.0f));
-    CHECK(world.object(kRegion, 2) == nullptr);
-    CHECK(world.stats().fullUpdates == 3);
-    const auto* playing = world.animations(animation.Sender.ID);
+    const auto first = thread.snapshot();
+    REQUIRE(first->object(kRegion, 1) != nullptr);
+    CHECK(first->object(kRegion, 1)->position.x == doctest::Approx(11.0f));
+    CHECK(first->object(kRegion, 2) == nullptr);
+    CHECK(first->stats().fullUpdates == 3);
+    const auto* playing = first->animations(animation.Sender.ID);
     REQUIRE(playing != nullptr);
     REQUIRE(playing->size() == 1);
     CHECK((*playing)[0].sequence == 7);
+    CHECK(empty->objectCount() == 0); // earlier snapshots don't change
+
+    // Later changes leave a snapshot alone: objects are copied on write.
+    thread.post(kRegion, event(objectUpdate(1, 12.0f)));
+    thread.post(kRegion, event(objectUpdate(4, 40.0f)));
+    thread.flush();
+    const auto second = thread.snapshot();
+    CHECK(first->object(kRegion, 1)->position.x == doctest::Approx(11.0f));
+    CHECK(first->object(kRegion, 4) == nullptr);
+    CHECK(second->object(kRegion, 1)->position.x == doctest::Approx(12.0f));
+    CHECK(second->objectCount() == 2);
 
     // Removing a region is ordered with the messages around it.
+    thread.retire(first);
     thread.postRegionRemoved(kRegion);
     thread.post(kRegion, event(objectUpdate(3, 30.0f)));
     thread.flush();
-    thread.drain(updates);
-    for(auto& u : updates)
-    {
-        world.apply(std::move(u));
-    }
-    CHECK(world.object(kRegion, 1) == nullptr);
-    CHECK(world.object(kRegion, 3) != nullptr);
+    const auto third = thread.snapshot();
+    CHECK(third->object(kRegion, 1) == nullptr);
+    CHECK(third->object(kRegion, 3) != nullptr);
+    CHECK(second->objectCount() == 2);
 
     // Destroying it with work queued doesn't hang.
     auto busy = std::make_unique<world::WorldThread>();

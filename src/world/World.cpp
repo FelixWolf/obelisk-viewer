@@ -11,20 +11,40 @@ namespace viewer::world
 
 namespace msg = protocol::msg;
 
+namespace
+{
+
+// Something to change in place: shared with a copy of the world, it gets its
+// own copy first. (Only the owning thread makes new references, so a count
+// of one stays one.)
+template <typename T>
+T& writable(std::shared_ptr<T>& p)
+{
+    if(!p)
+    {
+        p = std::make_shared<T>();
+    }
+    else if(p.use_count() > 1)
+    {
+        p = std::make_shared<T>(*p);
+    }
+    return *p;
+}
+
+} // namespace
+
 RegionTerrain& World::region(uint64_t handle)
 {
     auto [it, inserted] = terrain_.try_emplace(handle);
-    if(inserted)
-    {
-        it->second.handle = handle;
-    }
-    return it->second;
+    RegionTerrain& terrain = writable(it->second);
+    terrain.handle = handle;
+    return terrain;
 }
 
 const RegionTerrain* World::terrain(uint64_t regionHandle) const
 {
     const auto it = terrain_.find(regionHandle);
-    return it == terrain_.end() ? nullptr : &it->second;
+    return it == terrain_.end() ? nullptr : it->second.get();
 }
 
 void World::removeRegion(uint64_t regionHandle)
@@ -37,19 +57,19 @@ void World::removeRegion(uint64_t regionHandle)
 const std::vector<World::PlayingAnimation>* World::animations(const Uuid& avatar) const
 {
     const auto it = animations_.find(avatar);
-    return it == animations_.end() ? nullptr : &it->second;
+    return it == animations_.end() ? nullptr : it->second.get();
 }
 
 const World::Appearance* World::appearance(const Uuid& avatar) const
 {
     const auto it = appearances_.find(avatar);
-    return it == appearances_.end() ? nullptr : &it->second;
+    return it == appearances_.end() ? nullptr : it->second.get();
 }
 
 const Object* World::object(uint64_t region, uint32_t localId) const
 {
     const auto it = objects_.find(ObjectKey{region, localId});
-    return it == objects_.end() ? nullptr : &it->second;
+    return it == objects_.end() ? nullptr : it->second.get();
 }
 
 void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update)
@@ -64,11 +84,11 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update)
         {
             return;
         }
-        applyUpdate(it->second, update);
+        applyUpdate(writable(it->second), update);
     }
     else
     {
-        Object& object = objects_[key];
+        Object& object = writable(objects_[key]);
         applyUpdate(object, update);
         object.region = regionHandle;
     }
@@ -335,13 +355,14 @@ void World::apply(WorldUpdate update)
     }
     else if(auto* animations = std::get_if<WorldUpdate::Animations>(&update.change))
     {
-        animations_[animations->avatar] = std::move(animations->playing);
+        animations_[animations->avatar] =
+            std::make_shared<const std::vector<PlayingAnimation>>(std::move(animations->playing));
     }
     else if(auto* appearance = std::get_if<WorldUpdate::Appearance>(&update.change))
     {
-        Appearance& a = appearances_[appearance->avatar];
-        a = std::move(appearance->appearance);
+        Appearance a = std::move(appearance->appearance);
         a.serial = ++appearanceSerial_;
+        appearances_[appearance->avatar] = std::make_shared<const Appearance>(std::move(a));
         objectsRevision_++;
     }
     else if(auto* terrainUpdate = std::get_if<WorldUpdate::Terrain>(&update.change))

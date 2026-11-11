@@ -76,6 +76,7 @@ private:
     App() = default;
 
     void drawUi();
+    void drawFpsOverlay();
     void handleLoginAction(LoginAction action);
     void loadTerrainBlendRamp();
     void updateSession();
@@ -117,11 +118,9 @@ private:
     std::unique_ptr<SceneAssets> sceneAssets_;
     std::unique_ptr<session::Session> session_;
     // Session-lifetime, created and destroyed together with session_. The
-    // world thread decodes region messages; world_ (this thread's) applies
-    // the results.
+    // world thread owns the world; world_ is the snapshot this frame reads.
     std::unique_ptr<world::WorldThread> worldThread_;
-    std::unique_ptr<world::World> world_;
-    std::vector<world::WorldUpdate> worldUpdates_;
+    std::shared_ptr<const world::World> world_;
     TerrainView terrainView_;
     std::vector<session::RegionMessage> regionMessages_;
     std::optional<uint64_t> originHandle_; // world coordinates are relative to this region
@@ -137,6 +136,9 @@ private:
     bool screenshotRequested_ = false;
     uint64_t startTicks_ = 0;
     uint64_t lastFrameTicks_ = 0;
+    // Recent frame times (milliseconds, oldest first) for the FPS overlay.
+    std::vector<float> frameTimes_;
+    bool showFps_ = true;
 };
 
 } // namespace viewer

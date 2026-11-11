@@ -4,9 +4,14 @@
 // terrain, objects, avatar appearances and animations.
 //
 // Handling a message is two steps: decodeMessage() turns it into a
-// WorldUpdate without looking at any world state (so it can run on any
-// thread; WorldThread does it on its own), and World::apply() makes the
-// change, which is cheap. World itself belongs to one thread.
+// WorldUpdate without looking at any world state, and World::apply() makes
+// the change. WorldThread does both on its own thread and publishes copies
+// for rendering.
+//
+// Copies are cheap: objects, terrain, appearances and animations are held by
+// shared pointers and copied on write, so a copy shares everything that
+// hasn't changed since. A World is used by one thread at a time; copies
+// may go to other threads (they share only immutable data).
 
 #include "viewer/core/Uuid.hpp"
 #include "viewer/protocol/CircuitManager.hpp"
@@ -17,6 +22,8 @@
 #include <bitset>
 #include <cstdint>
 #include <map>
+#include <memory>
+#include <ranges>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -66,7 +73,7 @@ struct ObjectKeyHash
     }
 };
 
-using ObjectMap = std::unordered_map<ObjectKey, Object, ObjectKeyHash>;
+using ObjectMap = std::unordered_map<ObjectKey, std::shared_ptr<Object>, ObjectKeyHash>;
 
 // An avatar's appearance (from AvatarAppearance): bakes, visual parameter
 // values (one byte each, in the avatar definition's transmitted order) and
@@ -142,10 +149,24 @@ public:
     void handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& event);
     void removeRegion(uint64_t regionHandle);
 
-    const std::map<uint64_t, RegionTerrain>& terrain() const { return terrain_; }
+    // Every region's terrain, as (handle, RegionTerrain) pairs.
+    auto terrain() const
+    {
+        return std::views::transform(
+            terrain_, [](const auto& e)
+            { return std::pair<uint64_t, const RegionTerrain&>(e.first, *e.second); });
+    }
+    size_t regionCount() const { return terrain_.size(); }
     const RegionTerrain* terrain(uint64_t regionHandle) const;
 
-    const ObjectMap& objects() const { return objects_; }
+    // Every object, as (ObjectKey, Object) pairs.
+    auto objects() const
+    {
+        return std::views::transform(
+            objects_, [](const auto& e)
+            { return std::pair<const ObjectKey&, const Object&>(e.first, *e.second); });
+    }
+    size_t objectCount() const { return objects_.size(); }
     const Object* object(uint64_t region, uint32_t localId) const;
     using Appearance = AvatarAppearance;
     using PlayingAnimation = world::PlayingAnimation;
@@ -168,13 +189,15 @@ public:
 private:
     void applyObject(uint64_t regionHandle, const ObjectUpdateData& update);
 
+    // A region's terrain to change: its own copy if a copy of the world
+    // still shares it.
     RegionTerrain& region(uint64_t handle);
 
-    std::map<uint64_t, RegionTerrain> terrain_;
+    std::map<uint64_t, std::shared_ptr<RegionTerrain>> terrain_;
     ObjectMap objects_;
-    std::unordered_map<Uuid, Appearance> appearances_;
+    std::unordered_map<Uuid, std::shared_ptr<const Appearance>> appearances_;
     uint64_t appearanceSerial_ = 0;
-    std::unordered_map<Uuid, std::vector<PlayingAnimation>> animations_;
+    std::unordered_map<Uuid, std::shared_ptr<const std::vector<PlayingAnimation>>> animations_;
     uint64_t objectsRevision_ = 0;
     Stats stats_;
 };

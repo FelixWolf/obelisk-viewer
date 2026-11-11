@@ -35,8 +35,8 @@ bottom row. We store images top-down; anything sampled with Second Life UVs
 3. **Threads share no mutable state.** They communicate through message queues
    (`viewer::MessageQueue`). One thread owns each piece of state:
    - main: SDL events, ImGui, GPU swapchain acquire and submit
-   - world: decodes the regions' messages into `WorldUpdate`s (`WorldThread`);
-     the main thread owns `World` and applies them, which is cheap
+   - world: the only writer of world state (`WorldThread`); publishes
+     snapshots for rendering
    - network: UDP circuit plus HTTP (capabilities, event queue, asset fetch)
    - worker pool: J2K decode, KTX encode/write, mesh decode, disk I/O
 4. **Modules are libraries with one-way dependencies.** `src/<module>` builds
@@ -281,11 +281,18 @@ rendering changes get checked without someone looking at the window.
 
 ## Objects
 
-Every region message for the world goes through `WorldThread`, which decodes
-it on its own thread (`world::decodeMessage`: no world state needed) into a
-`WorldUpdate`: object updates, kills, terrain patches, region handshake,
-appearance, animations, or a removed region. The main thread drains these
-once per frame, in order, and `World::apply`s them.
+Every region message for the world goes to `WorldThread`, which owns the
+session's `World`. On its own thread it decodes each message
+(`world::decodeMessage`, no world state needed) into a `WorldUpdate` (object
+updates, kills, terrain patches, region handshake, appearance, animations,
+or a removed region) and `World::apply`s it, in arrival order. The render
+thread reads snapshots: each frame it takes the latest published copy
+(`WorldThread::snapshot`), and whenever it has taken one and the world has
+changed, the world thread publishes the next. Copies are cheap because
+`World` holds objects, terrain, appearances and animations through shared
+pointers and copies them on write: a snapshot copies the containers of
+pointers, and a change copies only what a snapshot still shares. Snapshots
+the render thread is done with go back to the world thread to be released.
 
 `World` decodes ObjectUpdate, ObjectUpdateCompressed,
 ImprovedTerseObjectUpdate and KillObject into `world::Object`s keyed by
