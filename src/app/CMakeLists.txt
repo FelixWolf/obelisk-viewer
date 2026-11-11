@@ -14,6 +14,7 @@ add_executable(viewer
   ${asset_header}
   main.cpp
   App.cpp
+  AvatarView.cpp
   CameraController.cpp
   FaceUpload.cpp
   LoginPanel.cpp
@@ -41,6 +42,7 @@ target_link_libraries(viewer PRIVATE
   viewer::net
   viewer::session
   viewer::world
+  viewer::avatar
   viewer::volume
   viewer::render
   viewer::ui
@@ -50,4 +52,13 @@ target_link_libraries(viewer PRIVATE
 target_compile_definitions(viewer PRIVATE
   $<$<CONFIG:Debug>:VIEWER_GPU_DEBUG=1>
   VIEWER_VERSION="${PROJECT_VERSION}"
+)
+
+# Data files the viewer loads at runtime (the default avatar), next to the
+# binary.
+add_custom_command(TARGET viewer POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+          ${PROJECT_SOURCE_DIR}/assets/character
+          $<TARGET_FILE_DIR:viewer>/assets/character
+  VERBATIM
 )

@@ -8,9 +8,11 @@
 //
 // Mesh objects get their geometry from the MeshManager instead.
 //
-// Not drawn yet: sculpted prims, attachments (they need avatars), trees and
-// grass.
+// Attachments ride on their avatar's attachment point (rest pose for now).
+//
+// Not drawn yet: sculpted prims, rigged mesh, trees and grass.
 
+#include "AvatarView.hpp"
 #include "MeshManager.hpp"
 #include "TextureManager.hpp"
 
@@ -24,6 +26,7 @@
 #include <atomic>
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace viewer
@@ -44,7 +47,8 @@ public:
 
     // Adds the prims within `drawDistance` of the camera.
     void addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-               TextureManager& textures, MeshManager& meshes, float drawDistance);
+               TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
+               float drawDistance);
 
     // Drops cached geometry (e.g. on logout).
     void clear();
@@ -79,6 +83,12 @@ private:
     };
 
     Geometry& geometry(const Key& key);
+    // An object's frame (position and rotation, no scale) in scene
+    // coordinates, through its linkset root and, for attachments, its
+    // avatar's attachment point. Nothing if a parent isn't known yet.
+    std::optional<glm::mat4> frameOf(const world::Object& object, const world::World& world,
+                                     uint64_t originHandle, const AvatarView* avatars,
+                                     int depth = 0) const;
 
     JobSystem& jobs_;
     render::Renderer& renderer_;

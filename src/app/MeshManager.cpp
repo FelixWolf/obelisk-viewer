@@ -373,6 +373,16 @@ void MeshManager::update()
     startDownloads();
 }
 
+std::optional<bool> MeshManager::isRigged(const Uuid& id) const
+{
+    const auto it = entries_.find(id);
+    if(it == entries_.end() || it->second.header != State::Ready)
+    {
+        return std::nullopt;
+    }
+    return it->second.parsed.skin.present();
+}
+
 MeshManager::Stats MeshManager::stats() const
 {
     Stats s;

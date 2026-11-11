@@ -216,6 +216,18 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->meshes_ = std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_,
                                                  cacheRoot / "meshes");
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_);
+    {
+        const char* base = SDL_GetBasePath();
+        const fs::path character = fs::path(base ? base : "") / "assets" / "character";
+        if(auto avatar = avatar::BaseAvatar::load(character))
+        {
+            app->avatars_ = std::make_unique<AvatarView>(std::move(*avatar), *app->renderer_);
+        }
+        else
+        {
+            log::error("default avatar not loaded ({}); avatars won't be drawn", avatar.error());
+        }
+    }
     app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
                                                     VIEWER_VERSION, options.loginUri);
     if(!options.loginFile.empty())
@@ -343,10 +355,11 @@ int App::run()
                     const auto m = meshes_->stats();
                     const auto t = textures_->stats();
                     log::info(
-                        "objects: {} drawn ({} mesh), {} faces; mesh assets: {} known, {} "
+                        "avatars: {}; objects: {} drawn ({} mesh), {} faces; mesh assets: {} "
+                        "known, {} "
                         "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
-                        o.drawn, o.meshObjects, o.faces, m.meshes, m.lodsReady, m.diskHits,
-                        m.failed, t.resident, t.failed);
+                        avatars_ ? avatars_->drawn() : size_t{0}, o.drawn, o.meshObjects, o.faces,
+                        m.meshes, m.lodsReady, m.diskHits, m.failed, t.resident, t.failed);
                 }
             }
             else
@@ -389,7 +402,7 @@ void App::updateSession()
         const auto p = session_->agentPosition();
         if(!fixedCamera_)
         {
-            camera_.lookAt(glm::vec3(p.x, p.y, p.z), 25.0f, 90.0f, 25.0f);
+            camera_.lookAt(glm::vec3(p.x, p.y, p.z + 0.3f), 5.0f, 90.0f, 12.0f);
         }
     }
 
@@ -411,6 +424,12 @@ void App::updateSession()
     }
     const std::string viewerAsset(session_->capability("ViewerAsset").value_or(""));
     textures_->setViewerAssetUrl(viewerAsset);
+    if(avatars_)
+    {
+        const auto* login = session_->login();
+        avatars_->setAppearanceServiceUrl(
+            login ? login->reply["agent_appearance_service"].asString() : std::string());
+    }
     meshes_->setViewerAssetUrl(viewerAsset);
 
     if(session_->state() == session::SessionState::LoggedOut)
@@ -466,7 +485,12 @@ render::Scene App::buildScene()
         }
         objects_->update();
         meshes_->update();
-        objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, 128.0f);
+        if(avatars_)
+        {
+            avatars_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
+        }
+        objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, avatars_.get(),
+                        128.0f);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
     }

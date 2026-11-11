@@ -75,6 +75,20 @@ const render::GpuTexture* TextureManager::get(const Uuid& id)
     return e.state == State::Resident ? &e.texture : nullptr;
 }
 
+const render::GpuTexture* TextureManager::get(const Uuid& id, const std::string& url)
+{
+    if(id.isNull())
+    {
+        return nullptr;
+    }
+    Entry& e = entry(id);
+    if(e.url.empty())
+    {
+        e.url = url;
+    }
+    return e.state == State::Resident ? &e.texture : nullptr;
+}
+
 const image::TextureData* TextureManager::data(const Uuid& id)
 {
     if(id.isNull())
@@ -220,7 +234,9 @@ void TextureManager::startDownloads()
 
         // As the official viewer: <ViewerAsset>/?texture_id=<uuid>.
         net::HttpRequest request{
-            .url = std::format("{}/?texture_id={}", viewerAssetUrl_, id.toString())};
+            .url = it->second.url.empty()
+                       ? std::format("{}/?texture_id={}", viewerAssetUrl_, id.toString())
+                       : it->second.url};
         request.headers.add("Accept", "image/x-j2c");
         request.timeout = std::chrono::seconds(60);
         requests_->send(std::move(request), [this, id](net::HttpResponse&& response)

@@ -31,3 +31,9 @@ assets/textures/alpha_gradient_2d.j2c
     Included unmodified. The program decodes it at startup and uses it as the
     terrain layer blend ramp, flipping the rows to the orientation the Second
     Life viewer samples it in.
+
+assets/character/avatar_skeleton.xml, avatar_lad.xml
+assets/character/avatar_head.llm, avatar_upper_body.llm, avatar_lower_body.llm,
+    avatar_eyelashes.llm, avatar_hair.llm, avatar_skirt.llm, avatar_eye.llm
+    From the Second Life viewer (newview/character). Included unmodified:
+    the default avatar's skeleton, appearance definitions and body meshes.

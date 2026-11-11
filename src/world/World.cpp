@@ -34,6 +34,12 @@ void World::removeRegion(uint64_t regionHandle)
     objectsRevision_++;
 }
 
+const TextureEntry* World::appearance(const Uuid& avatar) const
+{
+    const auto it = appearances_.find(avatar);
+    return it == appearances_.end() ? nullptr : &it->second;
+}
+
 const Object* World::object(uint64_t region, uint32_t localId) const
 {
     const auto it = objects_.find(ObjectKey{region, localId});
@@ -193,6 +199,17 @@ void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
     else if(event.is<msg::ObjectUpdate>())
     {
         handleObjectUpdate(regionHandle, event);
+    }
+    else if(event.is<msg::AvatarAppearance>())
+    {
+        if(const auto m = event.decode<msg::AvatarAppearance>())
+        {
+            if(auto faces = decodeTextureEntry(m->ObjectData.TextureEntry))
+            {
+                appearances_[m->Sender.ID] = *faces;
+                objectsRevision_++;
+            }
+        }
     }
     else if(event.is<msg::KillObject>())
     {

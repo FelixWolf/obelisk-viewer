@@ -95,9 +95,11 @@ public:
                   opj_read_header(stream, codec, &image) && opj_decode(codec, stream, image) &&
                   opj_end_decompress(codec, stream);
 
-        if(ok && image->numcomps > 0 && image->numcomps <= 4)
+        if(ok && image->numcomps > 0)
         {
-            const uint32_t n = image->numcomps;
+            // Up to four channels; avatar bakes carry a fifth we don't use
+            // (the official viewer also decodes at most four).
+            const uint32_t n = std::min<uint32_t>(image->numcomps, 4);
             uint8_t precision[4];
             bool isSigned[4];
             for(uint32_t c = 0; c < n; c++)

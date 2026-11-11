@@ -63,9 +63,11 @@ src/render/shaders  GLSL, compiled to SPIR-V at build time and embedded
 src/volume   Prim geometry from shape parameters (as llvolume.cpp)  -> viewer::volume
 src/world    World state: terrain (LayerData decode) and objects
              (full/compressed/terse updates, texture entries)       -> viewer::world
+src/avatar   Default avatar: skeleton, .llm body meshes, attachment
+             points (from assets/character)                        -> viewer::avatar
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
 src/app      App (owns everything), LoginPanel, TextureBrowser, camera,
-             TerrainView, ObjectView, TextureManager, procedural test scene, main()
+             TerrainView, ObjectView, AvatarView, TextureManager, procedural test scene, main()
 tests/       doctest unit tests (fixtures in tests/data)
 tools/j2kbench   benchmarks J2kDecoder implementations
 tools/httpget    one request through HttpClient; pretty-prints LLSD replies
@@ -312,6 +314,34 @@ ready one is drawn. Downloaded parts are cached on disk as received (header
 bytes and each level's compressed block, `<cache>/meshes/<xx>/<uuid>.header`
 and `.lod<N>`, written atomically), so later sessions read them from disk.
 
-Not drawn yet: sculpted prims, attachments (need avatars), rigged mesh (needs
-skeletons), trees, grass, flexible prims (drawn straight), planar texture
+Not drawn yet: sculpted prims, rigged mesh (needs skinning), trees, grass, flexible prims (drawn straight), planar texture
 mapping, materials.
+
+## Avatars
+
+`avatar::BaseAvatar` loads the official viewer's character files, shipped in
+`assets/character` (CC-BY-SA, see `assets/LICENSE-artwork.txt`) and copied
+next to the binary: the skeleton (`avatar_skeleton.xml`; joint rotations are
+XYZ Euler angles), attachment points (`avatar_lad.xml`; HUD points are
+skipped, `mRoot` is the avatar root) and the `.llm` body meshes (head, upper
+and lower body, eyelashes, hair, skirt, eyes). Weighted meshes are in
+skeleton space, made with the pelvis at `pelvisBind`; the eyes are in their
+eye joint's space.
+
+`AvatarView` (app) draws each avatar object in the rest pose. As in
+llvoavatar.cpp, the root (pelvis) is `pelvisToFoot` above the feet, and the
+feet are half the body height below the object's position. Each part is
+textured with its server-side bake from the avatar's texture entry (8 head,
+9 upper, 10 lower, 11 eyes, 19 skirt, 20 hair), taken from AvatarAppearance
+when we have it, otherwise from the object. Bakes are fetched from
+`<agent_appearance_service>texture/<avatar>/<bake name>/<texture>` through
+`TextureManager` and cached like any other texture; they have a fifth J2K
+component, which is ignored. A part isn't drawn while its bake is the
+default or invisible texture, or still loading.
+
+Attachments: an object whose parent is an avatar sits at the attachment
+point given by its state byte (`attachmentPointFromState`); `ObjectView`
+asks `AvatarView` for the point's frame.
+
+Not yet: shape (visual parameters and morphs), animation, rigged mesh
+skinning.

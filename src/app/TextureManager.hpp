@@ -38,6 +38,9 @@ public:
     // The GPU texture if it's ready; otherwise starts loading it (once) and
     // returns nullptr. Color textures are sampled as sRGB.
     const render::GpuTexture* get(const Uuid& id);
+    // The same, downloading from `url` instead of the ViewerAsset capability
+    // (avatar bakes come from the appearance service).
+    const render::GpuTexture* get(const Uuid& id, const std::string& url);
 
     // The decoded image, for textures that need CPU-side processing (terrain
     // layers go into an array). Keeps a copy once asked for; nullptr until
@@ -83,6 +86,7 @@ private:
         image::TextureData pending; // decoded, waiting for upload
         std::unique_ptr<image::TextureData> cpuCopy;
         bool keepCpuCopy = false;
+        std::string url; // explicit download URL, if any
         int attempts = 0;
         std::chrono::steady_clock::time_point retryAt{};
     };

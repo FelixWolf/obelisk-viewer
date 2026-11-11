@@ -70,6 +70,42 @@ void ObjectView::clear()
     cache_.clear();
 }
 
+std::optional<glm::mat4> ObjectView::frameOf(const world::Object& object, const world::World& world,
+                                             uint64_t originHandle, const AvatarView* avatars,
+                                             int depth) const
+{
+    const glm::mat4 local =
+        glm::translate(glm::mat4(1.0f), object.position) * glm::mat4_cast(object.rotation);
+    if(object.parentId == 0)
+    {
+        const glm::vec3 offset(
+            static_cast<float>(static_cast<int64_t>(object.region >> 32) -
+                               static_cast<int64_t>(originHandle >> 32)),
+            static_cast<float>(static_cast<int64_t>(object.region & 0xFFFFFFFFu) -
+                               static_cast<int64_t>(originHandle & 0xFFFFFFFFu)),
+            0.0f);
+        return glm::translate(glm::mat4(1.0f), offset) * local;
+    }
+    const world::Object* parent = world.object(object.region, object.parentId);
+    if(!parent || depth > 8)
+    {
+        return std::nullopt;
+    }
+    if(parent->type == world::ObjectType::Avatar)
+    {
+        // The attachment point is in the attached root's state byte.
+        if(!avatars)
+        {
+            return std::nullopt;
+        }
+        const auto point = avatars->attachmentFrame(
+            *parent, avatar::attachmentPointFromState(object.state), originHandle);
+        return point ? std::optional(*point * local) : std::nullopt;
+    }
+    const auto parentFrame = frameOf(*parent, world, originHandle, avatars, depth + 1);
+    return parentFrame ? std::optional(*parentFrame * local) : std::nullopt;
+}
+
 ObjectView::Geometry& ObjectView::geometry(const Key& key)
 {
     auto [it, inserted] = cache_.try_emplace(key);
@@ -101,7 +137,8 @@ void ObjectView::update()
 }
 
 void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-                       TextureManager& textures, MeshManager& meshes, float drawDistance)
+                       TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
+                       float drawDistance)
 {
     stats_.drawn = 0;
     stats_.faces = 0;
@@ -109,8 +146,6 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     stats_.meshObjects = 0;
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
-    const auto originX = static_cast<int64_t>(originHandle >> 32);
-    const auto originY = static_cast<int64_t>(originHandle & 0xFFFFFFFFu);
 
     for(const auto& [key, object] : world.objects())
     {
@@ -126,23 +161,13 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
 
-        // Linked children are relative to their root.
-        glm::vec3 position = object.position;
-        glm::quat rotation = object.rotation;
-        if(object.parentId != 0)
+        const auto frame = frameOf(object, world, originHandle, avatars);
+        if(!frame)
         {
-            const world::Object* parent = world.object(object.region, object.parentId);
-            if(!parent || parent->type != world::ObjectType::Prim)
-            {
-                stats_.skipped++; // attachments (parent is an avatar) or parent unknown yet
-                continue;
-            }
-            position = parent->position + parent->rotation * object.position;
-            rotation = parent->rotation * object.rotation;
+            stats_.skipped++; // parent (or its avatar) not known yet
+            continue;
         }
-        position += glm::vec3(
-            static_cast<float>(static_cast<int64_t>(object.region >> 32) - originX),
-            static_cast<float>(static_cast<int64_t>(object.region & 0xFFFFFFFFu) - originY), 0.0f);
+        const glm::vec3 position((*frame)[3]);
 
         // Distance and a rough "behind the camera" cull.
         const float radius = glm::length(object.scale) * 0.5f;
@@ -157,6 +182,13 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const std::vector<render::Mesh>* faces = nullptr;
         if(isMesh)
         {
+            // Rigged mesh needs skinning to the avatar's skeleton (later);
+            // drawn rigidly it would be a mess of bind-pose pieces.
+            if(meshes.isRigged(object.sculptTexture).value_or(false))
+            {
+                stats_.skipped++;
+                continue;
+            }
             faces = meshes.get(object.sculptTexture, detail);
             stats_.meshObjects += faces != nullptr;
         }
@@ -170,9 +202,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
 
-        const glm::mat4 transform = glm::translate(glm::mat4(1.0f), position) *
-                                    glm::mat4_cast(rotation) *
-                                    glm::scale(glm::mat4(1.0f), object.scale);
+        const glm::mat4 transform = *frame * glm::scale(glm::mat4(1.0f), object.scale);
         stats_.drawn++;
         for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
         {

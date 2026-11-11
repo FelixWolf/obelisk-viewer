@@ -77,6 +77,8 @@ public:
 
     const ObjectMap& objects() const { return objects_; }
     const Object* object(uint64_t region, uint32_t localId) const;
+    // An avatar's appearance texture entry (bakes), from AvatarAppearance.
+    const TextureEntry* appearance(const Uuid& avatar) const;
     // Bumped whenever any object is added, changed or removed.
     uint64_t objectsRevision() const { return objectsRevision_; }
 
@@ -99,6 +101,7 @@ private:
 
     std::map<uint64_t, RegionTerrain> terrain_;
     ObjectMap objects_;
+    std::unordered_map<Uuid, TextureEntry> appearances_;
     uint64_t objectsRevision_ = 0;
     Stats stats_;
 };

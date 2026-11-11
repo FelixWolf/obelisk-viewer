@@ -51,6 +51,10 @@ public:
     // (0 lowest .. 3 highest), or the nearest ready one; nullptr if none is.
     const std::vector<render::Mesh>* get(const Uuid& id, int lod);
 
+    // Whether the mesh is rigged (has skin weights); nothing until its header
+    // has loaded.
+    std::optional<bool> isRigged(const Uuid& id) const;
+
     // Handles finished downloads and decodes.
     void update();
 
