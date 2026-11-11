@@ -360,6 +360,14 @@ int App::run()
                         "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
                         avatars_ ? avatars_->drawn() : size_t{0}, o.drawn, o.meshObjects, o.faces,
                         m.meshes, m.lodsReady, m.diskHits, m.failed, t.resident, t.failed);
+                    for(const auto& [key, object] : world_->objects())
+                    {
+                        if(object.type == world::ObjectType::Avatar)
+                        {
+                            log::info("avatar {} at ({:.1f}, {:.1f}, {:.1f})", object.id.toString(),
+                                      object.position.x, object.position.y, object.position.z);
+                        }
+                    }
                 }
             }
             else

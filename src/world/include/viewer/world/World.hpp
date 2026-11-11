@@ -77,8 +77,17 @@ public:
 
     const ObjectMap& objects() const { return objects_; }
     const Object* object(uint64_t region, uint32_t localId) const;
-    // An avatar's appearance texture entry (bakes), from AvatarAppearance.
-    const TextureEntry* appearance(const Uuid& avatar) const;
+    // An avatar's appearance (from AvatarAppearance): bakes, visual
+    // parameter values (one byte each, in the avatar definition's
+    // transmitted order) and hover offset.
+    struct Appearance
+    {
+        TextureEntry faces;
+        std::vector<uint8_t> visualParams;
+        glm::vec3 hover{0.0f};
+        uint64_t serial = 0; // bumped on every change
+    };
+    const Appearance* appearance(const Uuid& avatar) const;
     // Bumped whenever any object is added, changed or removed.
     uint64_t objectsRevision() const { return objectsRevision_; }
 
@@ -101,7 +110,8 @@ private:
 
     std::map<uint64_t, RegionTerrain> terrain_;
     ObjectMap objects_;
-    std::unordered_map<Uuid, TextureEntry> appearances_;
+    std::unordered_map<Uuid, Appearance> appearances_;
+    uint64_t appearanceSerial_ = 0;
     uint64_t objectsRevision_ = 0;
     Stats stats_;
 };

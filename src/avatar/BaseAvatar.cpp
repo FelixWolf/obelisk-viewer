@@ -2,11 +2,13 @@
 
 #include <tinyxml2.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <format>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 namespace viewer::avatar
@@ -58,6 +60,9 @@ void addBones(Skeleton& skeleton, const tinyxml2::XMLElement* element, int paren
         j.position = parseVec3(bone->Attribute("pos"));
         j.rotation = jointRotation(parseVec3(bone->Attribute("rot")));
         j.scale = parseVec3(bone->Attribute("scale"), glm::vec3(1.0f));
+        j.pivot = parseVec3(bone->Attribute("pivot"));
+        j.base =
+            !bone->Attribute("support") || std::string_view(bone->Attribute("support")) == "base";
         const int index = static_cast<int>(skeleton.joints.size());
         skeleton.byName[j.name] = index;
         skeleton.joints.push_back(std::move(j));
@@ -71,7 +76,133 @@ bool readValue(std::ifstream& in, T& out)
     return static_cast<bool>(in.read(reinterpret_cast<char*>(&out), sizeof(T)));
 }
 
+float floatAttribute(const tinyxml2::XMLElement* e, const char* name, float fallback)
+{
+    return e->FloatAttribute(name, fallback);
+}
+
+Sex parseSex(const char* text)
+{
+    const std::string_view sex = text ? text : "both";
+    return sex == "male" ? Sex::Male : sex == "female" ? Sex::Female : Sex::Both;
+}
+
+// Every <param> in avatar_lad.xml, recursively; the first definition of an
+// id wins. `part` is the body part of the enclosing level 0 <mesh>, if any.
+void collectParams(BaseAvatar& avatar, const tinyxml2::XMLElement* element,
+                   std::optional<size_t> part)
+{
+    for(const auto* child = element->FirstChildElement(); child;
+        child = child->NextSiblingElement())
+    {
+        const std::string_view tag = child->Name();
+        if(tag == "mesh")
+        {
+            std::optional<size_t> meshPart;
+            const char* type = child->Attribute("type");
+            if(child->IntAttribute("lod") == 0 && type)
+            {
+                for(size_t i = 0; i < std::size(kBodyParts); i++)
+                {
+                    if(std::string_view(kBodyParts[i].type) == type)
+                    {
+                        meshPart = i;
+                    }
+                }
+            }
+            collectParams(avatar, child, meshPart);
+            continue;
+        }
+        if(tag != "param")
+        {
+            collectParams(avatar, child, part);
+            continue;
+        }
+
+        const int id = child->IntAttribute("id", -1);
+        if(id < 0)
+        {
+            continue;
+        }
+        auto [it, inserted] = avatar.params.try_emplace(id);
+        VisualParam& p = it->second;
+        if(inserted)
+        {
+            p.id = id;
+            p.group = child->IntAttribute("group", 0);
+            p.name = child->Attribute("name") ? child->Attribute("name") : "";
+            p.min = floatAttribute(child, "value_min", 0.0f);
+            p.max = floatAttribute(child, "value_max", 1.0f);
+            p.defaultWeight =
+                std::clamp(floatAttribute(child, "value_default", 0.0f), p.min, p.max);
+            p.sex = parseSex(child->Attribute("sex"));
+        }
+
+        if(child->FirstChildElement("param_morph") && part)
+        {
+            // As llpolymorph.cpp: "<name>_Driven" falls back to "<name>".
+            const BodyMesh& mesh = avatar.meshes[*part];
+            std::string name = child->Attribute("name") ? child->Attribute("name") : "";
+            const Morph* morph = mesh.findMorph(name);
+            if(!morph)
+            {
+                if(const size_t at = name.find("_Driven"); at != std::string::npos && at > 0)
+                {
+                    morph = mesh.findMorph(name.substr(0, at));
+                }
+            }
+            if(morph)
+            {
+                p.morphs.push_back({*part, static_cast<size_t>(morph - mesh.morphs.data())});
+            }
+        }
+        if(const auto* skeletal = child->FirstChildElement("param_skeleton"))
+        {
+            for(const auto* bone = skeletal->FirstChildElement("bone"); bone;
+                bone = bone->NextSiblingElement("bone"))
+            {
+                VisualParam::BoneDeformation d;
+                d.joint =
+                    avatar.skeleton.find(bone->Attribute("name") ? bone->Attribute("name") : "");
+                d.scale = parseVec3(bone->Attribute("scale"));
+                d.offset = parseVec3(bone->Attribute("offset"));
+                if(d.joint >= 0)
+                {
+                    p.bones.push_back(d);
+                }
+            }
+        }
+        if(const auto* driver = child->FirstChildElement("param_driver"))
+        {
+            for(const auto* driven = driver->FirstChildElement("driven"); driven;
+                driven = driven->NextSiblingElement("driven"))
+            {
+                // Defaults as lldriverparam.cpp: a ramp over the driver's range.
+                VisualParam::Driven d;
+                d.id = driven->IntAttribute("id");
+                d.min1 = floatAttribute(driven, "min1", p.min);
+                d.max1 = floatAttribute(driven, "max1", p.max);
+                d.max2 = floatAttribute(driven, "max2", d.max1);
+                d.min2 = floatAttribute(driven, "min2", d.max1);
+                p.driven.push_back(d);
+            }
+        }
+    }
+}
+
 } // namespace
+
+const Morph* BodyMesh::findMorph(std::string_view name) const
+{
+    for(const Morph& m : morphs)
+    {
+        if(m.name == name)
+        {
+            return &m;
+        }
+    }
+    return nullptr;
+}
 
 int Skeleton::find(std::string_view name) const
 {
@@ -167,6 +298,41 @@ std::expected<BodyMesh, std::string> loadLlm(const std::filesystem::path& path)
     {
         return std::unexpected(std::format("{} is truncated", path.string()));
     }
+
+    // Morph targets, until "End Morphs" (or the end of the file).
+    char morphName[64] = {};
+    while(in.read(morphName, 64))
+    {
+        Morph morph;
+        morph.name.assign(morphName, strnlen(morphName, 64));
+        if(morph.name == "End Morphs")
+        {
+            break;
+        }
+        int32_t count = 0;
+        if(!readValue(in, count) || count < 0 || count > vertexCount)
+        {
+            return std::unexpected(std::format("{}: bad morph {}", path.string(), morph.name));
+        }
+        for(int32_t v = 0; v < count; v++)
+        {
+            uint32_t index = 0;
+            float data[3 + 3 + 3 + 2] = {};
+            readValue(in, index);
+            in.read(reinterpret_cast<char*>(data), sizeof(data));
+            if(!in || index >= vertexCount)
+            {
+                return std::unexpected(std::format("{}: bad morph {}", path.string(), morph.name));
+            }
+            morph.vertices.push_back(index);
+            morph.positions.emplace_back(data[0], data[1], data[2]);
+            morph.normals.emplace_back(data[3], data[4], data[5]);
+            morph.texCoords.emplace_back(data[9], data[10]);
+        }
+        mesh.morphs.push_back(std::move(morph));
+    }
+    // Vertex remaps follow; only used for clothing masks, which we don't do.
+
     for(const uint32_t index : mesh.indices)
     {
         if(index >= vertexCount)
@@ -244,6 +410,15 @@ std::expected<BaseAvatar, std::string> BaseAvatar::load(const std::filesystem::p
             return std::unexpected(mesh.error());
         }
         avatar.meshes.push_back(std::move(*mesh));
+    }
+
+    collectParams(avatar, lad.RootElement(), std::nullopt);
+    for(const auto& [id, param] : avatar.params)
+    {
+        if(param.transmitted())
+        {
+            avatar.transmitted.push_back(id);
+        }
     }
     return avatar;
 }

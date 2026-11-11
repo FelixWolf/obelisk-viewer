@@ -328,9 +328,29 @@ and lower body, eyelashes, hair, skirt, eyes). Weighted meshes are in
 skeleton space, made with the pelvis at `pelvisBind`; the eyes are in their
 eye joint's space.
 
-`AvatarView` (app) draws each avatar object in the rest pose. As in
-llvoavatar.cpp, the root (pelvis) is `pelvisToFoot` above the feet, and the
-feet are half the body height below the object's position. Each part is
+Shape (`avatar/Shape.hpp`): `avatar_lad.xml`'s `<param>`s are visual
+parameters. Morph parameters add `.llm` morph targets (vertex, normal and
+texture coordinate offsets) to their mesh; skeletal ones add to joint scales
+and positions; driver parameters set the parameters they drive (a ramp up,
+plateau and ramp down over the driver's range). `ParamWeights` turns the
+AvatarAppearance message's VisualParam bytes into weights: one byte per
+parameter of group 0 or 3, in id order, mapped onto the parameter's range.
+Parameters for the other sex (the "male" parameter, 80) stay at their
+default. `shapeAvatar` deforms the skeleton, morphs the meshes and skins
+them to it: each vertex weight is an index into the mesh's skin joint list
+(llavatarjointmesh.cpp's order: skin joints in skeleton order, each preceded
+by its nearest base ancestor) plus a blend towards the next one, and each
+joint maps from where the mesh was made (the sum of its base ancestors'
+pivots) to where it is now. A child joint's offset is scaled by its parent's
+scale, but scale doesn't otherwise carry down (llxform.cpp). Body height and
+pelvis-to-foot follow computeBodySize.
+
+`AvatarView` (app) shapes each avatar when its appearance arrives or changes
+(on the CPU; bodies are still in the rest pose) and draws it; until then it
+uses the default shape. As in llvoavatar.cpp, the root (pelvis) is
+`pelvisToFoot` above the feet, and the feet are half the body height below
+the object's position, raised by the hover offset (the message's
+AppearanceHover block). Each part is
 textured with its server-side bake from the avatar's texture entry (8 head,
 9 upper, 10 lower, 11 eyes, 19 skirt, 20 hair), taken from AvatarAppearance
 when we have it, otherwise from the object. Bakes are fetched from
@@ -341,7 +361,7 @@ default or invisible texture, or still loading.
 
 Attachments: an object whose parent is an avatar sits at the attachment
 point given by its state byte (`attachmentPointFromState`); `ObjectView`
-asks `AvatarView` for the point's frame.
+asks `AvatarView` for the point's frame on the shaped skeleton.
 
-Not yet: shape (visual parameters and morphs), animation, rigged mesh
-skinning.
+Not yet: animation, rigged mesh skinning, clothing morph masks and the
+physics-driven morphs (breast, belly and butt physics).

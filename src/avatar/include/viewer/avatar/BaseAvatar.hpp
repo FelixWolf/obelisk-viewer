@@ -5,7 +5,7 @@
 // (avatar_lad.xml). Formats follow llavatarappearance.cpp, llpolymesh.cpp and
 // llvoavatar.cpp; our own implementation.
 //
-// Phase 1: rest pose only (no animation, no visual parameters/morphs yet).
+// Shape (visual parameters) is applied by Shape.hpp; no animation yet.
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -27,6 +27,8 @@ struct Joint
     glm::vec3 position{0.0f}; // relative to the parent
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
     glm::vec3 scale{1.0f};
+    glm::vec3 pivot{0.0f}; // where the body meshes were made around it
+    bool base = true;      // part of the base skeleton (not "extended")
 };
 
 struct Skeleton
@@ -40,6 +42,16 @@ struct Skeleton
     std::vector<glm::mat4> restPose() const;
 };
 
+// A morph target: offsets for some of a mesh's vertices at weight 1.
+struct Morph
+{
+    std::string name;
+    std::vector<uint32_t> vertices;
+    std::vector<glm::vec3> positions;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec2> texCoords;
+};
+
 // A .llm body mesh in skeleton space (or, for unweighted meshes such as the
 // eyes, in its joint's space).
 struct BodyMesh
@@ -50,6 +62,9 @@ struct BodyMesh
     std::vector<float> weights; // joint index + blend (empty if unweighted)
     std::vector<uint32_t> indices;
     std::vector<std::string> jointNames;
+    std::vector<Morph> morphs;
+
+    const Morph* findMorph(std::string_view name) const;
 };
 
 struct AttachmentPoint
@@ -65,17 +80,72 @@ struct AttachmentPoint
 // (texture entry index of the bake).
 struct BodyPart
 {
+    const char* type; // the <mesh type> in avatar_lad.xml
     const char* file;
     int bake; // texture entry index: 8 head, 9 upper, 10 lower, 11 eyes, 19 skirt, 20 hair
     const char* bakeName; // in the appearance service URL
     const char* joint;    // for unweighted meshes: the joint they ride on
 };
 
+// clang-format off
 inline constexpr BodyPart kBodyParts[] = {
-    {"avatar_head.llm", 8, "head", nullptr},        {"avatar_eyelashes.llm", 8, "head", nullptr},
-    {"avatar_upper_body.llm", 9, "upper", nullptr}, {"avatar_lower_body.llm", 10, "lower", nullptr},
-    {"avatar_hair.llm", 20, "hair", nullptr},       {"avatar_skirt.llm", 19, "skirt", nullptr},
-    {"avatar_eye.llm", 11, "eyes", "mEyeLeft"},     {"avatar_eye.llm", 11, "eyes", "mEyeRight"},
+    {"headMesh",         "avatar_head.llm",       8,  "head",  nullptr},
+    {"eyelashMesh",      "avatar_eyelashes.llm",  8,  "head",  nullptr},
+    {"upperBodyMesh",    "avatar_upper_body.llm", 9,  "upper", nullptr},
+    {"lowerBodyMesh",    "avatar_lower_body.llm", 10, "lower", nullptr},
+    {"hairMesh",         "avatar_hair.llm",       20, "hair",  nullptr},
+    {"skirtMesh",        "avatar_skirt.llm",      19, "skirt", nullptr},
+    {"eyeBallLeftMesh",  "avatar_eye.llm",        11, "eyes",  "mEyeLeft"},
+    {"eyeBallRightMesh", "avatar_eye.llm",        11, "eyes",  "mEyeRight"},
+};
+// clang-format on
+
+enum class Sex : uint8_t
+{
+    Female = 1,
+    Male = 2,
+    Both = 3,
+};
+
+// A <param> from avatar_lad.xml. Only the kinds that change the shape carry
+// data; texture and color parameters (baked by the server) are only known
+// by id so the appearance message's values line up.
+struct VisualParam
+{
+    struct MorphRef
+    {
+        size_t part;  // index into kBodyParts / BaseAvatar::meshes
+        size_t morph; // index into that mesh's morphs
+    };
+    struct BoneDeformation
+    {
+        int joint = -1;
+        glm::vec3 scale{0.0f};  // added to the joint's scale at weight 1
+        glm::vec3 offset{0.0f}; // added to its position at weight 1
+    };
+    // A driven parameter's weight as a function of this one's: 0 up to
+    // min1, rising to 1 at max1, 1 until max2, falling to 0 at min2.
+    struct Driven
+    {
+        int id = 0;
+        float min1 = 0.0f;
+        float max1 = 0.0f;
+        float max2 = 0.0f;
+        float min2 = 0.0f;
+    };
+
+    int id = 0;
+    int group = 0; // 0 and 3 are in the appearance message
+    std::string name;
+    float min = 0.0f;
+    float max = 1.0f;
+    float defaultWeight = 0.0f;
+    Sex sex = Sex::Both;
+    std::vector<MorphRef> morphs;
+    std::vector<BoneDeformation> bones;
+    std::vector<Driven> driven;
+
+    bool transmitted() const { return group == 0 || group == 3; }
 };
 
 struct BaseAvatar
@@ -83,7 +153,9 @@ struct BaseAvatar
     Skeleton skeleton;
     std::vector<BodyMesh> meshes; // one per kBodyParts entry
     std::map<int, AttachmentPoint> attachmentPoints;
-    glm::vec3 pelvisBind{0.0f}; // the pelvis position the meshes were made with
+    std::map<int, VisualParam> params;
+    std::vector<int> transmitted; // ids in the appearance message's order
+    glm::vec3 pelvisBind{0.0f};   // the pelvis position the meshes were made with
     float pelvisToFoot = 0.0f;
     float bodyHeight = 0.0f;
 

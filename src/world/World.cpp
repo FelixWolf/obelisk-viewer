@@ -34,7 +34,7 @@ void World::removeRegion(uint64_t regionHandle)
     objectsRevision_++;
 }
 
-const TextureEntry* World::appearance(const Uuid& avatar) const
+const World::Appearance* World::appearance(const Uuid& avatar) const
 {
     const auto it = appearances_.find(avatar);
     return it == appearances_.end() ? nullptr : &it->second;
@@ -206,7 +206,20 @@ void World::handleMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
         {
             if(auto faces = decodeTextureEntry(m->ObjectData.TextureEntry))
             {
-                appearances_[m->Sender.ID] = *faces;
+                Appearance& a = appearances_[m->Sender.ID];
+                a.faces = *faces;
+                a.visualParams.clear();
+                for(const auto& p : m->VisualParam)
+                {
+                    a.visualParams.push_back(p.ParamValue);
+                }
+                // No hover block: the region doesn't do hover (llvoavatar.cpp).
+                a.hover = m->AppearanceHover.empty()
+                              ? glm::vec3(0.0f)
+                              : glm::vec3(m->AppearanceHover[0].HoverHeight.x,
+                                          m->AppearanceHover[0].HoverHeight.y,
+                                          m->AppearanceHover[0].HoverHeight.z);
+                a.serial = ++appearanceSerial_;
                 objectsRevision_++;
             }
         }

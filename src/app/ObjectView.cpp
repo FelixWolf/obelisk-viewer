@@ -99,7 +99,7 @@ std::optional<glm::mat4> ObjectView::frameOf(const world::Object& object, const 
             return std::nullopt;
         }
         const auto point = avatars->attachmentFrame(
-            *parent, avatar::attachmentPointFromState(object.state), originHandle);
+            *parent, world, avatar::attachmentPointFromState(object.state), originHandle);
         return point ? std::optional(*point * local) : std::nullopt;
     }
     const auto parentFrame = frameOf(*parent, world, originHandle, avatars, depth + 1);

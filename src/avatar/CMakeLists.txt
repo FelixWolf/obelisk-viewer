@@ -1,5 +1,6 @@
 add_library(viewer_avatar STATIC
   BaseAvatar.cpp
+  Shape.cpp
 )
 add_library(viewer::avatar ALIAS viewer_avatar)
 
