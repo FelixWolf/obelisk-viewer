@@ -97,6 +97,8 @@ public:
     const std::array<uint32_t, 4>& shadowDraws() const { return shadowDrawCounts_; }
     // Local lights used last frame.
     uint32_t lightsUsed() const { return lightsUsed_; }
+    // Bytes in the mesh pool's GPU buffers (vertices and indices).
+    uint64_t meshPoolBytes() const;
     std::optional<image::MipLevel> takeScreenshot() { return std::exchange(screenshot_, {}); }
 
 private:

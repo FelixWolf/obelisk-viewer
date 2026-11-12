@@ -81,11 +81,12 @@ public:
 
     // Bake on Mesh: if `texture` is one of the placeholders that stand for
     // an avatar's bakes, that bake of this avatar (nullptr while it loads);
-    // nothing for other textures.
+    // nothing for other textures. `texels`: how many across it's shown at
+    // (TextureManager::texelsFor).
     std::optional<const render::GpuTexture*> bakeFor(const world::World& world,
                                                      const world::Object& avatar,
-                                                     const Uuid& texture,
-                                                     TextureManager& textures) const;
+                                                     const Uuid& texture, TextureManager& textures,
+                                                     float texels) const;
 
     // Joint transforms (relative to the root) as posed this frame.
     const std::vector<glm::mat4>& posedJoints(const world::Object& avatar) const;
@@ -141,7 +142,7 @@ private:
     // One of the avatar's bakes (texture entry index `slot`), nullptr while
     // it loads or if it has none.
     const render::GpuTexture* bake(const world::World& world, const world::Object& avatar, int slot,
-                                   const char* name, TextureManager& textures) const;
+                                   const char* name, TextureManager& textures, float texels) const;
     std::shared_ptr<const Body> build(const avatar::ParamWeights& weights) const;
     const Body& bodyOf(const world::Object& avatar) const;
     // Joint position (and scale lock) overrides from rigged attachments, by

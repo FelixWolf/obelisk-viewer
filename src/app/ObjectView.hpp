@@ -106,9 +106,11 @@ private:
     static Generated withExtent(Generated g);
     // A face's material; for faces worn by `wearer` showing a Bake on Mesh
     // placeholder, its bake instead. Nothing while that bake loads.
+    // `texels`: how many across the object needs, at one repeat
+    // (TextureManager::texelsFor).
     static std::optional<render::BlinnPhongMaterial>
     material(const world::TextureFace& face, TextureManager& textures, const world::World& world,
-             const world::Object* wearer, const AvatarView* avatars);
+             const world::Object* wearer, const AvatarView* avatars, float texels);
     // A rigged mesh, skinned to the posed skeleton it follows (its avatar's
     // or its animated object's).
     void addRigged(render::Scene& scene, const world::World& world, const world::Object& object,
@@ -119,7 +121,7 @@ private:
     // legacy texture stands in).
     static bool pbrMaterial(render::ObjectDraw& draw, const world::Object& object, size_t face,
                             const world::World& world, TextureManager& textures,
-                            MaterialManager& materials);
+                            MaterialManager& materials, float texels);
     // An object's frame (position and rotation, no scale) in scene
     // coordinates, through its linkset root and, for attachments, its
     // avatar's attachment point. Nothing if a parent isn't known yet.

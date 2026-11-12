@@ -447,8 +447,9 @@ void TreeView::addTo(render::Scene& scene, const world::World& world, uint64_t o
                 continue;
             }
             const TreeSpecies& sp = treeSpecies(object.species);
-            const render::GpuTexture* texture =
-                textures.get(Uuid::parse(sp.texture).value_or(Uuid{}));
+            const render::GpuTexture* texture = textures.get(
+                Uuid::parse(sp.texture).value_or(Uuid{}),
+                seen == render::Visibility::ShadowOnly ? 0.0f : textures.texelsFor(size, distance));
             if(!texture)
             {
                 continue; // not drawn white while its texture loads
@@ -496,7 +497,10 @@ void TreeView::addTo(render::Scene& scene, const world::World& world, uint64_t o
             continue;
         }
         const GrassSpecies& sp = grassSpecies(object.species);
-        const render::GpuTexture* texture = textures.get(Uuid::parse(sp.texture).value_or(Uuid{}));
+        const render::GpuTexture* texture = textures.get(
+            Uuid::parse(sp.texture).value_or(Uuid{}),
+            seen == render::Visibility::ShadowOnly ? 0.0f
+                                                   : textures.texelsFor(2.0f * radius, distance));
         if(!texture)
         {
             continue;

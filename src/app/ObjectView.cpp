@@ -188,16 +188,17 @@ void ObjectView::update()
     drained_.clear();
 }
 
-std::optional<render::BlinnPhongMaterial> ObjectView::material(const world::TextureFace& face,
-                                                               TextureManager& textures,
-                                                               const world::World& world,
-                                                               const world::Object* wearer,
-                                                               const AvatarView* avatars)
+std::optional<render::BlinnPhongMaterial>
+ObjectView::material(const world::TextureFace& face, TextureManager& textures,
+                     const world::World& world, const world::Object* wearer,
+                     const AvatarView* avatars, float texels)
 {
     render::BlinnPhongMaterial m;
     if(wearer && avatars)
     {
-        if(const auto bake = avatars->bakeFor(world, *wearer, face.texture, textures))
+        // Worn on the body: shown about as big as the avatar's own bakes.
+        if(const auto bake =
+               avatars->bakeFor(world, *wearer, face.texture, textures, 2.0f * texels))
         {
             if(!*bake)
             {
@@ -211,7 +212,8 @@ std::optional<render::BlinnPhongMaterial> ObjectView::material(const world::Text
             return m;
         }
     }
-    m.diffuse = textures.get(face.texture);
+    m.diffuse = textures.get(face.texture,
+                             texels * std::max(std::abs(face.repeats.x), std::abs(face.repeats.y)));
     m.diffuseTint = face.color;
     m.fullbright = face.fullbright();
     // Legacy faces have no highlight, as in the official viewer. "Shiny"
@@ -230,7 +232,7 @@ std::optional<render::BlinnPhongMaterial> ObjectView::material(const world::Text
 
 bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& object, size_t face,
                              const world::World& world, TextureManager& textures,
-                             MaterialManager& materials)
+                             MaterialManager& materials, float texels)
 {
     Uuid id;
     for(const auto& [f, material] : object.materials)
@@ -259,11 +261,21 @@ bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& obje
         }
     }
     render::PbrMaterial p;
-    p.albedo = textures.get(m.textures[assets::kBaseColorTexture]);
-    p.normal = textures.getLinear(m.textures[assets::kNormalTexture]);
+    // Each map's size from its own repeats.
+    auto texelsOf = [&](size_t slot)
+    {
+        const glm::vec2 scale = m.transforms[slot].scale;
+        return texels * std::max(std::abs(scale.x), std::abs(scale.y));
+    };
+    p.albedo =
+        textures.get(m.textures[assets::kBaseColorTexture], texelsOf(assets::kBaseColorTexture));
+    p.normal =
+        textures.getLinear(m.textures[assets::kNormalTexture], texelsOf(assets::kNormalTexture));
     // glTF's metallic-roughness map: G roughness, B metallic (R unused).
-    p.orm = textures.getLinear(m.textures[assets::kMetallicRoughnessTexture]);
-    p.emissive = textures.get(m.textures[assets::kEmissiveTexture]);
+    p.orm = textures.getLinear(m.textures[assets::kMetallicRoughnessTexture],
+                               texelsOf(assets::kMetallicRoughnessTexture));
+    p.emissive =
+        textures.get(m.textures[assets::kEmissiveTexture], texelsOf(assets::kEmissiveTexture));
     p.baseColorFactor = m.baseColor;
     p.emissiveTint = m.emissive;
     p.emissiveStrength = 1.0f;
@@ -314,7 +326,7 @@ void ObjectView::addLight(render::Scene& scene, const world::World& world,
         out.projector =
             render::projectorFor(out.position, glm::quat_cast(glm::mat3(*frame)), object.scale,
                                  out.range, image.fov, image.focus, image.ambiance);
-        out.projector->texture = textures.get(image.texture);
+        out.projector->texture = textures.get(image.texture, 512.0f); // the projector array's size
     }
     scene.lights.push_back(out);
 }
@@ -375,6 +387,9 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         stats_.culled++;
         return;
     }
+    // Textures as big as the skeleton shows (the least for shadows only).
+    const float texels =
+        seen == render::Visibility::ShadowOnly ? 0.0f : textures.texelsFor(2.0f * radius, distance);
     const auto skin = meshes.skin(object.sculptTexture);
     // Rigged mesh is skeleton sized, whatever the object's scale says: as the
     // official viewer (LLVOVolume::calcLOD), its level of detail comes from
@@ -425,7 +440,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
             continue;
         }
         render::ObjectDraw draw{&mesh, root, render::BlinnPhongMaterial{}};
-        const bool pbr = pbrMaterial(draw, object, f, world, textures, materials);
+        const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, texels);
         stats_.pbrFaces += pbr;
         if(!pbr)
         {
@@ -434,8 +449,8 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                 continue;
             }
             // Bake on Mesh shows the wearer's bakes; an animated object has none.
-            const auto m =
-                material(face, textures, world, owner.animated ? nullptr : owner.owner, avatars);
+            const auto m = material(face, textures, world, owner.animated ? nullptr : owner.owner,
+                                    avatars, texels);
             if(!m)
             {
                 continue;
@@ -538,6 +553,10 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
 
+        // Textures as big as the prim shows (the least for shadows only).
+        const float texels = seen == render::Visibility::ShadowOnly
+                                 ? 0.0f
+                                 : textures.texelsFor(2.0f * radius, distance);
         const glm::mat4 transform = *frame * glm::scale(glm::mat4(1.0f), object.scale);
         const world::Object* wearer =
             object.parentId != 0 ? attachedAvatar(world, object) : nullptr;
@@ -551,7 +570,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 continue;
             }
             render::ObjectDraw draw{&mesh, transform, render::BlinnPhongMaterial{}};
-            const bool pbr = pbrMaterial(draw, object, f, world, textures, materials);
+            const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, texels);
             stats_.pbrFaces += pbr;
             if(!pbr)
             {
@@ -559,7 +578,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 {
                     continue;
                 }
-                const auto m = material(face, textures, world, wearer, avatars);
+                const auto m = material(face, textures, world, wearer, avatars, texels);
                 if(!m)
                 {
                     continue;

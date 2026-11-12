@@ -15,6 +15,10 @@
 #include <format>
 #include <print>
 
+#ifdef __linux__
+#include <unistd.h>
+#endif
+
 namespace viewer
 {
 namespace fs = std::filesystem;
@@ -66,7 +70,7 @@ void printUsage()
     std::println(stderr,
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
-                 "[--walk DEGREES] [--day-time 0..1] [--no-shadows]");
+                 "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB]");
 }
 
 } // namespace
@@ -145,6 +149,12 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         else if(arg == "--no-shadows")
         {
             options.shadows = false;
+        }
+        else if(arg == "--texture-memory" && hasValue)
+        {
+            i++;
+            options.textureMemory =
+                static_cast<uint32_t>(std::clamp(std::strtol(args[i], nullptr, 10), 16L, 65536L));
         }
         else if(arg == "--day-time" && hasValue)
         {
@@ -256,6 +266,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->shadows_ = options.shadows;
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
                                                       *app->http_, *app->jobs_);
+    app->textures_->setBudget(uint64_t(options.textureMemory) << 20);
     app->meshes_ =
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
@@ -393,6 +404,7 @@ int App::run()
         }
         frameTimes_.push_back(static_cast<float>(now - lastFrameTicks_) * 1e-6f);
         lastFrameTicks_ = now;
+        logMemory(now);
         if(!screenshotPath_.empty() && !screenshotRequested_ &&
            static_cast<float>(now - startTicks_) * 1e-9f >= screenshotDelay_)
         {
@@ -753,6 +765,57 @@ std::optional<glm::dvec3> App::agentGlobalPosition()
                       static_cast<double>(self->region & 0xFFFFFFFFu) + local.y, local.z);
 }
 
+namespace
+{
+
+// The process's resident set (Linux; nothing elsewhere).
+std::optional<uint64_t> residentBytes()
+{
+#ifdef __linux__
+    std::FILE* f = std::fopen("/proc/self/statm", "r");
+    if(!f)
+    {
+        return std::nullopt;
+    }
+    unsigned long long size = 0;
+    unsigned long long resident = 0;
+    const int read = std::fscanf(f, "%llu %llu", &size, &resident);
+    std::fclose(f);
+    if(read != 2)
+    {
+        return std::nullopt;
+    }
+    return resident * static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
+#else
+    return std::nullopt;
+#endif
+}
+
+} // namespace
+
+void App::logMemory(uint64_t now)
+{
+    constexpr uint64_t kInterval = 30'000'000'000ull;
+    if(now - lastMemoryLog_ < kInterval)
+    {
+        return;
+    }
+    lastMemoryLog_ = now;
+    constexpr double kMiB = 1.0 / (1024.0 * 1024.0);
+    const auto rss = residentBytes();
+    const auto t = textures_->stats();
+    const auto m = meshes_->stats();
+    log::info("memory: resident {:.0f} MiB; textures {} resident ({:.0f} of {:.0f} MiB GPU, "
+              "1/{} size, {} evicted; {:.0f} MiB CPU), {} loading, {} queued; mesh pool {:.0f} "
+              "MiB; meshes {} ({} levels); prim shapes {}; objects {}",
+              rss ? static_cast<double>(*rss) * kMiB : -1.0, t.resident,
+              static_cast<double>(t.gpuBytes) * kMiB, static_cast<double>(t.budget) * kMiB,
+              1 << t.bias, t.evicted, static_cast<double>(t.cpuBytes) * kMiB, t.loading, t.queued,
+              static_cast<double>(renderer_->meshPoolBytes()) * kMiB, m.meshes, m.lodsReady,
+              objects_ ? objects_->stats().meshes : size_t{0},
+              world_ ? world_->objects().size() : size_t{0});
+}
+
 void App::requestMissingAppearances()
 {
     // Regions send an avatar's appearance as it comes into view, but not
@@ -841,6 +904,7 @@ void App::buildScene(render::Scene& scene)
     int width = 0;
     int height = 0;
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
+    textures_->setView(static_cast<uint32_t>(std::max(height, 1)), scene.camera.verticalFov);
     scene.frustum = render::Frustum::fromCamera(
         scene.camera, height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f);
     if(world_ && originHandle_)

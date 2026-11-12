@@ -113,6 +113,23 @@ as the official viewer; full downloads, at most 16 at a time, retried on
 failure, 404 = missing) and hands the bytes to the cache, which decodes and
 stores them. Uploads to the GPU are capped per frame. Images are flipped to
 bottom-up rows on load, so Second Life texture coordinates apply unchanged.
+
+Sizes and memory: callers say how many texels across each use needs
+(`texelsFor`: the object's size over its distance, times the focal length
+in pixels, times the face's repeats; the least for draws that only cast
+shadows), and a texture is loaded at the most any use asked for this frame,
+as a power of two from 32 to 2048 (or whole). It grows at once and shrinks
+once a smaller size has done for 5 s. The KTX2 keeps every level, so a new
+size is a read of only the levels wanted (`maxDimension`), never a new
+decode. Only the copies asked for are uploaded (sRGB color, linear data, or
+for `data()` a CPU copy alone). GPU memory has a budget (`--texture-memory`,
+2048 MiB by default): over it, the least recently drawn textures not drawn
+for 120 frames are evicted; if what's in view still doesn't fit, every
+texture is loaded at half the size (up to 1/16, every 2 s), back up once
+under half the budget for 10 s. Reads in flight (16) and decoded bytes
+waiting for upload (256 MiB) are capped too, so decoding can't run ahead
+of the GPU. Every 30 s the log has a `memory:` line: the process's resident
+set and what the texture, mesh and prim caches hold.
 `TerrainTextures` builds each region's 4-layer terrain array once all four
 textures are in (region textures from RegionHandshake, the official
 defaults otherwise), scaled to a common size of at most 1024.
@@ -133,7 +150,7 @@ ctest --test-dir build/release              # or ./build/release/bin/viewer_test
 ./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
     [--login-file PATH] [--start last|home|Region/x/y/z|secondlife://...] [--test-scene]
     [--pbr-terrain] [--no-vsync] [--screenshot OUT.png [--screenshot-delay S]]
-    [--camera "X Y Z DISTANCE YAW PITCH"]
+    [--camera "X Y Z DISTANCE YAW PITCH"] [--texture-memory MIB]
 ./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```

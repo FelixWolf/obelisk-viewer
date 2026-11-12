@@ -301,4 +301,9 @@ void Renderer::endFrame()
     meshPool_->endFrame();
 }
 
+uint64_t Renderer::meshPoolBytes() const
+{
+    return meshPool_ ? meshPool_->stats().bytes : 0;
+}
+
 } // namespace viewer::render

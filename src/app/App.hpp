@@ -55,9 +55,10 @@ struct AppOptions
     float screenshotDelay = 3.0f;               // seconds after startup
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
     std::string teleport;                       // teleport here 5 s after logging in ("home" too)
-    std::optional<float> walk;    // walk this way (degrees from east) once in (after --teleport)
-    std::optional<float> dayTime; // a fixed time of day, 0..1 (0.5 is midday in most cycles)
-    bool shadows = true;          // --no-shadows: off (for comparing)
+    std::optional<float> walk;     // walk this way (degrees from east) once in (after --teleport)
+    std::optional<float> dayTime;  // a fixed time of day, 0..1 (0.5 is midday in most cycles)
+    bool shadows = true;           // --no-shadows: off (for comparing)
+    uint32_t textureMemory = 2048; // --texture-memory: GPU memory for textures, MiB
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -103,6 +104,8 @@ private:
     // Asks for the appearance of avatars that still have none (and so are
     // drawn with default shape parameters).
     void requestMissingAppearances();
+    // Every 30 s: the process's resident memory and what the caches hold.
+    void logMemory(uint64_t now);
     // Our avatar's position, in global meters; nothing until we see it.
     std::optional<glm::dvec3> agentGlobalPosition();
     void drawTeleportWindow();
@@ -166,6 +169,7 @@ private:
     std::string pendingTeleport_;      // --teleport, once we're in
     std::optional<float> walkHeading_; // --walk
     uint64_t arrivedTicks_ = 0;
+    uint64_t lastMemoryLog_ = 0;
     std::array<char, 256> teleportInput_{};
 
     CameraController camera_;

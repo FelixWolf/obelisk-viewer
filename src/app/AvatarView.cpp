@@ -191,8 +191,8 @@ std::optional<glm::mat4> AvatarView::attachmentFrame(const world::Object& avatar
 }
 
 const render::GpuTexture* AvatarView::bake(const world::World& world, const world::Object& avatar,
-                                           int slot, const char* name,
-                                           TextureManager& textures) const
+                                           int slot, const char* name, TextureManager& textures,
+                                           float texels) const
 {
     // From AvatarAppearance if we have it, else the object's own entry.
     const world::World::Appearance* appearance = world.appearance(avatar.id);
@@ -204,20 +204,21 @@ const render::GpuTexture* AvatarView::bake(const world::World& world, const worl
         return nullptr;
     }
     // As the official viewer's getImageURL().
-    return textures.get(id, std::format("{}texture/{}/{}/{}", appearanceUrl_, avatar.id.toString(),
-                                        name, id.toString()));
+    return textures.get(id,
+                        std::format("{}texture/{}/{}/{}", appearanceUrl_, avatar.id.toString(),
+                                    name, id.toString()),
+                        texels);
 }
 
-std::optional<const render::GpuTexture*> AvatarView::bakeFor(const world::World& world,
-                                                             const world::Object& avatar,
-                                                             const Uuid& texture,
-                                                             TextureManager& textures) const
+std::optional<const render::GpuTexture*>
+AvatarView::bakeFor(const world::World& world, const world::Object& avatar, const Uuid& texture,
+                    TextureManager& textures, float texels) const
 {
     for(const BakeSlot& b : kBakeSlots)
     {
         if(b.placeholder == texture)
         {
-            return bake(world, avatar, b.slot, b.name, textures);
+            return bake(world, avatar, b.slot, b.name, textures, texels);
         }
     }
     return std::nullopt;
@@ -464,6 +465,13 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
         drawn_++;
+        // A bake unwraps its part front and back: about twice the avatar's
+        // height across (the least for shadows only).
+        const float texels =
+            seen == render::Visibility::ShadowOnly
+                ? 0.0f
+                : textures.texelsFor(2.0f * std::max(extent(object), 1.5f),
+                                     glm::length(glm::vec3(root[3]) - scene.camera.position));
         const auto inUse = bakesInUse_.find(object.id);
         const uint64_t hidden = inUse != bakesInUse_.end() ? inUse->second : 0;
         for(size_t i = 0; i < std::size(avatar::kBodyParts); i++)
@@ -474,7 +482,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 continue; // none, or an attachment shows its bake instead
             }
             render::BlinnPhongMaterial m;
-            m.diffuse = bake(world, object, part.bake, part.bakeName, textures);
+            m.diffuse = bake(world, object, part.bake, part.bakeName, textures, texels);
             if(!m.diffuse)
             {
                 continue; // none, or not drawn until it's in (avoids grey ghosts)
