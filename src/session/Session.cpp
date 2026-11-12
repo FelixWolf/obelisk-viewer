@@ -1075,6 +1075,29 @@ void Session::requestObjects(uint64_t regionHandle,
     }
 }
 
+void Session::requestAvatarAppearance(const Uuid& avatar)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    // Variable strings go with their terminating nul (as the official
+    // viewer's addString).
+    auto bytes = [](std::string_view text)
+    {
+        std::vector<uint8_t> out(text.begin(), text.end());
+        out.push_back(0);
+        return out;
+    };
+    msg::GenericMessage request;
+    request.AgentData.AgentID = login_->agentId;
+    request.AgentData.SessionID = login_->sessionId;
+    request.MethodData.Method = bytes("avatartexturesrequest");
+    request.ParamList.push_back({bytes(avatar.toString())});
+    send(*main, request, true);
+}
+
 void Session::sendAgentSetup(const Region& region)
 {
     // Bandwidth per category in bits per second (same as pymetaverse).

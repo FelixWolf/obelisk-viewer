@@ -572,6 +572,8 @@ void App::updateSession()
         worldThread_->retire(std::exchange(world_, std::move(latest)));
     }
 
+    requestMissingAppearances();
+
     // Where moving objects are this frame.
     motion_.update(world_.get(), session_.get(), std::chrono::steady_clock::now());
 
@@ -751,8 +753,45 @@ std::optional<glm::dvec3> App::agentGlobalPosition()
                       static_cast<double>(self->region & 0xFFFFFFFFu) + local.y, local.z);
 }
 
+void App::requestMissingAppearances()
+{
+    // Regions send an avatar's appearance as it comes into view, but not
+    // always (not ours after login, for one); the official viewer asks again
+    // for avatars left with default parameters. A moment's grace first, for
+    // the one on its way.
+    constexpr auto kGrace = std::chrono::seconds(3);
+    constexpr auto kRetry = std::chrono::seconds(30);
+    const auto now = std::chrono::steady_clock::now();
+    if(now < nextAppearanceCheck_)
+    {
+        return;
+    }
+    nextAppearanceCheck_ = now + std::chrono::seconds(1);
+    for(const auto& [key, object] : world_->objects())
+    {
+        if(object.type != world::ObjectType::Avatar)
+        {
+            continue;
+        }
+        const world::World::Appearance* appearance = world_->appearance(object.id);
+        if(appearance && !appearance->visualParams.empty())
+        {
+            appearanceDue_.erase(object.id);
+            continue;
+        }
+        const auto [due, added] = appearanceDue_.try_emplace(object.id, now + kGrace);
+        if(!added && now >= due->second)
+        {
+            log::info("asking for the appearance of avatar {}", object.id.toString());
+            session_->requestAvatarAppearance(object.id);
+            due->second = now + kRetry;
+        }
+    }
+}
+
 void App::endSession()
 {
+    appearanceDue_.clear();
     textures_->setViewerAssetUrl({});
     meshes_->setViewerAssetUrl({});
     materials_->setViewerAssetUrl({});

@@ -30,11 +30,13 @@
 #include <SDL3/SDL_video.h>
 
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
+#include <unordered_map>
 
 namespace viewer
 {
@@ -98,6 +100,9 @@ private:
     // The agent arrived (login, teleport, region crossing): move the world
     // origin and the camera.
     void handleArrival(const session::Arrival& arrival);
+    // Asks for the appearance of avatars that still have none (and so are
+    // drawn with default shape parameters).
+    void requestMissingAppearances();
     // Our avatar's position, in global meters; nothing until we see it.
     std::optional<glm::dvec3> agentGlobalPosition();
     void drawTeleportWindow();
@@ -154,6 +159,9 @@ private:
     std::optional<world::ObjectKey> agentKey_; // our avatar's object, when last found
     uint64_t agentSearchRevision_ = ~0ull;     // objects revision we last searched
     std::optional<glm::dvec3> lastAgentGlobal_;
+    // Avatars without an appearance: when to ask for it (next).
+    std::unordered_map<Uuid, std::chrono::steady_clock::time_point> appearanceDue_;
+    std::chrono::steady_clock::time_point nextAppearanceCheck_{};
     AgentController agent_;
     std::string pendingTeleport_;      // --teleport, once we're in
     std::optional<float> walkHeading_; // --walk

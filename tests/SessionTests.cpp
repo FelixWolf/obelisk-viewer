@@ -650,4 +650,36 @@ TEST_CASE("Session: handshake replies wait for the object cache; misses are requ
     CHECK(first->second.ObjectData[1].CacheMissType == 1);
 }
 
+TEST_CASE("Session: avatar appearance requests go to the main region")
+{
+    FakeSimulator sim;
+    std::atomic<uint16_t> httpPort{0};
+    viewer::test::LoopbackHttpServer server(
+        [&](const LoopbackRequest& request) -> std::optional<LoopbackReply>
+        {
+            if(request.path == "/login")
+            {
+                return LoopbackReply{.body = loginSuccessXml(httpPort, sim.endpoint().port)};
+            }
+            return LoopbackReply{.body = llsd::toXml(llsd::Value(llsd::Map{}))};
+        });
+    httpPort = portOf(server.url(""));
+    auto http = viewer::net::createHttpClient();
+    Session session(*http, testParameters(server));
+    REQUIRE(pumpUntil(session, [&] { return sim.count<msg::CompleteAgentMovement>() > 0; }));
+
+    const auto avatar = viewer::Uuid::parse("6f1cbf7d-7945-47cb-8428-8cc14a60e94c");
+    REQUIRE(avatar.has_value());
+    session.requestAvatarAppearance(*avatar);
+    std::optional<std::pair<FakeSimulator::Received, msg::GenericMessage>> request;
+    REQUIRE(pumpUntil(session,
+                      [&] { return (request = sim.take<msg::GenericMessage>()).has_value(); }));
+    const auto text = [](const std::vector<uint8_t>& bytes)
+    { return std::string(bytes.begin(), bytes.end()); };
+    CHECK(text(request->second.MethodData.Method) == std::string("avatartexturesrequest\0", 22));
+    REQUIRE(request->second.ParamList.size() == 1);
+    CHECK(text(request->second.ParamList[0].Parameter) == avatar->toString() + '\0');
+    CHECK(request->second.AgentData.AgentID == session.login()->agentId);
+}
+
 #endif // _WIN32

@@ -228,6 +228,11 @@ public:
     void requestObjects(uint64_t regionHandle,
                         std::span<const std::pair<uint32_t, uint8_t>> objects);
 
+    // Asks the main region to send an avatar's AvatarAppearance (bakes and
+    // visual parameters), as the official viewer does for avatars still
+    // drawn with default parameters ("avatartexturesrequest").
+    void requestAvatarAppearance(const Uuid& avatar);
+
     // Where the camera is, in the agent's region's coordinates (agentRegion()). Simulators
     // send objects around the camera (within `farDistance`), so this decides
     // what we get to see. Until it's set, the camera is at the agent.

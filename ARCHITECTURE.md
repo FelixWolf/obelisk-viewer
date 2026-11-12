@@ -668,7 +668,11 @@ plateau and ramp down over the driver's range). `ParamWeights` turns the
 AvatarAppearance message's VisualParam bytes into weights: one byte per
 parameter of group 0 or 3, in id order, mapped onto the parameter's range.
 Parameters for the other sex (the "male" parameter, 80) stay at their
-default. `shapeAvatar` deforms the skeleton and morphs the meshes;
+default. Regions don't always send AvatarAppearance (never our own after
+login), so an avatar still without one after 3 s is asked for with a
+GenericMessage "avatartexturesrequest" (`Session::requestAvatarAppearance`),
+then every 30 s until it comes, as the official viewer does for avatars left
+with default parameters. `shapeAvatar` deforms the skeleton and morphs the meshes;
 `poseJoints` poses the skeleton (rest pose or animated) and `skinPalette`
 gives each mesh the matrices its vertices are skinned with: each vertex weight is an index into the mesh's skin joint list
 (llavatarjointmesh.cpp's order: skin joints in skeleton order, each preceded
