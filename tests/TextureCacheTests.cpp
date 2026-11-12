@@ -27,7 +27,8 @@ TEST_CASE("TextureCache decodes once, then serves from the KTX2 cache")
     test::TempDirectory dir("texture-cache");
     JobSystem jobs(2);
     const auto decoder = image::createJ2kDecoder();
-    assets::TextureCache cache(dir.path(), jobs, *decoder);
+    FileCache store(dir.path());
+    assets::TextureCache cache(store, jobs, *decoder);
 
     int sourceCalls = 0;
     auto source = [&sourceCalls]() -> std::optional<std::vector<uint8_t>>
@@ -43,7 +44,7 @@ TEST_CASE("TextureCache decodes once, then serves from the KTX2 cache")
     CHECK(first[0].status == Status::Decoded);
     CHECK(first[0].texture.width() == 64);
     CHECK(cache.contains(kId));
-    CHECK((cache.pathFor(kId).extension() == ".ktx2"));
+    CHECK(std::filesystem::is_regular_file(store.pathFor({CacheKind::Texture, kId})));
 
     REQUIRE(cache.request({.id = kId, .source = source, .maxDimension = 16}));
     auto second = runToCompletion(jobs, cache);
@@ -62,7 +63,8 @@ TEST_CASE("TextureCache reports missing and undecodable textures")
     test::TempDirectory dir("texture-cache-errors");
     JobSystem jobs(1);
     const auto decoder = image::createJ2kDecoder();
-    assets::TextureCache cache(dir.path(), jobs, *decoder);
+    FileCache store(dir.path());
+    assets::TextureCache cache(store, jobs, *decoder);
 
     cache.request({.id = kId});
     auto noSource = runToCompletion(jobs, cache);
@@ -82,7 +84,8 @@ TEST_CASE("TextureCache can be destroyed with requests still queued")
     JobSystem jobs(1);
     const auto decoder = image::createJ2kDecoder();
     {
-        assets::TextureCache cache(dir.path(), jobs, *decoder);
+        FileCache store(dir.path());
+        assets::TextureCache cache(store, jobs, *decoder);
         for(int i = 0; i < 50; i++)
         {
             Uuid id = kId;

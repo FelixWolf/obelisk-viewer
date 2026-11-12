@@ -13,6 +13,7 @@
 #include "TextureManager.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
+#include "viewer/core/DiskCache.hpp"
 #include "viewer/core/JobSystem.hpp"
 #include "viewer/image/J2kDecoder.hpp"
 #include "viewer/net/HttpClient.hpp"
@@ -107,6 +108,7 @@ private:
     std::unique_ptr<ui::ImGuiLayer> ui_;
     std::unique_ptr<JobSystem> jobs_;
     std::unique_ptr<image::J2kDecoder> j2kDecoder_;
+    std::unique_ptr<DiskCache> diskCache_;                    // before everything using it
     std::unique_ptr<assets::TextureCache> textureCache_;      // texture browser panel
     std::unique_ptr<assets::TextureCache> worldTextureCache_; // textures of the world
     std::unique_ptr<TextureBrowser> textureBrowser_;

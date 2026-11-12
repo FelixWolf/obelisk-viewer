@@ -2,6 +2,7 @@ add_executable(viewer_tests
   main.cpp
   AvatarTests.cpp
   CircuitTests.cpp
+  DiskCacheTests.cpp
   HttpClientTests.cpp
   JobSystemTests.cpp
   Ktx2Tests.cpp

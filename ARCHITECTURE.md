@@ -76,14 +76,33 @@ cmake/           CPM bootstrap + Dependencies.cmake (all versions pinned)
 external/master-message-template   git submodule: Linden Lab's message_template.msg
 ```
 
+## Disk cache
+
+Everything kept between sessions (decoded textures, mesh asset blocks,
+animations) is read and written through `DiskCache` (core): entries are byte
+blobs keyed by kind, asset id and part (a mesh's header, skin or level of
+detail), safe to use from any thread, and consistent when several viewers
+share the cache. Nothing else touches cache files, so storage can change
+behind it.
+
+The one implementation, `FileCache`, keeps a file per entry:
+`<cache>/textures/<xx>/<uuid>.ktx2`, `<cache>/meshes/<xx>/<uuid>.header`,
+`.skin` and `.lod<N>`, `<cache>/animations/<xx>/<uuid>.anim` (`<xx>`: the
+id's first two hex digits). A write goes to a temporary file named uniquely
+per instance (a random token) and per write, then is renamed over the
+entry, so readers see a whole entry and writers in other processes never mix
+bytes. A single-file store (SQLite was measured: reads match files with 64
+KB pages and memory mapping, but WAL writes everything twice) can replace it
+later.
+
 ## Texture pipeline
 
 1. `TextureCache::request()` queues a job on the `JobSystem`.
-2. The worker reads `<cache>/textures/<xx>/<uuid>.ktx2` if it exists. Otherwise it
-   calls the request's `J2kSource` for the bytes, decodes them, expands to RGBA8,
-   classifies alpha, builds mips, and writes the KTX2 atomically (temp file + rename).
-3. The result goes into a `MessageQueue`. The main thread drains it and uploads
-   to the GPU in batches capped per frame.
+2. The worker reads the texture's KTX2 from the disk cache if it's there.
+   Otherwise it calls the request's `J2kSource` for the bytes, decodes them,
+   expands to RGBA8, classifies alpha, builds mips, and stores the KTX2.
+3. The result goes into a `MessageQueue`. The main thread drains it and hands
+   it to upload jobs.
 
 Textures of the world go through `TextureManager` (app): `get(uuid)` returns
 the GPU texture once it's ready and otherwise starts loading it. It asks the
@@ -98,7 +117,7 @@ textures are in (region textures from RegionHandshake, the official
 defaults otherwise), scaled to a common size of at most 1024.
 
 Each `TextureCache` instance has one results queue, so the texture browser
-and the world use separate instances on the same directory.
+and the world use separate instances on the same disk cache.
 
 KTX2 entries are RGBA8 with zstd supercompression, plus `viewer.alphaMode` and
 `viewer.discardLevel` metadata. The cache root defaults to
@@ -364,9 +383,9 @@ the level of detail the object needs (or the nearest the asset has) as
 another Range request; `assets::decodeMeshLod` inflates it (zlib) and decodes
 the binary LLSD faces (16-bit quantized positions, normals, texture
 coordinates, triangle lists) on a worker. While a level loads, the nearest
-ready one is drawn. Downloaded parts are cached on disk as received (header
-bytes and each level's compressed block, `<cache>/meshes/<xx>/<uuid>.header`
-and `.lod<N>`, written atomically), so later sessions read them from disk.
+ready one is drawn. Downloaded parts go into the disk cache as received
+(header bytes, the skin block and each level's compressed block), so later
+sessions read them from disk.
 
 Rigged mesh (a header `skin` block) is drawn skinned to the avatar wearing
 it; see Avatars. Not drawn yet: sculpted prims, animated objects (rigged mesh
@@ -423,8 +442,8 @@ asks `AvatarView` for the point's frame on the posed skeleton.
 
 Animation: the simulator sends AvatarAnimation with the full list of
 animations an avatar plays (standing is one too), each with a sequence
-number. `AnimationManager` (app) loads them (disk cache
-`<cache>/animations/<xx>/<uuid>.anim`, else `<ViewerAsset>/?animatn_id=`),
+number. `AnimationManager` (app) loads them (disk cache, else
+`<ViewerAsset>/?animatn_id=`),
 parses them (`avatar::parseAnimation`, llkeyframemotion.cpp's format:
 quantized rotation and position keys per joint, priorities, loop points,
 ease times) and binds joint names (and aliases) to the skeleton.

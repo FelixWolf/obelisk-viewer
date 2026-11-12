@@ -184,10 +184,13 @@ std::unique_ptr<App> App::create(const AppOptions& options)
 
     const fs::path cacheRoot =
         options.cacheDirectory.empty() ? defaultCacheDirectory() : options.cacheDirectory;
-    app->textureCache_ = std::make_unique<assets::TextureCache>(cacheRoot / "textures", *app->jobs_,
-                                                                *app->j2kDecoder_);
-    log::info("{} worker threads; texture cache at {}", app->jobs_->threadCount(),
-              app->textureCache_->root().string());
+    // Every disk cache read and write goes through this (one file per entry
+    // for now; see DiskCache.hpp).
+    app->diskCache_ = std::make_unique<FileCache>(cacheRoot);
+    app->textureCache_ =
+        std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
+    log::info("{} worker threads; cache at {}", app->jobs_->threadCount(),
+              app->diskCache_->describe());
 
     app->textureBrowser_ = std::make_unique<TextureBrowser>(*app->textureCache_, *app->renderer_);
     if(!options.importDirectory.empty())
@@ -212,14 +215,14 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->lastFrameTicks_ = app->startTicks_;
 
     app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
-    // A second cache instance on the same directory: each instance has one
+    // A second texture cache on the same store: each instance has one
     // results queue, and the texture browser drains its own.
-    app->worldTextureCache_ = std::make_unique<assets::TextureCache>(
-        cacheRoot / "textures", *app->jobs_, *app->j2kDecoder_);
+    app->worldTextureCache_ =
+        std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
                                                       *app->http_, *app->jobs_);
-    app->meshes_ = std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_,
-                                                 cacheRoot / "meshes");
+    app->meshes_ =
+        std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_);
     {
         const char* base = SDL_GetBasePath();
@@ -227,7 +230,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         if(auto avatar = avatar::BaseAvatar::load(character))
         {
             app->animations_ = std::make_unique<AnimationManager>(
-                *app->http_, *app->jobs_, avatar->skeleton, cacheRoot / "animations");
+                *app->http_, *app->jobs_, avatar->skeleton, *app->diskCache_);
             app->avatars_ = std::make_unique<AvatarView>(std::move(*avatar), *app->renderer_);
         }
         else

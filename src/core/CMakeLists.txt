@@ -1,4 +1,5 @@
 add_library(viewer_core STATIC
+  FileCache.cpp
   JobSystem.cpp
   Md5.cpp
   Uuid.cpp

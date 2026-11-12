@@ -7,8 +7,9 @@
 // completed results on their own thread (normally the main thread, which
 // then uploads to the GPU).
 //
-// Layout: <root>/<first two hex digits of uuid>/<uuid>.ktx2
+// Entries are stored through a DiskCache (CacheKind::Texture).
 
+#include "viewer/core/DiskCache.hpp"
 #include "viewer/core/JobSystem.hpp"
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/core/Uuid.hpp"
@@ -60,7 +61,8 @@ struct TextureResult
 class TextureCache
 {
 public:
-    TextureCache(std::filesystem::path root, JobSystem& jobs, const image::J2kDecoder& decoder);
+    // `store` and `jobs` must outlive the cache.
+    TextureCache(DiskCache& store, JobSystem& jobs, const image::J2kDecoder& decoder);
 
     // Stops accepting work and waits for this cache's queued and running jobs
     // (queued ones exit immediately). The JobSystem must outlive the cache.
@@ -77,8 +79,8 @@ public:
     void drainResults(std::vector<TextureResult>& out) { results_.drain(out); }
 
     bool contains(const Uuid& id) const;
-    std::filesystem::path pathFor(const Uuid& id) const;
-    const std::filesystem::path& root() const { return root_; }
+    // Where entries are stored, for showing to the user.
+    std::string describe() const { return store_.describe(); }
 
     size_t inFlight() const;
 
@@ -87,9 +89,8 @@ public:
 
 private:
     TextureResult process(const TextureRequest& request) const;
-    bool writeAtomically(const Uuid& id, const std::vector<uint8_t>& bytes) const;
 
-    std::filesystem::path root_;
+    DiskCache& store_;
     JobSystem& jobs_;
     const image::J2kDecoder& decoder_;
     MessageQueue<TextureResult> results_;

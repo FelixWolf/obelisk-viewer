@@ -5,7 +5,6 @@
 #include "viewer/core/Log.hpp"
 
 #include <format>
-#include <fstream>
 #include <thread>
 
 namespace viewer
@@ -19,8 +18,8 @@ constexpr size_t kMaxDownloads = 4;
 } // namespace
 
 AnimationManager::AnimationManager(net::HttpClient& http, JobSystem& jobs,
-                                   avatar::Skeleton skeleton, std::filesystem::path cacheRoot)
-    : http_(http), jobs_(jobs), skeleton_(std::move(skeleton)), cacheRoot_(std::move(cacheRoot)),
+                                   avatar::Skeleton skeleton, DiskCache& store)
+    : http_(http), jobs_(jobs), skeleton_(std::move(skeleton)), store_(store),
       requests_(std::make_unique<net::HttpRequestGroup>(http))
 {
 }
@@ -43,12 +42,6 @@ void AnimationManager::submit(std::function<void()> job)
             job();
             jobsRunning_--;
         });
-}
-
-std::filesystem::path AnimationManager::pathFor(const Uuid& id) const
-{
-    const std::string name = id.toString();
-    return cacheRoot_ / name.substr(0, 2) / (name + ".anim");
 }
 
 void AnimationManager::setViewerAssetUrl(std::string url)
@@ -84,21 +77,15 @@ std::shared_ptr<const avatar::Animation> AnimationManager::get(const Uuid& id)
     {
         // Disk cache first.
         submit(
-            [this, id, path = pathFor(id)]
+            [this, id]
             {
-                std::ifstream in(path, std::ios::binary);
-                std::vector<uint8_t> bytes;
-                if(in)
-                {
-                    bytes.assign(std::istreambuf_iterator<char>(in),
-                                 std::istreambuf_iterator<char>());
-                }
-                if(bytes.empty())
+                auto bytes = store_.read({CacheKind::Animation, id});
+                if(!bytes)
                 {
                     results_.push({id, false, nullptr, {}});
                     return;
                 }
-                parse(id, std::move(bytes), false);
+                parse(id, std::move(*bytes), false);
             });
     }
     return it->second.animation;
@@ -115,19 +102,7 @@ void AnimationManager::parse(const Uuid& id, std::vector<uint8_t> bytes, bool sa
         result.animation = std::make_shared<const avatar::Animation>(std::move(*animation));
         if(save)
         {
-            // Atomically: a temporary file, then rename.
-            const auto path = pathFor(id);
-            std::error_code ec;
-            std::filesystem::create_directories(path.parent_path(), ec);
-            const auto temporary = std::filesystem::path(path).concat(".tmp");
-            std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-            out.write(reinterpret_cast<const char*>(bytes.data()),
-                      static_cast<std::streamsize>(bytes.size()));
-            out.close();
-            if(out)
-            {
-                std::filesystem::rename(temporary, path, ec);
-            }
+            store_.write({CacheKind::Animation, id}, bytes);
         }
     }
     else

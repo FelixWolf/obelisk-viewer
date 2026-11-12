@@ -5,37 +5,13 @@
 #include "viewer/image/TextureProcessing.hpp"
 
 #include <chrono>
-#include <fstream>
-#include <sstream>
 #include <thread>
 
 namespace viewer::assets
 {
-namespace fs = std::filesystem;
 
 namespace
 {
-
-std::optional<std::vector<uint8_t>> readWholeFile(const fs::path& path)
-{
-    std::ifstream in(path, std::ios::binary | std::ios::ate);
-    if(!in)
-    {
-        return std::nullopt;
-    }
-    const auto size = in.tellg();
-    if(size < 0)
-    {
-        return std::nullopt;
-    }
-    std::vector<uint8_t> bytes(static_cast<size_t>(size));
-    in.seekg(0);
-    if(!in.read(reinterpret_cast<char*>(bytes.data()), size))
-    {
-        return std::nullopt;
-    }
-    return bytes;
-}
 
 void trimToMaxDimension(image::TextureData& texture, uint32_t maxDimension)
 {
@@ -55,15 +31,9 @@ void trimToMaxDimension(image::TextureData& texture, uint32_t maxDimension)
 
 } // namespace
 
-TextureCache::TextureCache(fs::path root, JobSystem& jobs, const image::J2kDecoder& decoder)
-    : root_(std::move(root)), jobs_(jobs), decoder_(decoder)
+TextureCache::TextureCache(DiskCache& store, JobSystem& jobs, const image::J2kDecoder& decoder)
+    : store_(store), jobs_(jobs), decoder_(decoder)
 {
-    std::error_code ec;
-    fs::create_directories(root_, ec);
-    if(ec)
-    {
-        log::error("texture cache: cannot create {}: {}", root_.string(), ec.message());
-    }
 }
 
 TextureCache::~TextureCache()
@@ -126,8 +96,8 @@ TextureResult TextureCache::process(const TextureRequest& request) const
     };
 
     // 1. Cache hit: read the KTX2 (only the levels the caller wants).
-    const fs::path path = pathFor(request.id);
-    if(auto file = readWholeFile(path))
+    const CacheKey key{CacheKind::Texture, request.id};
+    if(auto file = store_.read(key))
     {
         if(auto texture = image::readKtx2(*file, {.maxDimension = request.maxDimension}))
         {
@@ -141,7 +111,7 @@ TextureResult TextureCache::process(const TextureRequest& request) const
         }
         else
         {
-            log::warn("texture cache: corrupt entry {}, re-decoding", path.string());
+            log::warn("texture cache: corrupt entry {}, re-decoding", request.id.toString());
         }
     }
 
@@ -161,9 +131,9 @@ TextureResult TextureCache::process(const TextureRequest& request) const
         return finish(TextureResult::Status::Failed);
     }
     const std::vector<uint8_t> ktx = image::writeKtx2(*texture);
-    if(ktx.empty() || !writeAtomically(request.id, ktx))
+    if(ktx.empty() || !store_.write(key, ktx))
     {
-        log::warn("texture cache: failed to write {}", path.string());
+        log::warn("texture cache: failed to store {}", request.id.toString());
     }
 
     trimToMaxDimension(*texture, request.maxDimension);
@@ -171,45 +141,9 @@ TextureResult TextureCache::process(const TextureRequest& request) const
     return finish(TextureResult::Status::Decoded);
 }
 
-bool TextureCache::writeAtomically(const Uuid& id, const std::vector<uint8_t>& bytes) const
-{
-    const fs::path finalPath = pathFor(id);
-    std::error_code ec;
-    fs::create_directories(finalPath.parent_path(), ec);
-
-    // Unique temp name per thread so concurrent writers never collide; the
-    // rename makes the entry appear all at once (no half-written files).
-    std::ostringstream tempName;
-    tempName << finalPath.filename().string() << ".tmp" << std::this_thread::get_id();
-    const fs::path tempPath = finalPath.parent_path() / tempName.str();
-    {
-        std::ofstream out(tempPath, std::ios::binary | std::ios::trunc);
-        if(!out.write(reinterpret_cast<const char*>(bytes.data()),
-                      static_cast<std::streamsize>(bytes.size())))
-        {
-            fs::remove(tempPath, ec);
-            return false;
-        }
-    }
-    fs::rename(tempPath, finalPath, ec);
-    if(ec)
-    {
-        fs::remove(tempPath, ec);
-        return false;
-    }
-    return true;
-}
-
 bool TextureCache::contains(const Uuid& id) const
 {
-    std::error_code ec;
-    return fs::is_regular_file(pathFor(id), ec);
-}
-
-fs::path TextureCache::pathFor(const Uuid& id) const
-{
-    const std::string name = id.toString();
-    return root_ / name.substr(0, 2) / (name + ".ktx2");
+    return store_.contains({CacheKind::Texture, id});
 }
 
 size_t TextureCache::inFlight() const
@@ -220,14 +154,7 @@ size_t TextureCache::inFlight() const
 
 void TextureCache::clear()
 {
-    std::error_code ec;
-    for(const auto& entry : fs::directory_iterator(root_, ec))
-    {
-        if(entry.is_directory() && entry.path().filename().string().size() == 2)
-        {
-            fs::remove_all(entry.path(), ec);
-        }
-    }
+    store_.clear(CacheKind::Texture);
 }
 
 } // namespace viewer::assets

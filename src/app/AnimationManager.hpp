@@ -1,12 +1,13 @@
 #pragma once
 
 // Animation assets by id, parsed and bound to the avatar skeleton. Asking
-// for one starts loading it: from the disk cache (<cache>/<xx>/<uuid>.anim,
-// the asset as downloaded), else from the region's ViewerAsset capability
+// for one starts loading it: from the disk cache (the asset as downloaded),
+// else from the region's ViewerAsset capability
 // (<cap>/?animatn_id=<uuid>, as the official viewer). Reading, parsing and
 // writing run on worker threads.
 
 #include "viewer/avatar/Animation.hpp"
+#include "viewer/core/DiskCache.hpp"
 #include "viewer/core/JobSystem.hpp"
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/core/Uuid.hpp"
@@ -14,7 +15,6 @@
 
 #include <atomic>
 #include <deque>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -28,7 +28,7 @@ class AnimationManager
 {
 public:
     AnimationManager(net::HttpClient& http, JobSystem& jobs, avatar::Skeleton skeleton,
-                     std::filesystem::path cacheRoot);
+                     DiskCache& store);
     // Cancels downloads and waits for jobs.
     ~AnimationManager();
 
@@ -80,7 +80,6 @@ private:
         net::HttpResponse response;
     };
 
-    std::filesystem::path pathFor(const Uuid& id) const;
     void parse(const Uuid& id, std::vector<uint8_t> bytes, bool save);
     void startDownloads();
     void submit(std::function<void()> job);
@@ -88,7 +87,7 @@ private:
     net::HttpClient& http_;
     JobSystem& jobs_;
     const avatar::Skeleton skeleton_;
-    std::filesystem::path cacheRoot_;
+    DiskCache& store_;
     std::string viewerAssetUrl_;
     std::unordered_map<Uuid, Entry> entries_;
     std::deque<Uuid> queue_;

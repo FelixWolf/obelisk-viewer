@@ -224,7 +224,7 @@ void TextureBrowser::draw()
         cache_.clear();
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("%s", cache_.root().string().c_str());
+    ImGui::TextDisabled("%s", cache_.describe().c_str());
 
     // --- Stats -----------------------------------------------------------------
     ImGui::Separator();

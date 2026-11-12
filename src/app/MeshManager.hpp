@@ -9,11 +9,12 @@
 // Downloads use the region's ViewerAsset capability
 // (<cap>/?mesh_id=<uuid>); setViewerAssetUrl() works like TextureManager's.
 //
-// Downloaded parts are cached on disk as they arrived (the header bytes and
-// each level's compressed block) under <cache>/<xx>/<uuid>.header and
-// .lod<N>, written atomically; disk reads and writes run on worker threads.
+// Downloaded parts are kept in the disk cache as they arrived (the header
+// bytes, the skin block and each level's compressed block); disk reads and
+// writes run on worker threads.
 
 #include "viewer/assets/MeshAsset.hpp"
+#include "viewer/core/DiskCache.hpp"
 #include "viewer/core/JobSystem.hpp"
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/core/Uuid.hpp"
@@ -23,7 +24,6 @@
 #include <array>
 #include <atomic>
 #include <deque>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -38,7 +38,7 @@ class MeshManager
 {
 public:
     MeshManager(net::HttpClient& http, JobSystem& jobs, render::Renderer& renderer,
-                std::filesystem::path cacheRoot);
+                DiskCache& store);
     // Cancels downloads and waits for decode jobs.
     ~MeshManager();
 
@@ -102,9 +102,9 @@ private:
         std::shared_ptr<const assets::MeshSkin> skin;
     };
     // What a download or decode was for: the header (lod = kHeader), the
-    // skin (kSkin) or a level.
-    static constexpr int kHeader = -1;
-    static constexpr int kSkin = -2;
+    // skin (kSkin) or a level; the same numbering as the cache's parts.
+    static constexpr int kHeader = CacheKey::kMeshHeader;
+    static constexpr int kSkin = CacheKey::kMeshSkin;
     struct Request
     {
         Uuid id;
@@ -134,7 +134,10 @@ private:
     void handleDownload(Download& download);
     // Bytes of a header or level, from the network or the disk cache.
     void handleBytes(const Request& request, std::vector<uint8_t> bytes);
-    std::filesystem::path pathFor(const Request& request) const;
+    static CacheKey cacheKey(const Request& request)
+    {
+        return {CacheKind::Mesh, request.id, request.lod};
+    }
     static State& stateOf(Entry& e, int lod);
     void submit(std::function<void()> job);
 
@@ -146,7 +149,7 @@ private:
     std::deque<Request> queue_;
     size_t downloading_ = 0;
     uint64_t bytesDownloaded_ = 0;
-    std::filesystem::path cacheRoot_;
+    DiskCache& store_;
     std::atomic<int> decoding_{0};
     std::atomic<int> jobsRunning_{0};
     uint64_t diskHits_ = 0;

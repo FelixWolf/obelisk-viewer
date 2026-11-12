@@ -7,7 +7,6 @@
 #include "viewer/core/Log.hpp"
 
 #include <format>
-#include <fstream>
 #include <thread>
 
 namespace viewer
@@ -21,8 +20,8 @@ constexpr size_t kMaxDownloads = 8;
 } // namespace
 
 MeshManager::MeshManager(net::HttpClient& http, JobSystem& jobs, render::Renderer& renderer,
-                         std::filesystem::path cacheRoot)
-    : http_(http), jobs_(jobs), renderer_(renderer), cacheRoot_(std::move(cacheRoot)),
+                         DiskCache& store)
+    : http_(http), jobs_(jobs), renderer_(renderer), store_(store),
       requests_(std::make_unique<net::HttpRequestGroup>(http))
 {
 }
@@ -54,34 +53,10 @@ MeshManager::State& MeshManager::stateOf(Entry& e, int lod)
                           : e.lods[static_cast<size_t>(lod)].state;
 }
 
-std::filesystem::path MeshManager::pathFor(const Request& request) const
-{
-    const std::string id = request.id.toString();
-    const std::string name = request.lod == kHeader ? id + ".header"
-                             : request.lod == kSkin ? id + ".skin"
-                                                    : std::format("{}.lod{}", id, request.lod);
-    return cacheRoot_ / id.substr(0, 2) / name;
-}
-
 // Disk cache first; a miss queues the download.
 void MeshManager::request(const Request& r)
 {
-    submit(
-        [this, r, path = pathFor(r)]
-        {
-            DiskResult result{r, std::nullopt};
-            std::ifstream in(path, std::ios::binary);
-            if(in)
-            {
-                std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)),
-                                           std::istreambuf_iterator<char>());
-                if(!bytes.empty())
-                {
-                    result.bytes = std::move(bytes);
-                }
-            }
-            diskResults_.push(std::move(result));
-        });
+    submit([this, r] { diskResults_.push({r, store_.read(cacheKey(r))}); });
 }
 
 void MeshManager::setViewerAssetUrl(std::string url)
@@ -256,24 +231,8 @@ void MeshManager::handleDownload(Download& download)
         }
     }
 
-    // Keep a copy on disk (atomically: write a temporary file, then rename).
-    submit(
-        [path = pathFor(download.request), data = bytes]
-        {
-            std::error_code ec;
-            std::filesystem::create_directories(path.parent_path(), ec);
-            const auto temporary = std::filesystem::path(path).concat(".tmp");
-            {
-                std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-                out.write(reinterpret_cast<const char*>(data.data()),
-                          static_cast<std::streamsize>(data.size()));
-                if(!out)
-                {
-                    return;
-                }
-            }
-            std::filesystem::rename(temporary, path, ec);
-        });
+    // Keep a copy in the disk cache.
+    submit([this, key = cacheKey(download.request), data = bytes] { store_.write(key, data); });
     handleBytes(download.request, std::move(bytes));
 }
 
