@@ -46,7 +46,8 @@ struct CircuitEvent
     Kind kind = Kind::Message;
     CircuitId circuit = 0;
     MessageId messageId = 0;
-    std::vector<uint8_t> message{}; // message number + body, zero-decoded
+    std::vector<uint8_t> message{};                   // message number + body, zero-decoded
+    std::chrono::steady_clock::time_point received{}; // when the packet arrived
 
     template <Message M>
     bool is() const
@@ -85,6 +86,7 @@ struct CircuitStats
     uint64_t duplicates = 0;
     uint64_t malformed = 0;
     size_t unacked = 0;
+    std::chrono::steady_clock::time_point lastReceived{}; // the latest packet's arrival
 };
 
 class CircuitManager

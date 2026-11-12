@@ -20,6 +20,7 @@
 
 #include <array>
 #include <bitset>
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -103,6 +104,10 @@ struct WorldUpdate
         uint32_t compressed = 0;
         uint32_t terse = 0;
         uint32_t undecodable = 0;
+        // When the message arrived, and how fast the simulator was running
+        // (RegionData.TimeDilation, 1 = real time).
+        std::chrono::steady_clock::time_point received{};
+        float timeDilation = 1.0f;
     };
     struct Kill
     {
@@ -209,7 +214,8 @@ private:
         ~IdIndex() = default;
     };
 
-    void applyObject(uint64_t regionHandle, const ObjectUpdateData& update);
+    void applyObject(uint64_t regionHandle, const ObjectUpdateData& update,
+                     std::chrono::steady_clock::time_point received, float timeDilation);
     IdIndex& ids();
     // Removes the object and everything linked or attached to it.
     void removeWithChildren(const ObjectKey& key);

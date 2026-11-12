@@ -246,7 +246,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
                                                       *app->http_, *app->jobs_);
     app->meshes_ =
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
-    app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_);
+    app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
     {
         const char* base = SDL_GetBasePath();
         const fs::path character = fs::path(base ? base : "") / "assets" / "character";
@@ -254,7 +254,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         {
             app->animations_ = std::make_unique<AnimationManager>(
                 *app->http_, *app->jobs_, avatar->skeleton, *app->diskCache_);
-            app->avatars_ = std::make_unique<AvatarView>(std::move(*avatar), *app->renderer_);
+            app->avatars_ =
+                std::make_unique<AvatarView>(std::move(*avatar), *app->renderer_, app->motion_);
         }
         else
         {
@@ -500,6 +501,9 @@ void App::updateSession()
         worldThread_->retire(std::exchange(world_, std::move(latest)));
     }
 
+    // Where moving objects are this frame.
+    motion_.update(world_.get(), session_.get(), std::chrono::steady_clock::now());
+
     // Arrivals move the world origin to the agent's region, and the camera
     // with it.
     if(session_->arrivals() != seenArrivals_)
@@ -647,13 +651,14 @@ std::optional<glm::dvec3> App::agentGlobalPosition()
     {
         return std::nullopt;
     }
-    glm::vec3 local = self->position;
+    glm::vec3 local = motion_.pose(*self).position;
     if(self->parentId != 0)
     {
         // Sitting: relative to what it sits on.
         if(const world::Object* seat = world_->object(self->region, self->parentId))
         {
-            local = seat->position + seat->rotation * self->position;
+            const world::Pose seatPose = motion_.pose(*seat);
+            local = seatPose.position + seatPose.rotation * local;
         }
     }
     return glm::dvec3(static_cast<double>(self->region >> 32) + local.x,
@@ -668,6 +673,7 @@ void App::endSession()
     {
         animations_->setViewerAssetUrl({});
     }
+    motion_.update(nullptr, nullptr, std::chrono::steady_clock::now());
     session_.reset();
     world_.reset();
     worldThread_.reset();

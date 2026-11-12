@@ -99,8 +99,9 @@ SkeletonOwner skeletonOwner(const world::World& world, const world::Object& obje
     return {avatar, root, false};
 }
 
-AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer)
-    : base_(std::move(base)), renderer_(renderer)
+AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer,
+                       const ObjectMotion& motion)
+    : base_(std::move(base)), renderer_(renderer), motion_(motion)
 {
     defaultBody_ = build(avatar::ParamWeights(base_));
     defaultJoints_ = avatar::poseJoints(base_, defaultBody_->shape);
@@ -149,10 +150,11 @@ glm::mat4 AvatarView::rootFrame(const world::Object& avatar, const world::World&
     const auto overrides = overrides_.find(avatar.id);
     const float pelvisOffset =
         overrides != overrides_.end() ? overrides->second.pelvisOffset : 0.0f;
+    const world::Pose pose = motion_.pose(avatar);
     const glm::vec3 root =
-        regionOffset(avatar.region, originHandle) + avatar.position + hover -
+        regionOffset(avatar.region, originHandle) + pose.position + hover -
         glm::vec3(0.0f, 0.0f, 0.5f * shape.bodyHeight - shape.pelvisToFoot - pelvisOffset);
-    return glm::translate(glm::mat4(1.0f), root) * glm::mat4_cast(avatar.rotation);
+    return glm::translate(glm::mat4(1.0f), root) * glm::mat4_cast(pose.rotation);
 }
 
 std::optional<glm::mat4> AvatarView::attachmentFrame(const world::Object& avatar,

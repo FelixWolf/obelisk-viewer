@@ -75,7 +75,8 @@ const Object* World::object(uint64_t region, uint32_t localId) const
     return it == objects_.end() ? nullptr : it->second.get();
 }
 
-void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update)
+void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update,
+                        std::chrono::steady_clock::time_point received, float timeDilation)
 {
     const ObjectKey key{regionHandle, update.localId};
     if(update.kind == ObjectUpdateData::Kind::Terse)
@@ -87,7 +88,10 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update)
         {
             return;
         }
-        applyUpdate(writable(it->second), update);
+        Object& object = writable(it->second);
+        applyUpdate(object, update);
+        object.updatedAt = received;
+        object.timeDilation = timeDilation;
     }
     else
     {
@@ -104,6 +108,8 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update)
         Object& object = writable(objects_[key]);
         applyUpdate(object, update);
         object.region = regionHandle;
+        object.updatedAt = received;
+        object.timeDilation = timeDilation;
     }
 }
 
@@ -173,6 +179,8 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
     {
         return out;
     }
+    out.timeDilation = static_cast<float>(m->RegionData.TimeDilation) / 65535.0f;
+    out.received = event.received;
     for(const auto& b : m->ObjectData)
     {
         out.full++;
@@ -250,6 +258,8 @@ WorldUpdate::Objects decodeCompressedUpdate(const protocol::CircuitEvent& event)
     {
         return out;
     }
+    out.timeDilation = static_cast<float>(m->RegionData.TimeDilation) / 65535.0f;
+    out.received = event.received;
     for(const auto& block : m->ObjectData)
     {
         out.compressed++;
@@ -273,6 +283,8 @@ WorldUpdate::Objects decodeTerseUpdate(const protocol::CircuitEvent& event)
     {
         return out;
     }
+    out.timeDilation = static_cast<float>(m->RegionData.TimeDilation) / 65535.0f;
+    out.received = event.received;
     for(const auto& block : m->ObjectData)
     {
         out.terse++;
@@ -423,7 +435,7 @@ void World::apply(WorldUpdate update)
         stats_.undecodable += objects->undecodable;
         for(const ObjectUpdateData& u : objects->updates)
         {
-            applyObject(regionHandle, u);
+            applyObject(regionHandle, u, objects->received, objects->timeDilation);
         }
         objectsRevision_ += !objects->updates.empty();
     }

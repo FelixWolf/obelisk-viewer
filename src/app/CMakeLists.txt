@@ -22,6 +22,7 @@ add_executable(viewer
   FaceUpload.cpp
   LoginPanel.cpp
   MeshManager.cpp
+  ObjectMotion.cpp
   ObjectView.cpp
   Procedural.cpp
   SceneAssets.cpp

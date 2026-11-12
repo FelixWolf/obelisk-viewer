@@ -492,4 +492,38 @@ bool applyUpdate(Object& object, const ObjectUpdateData& update)
     return shapeChanged;
 }
 
+Pose extrapolate(const Motion& motion, bool linear, float seconds)
+{
+    Pose pose = motion.pose;
+    if(seconds <= 0.0f)
+    {
+        return pose;
+    }
+    if(linear)
+    {
+        // Velocities are the average over the simulator's last physics step,
+        // hence the step subtracted from the acceleration term.
+        constexpr float kPhysicsStep = 1.0f / 45.0f;
+        pose.position += motion.velocity * seconds +
+                         0.5f * motion.acceleration * seconds * (seconds - kPhysicsStep);
+    }
+    const float omega = glm::length(motion.angularVelocity);
+    if(omega > 0.003f) // the official viewer's 0.00001 on the squared length
+    {
+        // About an axis in the parent's (or region's) frame.
+        pose.rotation = glm::normalize(
+            glm::angleAxis(omega * seconds, motion.angularVelocity / omega) * pose.rotation);
+    }
+    return pose;
+}
+
+Pose extrapolate(const Object& object, float seconds)
+{
+    return extrapolate(Motion{{object.position, object.rotation},
+                              object.velocity,
+                              object.acceleration,
+                              object.angularVelocity},
+                       object.parentId == 0, seconds);
+}
+
 } // namespace viewer::world

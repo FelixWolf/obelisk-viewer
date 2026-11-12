@@ -124,6 +124,7 @@ private:
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<TextureManager> textures_;
     std::unique_ptr<MeshManager> meshes_;
+    ObjectMotion motion_;                          // before the views that read it
     std::unique_ptr<AnimationManager> animations_; // with avatars_
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;

@@ -157,3 +157,33 @@ TEST_CASE("World: an object moving to another region leaves no copy behind")
     CHECK(world.objectCount() == 2);
     CHECK(world.object(west, 20) != nullptr);
 }
+
+TEST_CASE("World: objects remember when their update arrived")
+{
+    const uint64_t region = 1000ull * 256 << 32 | 1000 * 256;
+    const Uuid id = *Uuid::parse("00000000-0000-0000-0000-000000000009");
+    const auto arrived = std::chrono::steady_clock::now();
+
+    world::World world;
+    world::WorldUpdate full = fullUpdate(region, 7, id);
+    auto& objects = std::get<world::WorldUpdate::Objects>(full.change);
+    objects.received = arrived;
+    objects.timeDilation = 0.5f;
+    world.apply(std::move(full));
+    REQUIRE(world.object(region, 7) != nullptr);
+    CHECK(world.object(region, 7)->updatedAt == arrived);
+    CHECK(world.object(region, 7)->timeDilation == 0.5f);
+
+    // Terse updates restamp it.
+    world::ObjectUpdateData terse;
+    terse.kind = world::ObjectUpdateData::Kind::Terse;
+    terse.localId = 7;
+    terse.velocity = glm::vec3(1.0f, 0.0f, 0.0f);
+    world::WorldUpdate::Objects moved;
+    moved.updates.push_back(terse);
+    moved.received = arrived + std::chrono::seconds(1);
+    world.apply(world::WorldUpdate{.region = region, .change = std::move(moved)});
+    CHECK(world.object(region, 7)->updatedAt == arrived + std::chrono::seconds(1));
+    CHECK(world.object(region, 7)->timeDilation == 1.0f);
+    CHECK(world.object(region, 7)->velocity.x == 1.0f);
+}

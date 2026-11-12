@@ -12,6 +12,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -94,6 +95,11 @@ struct Object
     bool animatedMesh = false; // animesh: its rigged mesh follows a skeleton of its own
 
     std::string hoverText{};
+    // When the latest update (full or terse) arrived, and the simulator's
+    // time dilation then: motion is predicted from here (extrapolate()).
+    // Default (epoch): never updated over the network; nothing to predict.
+    std::chrono::steady_clock::time_point updatedAt{};
+    float timeDilation = 1.0f;
     uint32_t revision = 0;      // bumped on every change
     uint32_t shapeRevision = 0; // bumped when the geometry changes
 };
@@ -131,5 +137,28 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data);
 
 // Applies an update; returns whether the geometry changed.
 bool applyUpdate(Object& object, const ObjectUpdateData& update);
+
+struct Pose
+{
+    glm::vec3 position{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+};
+
+// Where an object is `seconds` of simulator time after its latest update,
+// from that update's velocity, acceleration and angular velocity (dead
+// reckoning, as llviewerobject.cpp's interpolateLinearMotion and
+// applyAngularVelocity). Only root objects move in a line; anything spins.
+// The caller limits `seconds` (see ObjectMotion in the app).
+Pose extrapolate(const Object& object, float seconds);
+
+// The same from values: `linear` false for children (they only spin).
+struct Motion
+{
+    Pose pose{};
+    glm::vec3 velocity{0.0f};
+    glm::vec3 acceleration{0.0f};
+    glm::vec3 angularVelocity{0.0f};
+};
+Pose extrapolate(const Motion& motion, bool linear, float seconds);
 
 } // namespace viewer::world

@@ -400,6 +400,22 @@ parameters (sculpt 0x30 and mesh 0x60, both an asset id plus a sculpt type
 where 5 means mesh; flexible). Terse updates' texture entries carry a 4-byte
 length first, unlike the full updates'.
 
+Objects move between updates. Each update records when it arrived
+(`CircuitEvent::received`) and the region's time dilation; the simulator
+sends a moving object's velocity, acceleration and angular velocity and
+then stays quiet while it moves as predicted. `world::extrapolate` predicts
+the pose from those (as llviewerobject.cpp: root objects move, anything
+spins). `ObjectMotion` (app) applies it each frame for the views: time since
+arrival plus half the circuit's round trip, scaled by time dilation;
+prediction stops 2 s after a region goes quiet; avatars stay above ground;
+nothing moves into a region we don't know. Unlike the official viewer, when
+an update disagrees with the prediction the difference fades out over about
+0.1 s rather than jumping (over 2 m it jumps). Only moving objects (and ones
+updated in the last second) are tracked; still ones cost a comparison.
+Measured on our avatar walking: without prediction it stood still in
+75-90% of frames and jumped up to 0.85 m; with prediction and fading every
+frame moves, with the largest frame-to-frame change in step 2-4 cm.
+
 Simulators only send objects around the camera the viewer reports in
 `AgentUpdate` (and within its far distance), so the session passes the real
 camera (`Session::setCamera`), 128 m far. Formats follow llviewerobject.cpp,

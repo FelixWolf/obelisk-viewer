@@ -74,8 +74,8 @@ size_t ObjectView::KeyHash::operator()(const Key& key) const
     return static_cast<size_t>(h);
 }
 
-ObjectView::ObjectView(JobSystem& jobs, render::Renderer& renderer)
-    : jobs_(jobs), renderer_(renderer)
+ObjectView::ObjectView(JobSystem& jobs, render::Renderer& renderer, const ObjectMotion& motion)
+    : jobs_(jobs), renderer_(renderer), motion_(motion)
 {
 }
 
@@ -97,8 +97,7 @@ std::optional<glm::mat4> ObjectView::frameOf(const world::Object& object, const 
                                              uint64_t originHandle, const AvatarView* avatars,
                                              int depth) const
 {
-    const glm::mat4 local =
-        glm::translate(glm::mat4(1.0f), object.position) * glm::mat4_cast(object.rotation);
+    const glm::mat4 local = motion_.local(object);
     if(object.parentId == 0)
     {
         const glm::vec3 offset(

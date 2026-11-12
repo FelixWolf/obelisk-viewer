@@ -341,6 +341,7 @@ void CircuitManager::handlePacket(Circuit& circuit, std::span<const uint8_t> dat
     event.circuit = circuit.id;
     event.messageId = id->first;
     event.message = std::move(packet->message);
+    event.received = now;
     events_.push(std::move(event));
 }
 
@@ -445,7 +446,7 @@ void CircuitManager::tick(Circuit& circuit, Clock::time_point now)
     if(!circuit.lostReported && now - circuit.lastReceived >= options_.lostTimeout)
     {
         circuit.lostReported = true;
-        events_.push(CircuitEvent{CircuitEvent::Kind::Lost, circuit.id, 0, {}});
+        events_.push(CircuitEvent{CircuitEvent::Kind::Lost, circuit.id, 0, {}, now});
     }
 }
 
@@ -456,6 +457,7 @@ void CircuitManager::publishStats()
     {
         circuit->stats.roundTrip = circuit->roundTrip;
         circuit->stats.unacked = circuit->unacked.size();
+        circuit->stats.lastReceived = circuit->lastReceived;
         stats_[id] = circuit->stats;
     }
 }

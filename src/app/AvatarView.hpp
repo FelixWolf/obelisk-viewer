@@ -24,6 +24,7 @@
 
 #include "AnimationManager.hpp"
 #include "MeshManager.hpp"
+#include "ObjectMotion.hpp"
 #include "TextureManager.hpp"
 
 #include "viewer/avatar/Animation.hpp"
@@ -61,7 +62,8 @@ SkeletonOwner skeletonOwner(const world::World& world, const world::Object& obje
 class AvatarView
 {
 public:
-    AvatarView(avatar::BaseAvatar base, render::Renderer& renderer);
+    // `motion` (where avatars are this frame) must outlive the view.
+    AvatarView(avatar::BaseAvatar base, render::Renderer& renderer, const ObjectMotion& motion);
 
     const avatar::BaseAvatar& base() const { return base_; }
 
@@ -170,6 +172,7 @@ private:
 
     avatar::BaseAvatar base_;
     render::Renderer& renderer_;
+    const ObjectMotion& motion_;
     std::shared_ptr<const Body> defaultBody_; // until an avatar's appearance arrives
     std::vector<glm::mat4> defaultJoints_;    // its rest pose
     std::unordered_map<Uuid, Avatar> avatars_;

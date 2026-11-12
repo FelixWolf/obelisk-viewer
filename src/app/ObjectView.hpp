@@ -14,6 +14,7 @@
 
 #include "AvatarView.hpp"
 #include "MeshManager.hpp"
+#include "ObjectMotion.hpp"
 #include "TextureManager.hpp"
 
 #include "viewer/core/JobSystem.hpp"
@@ -36,7 +37,8 @@ namespace viewer
 class ObjectView
 {
 public:
-    ObjectView(JobSystem& jobs, render::Renderer& renderer);
+    // `motion` (where objects are this frame) must outlive the view.
+    ObjectView(JobSystem& jobs, render::Renderer& renderer, const ObjectMotion& motion);
     // Waits for this view's geometry jobs.
     ~ObjectView();
 
@@ -108,6 +110,7 @@ private:
 
     JobSystem& jobs_;
     render::Renderer& renderer_;
+    const ObjectMotion& motion_;
     std::unordered_map<Key, Geometry, KeyHash> cache_;
     MessageQueue<Generated> generated_;
     std::vector<Generated> drained_;

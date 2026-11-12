@@ -1,6 +1,7 @@
 #include "viewer/world/Objects.hpp"
 
 #include <doctest/doctest.h>
+#include <glm/gtc/constants.hpp>
 
 #include <bit>
 
@@ -168,10 +169,43 @@ TEST_CASE("Extra parameters: sculpts and meshes")
     CHECK_FALSE(o.animatedMesh);
 
     // Extended mesh (type 0x70): flags, bit 0 makes it an animated object.
-    const std::vector<uint8_t> animated = {0x01, 0x70, 0x00, 0x04, 0x00, 0x00, 0x00,
-                                           0x01, 0x00, 0x00, 0x00};
+    const std::vector<uint8_t> animated = {0x01, 0x70, 0x00, 0x04, 0x00, 0x00,
+                                           0x00, 0x01, 0x00, 0x00, 0x00};
     applyExtraParams(o, animated);
     CHECK(o.animatedMesh);
     applyExtraParams(o, {});
     CHECK_FALSE(o.animatedMesh);
+}
+
+TEST_CASE("Motion between updates is predicted from velocity, acceleration and spin")
+{
+    using viewer::world::extrapolate;
+    viewer::world::Object o;
+    o.position = glm::vec3(10.0f, 20.0f, 30.0f);
+    o.velocity = glm::vec3(2.0f, 0.0f, 0.0f);
+
+    CHECK(extrapolate(o, 0.0f).position == o.position);
+    CHECK(extrapolate(o, -1.0f).position == o.position);
+    const glm::vec3 moved = extrapolate(o, 0.5f).position;
+    CHECK(moved.x == doctest::Approx(11.0f));
+    CHECK(moved.y == doctest::Approx(20.0f));
+
+    // Falling: half a t (t - physics step) of acceleration.
+    o.velocity = glm::vec3(0.0f);
+    o.acceleration = glm::vec3(0.0f, 0.0f, -9.8f);
+    const float t = 1.0f;
+    CHECK(extrapolate(o, t).position.z ==
+          doctest::Approx(30.0f - 0.5f * 9.8f * t * (t - 1.0f / 45.0f)));
+
+    // Spinning a quarter turn about +Z in a second.
+    o.acceleration = glm::vec3(0.0f);
+    o.angularVelocity = glm::vec3(0.0f, 0.0f, glm::half_pi<float>());
+    const glm::vec3 east = extrapolate(o, 1.0f).rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+    CHECK(east.x == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(east.y == doctest::Approx(1.0f));
+
+    // Children only spin; their parent carries them.
+    o.parentId = 5;
+    o.velocity = glm::vec3(2.0f, 0.0f, 0.0f);
+    CHECK(extrapolate(o, 1.0f).position == o.position);
 }
