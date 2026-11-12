@@ -68,6 +68,10 @@ struct FrameFS
     glm::vec4 sunDisc;
     glm::vec4 moonDisc;
     glm::vec4 moonInfo;
+    glm::vec4 cloudColor;
+    glm::vec4 cloudPos1;
+    glm::vec4 cloudPos2;
+    glm::vec4 cloudDome;
 };
 struct SkyFS
 {
@@ -159,7 +163,7 @@ bool Renderer::createPipelines()
     SDL_GPUShader* tonemapFrag =
         createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "tonemap.frag");
     SDL_GPUShader* skyFrag =
-        createShader(device_, {kSkyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 2}, "sky.frag");
+        createShader(device_, {kSkyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 2}, "sky.frag");
 
     // Vertex layouts.
     // Object layouts have a second, per-instance buffer: the draw indices
@@ -479,6 +483,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         glm::vec4(atmo.sunDirection, atmo.sunRadius),
         glm::vec4(atmo.moonDirection, atmo.moonRadius),
         glm::vec4(atmo.moonBrightness, 0.0f, 0.0f, 0.0f),
+        glm::vec4(atmo.cloudColor, atmo.cloudScale),
+        glm::vec4(atmo.cloudPosDensity1, atmo.cloudVariance),
+        glm::vec4(atmo.cloudPosDensity2, atmo.clouds && *atmo.clouds ? 1.0f : 0.0f),
+        glm::vec4(atmo.domeRadius, atmo.domeOffset, 0.0f, 0.0f),
     };
 
     // Draw data and joint matrices go up before the render pass (copy passes
@@ -505,8 +513,15 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     if(atmo.enabled)
     {
         SDL_BindGPUGraphicsPipeline(pass, pipelines_->sky);
+        const SDL_GPUTextureSamplerBinding clouds = {
+            atmo.clouds && *atmo.clouds ? atmo.clouds->get() : white_.get(),
+            pipelines_->repeatSampler};
+        SDL_BindGPUFragmentSamplers(pass, 0, &clouds, 1);
         pushFragmentUniforms(commands, 0, frameFs);
-        pushFragmentUniforms(commands, 1, SkyFS{glm::inverse(projection * view)});
+        // Rotation only: the shader wants directions, which don't need the
+        // camera's position (leaving it out keeps them precise).
+        pushFragmentUniforms(commands, 1,
+                             SkyFS{glm::inverse(projection * glm::mat4(glm::mat3(view)))});
         SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     }
 

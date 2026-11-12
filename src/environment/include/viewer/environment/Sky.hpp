@@ -51,7 +51,12 @@ struct SkySettings
     glm::vec2 cloudScrollRate{0.2f, 0.01f};
     float cloudShadow = 0.2699f;
     float cloudVariance = 0.0f;
-    Uuid cloudTexture{};
+    // The default cloud noise (llsettingssky.cpp GetDefaultCloudNoiseTextureId).
+    Uuid cloudTexture = *Uuid::parse("1dc1368f-e8fe-f02d-a08d-9d9f11c1af6b");
+    // The sky dome the clouds are drawn on: its radius, and how far below
+    // the eye its center is (as a fraction of the radius).
+    float domeRadius = 15000.0f;
+    float domeOffset = 0.96f;
 
     // Reads a sky frame; anything missing keeps its default.
     static SkySettings fromLlsd(const llsd::Value& sky);

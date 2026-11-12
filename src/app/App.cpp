@@ -750,6 +750,7 @@ void App::buildScene(render::Scene& scene)
             std::chrono::duration_cast<std::chrono::milliseconds>(wallClock).count()) /
             1000.0,
         scene.camera.position.z);
+    scene.lighting.atmosphere.clouds = textures_->get(environment_->cloudTexture());
     int width = 0;
     int height = 0;
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);

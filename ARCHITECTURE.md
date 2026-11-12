@@ -329,8 +329,15 @@ shaders (`render::Atmosphere`, in the frame uniforms):
 - `sky.frag`, a full-screen triangle drawn first, is the windlight sky
   model (as the official skyF.glsl, with Z up): blue and haze scattering by
   density, the glow around the sun, the darker air below the clouds near
-  the horizon. Then the sun and moon as soft discs and, at night, hashed
-  stars.
+  the horizon. Over it, the cloud layer (as cloudsF.glsl): the sky's
+  cloud noise texture mapped across the sky dome (a sphere `dome_radius`
+  across whose center is `dome_offset` of that below the eye, so it reaches
+  the horizon), coverage from two scales of noise and the cloud density,
+  lit by the sun through the air above and shaded on the side away from
+  it. Clouds drift by `cloud_scroll_rate` / 100 a second, accumulated by
+  `EnvironmentManager` so a change of sky doesn't make them jump. Then the
+  sun and moon as soft discs and, at night, hashed stars, all hidden by
+  clouds in front of them.
 - `atmosphere.glsl`'s `applyAtmosphere` hazes every surface by distance
   (the official calcAtmosphericVars): its color dimmed, scattered light
   added.
@@ -339,7 +346,7 @@ Exposure is fixed (0.6, adjustable in the Environment window; the official
 viewer adjusts it to the scene), and the tonemap dithers its output so the
 sky's slow gradients don't band. The Environment window shows the day cycle
 and can fix the time of day; `--day-time 0..1` does that from the command
-line. Not drawn yet: clouds, sun and moon textures, moon phases, water.
+line. Not drawn yet: sun and moon textures, moon phases, water.
 
 ### Materials
 

@@ -5,6 +5,7 @@
 
 #include <glm/gtc/constants.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 namespace viewer
@@ -131,6 +132,19 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
                 glm::angleAxis(angle + glm::pi<float>(), glm::vec3(0.0f, -1.0f, 0.0f));
         }
     }
+    const double elapsed = lastApply_ > 0.0 ? std::clamp(unixSeconds - lastApply_, 0.0, 1.0) : 0.0;
+    lastApply_ = unixSeconds;
+    if(sky.cloudScrollRate == glm::vec2(0.0f))
+    {
+        cloudScroll_ = glm::vec2(0.0f);
+    }
+    else
+    {
+        cloudScroll_ += static_cast<float>(elapsed) * sky.cloudScrollRate / 100.0f;
+        cloudScroll_ = glm::mod(cloudScroll_, glm::vec2(1.0f)); // the noise tiles
+    }
+    cloudTexture_ = sky.cloudTexture;
+
     const environment::SkyLighting light = environment::computeLighting(sky);
     status_.sunDirection = light.sunDirection;
 
@@ -172,6 +186,14 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
     a.moonRadius = 0.02f * sky.moonScale;
     a.moonBrightness = sky.moonBrightness;
     a.starBrightness = sky.starBrightness;
+    a.cloudColor = sky.cloudColor;
+    a.cloudScale = sky.cloudScale;
+    // Scrolling east moves the texture the other way (llsettingsvo.cpp).
+    a.cloudPosDensity1 = sky.cloudPosDensity1 + glm::vec3(-cloudScroll_.x, cloudScroll_.y, 0.0f);
+    a.cloudPosDensity2 = sky.cloudPosDensity2;
+    a.cloudVariance = sky.cloudVariance;
+    a.domeRadius = sky.domeRadius;
+    a.domeOffset = sky.domeOffset;
 }
 
 } // namespace viewer

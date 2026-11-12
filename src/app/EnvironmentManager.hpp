@@ -51,6 +51,8 @@ public:
         bool fromRegion = false; // false: the default sky
     };
     const Status& status() const { return status_; }
+    // The cloud noise texture the current sky uses (after apply()).
+    const Uuid& cloudTexture() const { return cloudTexture_; }
 
 private:
     struct Reply
@@ -69,6 +71,11 @@ private:
     std::optional<environment::DayCycle> cycle_;
     std::optional<float> fixedPosition_;
     float exposure_ = 0.6f;
+    // Clouds drift by the sky's scroll rate; accumulated here so a change of
+    // sky doesn't make them jump (as llenvironment.cpp updateCloudScroll).
+    glm::vec2 cloudScroll_{0.0f};
+    double lastApply_ = 0.0;
+    Uuid cloudTexture_{};
     Status status_;
 };
 

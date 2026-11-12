@@ -105,6 +105,8 @@ SkySettings SkySettings::fromLlsd(const llsd::Value& sky)
     read(sky, "cloud_shadow", s.cloudShadow);
     read(sky, "cloud_variance", s.cloudVariance);
     read(sky, "cloud_id", s.cloudTexture);
+    read(sky, "dome_radius", s.domeRadius);
+    read(sky, "dome_offset", s.domeOffset);
     return s;
 }
 
@@ -137,6 +139,8 @@ SkySettings blend(const SkySettings& a, const SkySettings& b, float t)
     s.cloudScrollRate = mix(a.cloudScrollRate, b.cloudScrollRate);
     s.cloudShadow = mix(a.cloudShadow, b.cloudShadow);
     s.cloudVariance = mix(a.cloudVariance, b.cloudVariance);
+    s.domeRadius = mix(a.domeRadius, b.domeRadius);
+    s.domeOffset = mix(a.domeOffset, b.domeOffset);
     return s;
 }
 

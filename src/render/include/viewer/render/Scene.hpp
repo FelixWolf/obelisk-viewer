@@ -55,6 +55,15 @@ struct Atmosphere
     float moonRadius = 0.02f;
     float moonBrightness = 0.5f;
     float starBrightness = 0.0f; // 0..500ish, as the settings
+    // Clouds: a noise texture (none: no clouds) and how it's used.
+    const GpuTexture* clouds = nullptr;
+    glm::vec3 cloudColor{0.41f};
+    float cloudScale = 0.42f;
+    glm::vec3 cloudPosDensity1{1.0f, 0.526f, 1.0f}; // xy: offset (scrolling), z: density
+    float cloudVariance = 0.0f;
+    glm::vec3 cloudPosDensity2{1.0f, 0.526f, 1.0f};
+    float domeRadius = 15000.0f;
+    float domeOffset = 0.96f;
 };
 
 struct Lighting

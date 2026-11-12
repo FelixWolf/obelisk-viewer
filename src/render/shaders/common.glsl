@@ -39,6 +39,10 @@ const float PI = 3.14159265359;
         vec4 sunDisc;      /* xyz towards the sun, w its radius (radians) */                  \
         vec4 moonDisc;     /* xyz towards the moon, w its radius */                           \
         vec4 moonInfo;     /* x moon brightness */                                            \
+        vec4 cloudColor;   /* xyz, w scale */                                                 \
+        vec4 cloudPos1;    /* xyz position/density 1, w variance */                           \
+        vec4 cloudPos2;    /* xyz position/density 2, w clouds on (1) */                      \
+        vec4 cloudDome;    /* x radius, y offset */                                           \
     }                                                                                         \
     frame;
 
