@@ -17,13 +17,15 @@ layout(set = 2, binding = 0) uniform sampler2D albedoMap;
 layout(set = 2, binding = 1) uniform sampler2D ormMap;
 layout(set = 2, binding = 2) uniform sampler2D emissiveMap;
 layout(set = 2, binding = 3) uniform sampler2D normalMap;
+layout(set = 2, binding = 4) uniform sampler2DArrayShadow shadowMap;
 
 FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
+#include "shadow.glsl"
 
 layout(location = 4) flat in uint inDraw;
-layout(std430, set = 2, binding = 4) readonly buffer Draws
+layout(std430, set = 2, binding = 5) readonly buffer Draws
 {
     DrawData draws[];
 };
@@ -59,8 +61,9 @@ void main()
     }
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
 
+    const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor.rgb, roughness, metallic,
-                           frame.sunColor.rgb);
+                           frame.sunColor.rgb) * shadow;
     color += occlusion * pbrAmbient(n, v, baseColor.rgb, roughness, metallic,
                                     frame.skyAmbient.rgb, frame.groundAmbient.rgb);
     color += texture(emissiveMap, inUv).rgb * material.emissiveTint.rgb * material.emissiveTint.a;

@@ -96,6 +96,8 @@ struct ObjectDraw
     // distance can't tell layers of clothing apart.
     const void* wearer = nullptr;
     uint64_t layer = 0;
+    // Out of view but its shadow may reach in: drawn into shadow maps only.
+    bool shadowOnly = false;
 };
 
 struct TerrainDraw
@@ -103,6 +105,23 @@ struct TerrainDraw
     const Mesh* mesh = nullptr;
     glm::mat4 transform{1.0f};
     std::variant<TerrainBlinnPhongMaterial, TerrainPbrMaterial> material;
+    bool shadowOnly = false; // out of view, but casts shadows
+};
+
+// Shadows from the sun (or moon): cascaded shadow maps, each covering a
+// wider slice of the view (the renderer works them out from the camera).
+struct Shadows
+{
+    bool enabled = false;
+    glm::vec3 towardLight{0.0f, 0.0f, 1.0f};
+    float distance = 128.0f; // shadows end this far from the camera
+};
+
+enum class Visibility : uint8_t
+{
+    Hidden,     // not drawn
+    ShadowOnly, // out of view, but its shadow can fall into it
+    Visible,
 };
 
 struct Scene
@@ -116,8 +135,26 @@ struct Scene
     // entirely outside it.
     Frustum frustum;
     Lighting lighting;
+    Shadows shadows;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;
+
+    // Whatever is within this sphere: in view, only its shadow in view, or
+    // neither (frustum and shadows must be set).
+    Visibility visibility(const glm::vec3& center, float radius) const
+    {
+        if(frustum.containsSphere(center, radius))
+        {
+            return Visibility::Visible;
+        }
+        if(shadows.enabled &&
+           glm::length(center - camera.position) - radius < shadows.distance + 64.0f &&
+           frustum.containsShadowOf(center, radius, shadows.towardLight))
+        {
+            return Visibility::ShadowOnly;
+        }
+        return Visibility::Hidden;
+    }
 };
 
 } // namespace viewer::render

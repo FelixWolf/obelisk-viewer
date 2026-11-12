@@ -69,7 +69,7 @@ Renderer::~Renderer()
     blackLayers_.reset();
     flatNormalLayers_.reset();
     terrainBlendRamp_.reset();
-    for(SDL_GPUTexture* t : {hdrTarget_, depthTarget_, screenshotTexture_})
+    for(SDL_GPUTexture* t : {hdrTarget_, depthTarget_, screenshotTexture_, shadowMap_})
     {
         if(t)
         {

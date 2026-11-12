@@ -18,10 +18,12 @@ layout(set = 2, binding = 1) uniform sampler2DArray ormMaps;
 layout(set = 2, binding = 2) uniform sampler2DArray emissiveMaps;
 layout(set = 2, binding = 3) uniform sampler2DArray normalMaps;
 layout(set = 2, binding = 4) uniform sampler2D blendRamp;
+layout(set = 2, binding = 5) uniform sampler2DArrayShadow shadowMap;
 
 FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
+#include "shadow.glsl"
 
 layout(set = 3, binding = 1) uniform MaterialFS
 {
@@ -120,7 +122,8 @@ void main()
     float metallic = clamp(orm.b, 0.0, 1.0);
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor, roughness, metallic,
-                           frame.sunColor.rgb);
+                           frame.sunColor.rgb) *
+                 sunShadow(shadowMap, inWorldPosition, normalize(inNormal));
     color += orm.r * pbrAmbient(n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
                                 frame.groundAmbient.rgb);
     color += emissive;

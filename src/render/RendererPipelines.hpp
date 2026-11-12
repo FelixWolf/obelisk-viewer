@@ -4,6 +4,7 @@
 // RendererScene.cpp.
 
 #include "viewer/render/Renderer.hpp"
+#include "viewer/render/ShadowCascades.hpp"
 
 namespace viewer::render
 {
@@ -21,21 +22,29 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
     SDL_GPUGraphicsPipeline* tonemap = nullptr;
     SDL_GPUGraphicsPipeline* sky = nullptr;
+    // Shadow maps (depth only): opaque casters, and ones with see-through parts.
+    SDL_GPUGraphicsPipeline* shadowObject = nullptr;
+    SDL_GPUGraphicsPipeline* shadowObjectMasked = nullptr;
+    SDL_GPUGraphicsPipeline* shadowSkinned = nullptr;
+    SDL_GPUGraphicsPipeline* shadowSkinnedMasked = nullptr;
+    SDL_GPUGraphicsPipeline* shadowTerrain = nullptr;
     SDL_GPUSampler* repeatSampler = nullptr;
     SDL_GPUSampler* clampSampler = nullptr;
+    SDL_GPUSampler* shadowSampler = nullptr; // compares depth, filters the results
 
     ~Pipelines()
     {
         for(SDL_GPUGraphicsPipeline* p :
             {blinnPhong, blinnPhongBlend, pbr, blinnPhongSkinned, blinnPhongSkinnedBlend,
-             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap, sky})
+             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap, sky, shadowObject,
+             shadowObjectMasked, shadowSkinned, shadowSkinnedMasked, shadowTerrain})
         {
             if(p)
             {
                 SDL_ReleaseGPUGraphicsPipeline(device, p);
             }
         }
-        for(SDL_GPUSampler* s : {repeatSampler, clampSampler})
+        for(SDL_GPUSampler* s : {repeatSampler, clampSampler, shadowSampler})
         {
             if(s)
             {

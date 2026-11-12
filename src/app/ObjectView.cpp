@@ -261,7 +261,8 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         return;
     }
     // Rigged mesh reaches past the skeleton (hair, tails, skirts): a margin.
-    if(!scene.frustum.containsSphere(glm::vec3(root[3]), radius + 1.0f))
+    const render::Visibility seen = scene.visibility(glm::vec3(root[3]), radius + 1.0f);
+    if(seen == render::Visibility::Hidden)
     {
         stats_.culled++;
         return;
@@ -328,6 +329,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         draw.joints = palette;
         draw.wearer = owner.owner;
         draw.layer = layer;
+        draw.shadowOnly = seen == render::Visibility::ShadowOnly;
         scene.objects.push_back(draw);
         stats_.faces++;
     }
@@ -376,11 +378,13 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         const glm::vec3 position((*frame)[3]);
 
-        // Distance and a rough "behind the camera" cull.
+        // Distance and a rough "behind the camera" cull (unless its shadow
+        // may still reach the view).
         const float radius = glm::length(object.scale) * 0.5f;
         const glm::vec3 toObject = position - camera;
         const float distance = glm::length(toObject);
-        if(distance - radius > drawDistance || glm::dot(toObject, forward) < -radius)
+        if(distance - radius > drawDistance ||
+           (!scene.shadows.enabled && glm::dot(toObject, forward) < -radius))
         {
             continue;
         }
@@ -403,7 +407,9 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             continue;
         }
-        if(!scene.frustum.containsSphere(position, glm::length(extent * object.scale)))
+        const render::Visibility seen =
+            scene.visibility(position, glm::length(extent * object.scale));
+        if(seen == render::Visibility::Hidden)
         {
             stats_.culled++;
             continue;
@@ -428,6 +434,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             }
             render::ObjectDraw draw{&mesh, transform, *m};
             uvTransform(face, draw.uvRow0, draw.uvRow1);
+            draw.shadowOnly = seen == render::Visibility::ShadowOnly;
             scene.objects.push_back(draw);
             stats_.faces++;
         }

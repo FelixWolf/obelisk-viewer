@@ -66,7 +66,7 @@ void printUsage()
     std::println(stderr,
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
-                 "[--walk DEGREES] [--day-time 0..1]");
+                 "[--walk DEGREES] [--day-time 0..1] [--no-shadows]");
 }
 
 } // namespace
@@ -141,6 +141,10 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.walk = std::strtof(args[i], nullptr);
+        }
+        else if(arg == "--no-shadows")
+        {
+            options.shadows = false;
         }
         else if(arg == "--day-time" && hasValue)
         {
@@ -249,6 +253,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
     app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
     app->environment_->setDayPosition(options.dayTime);
+    app->shadows_ = options.shadows;
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
                                                       *app->http_, *app->jobs_);
     app->meshes_ =
@@ -449,6 +454,9 @@ int App::run()
                               "animated objects: {}",
                               o.palettes, o.skipped, o.culled,
                               avatars_ ? avatars_->animatedObjects() : size_t{0});
+                    const auto& sd = renderer_->shadowDraws();
+                    log::info("shadow casters drawn per cascade: {} {} {} {}", sd[0], sd[1], sd[2],
+                              sd[3]);
                     const auto c = worldThread_->cacheStats();
                     log::info("object cache: {} hits, {} misses, {} objects stored", c.hits,
                               c.misses, c.stored);
@@ -751,6 +759,11 @@ void App::buildScene(render::Scene& scene)
             1000.0,
         scene.camera.position.z);
     scene.lighting.atmosphere.clouds = textures_->get(environment_->cloudTexture());
+    // Shadows from whichever light is up (none once it's down).
+    scene.shadows.enabled = shadows_ && scene.lighting.sunDirection.z > 0.02f &&
+                            scene.lighting.sunColor != glm::vec3(0.0f);
+    scene.shadows.towardLight = scene.lighting.sunDirection;
+    scene.shadows.distance = 128.0f;
     int width = 0;
     int height = 0;
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
@@ -904,6 +917,7 @@ void App::drawEnvironmentWindow()
             environment_->setDayPosition(
                 fixed ? std::optional<float>(static_cast<float>(s.position)) : std::nullopt);
         }
+        ImGui::Checkbox("Sun shadows", &shadows_);
         float exposure = environment_->exposure();
         if(ImGui::SliderFloat("Exposure", &exposure, 0.1f, 4.0f, "%.2f",
                               ImGuiSliderFlags_Logarithmic))

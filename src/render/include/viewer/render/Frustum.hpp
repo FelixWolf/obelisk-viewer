@@ -24,6 +24,10 @@ public:
 
     bool containsSphere(const glm::vec3& center, float radius) const;
     bool containsBox(const glm::vec3& min, const glm::vec3& max) const;
+    // Whether a sphere's shadow can fall inside: the sphere swept without
+    // end away from a light in direction `towardLight`.
+    bool containsShadowOf(const glm::vec3& center, float radius,
+                          const glm::vec3& towardLight) const;
 
 private:
     // Normals point inwards and are unit length: inside where

@@ -43,6 +43,12 @@ const float PI = 3.14159265359;
         vec4 cloudPos1;    /* xyz position/density 1, w variance */                           \
         vec4 cloudPos2;    /* xyz position/density 2, w clouds on (1) */                      \
         vec4 cloudDome;    /* x radius, y offset */                                           \
+        /* Shadows (shadow.glsl). */                                                          \
+        mat4 shadowMatrices[4]; /* world -> each cascade's light clip space */                \
+        vec4 shadowSplits;      /* each cascade's far end, as depth along the view */         \
+        vec4 shadowTexels;      /* each cascade's texel size, meters */                       \
+        vec4 shadowInfo;        /* x on (1), y one texel in texture coordinates */            \
+        vec4 viewAxis;          /* xyz the camera's forward direction */                      \
     }                                                                                         \
     frame;
 

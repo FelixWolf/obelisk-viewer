@@ -348,6 +348,35 @@ sky's slow gradients don't band. The Environment window shows the day cycle
 and can fix the time of day; `--day-time 0..1` does that from the command
 line. Not drawn yet: sun and moon textures, moon phases, water.
 
+### Shadows
+
+The sun (or the moon, while it's the light) casts shadows through four
+cascaded shadow maps (`ShadowCascades.hpp`): the view out to 128 m cut into
+slices that grow with distance (85% logarithmic splits), each covered by a
+2048x2048 layer of one depth texture array, rendered from the light with an
+orthographic projection around a sphere enclosing the slice. The sphere
+keeps its size as the camera turns and its center snaps to whole texels,
+so edges don't shimmer. Casters up to 300 m towards the light beyond a
+slice still cast into it.
+
+Each cascade draws the terrain and the casters whose bounding spheres reach
+it (meshes keep their bounds; skinned meshes get a 4 m sphere around the
+root), leaving out ones smaller than four texels there. Opaque casters need
+no fragment shader work; alpha-masked and blended ones sample their
+texture and cast where at least half opaque (full-bright blended ones,
+like glowing signs, cast nothing). Both sides of faces cast, with a depth
+bias. Culling keeps out-of-view objects whose shadow can reach the view
+(`Scene::visibility`: their sphere swept away from the light against the
+view frustum), marked shadow only.
+
+Surfaces pick the cascade by their depth along the view, push the lookup
+1.5 texels along their normal against acne, and filter 3x3 comparisons; the
+shadow scales the sun's light only, and fades out over the last 10% of the
+distance. Measured at Ahern in late afternoon: about 17,000 shadow draws
+across the cascades, frames 3.0 ms without shadows, 5.0-7.3 ms with (most
+of it recording draws). `--no-shadows` and the Environment window turn
+them off.
+
 ### Materials
 
 Four material families, each its own pipeline:

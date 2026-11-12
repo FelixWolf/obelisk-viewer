@@ -221,13 +221,16 @@ void TerrainView::addTo(render::Scene& scene, uint64_t originHandle,
         const glm::vec3 offset(static_cast<float>(regionX(handle) - regionX(originHandle)),
                                static_cast<float>(regionY(handle) - regionY(originHandle)), 0.0f);
         constexpr float kWidth = static_cast<float>(world::kRegionWidth);
-        if(!scene.frustum.containsBox(offset + glm::vec3(0.0f, 0.0f, region.minHeight),
-                                      offset + glm::vec3(kWidth, kWidth, region.maxHeight)))
+        // Out of view, hills may still shade what's in view.
+        const bool inView =
+            scene.frustum.containsBox(offset + glm::vec3(0.0f, 0.0f, region.minHeight),
+                                      offset + glm::vec3(kWidth, kWidth, region.maxHeight));
+        if(!inView && !scene.shadows.enabled)
         {
             continue;
         }
         scene.terrain.push_back(
-            {&region.mesh, glm::translate(glm::mat4(1.0f), offset), materialFor(handle)});
+            {&region.mesh, glm::translate(glm::mat4(1.0f), offset), materialFor(handle), !inView});
     }
 }
 

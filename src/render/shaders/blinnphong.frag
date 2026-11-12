@@ -15,13 +15,15 @@ layout(location = 3) in vec2 inUv;
 layout(set = 2, binding = 0) uniform sampler2D diffuseMap;
 layout(set = 2, binding = 1) uniform sampler2D normalMap;
 layout(set = 2, binding = 2) uniform sampler2D specularMap;
+layout(set = 2, binding = 3) uniform sampler2DArrayShadow shadowMap;
 
 FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
+#include "shadow.glsl"
 
 layout(location = 4) flat in uint inDraw;
-layout(std430, set = 2, binding = 3) readonly buffer Draws
+layout(std430, set = 2, binding = 4) readonly buffer Draws
 {
     DrawData draws[];
 };
@@ -62,7 +64,8 @@ void main()
     vec3 specularColor = texture(specularMap, inUv).rgb * material.specularTint.rgb;
     float exponent = max(normalTexel.a * material.specularTint.a, 1.0);
 
-    vec3 color = blinnPhong(n, v, l, albedo.rgb, specularColor, exponent, frame.sunColor.rgb);
+    const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
+    vec3 color = blinnPhong(n, v, l, albedo.rgb, specularColor, exponent, frame.sunColor.rgb) * shadow;
     color += albedo.rgb * hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
     outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }

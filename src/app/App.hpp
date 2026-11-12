@@ -53,6 +53,7 @@ struct AppOptions
     std::string teleport;                       // teleport here 5 s after logging in ("home" too)
     std::optional<float> walk;    // walk this way (degrees from east) once in (after --teleport)
     std::optional<float> dayTime; // a fixed time of day, 0..1 (0.5 is midday in most cycles)
+    bool shadows = true;          // --no-shadows: off (for comparing)
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -171,6 +172,7 @@ private:
     FrameProfile profile_;
     render::Scene scene_; // this frame's, kept for its lists' capacity
     bool showFps_ = true;
+    bool shadows_ = true;
 };
 
 } // namespace viewer

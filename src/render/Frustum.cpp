@@ -44,6 +44,25 @@ bool Frustum::containsSphere(const glm::vec3& center, float radius) const
     return true;
 }
 
+bool Frustum::containsShadowOf(const glm::vec3& center, float radius,
+                               const glm::vec3& towardLight) const
+{
+    for(const glm::vec4& p : planes_)
+    {
+        // Moving away from the light takes the sphere further into this
+        // plane's inside: the swept sphere gets there.
+        if(glm::dot(glm::vec3(p), towardLight) < 0.0f)
+        {
+            continue;
+        }
+        if(glm::dot(glm::vec3(p), center) + p.w < -radius)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool Frustum::containsBox(const glm::vec3& min, const glm::vec3& max) const
 {
     for(const glm::vec4& p : planes_)

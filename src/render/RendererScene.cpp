@@ -3,6 +3,7 @@
 
 #include "RendererPipelines.hpp"
 #include "viewer/render/Renderer.hpp"
+#include "viewer/render/ShadowCascades.hpp"
 
 #include "viewer/core/Log.hpp"
 #include "viewer/render/ShaderBytecode.hpp"
@@ -72,11 +73,17 @@ struct FrameFS
     glm::vec4 cloudPos1;
     glm::vec4 cloudPos2;
     glm::vec4 cloudDome;
+    glm::mat4 shadowMatrices[4];
+    glm::vec4 shadowSplits;
+    glm::vec4 shadowTexels;
+    glm::vec4 shadowInfo;
+    glm::vec4 viewAxis;
 };
 struct SkyFS
 {
     glm::mat4 inverseViewProjection;
 };
+
 struct TerrainPbrFS
 {
     glm::vec4 baseColorFactor[4];
@@ -148,20 +155,24 @@ bool Renderer::createPipelines()
     SDL_GPUShader* skinnedVert =
         createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1, 1}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 1}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 1}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 1, 1}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 2}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 6, 2}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
         createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "tonemap.frag");
+    SDL_GPUShader* shadowFrag =
+        createShader(device_, {kShadowFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "shadow.frag");
+    SDL_GPUShader* shadowMaskedFrag = createShader(
+        device_, {kShadowMaskedFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "shadow_masked.frag");
     SDL_GPUShader* skyFrag =
         createShader(device_, {kSkyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 2}, "sky.frag");
 
@@ -303,6 +314,71 @@ bool Renderer::createPipelines()
         }
     }
 
+    // Shadow maps: depth only, both sides of every face (prims are often
+    // open, and thin), pushed back a little against self-shadowing.
+    auto shadowPipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, VertexLayout layout,
+                              const char* name) -> SDL_GPUGraphicsPipeline*
+    {
+        if(!vert || !frag)
+        {
+            return nullptr;
+        }
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = vert;
+        info.fragment_shader = frag;
+        info.vertex_input_state.num_vertex_buffers = layout == VertexLayout::Terrain ? 1 : 2;
+        switch(layout)
+        {
+        case VertexLayout::Object:
+            info.vertex_input_state.vertex_buffer_descriptions = objectBuffers;
+            info.vertex_input_state.vertex_attributes = objectAttributes;
+            info.vertex_input_state.num_vertex_attributes =
+                static_cast<Uint32>(std::size(objectAttributes));
+            break;
+        case VertexLayout::Skinned:
+            info.vertex_input_state.vertex_buffer_descriptions = skinnedBuffers;
+            info.vertex_input_state.vertex_attributes = skinnedAttributes;
+            info.vertex_input_state.num_vertex_attributes =
+                static_cast<Uint32>(std::size(skinnedAttributes));
+            break;
+        case VertexLayout::Terrain:
+            info.vertex_input_state.vertex_buffer_descriptions = &terrainBuffer;
+            info.vertex_input_state.vertex_attributes = terrainAttributes;
+            info.vertex_input_state.num_vertex_attributes =
+                static_cast<Uint32>(std::size(terrainAttributes));
+            break;
+        }
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_bias = true;
+        info.rasterizer_state.depth_bias_constant_factor = 1.0f;
+        info.rasterizer_state.depth_bias_slope_factor = 2.0f;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.num_color_targets = 0;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = shadowFormat_;
+        SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!pipeline)
+        {
+            log::error("creating the {} pipeline failed: {}", name, SDL_GetError());
+        }
+        return pipeline;
+    };
+    shadowFormat_ = SDL_GPUTextureSupportsFormat(
+                        device_, SDL_GPU_TEXTUREFORMAT_D32_FLOAT, SDL_GPU_TEXTURETYPE_2D_ARRAY,
+                        SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER)
+                        ? SDL_GPU_TEXTUREFORMAT_D32_FLOAT
+                        : SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+    p.shadowObject = shadowPipeline(objectVert, shadowFrag, kObject, "shadow");
+    p.shadowObjectMasked = shadowPipeline(objectVert, shadowMaskedFrag, kObject, "shadow (masked)");
+    p.shadowSkinned = shadowPipeline(skinnedVert, shadowFrag, kSkinned, "shadow (skinned)");
+    p.shadowSkinnedMasked =
+        shadowPipeline(skinnedVert, shadowMaskedFrag, kSkinned, "shadow (skinned, masked)");
+    p.shadowTerrain = shadowPipeline(terrainVert, shadowFrag, kTerrain, "shadow (terrain)");
+
     if(fullscreenVert && skyFrag)
     {
         SDL_GPUColorTargetDescription color = {};
@@ -325,7 +401,7 @@ bool Renderer::createPipelines()
 
     for(SDL_GPUShader* s :
         {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert, terrainBlinnPhongFrag,
-         terrainPbrFrag, fullscreenVert, tonemapFrag, skyFrag})
+         terrainPbrFrag, fullscreenVert, tonemapFrag, skyFrag, shadowFrag, shadowMaskedFrag})
     {
         if(s)
         {
@@ -349,10 +425,17 @@ bool Renderer::createPipelines()
     sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     sampler.enable_anisotropy = false;
     p.clampSampler = SDL_CreateGPUSampler(device_, &sampler);
+    sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    sampler.max_lod = 0.0f;
+    sampler.enable_compare = true;
+    sampler.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL; // 1 where lit
+    p.shadowSampler = SDL_CreateGPUSampler(device_, &sampler);
 
     return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.blinnPhongSkinned &&
            p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
-           p.tonemap && p.sky && p.repeatSampler && p.clampSampler;
+           p.tonemap && p.sky && p.shadowObject && p.shadowObjectMasked && p.shadowSkinned &&
+           p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler && p.clampSampler &&
+           p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -405,8 +488,23 @@ bool Renderer::createDefaultTextures()
     terrainBlendRamp_ = std::move(uploadTextures({&rampPointer, 1}, false)[0]);
     blackLayers_ = uploadTextureArray(blacks, false);
     flatNormalLayers_ = uploadTextureArray(flats, false);
+    // The shadow map: one layer per cascade.
+    SDL_GPUTextureCreateInfo shadow = {};
+    shadow.type = SDL_GPU_TEXTURETYPE_2D_ARRAY;
+    shadow.format = shadowFormat_;
+    shadow.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    shadow.width = kShadowMapSize;
+    shadow.height = kShadowMapSize;
+    shadow.layer_count_or_depth = kShadowCascades;
+    shadow.num_levels = 1;
+    shadowMap_ = SDL_CreateGPUTexture(device_, &shadow);
+    if(!shadowMap_)
+    {
+        log::error("creating the shadow map failed: {}", SDL_GetError());
+    }
+
     return white_ && black_ && flatNormal_ && whiteLayers_ && blackLayers_ && flatNormalLayers_ &&
-           terrainBlendRamp_;
+           shadowMap_ && terrainBlendRamp_;
 }
 
 bool Renderer::ensureTargets(uint32_t width, uint32_t height)
@@ -472,7 +570,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     const FrameVS frameVs{projection * view, glm::vec4(camera.position, 1.0f)};
     const Lighting& light = scene.lighting;
     const Atmosphere& atmo = light.atmosphere;
-    const FrameFS frameFs{
+    const bool shadows = scene.shadows.enabled && shadowMap_;
+    const Cascades cascades =
+        shadows ? computeCascades(camera, aspect, scene.shadows, kShadowMapSize) : Cascades{};
+    FrameFS frameFs{
         glm::vec4(camera.position, 1.0f),
         glm::vec4(glm::normalize(light.sunDirection), 0.0f),
         glm::vec4(light.sunColor, 1.0f),
@@ -492,11 +593,20 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         glm::vec4(atmo.cloudPosDensity1, atmo.cloudVariance),
         glm::vec4(atmo.cloudPosDensity2, atmo.clouds && *atmo.clouds ? 1.0f : 0.0f),
         glm::vec4(atmo.domeRadius, atmo.domeOffset, 0.0f, 0.0f),
+        {cascades.matrices[0], cascades.matrices[1], cascades.matrices[2], cascades.matrices[3]},
+        cascades.splits,
+        cascades.texels,
+        glm::vec4(shadows ? 1.0f : 0.0f, 1.0f / static_cast<float>(kShadowMapSize), 0.0f, 0.0f),
+        glm::vec4(glm::normalize(camera.target - camera.position), 0.0f),
     };
 
     // Draw data and joint matrices go up before the render pass (copy passes
     // can't nest).
     const bool drawsReady = uploadDraws(commands, scene);
+    if(shadows)
+    {
+        drawShadows(commands, scene, cascades, drawsReady);
+    }
 
     SDL_GPUColorTargetInfo color = {};
     color.texture = hdrTarget_;
@@ -537,7 +647,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     SDL_GPUBuffer* boundVertices = nullptr;
     SDL_GPUBuffer* boundIndices = nullptr;
     SDL_GPUGraphicsPipeline* boundPipeline = nullptr;
-    std::array<SDL_GPUTextureSamplerBinding, 5> boundSamplers{};
+    std::array<SDL_GPUTextureSamplerBinding, 6> boundSamplers{};
     size_t boundSamplerCount = 0;
     auto drawMesh = [&](const Mesh& mesh, uint32_t instance = 0)
     {
@@ -599,7 +709,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     // Terrain first: it covers the most screen, so it fills depth early.
     for(const TerrainDraw& draw : scene.terrain)
     {
-        if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Terrain)
+        if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Terrain ||
+           draw.shadowOnly)
         {
             continue;
         }
@@ -608,7 +719,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             bindPipeline(p.terrainBlinnPhong);
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler},
-                {terrainBlendRamp_.get(), p.clampSampler}};
+                {terrainBlendRamp_.get(), p.clampSampler},
+                {shadowMap_, p.shadowSampler}};
             bindSamplers(samplers);
             pushVertexUniforms(commands, 1, terrainVs(draw.transform, m->textureRepeatsPerMeter));
         }
@@ -621,6 +733,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->emissiveLayers, blackLayers_), p.repeatSampler},
                 {texture(t->normalLayers, flatNormalLayers_), p.repeatSampler},
                 {terrainBlendRamp_.get(), p.clampSampler},
+                {shadowMap_, p.shadowSampler},
             };
             bindSamplers(samplers);
             pushVertexUniforms(commands, 1, terrainVs(draw.transform, t->textureRepeatsPerMeter));
@@ -654,7 +767,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     const glm::vec3 viewAxis = glm::normalize(camera.target - camera.position);
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(!drawsReady || !draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain)
+        if(!drawsReady || !draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain ||
+           draw.shadowOnly)
         {
             continue;
         }
@@ -759,6 +873,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(m->diffuse, white_), p.repeatSampler},
                 {texture(m->normal, flatNormal_), p.repeatSampler},
                 {texture(m->specular, white_), p.repeatSampler},
+                {shadowMap_, p.shadowSampler},
             };
             bindSamplers(samplers);
         }
@@ -770,6 +885,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->orm, white_), p.repeatSampler},
                 {texture(t->emissive, black_), p.repeatSampler},
                 {texture(t->normal, flatNormal_), p.repeatSampler},
+                {shadowMap_, p.shadowSampler},
             };
             bindSamplers(samplers);
         }
@@ -961,6 +1077,203 @@ bool Renderer::reserve(FrameBuffer& b, uint32_t bytes, SDL_GPUBufferUsageFlags u
         return false;
     }
     return true;
+}
+
+void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                           const Cascades& cascades, bool drawsReady)
+{
+    const Pipelines& p = *pipelines_;
+    auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
+    { return t && *t ? t->get() : fallback.get(); };
+
+    // The casters: opaque, masked and blended faces (the last two cast
+    // where they're at least half opaque), with a sphere around each.
+    enum Kind : uint8_t
+    {
+        Opaque,
+        Masked,
+        SkinnedOpaque,
+        SkinnedMasked,
+    };
+    struct Caster
+    {
+        uint64_t key; // kind, then texture: few state changes
+        uint32_t index;
+    };
+    std::vector<Caster> casters;
+    casterSpheres_.assign(scene.objects.size(), glm::vec4(0.0f));
+    for(size_t i = 0; drawsReady && i < scene.objects.size(); i++)
+    {
+        const ObjectDraw& draw = scene.objects[i];
+        if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain)
+        {
+            continue;
+        }
+        const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
+        if(skinned && draw.joints.empty())
+        {
+            continue;
+        }
+        bool masked = false;
+        const void* diffuse = nullptr;
+        if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
+        {
+            if(m->fullbright && m->blend)
+            {
+                continue; // glowing see-through things (signs, effects) cast nothing
+            }
+            masked = m->blend || m->alphaCutoff >= 0.0f;
+            diffuse = m->diffuse;
+        }
+        else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
+        {
+            masked = t->alphaCutoff >= 0.0f;
+            diffuse = t->albedo;
+        }
+        if(skinned)
+        {
+            // Skinned vertices move with the skeleton: a generous sphere
+            // around the root covers a body and what it wears.
+            casterSpheres_[i] = glm::vec4(glm::vec3(draw.transform[3]), 4.0f);
+        }
+        else
+        {
+            const glm::vec3 localCenter = (draw.mesh->boundsMin + draw.mesh->boundsMax) * 0.5f;
+            const glm::mat3 m(draw.transform);
+            const glm::mat3 absolute(glm::abs(m[0]), glm::abs(m[1]), glm::abs(m[2]));
+            const glm::vec3 size = absolute * (draw.mesh->boundsMax - draw.mesh->boundsMin);
+            casterSpheres_[i] = glm::vec4(glm::vec3(draw.transform * glm::vec4(localCenter, 1.0f)),
+                                          0.5f * glm::length(size));
+        }
+        const uint64_t kind =
+            skinned ? (masked ? SkinnedMasked : SkinnedOpaque) : (masked ? Masked : Opaque);
+        const uint64_t textureBits =
+            masked ? (reinterpret_cast<uintptr_t>(diffuse) >> 4) & ((1ull << 48) - 1) : 0;
+        casters.push_back({kind << 56 | textureBits, static_cast<uint32_t>(i)});
+    }
+    std::ranges::sort(casters, {}, &Caster::key);
+    // In light view coordinates, for the per-cascade tests.
+    std::vector<glm::vec4> inLight(casters.size());
+    for(size_t c = 0; c < casters.size(); c++)
+    {
+        const glm::vec4& sphere = casterSpheres_[casters[c].index];
+        inLight[c] = glm::vec4(
+            glm::vec3(cascades.lightRotation * glm::vec4(glm::vec3(sphere), 1.0f)), sphere.w);
+    }
+
+    for(uint32_t cascade = 0; cascade < kShadowCascades; cascade++)
+    {
+        SDL_GPUDepthStencilTargetInfo depth = {};
+        depth.texture = shadowMap_;
+        depth.clear_depth = 1.0f;
+        depth.load_op = SDL_GPU_LOADOP_CLEAR;
+        depth.store_op = SDL_GPU_STOREOP_STORE;
+        depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+        depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        depth.cycle = cascade == 0; // last frame may still be reading it
+        depth.layer = static_cast<Uint8>(cascade);
+        SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, nullptr, 0, &depth);
+        const FrameVS frameVs{cascades.matrices[cascade], glm::vec4(0.0f)};
+        shadowDrawCounts_[cascade] = 0;
+        const glm::vec4& bounds = cascades.bounds[cascade];
+
+        SDL_GPUBuffer* boundVertices = nullptr;
+        SDL_GPUBuffer* boundIndices = nullptr;
+        SDL_GPUGraphicsPipeline* boundPipeline = nullptr;
+        SDL_GPUTexture* boundTexture = nullptr;
+        auto drawMesh = [&](const Mesh& mesh, uint32_t instance)
+        {
+            if(mesh.vertexBuffer() != boundVertices)
+            {
+                boundVertices = mesh.vertexBuffer();
+                const SDL_GPUBufferBinding binding = {boundVertices, 0};
+                SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
+            }
+            if(mesh.indexBuffer() != boundIndices)
+            {
+                boundIndices = mesh.indexBuffer();
+                const SDL_GPUBufferBinding binding = {boundIndices, 0};
+                SDL_BindGPUIndexBuffer(pass, &binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            }
+            SDL_DrawGPUIndexedPrimitives(pass, mesh.indexCount, 1, mesh.firstIndex,
+                                         static_cast<Sint32>(mesh.firstVertex), instance);
+        };
+
+        // Terrain: hills shade the land behind them.
+        for(const TerrainDraw& draw : scene.terrain)
+        {
+            if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Terrain)
+            {
+                continue;
+            }
+            if(boundPipeline != p.shadowTerrain)
+            {
+                boundPipeline = p.shadowTerrain;
+                SDL_BindGPUGraphicsPipeline(pass, boundPipeline);
+                pushVertexUniforms(commands, 0, frameVs);
+            }
+            pushVertexUniforms(commands, 1, TerrainVS{draw.transform, glm::vec4(0.0f)});
+            drawMesh(*draw.mesh, 0);
+        }
+
+        for(size_t c = 0; c < casters.size(); c++)
+        {
+            // Too small to matter at this cascade's resolution (a shadow of a
+            // texel or two), or not reaching it.
+            if(inLight[c].w <
+                   kMinCasterTexels * cascades.texels[static_cast<glm::length_t>(cascade)] ||
+               !castsInto(glm::vec3(inLight[c]), inLight[c].w, bounds))
+            {
+                continue;
+            }
+            const ObjectDraw& draw = scene.objects[casters[c].index];
+            const auto kind = static_cast<Kind>(casters[c].key >> 56);
+            SDL_GPUGraphicsPipeline* pipeline = kind == Opaque          ? p.shadowObject
+                                                : kind == Masked        ? p.shadowObjectMasked
+                                                : kind == SkinnedOpaque ? p.shadowSkinned
+                                                                        : p.shadowSkinnedMasked;
+            if(pipeline != boundPipeline)
+            {
+                boundPipeline = pipeline;
+                SDL_BindGPUGraphicsPipeline(pass, pipeline);
+                pushVertexUniforms(commands, 0, frameVs);
+                SDL_GPUBuffer* vertexStorage[] = {drawBuffer_.buffer.get(),
+                                                  jointBuffer_.buffer ? jointBuffer_.buffer.get()
+                                                                      : drawBuffer_.buffer.get()};
+                SDL_BindGPUVertexStorageBuffers(pass, 0, vertexStorage, 2);
+                const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
+                SDL_BindGPUVertexBuffers(pass, 1, &instances, 1);
+                if(kind == Masked || kind == SkinnedMasked)
+                {
+                    SDL_GPUBuffer* fragmentStorage = drawBuffer_.buffer.get();
+                    SDL_BindGPUFragmentStorageBuffers(pass, 0, &fragmentStorage, 1);
+                }
+                boundTexture = nullptr;
+            }
+            if(kind == Masked || kind == SkinnedMasked)
+            {
+                const GpuTexture* diffuse = nullptr;
+                if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
+                {
+                    diffuse = m->diffuse;
+                }
+                else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
+                {
+                    diffuse = t->albedo;
+                }
+                SDL_GPUTexture* tex = texture(diffuse, white_);
+                if(tex != boundTexture)
+                {
+                    boundTexture = tex;
+                    const SDL_GPUTextureSamplerBinding binding = {tex, p.repeatSampler};
+                    SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+                }
+            }
+            drawMesh(*draw.mesh, casters[c].index);
+            shadowDrawCounts_[cascade]++;
+        }
+        SDL_EndGPURenderPass(pass);
+    }
 }
 
 bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)

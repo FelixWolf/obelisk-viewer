@@ -9,6 +9,8 @@ set(shader_sources
   terrain_pbr.frag
   fullscreen.vert
   sky.frag
+  shadow.frag
+  shadow_masked.frag
   tonemap.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
@@ -34,6 +36,7 @@ foreach(source IN LISTS shader_sources)
     COMMAND ${VIEWER_GLSLANG_EXECUTABLE} -V --target-env vulkan1.0 -I${shader_dir}
             -o ${spirv} ${shader_dir}/${source}
     DEPENDS ${shader_dir}/${source} ${shader_dir}/common.glsl ${shader_dir}/atmosphere.glsl
+            ${shader_dir}/shadow.glsl
             ${VIEWER_GLSLANG_DEPENDS}
     COMMENT "Compiling shader ${source}"
     VERBATIM
@@ -56,6 +59,7 @@ add_library(viewer_render STATIC
   Renderer.cpp
   RendererScene.cpp
   Frustum.cpp
+  ShadowCascades.cpp
   MeshPool.cpp
   ${shader_header}
 )

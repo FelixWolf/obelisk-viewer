@@ -456,8 +456,10 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         pose(a, body.shape, world, object.id, animations, now);
 
         const glm::mat4 root = rootFrame(object, world, originHandle);
+        const render::Visibility seen =
+            scene.visibility(glm::vec3(root[3]), std::max(extent(object), 1.5f));
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
-           !scene.frustum.containsSphere(glm::vec3(root[3]), std::max(extent(object), 1.5f)))
+           seen == render::Visibility::Hidden)
         {
             continue;
         }
@@ -483,6 +485,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             avatar::skinPalette(base_, i, a.joints, a.palettes[i]);
             render::ObjectDraw draw{&body.meshes[i], root, m};
             draw.joints = a.palettes[i];
+            draw.shadowOnly = seen == render::Visibility::ShadowOnly;
             scene.objects.push_back(draw);
         }
     }

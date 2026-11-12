@@ -10,6 +10,7 @@
 #include <SDL3/SDL_gpu.h>
 #include <SDL3/SDL_video.h>
 
+#include <array>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -41,6 +42,8 @@ struct RendererOptions
 // Threading: swapchain acquisition and submission happen on the thread that
 // created the window (the main thread). Other threads may record work on their
 // own command buffers (e.g. texture uploads via copy passes).
+struct Cascades;
+
 class Renderer
 {
 public:
@@ -89,6 +92,9 @@ public:
     // Captures the scene (without UI) the next time drawScene runs; collect
     // it with takeScreenshot() after endFrame(). RGBA8, sRGB-encoded.
     void requestScreenshot() { screenshotRequested_ = true; }
+
+    // Draws into each shadow cascade last frame (for the stats).
+    const std::array<uint32_t, 4>& shadowDraws() const { return shadowDrawCounts_; }
     std::optional<image::MipLevel> takeScreenshot() { return std::exchange(screenshot_, {}); }
 
 private:
@@ -115,6 +121,9 @@ private:
     // skinned draws' joint matrices; false if there's nothing to draw or
     // the buffers couldn't be made.
     bool uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene);
+    // Renders the shadow casters into each cascade's layer of the shadow map.
+    void drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene, const Cascades& cascades,
+                     bool drawsReady);
 
     SDL_Window* window_ = nullptr;
     SDL_GPUDevice* device_ = nullptr;
@@ -124,6 +133,13 @@ private:
     SDL_GPUTextureFormat depthFormat_ = SDL_GPU_TEXTUREFORMAT_INVALID;
     SDL_GPUTexture* hdrTarget_ = nullptr;
     SDL_GPUTexture* depthTarget_ = nullptr;
+    // Sun shadows: one layer per cascade.
+    static constexpr uint32_t kShadowCascades = 4;
+    static constexpr uint32_t kShadowMapSize = 2048;
+    SDL_GPUTextureFormat shadowFormat_ = SDL_GPU_TEXTUREFORMAT_INVALID;
+    SDL_GPUTexture* shadowMap_ = nullptr;
+    std::vector<glm::vec4> casterSpheres_; // xyz center, w radius, per scene object
+    std::array<uint32_t, 4> shadowDrawCounts_{};
     uint32_t targetWidth_ = 0;
     uint32_t targetHeight_ = 0;
 
