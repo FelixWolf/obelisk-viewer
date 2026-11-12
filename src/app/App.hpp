@@ -14,6 +14,7 @@
 #include "TerrainView.hpp"
 #include "TextureBrowser.hpp"
 #include "TextureManager.hpp"
+#include "TreeView.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
 #include "viewer/core/DiskCache.hpp"
@@ -135,6 +136,7 @@ private:
     std::unique_ptr<AnimationManager> animations_; // with avatars_
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;
+    std::unique_ptr<TreeView> trees_;
     TerrainTextures terrainTextures_;
     std::unique_ptr<LoginPanel> loginPanel_;
     std::unique_ptr<SceneAssets> sceneAssets_;

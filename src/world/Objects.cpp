@@ -394,7 +394,7 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
     o.parentId = (flags & 0x20) ? r.u32() : 0;
     if(flags & 0x02)
     {
-        r.u8(); // tree species
+        o.species = r.u8(); // trees and grass
     }
     else if(flags & 0x01)
     {

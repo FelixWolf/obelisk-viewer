@@ -31,6 +31,7 @@ add_executable(viewer
   TerrainTextures.cpp
   TerrainView.cpp
   TextureManager.cpp
+  TreeView.cpp
   TextureBrowser.cpp
 )
 

@@ -17,20 +17,6 @@ constexpr float kMaxCorrection = 2.0f;     // meters; more is a jump
 // may still be running.
 constexpr auto kRecentUpdate = std::chrono::seconds(1);
 
-// Ground height at a point in the region (bilinear between samples).
-float groundHeight(const world::RegionTerrain& terrain, float x, float y)
-{
-    const float fx = std::clamp(x, 0.0f, kRegionWidth - 1.001f);
-    const float fy = std::clamp(y, 0.0f, kRegionWidth - 1.001f);
-    const auto x0 = static_cast<uint32_t>(fx);
-    const auto y0 = static_cast<uint32_t>(fy);
-    const float tx = fx - static_cast<float>(x0);
-    const float ty = fy - static_cast<float>(y0);
-    const float a = glm::mix(terrain.height(x0, y0), terrain.height(x0 + 1, y0), tx);
-    const float b = glm::mix(terrain.height(x0, y0 + 1), terrain.height(x0 + 1, y0 + 1), tx);
-    return glm::mix(a, b, ty);
-}
-
 bool moving(const world::Object& o)
 {
     return o.velocity != glm::vec3(0.0f) || o.acceleration != glm::vec3(0.0f) ||
@@ -119,7 +105,7 @@ world::Pose ObjectMotion::predict(const world::Object& object, const Kinematics&
     {
         if(const world::RegionTerrain* terrain = world_->terrain(object.region))
         {
-            const float ground = groundHeight(*terrain, p.x, p.y) + 0.5f * object.scale.z;
+            const float ground = terrain->heightAt(p.x, p.y) + 0.5f * object.scale.z;
             // (Never higher than the simulator itself put it.)
             p.z = std::max(p.z, std::min(ground, k.motion.pose.position.z));
         }

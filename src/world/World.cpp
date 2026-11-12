@@ -60,6 +60,20 @@ void World::removeRegion(uint64_t regionHandle)
     objectsRevision_++;
 }
 
+float RegionTerrain::heightAt(float x, float y) const
+{
+    constexpr float kLast = static_cast<float>(kRegionWidth) - 1.001f;
+    const float fx = std::clamp(x, 0.0f, kLast);
+    const float fy = std::clamp(y, 0.0f, kLast);
+    const auto x0 = static_cast<uint32_t>(fx);
+    const auto y0 = static_cast<uint32_t>(fy);
+    const float tx = fx - static_cast<float>(x0);
+    const float ty = fy - static_cast<float>(y0);
+    const float a = height(x0, y0) + (height(x0 + 1, y0) - height(x0, y0)) * tx;
+    const float b = height(x0, y0 + 1) + (height(x0 + 1, y0 + 1) - height(x0, y0 + 1)) * tx;
+    return a + (b - a) * ty;
+}
+
 const FaceOverrides* World::materialOverrides(const ObjectKey& key) const
 {
     const auto it = materialOverrides_.find(key);
@@ -227,6 +241,8 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
         o.localId = b.ID;
         o.type = b.PCode;
         o.state = b.State;
+        // Trees and grass: their species (llvotree.cpp, llvograss.cpp).
+        o.species = b.Data.empty() ? 0 : b.Data[0];
         o.parentId = b.ParentID;
         o.updateFlags = b.UpdateFlags;
         o.scale = glm::vec3(b.Scale.x, b.Scale.y, b.Scale.z);

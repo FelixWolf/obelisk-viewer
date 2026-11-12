@@ -260,6 +260,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
+    app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
         const char* base = SDL_GetBasePath();
         const fs::path character = fs::path(base ? base : "") / "assets" / "character";
@@ -451,6 +452,8 @@ int App::run()
                         "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
                         avatars_ ? avatars_->drawn() : size_t{0}, o.drawn, o.meshObjects, o.faces,
                         m.meshes, m.lodsReady, m.diskHits, m.failed, t.resident, t.failed);
+                    log::info("trees drawn: {}; grass drawn: {}", trees_->stats().trees,
+                              trees_->stats().grass);
                     log::info("rigged meshes drawn: {}; skipped objects: {}; out of view: {}; "
                               "animated objects: {}",
                               o.palettes, o.skipped, o.culled,
@@ -763,6 +766,7 @@ void App::endSession()
     world_.reset();
     worldThread_.reset();
     terrainView_.clear();
+    trees_->clear();
     if(avatars_)
     {
         avatars_->clear();
@@ -849,6 +853,7 @@ void App::buildScene(render::Scene& scene)
         profile_.mark(FrameProfile::Avatars);
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         avatars_.get(), 128.0f);
+        trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
         profile_.mark(FrameProfile::Objects);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));

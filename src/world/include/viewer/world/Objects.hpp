@@ -99,6 +99,7 @@ struct Object
     uint64_t region = 0;
     uint8_t type = 0; // ObjectType
     uint8_t state = 0;
+    uint8_t species = 0;   // trees and grass: which kind
     uint32_t parentId = 0; // local id of the parent, 0 for root objects
     uint32_t updateFlags = 0;
 

@@ -55,6 +55,8 @@ struct RegionTerrain
     uint32_t revision = 0; // bumped on every change
 
     float height(uint32_t x, uint32_t y) const { return heights[y * kRegionWidth + x]; }
+    // Between samples (bilinear), clamped to the region.
+    float heightAt(float x, float y) const;
     bool complete() const { return patchesReceived.all(); }
 };
 

@@ -625,10 +625,29 @@ ready one is drawn. Downloaded parts go into the disk cache as received
 (header bytes, the skin block and each level's compressed block), so later
 sessions read them from disk.
 
+Linden trees and grass are object types of their own (`TreeView`, app),
+built as the official viewer's llvotree.cpp and llvograss.cpp do, from the
+species tables of its trees.xml and grass.xml (LGPL-2.1, like this
+project); the species is the first byte of the object's data (or the
+tree-species byte of compressed updates). A tree is recursive: a tapered,
+noise-bumped cylinder per trunk or branch segment, `branches` branches per
+segment turned by the twist and bent down by the droop, the trunk going on
+turned 70.5 degrees for `trunk_depth` segments, and two crossed two-sided
+quads of leaves at the ends; bark is the left half of the species'
+texture, leaves the right. The mesh depends only on species and level of
+detail (cylinder slices 10, 5, 4, 3 by how many degrees the tree spans), so
+trees share them (at most two built per frame); each is placed by its
+position (0.1 m into the ground), rotation turned a quarter, and |scale| x
+0.05. Grass is 32 two-sided blades scattered with a Gaussian spread over
+the object's area (one table for every grass object, seeded the same each
+run), each standing on the terrain under it, so each grass object has its
+own mesh (rebuilt when it or the terrain changes); drawn within 64 m. Both
+are alpha-masked Blinn-Phong draws: culled, sorted and shadowed like any
+object.
+
 Rigged mesh (a header `skin` block) is drawn skinned to the avatar wearing
-it; see Avatars. Not drawn yet: sculpted prims, animated objects (rigged mesh
-not worn), trees, grass, flexible prims (drawn straight), planar texture
-mapping, materials.
+it; see Avatars. Not drawn yet: sculpted prims, flexible prims (drawn straight), planar
+texture mapping.
 
 ## Avatars
 
