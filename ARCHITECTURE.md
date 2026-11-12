@@ -426,9 +426,13 @@ viewer's (llgltfmaterial.cpp, llgltfmateriallist.cpp):
   face]}. Each override sets only the keys it has (tex, bc, ec, mf, rf, am,
   ac, ds, ti); a texture id of all f's means "none". The world keeps them
   by object, also before the object arrives (`World::materialOverrides`);
-  a kill or an empty set clears them.
+  a kill or an empty set clears them. The simulator only streams them to
+  viewers that asked for the `ModifyMaterialParams` capability (never used
+  otherwise), so the session asks for it. Repeats, offsets and rotations
+  set in the build tool on a PBR face live here (ti), not in the texture
+  entry.
 - The simulator streams overrides after full updates only, so the region's
-  object cache keeps each object's override text (file version VOC2) and
+  object cache keeps each object's override text (file version VOC3) and
   puts it back when the object comes from the cache.
 - `ObjectView` draws a face with its material (override applied) through
   the PBR pipelines (blended and double-sided variants), ignoring the

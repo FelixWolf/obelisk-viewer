@@ -9,11 +9,13 @@ namespace viewer::world
 namespace
 {
 
-// "VOC2", CacheID (16 bytes), count, then per object: local id, CRC,
+// "VOC3", CacheID (16 bytes), count, then per object: local id, CRC,
 // update flags, size, data; then a count of material overrides and per
-// one: local id, size, notation text. Little-endian. (VOC1 files, without
-// overrides, are dropped.)
-constexpr uint8_t kMagic[4] = {'V', 'O', 'C', '2'};
+// one: local id, size, notation text. Little-endian. (Older files are
+// dropped: VOC1 had no overrides, and VOC2 files were saved while we didn't
+// ask for them, so they lack them; the region doesn't resend overrides for
+// objects we have cached.)
+constexpr uint8_t kMagic[4] = {'V', 'O', 'C', '3'};
 constexpr uint32_t kMaxBlock = 4096; // compressed blocks are well under this
 
 void putU32(std::vector<uint8_t>& out, uint32_t v)

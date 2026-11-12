@@ -150,6 +150,10 @@ std::vector<std::string> defaultCapabilityNames()
         "FetchLibDescendents2",
         "GetDisplayNames",
         "HomeLocation",
+        // Never used (we don't edit materials): asking for it is how a
+        // viewer tells the simulator it handles PBR materials, which then
+        // streams their per-face overrides (GenericStreamingMessage).
+        "ModifyMaterialParams",
         // Never fetched: asking for it is how a viewer tells the simulator
         // it handles animated objects, which then sends ObjectAnimation.
         "ObjectAnimation",
