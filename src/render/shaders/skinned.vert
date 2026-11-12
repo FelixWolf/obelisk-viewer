@@ -46,9 +46,14 @@ void main()
     const mat4 world = draw.model * skinning;
     const vec4 position = world * vec4(inPosition, 1.0);
     outWorldPosition = position.xyz;
-    // Joints are rotations with near-uniform scale, so the matrix itself
-    // carries normals well enough.
-    outNormal = mat3(world) * inNormal;
+    // Normals need the inverse transpose: the bind shape matrix stretches
+    // mesh (a long tail, a flat plate), and stretched normals lean the
+    // wrong way (the official viewer applies the bind shape's inverse
+    // transpose to normals, llface.cpp). The cofactor matrix is that up to
+    // a factor (the determinant, whose sign matters if mirrored).
+    const mat3 m = mat3(world);
+    const mat3 cofactor = mat3(cross(m[1], m[2]), cross(m[2], m[0]), cross(m[0], m[1]));
+    outNormal = cofactor * inNormal * sign(determinant(m));
     outTangent = vec4(mat3(world) * inTangent.xyz, inTangent.w);
     outUv = vec2(dot(draw.uvRow0.xyz, vec3(inUv, 1.0)), dot(draw.uvRow1.xyz, vec3(inUv, 1.0)));
     outDraw = inDraw;

@@ -81,6 +81,10 @@ public:
     uint32_t firstIndex = 0;
     uint32_t indexCount = 0;
     VertexLayout layout = VertexLayout::Object;
+    // The vertices' positions span this box (mesh space; for skinned
+    // meshes, the bind pose).
+    glm::vec3 boundsMin{0.0f};
+    glm::vec3 boundsMax{0.0f};
 };
 
 } // namespace viewer::render

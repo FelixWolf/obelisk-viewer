@@ -89,6 +89,13 @@ struct ObjectDraw
     // Skinned meshes: joint matrices (relative to `transform`) the vertices'
     // joint indices refer to. Must stay valid until the frame is drawn.
     std::span<const glm::mat4> joints{};
+    // Transparent rigged mesh is drawn after other transparent faces, worn
+    // mesh grouped by the skeleton's owner (whatever identifies it; nearer
+    // owners later) and, within one, by `layer` (higher first), then in
+    // scene order: the official viewer's attachment draw order, since
+    // distance can't tell layers of clothing apart.
+    const void* wearer = nullptr;
+    uint64_t layer = 0;
 };
 
 struct TerrainDraw

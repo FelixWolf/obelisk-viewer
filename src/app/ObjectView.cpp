@@ -191,17 +191,18 @@ std::optional<render::BlinnPhongMaterial> ObjectView::material(const world::Text
             m.diffuse = *bake;
             m.diffuseTint = face.color;
             m.alphaCutoff = 0.5f;
-            m.specularTint = glm::vec3(0.03f);
-            m.maxExponent = 16.0f;
+            m.specularTint = glm::vec3(0.0f); // bodies have no highlight
             return m;
         }
     }
     m.diffuse = textures.get(face.texture);
     m.diffuseTint = face.color;
     m.fullbright = face.fullbright();
-    // Legacy faces are matte unless shiny; keep a faint highlight.
-    m.specularTint = glm::vec3(0.04f + 0.3f * static_cast<float>(face.shiny()));
-    m.maxExponent = 32.0f + 96.0f * static_cast<float>(face.shiny());
+    // Legacy faces have no highlight, as in the official viewer. "Shiny"
+    // there reflects the environment (low, medium, high); without
+    // environment reflections yet, a soft broad sheen stands in.
+    m.specularTint = glm::vec3(0.04f * static_cast<float>(face.shiny()));
+    m.maxExponent = 16.0f;
     const auto alpha = textures.alphaMode(face.texture);
     if(alpha == image::AlphaMode::Mask)
     {
@@ -295,6 +296,15 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         palette[j] = joints[joint < 0 ? pelvis : static_cast<size_t>(joint)] * binding.bind[j];
     }
 
+    // Attachment draw order, as the official viewer's (llvoavatar.cpp):
+    // by attachment point, then by when attached (local ids grow with it).
+    const world::Object& attached = owner.root ? *owner.root : object;
+    const uint64_t layer =
+        (owner.animated ? 0u
+                        : static_cast<uint64_t>(avatar::attachmentPointFromState(attached.state)))
+            << 32 |
+        attached.localId;
+
     stats_.drawn++;
     stats_.meshObjects++;
     for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
@@ -316,6 +326,8 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         render::ObjectDraw draw{&mesh, root, *m};
         uvTransform(face, draw.uvRow0, draw.uvRow1);
         draw.joints = palette;
+        draw.wearer = owner.owner;
+        draw.layer = layer;
         scene.objects.push_back(draw);
         stats_.faces++;
     }

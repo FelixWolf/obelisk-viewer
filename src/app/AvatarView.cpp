@@ -477,9 +477,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             {
                 continue; // none, or not drawn until it's in (avoids grey ghosts)
             }
-            m.alphaCutoff = 0.5f; // alpha layers cut holes in bakes
-            m.specularTint = glm::vec3(0.03f);
-            m.maxExponent = 16.0f;
+            m.alphaCutoff = 0.5f;             // alpha layers cut holes in bakes
+            m.specularTint = glm::vec3(0.0f); // no highlight, as the official avatar shader
 
             avatar::skinPalette(base_, i, a.joints, a.palettes[i]);
             render::ObjectDraw draw{&body.meshes[i], root, m};

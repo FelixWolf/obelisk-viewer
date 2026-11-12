@@ -519,8 +519,23 @@ the official viewer's screen-size thresholds. Each frame it draws the prims
 within 128 m: linked children relative to their root, each face with its
 texture (from `TextureManager`), color, texture transform (as llface.cpp's
 xform) and fullbright flag. Transparent faces (color alpha, or textures with
-blended alpha) go through a blended pipeline after opaque geometry, sorted
-back to front; masked alpha uses an alpha test.
+blended alpha) go through a blended pipeline after opaque geometry; masked
+alpha uses an alpha test. Blended faces are ordered as the official viewer
+orders them (lldrawable.cpp, pipeline.cpp, llvoavatar.cpp): each face far
+to near by its own center's depth along the view, pulled forward by a
+quarter of its size (meshes keep their bounds for this), ties in scene
+order; then rigged mesh, wearer by wearer (far first) and, within one, by
+attachment order (attachment point, then when attached; later ones first,
+so the first attached is drawn on top), each attachment's faces in order.
+Distance can't order layers of clothing on one body, so their attachment
+order does. As in the official viewer, depth tests pass on equal depth
+(layers made of the same geometry show the later one) and blended rigged
+mesh writes depth. Skinned normals use the inverse transpose of the
+skinning matrix (the official viewer applies the bind shape's to normals):
+bind shapes stretch meshes, and stretched normals light seams wrongly.
+Legacy faces have no specular highlight unless "shiny" (which in the
+official viewer reflects the environment; a soft sheen stands in until we
+have environment reflections).
 
 Mesh objects (sculpt type 5) take their geometry from `MeshManager` (app):
 for each mesh it fetches the header with a Range request for the first 4 KiB

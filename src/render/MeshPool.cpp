@@ -122,6 +122,8 @@ Mesh& Mesh::operator=(Mesh&& other) noexcept
         firstIndex = other.firstIndex;
         indexCount = std::exchange(other.indexCount, 0);
         layout = other.layout;
+        boundsMin = other.boundsMin;
+        boundsMax = other.boundsMax;
     }
     return *this;
 }

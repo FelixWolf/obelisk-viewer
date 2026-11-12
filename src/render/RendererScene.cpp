@@ -250,8 +250,13 @@ bool Renderer::createPipelines()
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
         info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
         info.depth_stencil_state.enable_depth_test = true;
-        info.depth_stencil_state.enable_depth_write = !blend;
-        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        // Blended rigged mesh writes depth, as the official viewer's: it's
+        // drawn in attachment order, and later layers must stay behind
+        // earlier ones on the same body.
+        info.depth_stencil_state.enable_depth_write = !blend || layout == VertexLayout::Skinned;
+        // Less or equal, as the official viewer: layers made of the same
+        // geometry (a plate over a body) show the later one, not a mix.
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
         info.target_info.color_target_descriptions = &color;
         info.target_info.num_color_targets = 1;
         info.target_info.has_depth_stencil_target = true;
@@ -633,9 +638,20 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         drawMesh(*draw.mesh);
     }
 
-    // Opaque objects, then blended ones from far to near.
+    // Opaque objects, then blended ones from far to near (as the official
+    // viewer: each face by its own center's depth along the view, moved
+    // forward by a quarter of its size), then blended rigged mesh by wearer
+    // and attachment order.
     std::vector<const ObjectDraw*> opaque;
-    std::vector<std::pair<float, const ObjectDraw*>> blended;
+    struct Blended
+    {
+        float depth;  // faces: along the view; rigged: the wearer's distance
+        size_t index; // scene order, to keep ties stable
+        const ObjectDraw* draw;
+    };
+    std::vector<Blended> blended;
+    std::vector<Blended> blendedRigged;
+    const glm::vec3 viewAxis = glm::normalize(camera.target - camera.position);
     for(const ObjectDraw& draw : scene.objects)
     {
         if(!drawsReady || !draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain)
@@ -649,9 +665,21 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         const auto* bp = std::get_if<BlinnPhongMaterial>(&draw.material);
         if(bp && bp->blend)
         {
-            const glm::vec3 center(draw.transform[3]);
-            const glm::vec3 d = center - camera.position;
-            blended.emplace_back(glm::dot(d, d), &draw);
+            const size_t index = static_cast<size_t>(&draw - scene.objects.data());
+            if(draw.mesh->layout == VertexLayout::Skinned)
+            {
+                const glm::vec3 d = glm::vec3(draw.transform[3]) - camera.position;
+                blendedRigged.push_back({glm::dot(d, d), index, &draw});
+                continue;
+            }
+            const glm::vec3 localCenter = (draw.mesh->boundsMin + draw.mesh->boundsMax) * 0.5f;
+            const glm::vec3 center(draw.transform * glm::vec4(localCenter, 1.0f));
+            // The face's box in world axes: |rotation and scale| times its size.
+            const glm::mat3 m(draw.transform);
+            const glm::mat3 absolute(glm::abs(m[0]), glm::abs(m[1]), glm::abs(m[2]));
+            const glm::vec3 size = absolute * (draw.mesh->boundsMax - draw.mesh->boundsMin);
+            const glm::vec3 toward = center - camera.position - 0.25f * size * viewAxis;
+            blended.push_back({glm::dot(toward, viewAxis), index, &draw});
         }
         else
         {
@@ -689,11 +717,31 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     {
         opaque[i] = keyedDraws_[i].second;
     }
-    std::ranges::sort(blended, [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::ranges::sort(blended, [](const Blended& a, const Blended& b)
+                      { return a.depth != b.depth ? a.depth > b.depth : a.index < b.index; });
+    std::ranges::sort(blendedRigged,
+                      [](const Blended& a, const Blended& b)
+                      {
+                          if(a.draw->wearer != b.draw->wearer)
+                          {
+                              // Farther wearers first; the pointer breaks ties.
+                              return a.depth != b.depth ? a.depth > b.depth
+                                                        : a.draw->wearer < b.draw->wearer;
+                          }
+                          if(a.draw->layer != b.draw->layer)
+                          {
+                              return a.draw->layer > b.draw->layer;
+                          }
+                          return a.index < b.index;
+                      });
     std::vector<const ObjectDraw*> order = std::move(opaque);
-    for(const auto& [distance, draw] : blended)
+    for(const Blended& b : blended)
     {
-        order.push_back(draw);
+        order.push_back(b.draw);
+    }
+    for(const Blended& b : blendedRigged)
+    {
+        order.push_back(b.draw);
     }
 
     // Every object pipeline reads the same storage buffers and instance
@@ -847,15 +895,39 @@ void Renderer::setTerrainBlendRamp(const image::TextureData& ramp)
     }
 }
 
+namespace
+{
+
+template <typename Vertex>
+void measure(Mesh& mesh, std::span<const Vertex> vertices)
+{
+    if(vertices.empty())
+    {
+        return;
+    }
+    mesh.boundsMin = mesh.boundsMax = vertices[0].position;
+    for(const Vertex& v : vertices)
+    {
+        mesh.boundsMin = glm::min(mesh.boundsMin, v.position);
+        mesh.boundsMax = glm::max(mesh.boundsMax, v.position);
+    }
+}
+
+} // namespace
+
 Mesh Renderer::createMesh(std::span<const ObjectVertex> vertices, std::span<const uint32_t> indices)
 {
-    return createMesh(vertices.data(), vertices.size_bytes(), indices, VertexLayout::Object);
+    Mesh mesh = createMesh(vertices.data(), vertices.size_bytes(), indices, VertexLayout::Object);
+    measure(mesh, vertices);
+    return mesh;
 }
 
 Mesh Renderer::createMesh(std::span<const SkinnedVertex> vertices,
                           std::span<const uint32_t> indices)
 {
-    return createMesh(vertices.data(), vertices.size_bytes(), indices, VertexLayout::Skinned);
+    Mesh mesh = createMesh(vertices.data(), vertices.size_bytes(), indices, VertexLayout::Skinned);
+    measure(mesh, vertices);
+    return mesh;
 }
 
 bool Renderer::reserve(FrameBuffer& b, uint32_t bytes, SDL_GPUBufferUsageFlags usage)
