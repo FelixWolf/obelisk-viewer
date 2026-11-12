@@ -24,7 +24,8 @@ FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
 #include "shadow.glsl"
-#define LIGHTS_BINDING 6
+#define PROJECTORS_BINDING 6
+#define LIGHTS_BINDING 7
 #include "lights.glsl"
 
 layout(set = 3, binding = 1) uniform MaterialFS

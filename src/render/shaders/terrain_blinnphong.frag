@@ -19,7 +19,8 @@ FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
 #include "shadow.glsl"
-#define LIGHTS_BINDING 3
+#define PROJECTORS_BINDING 3
+#define LIGHTS_BINDING 4
 #include "lights.glsl"
 
 layout(location = 0) out vec4 outColor;

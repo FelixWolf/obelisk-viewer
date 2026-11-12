@@ -95,7 +95,10 @@ struct LightData
 {
     glm::vec4 positionRange;
     glm::vec4 colorFalloff;
-    glm::vec4 directionCone;
+    glm::mat4 projector;
+    glm::vec4 originLayer;
+    glm::vec4 axisFocus;
+    glm::vec4 projectorParams;
 };
 struct SkyFS
 {
@@ -173,16 +176,16 @@ bool Renderer::createPipelines()
     SDL_GPUShader* skinnedVert =
         createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 2}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 1, 2}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 1, 2}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 6, 1, 2}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1, 1},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 1},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 6, 2, 1}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 2, 1}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
@@ -540,8 +543,23 @@ bool Renderer::createDefaultTextures()
         log::error("creating the shadow map failed: {}", SDL_GetError());
     }
 
+    SDL_GPUTextureCreateInfo projectors = {};
+    projectors.type = SDL_GPU_TEXTURETYPE_2D_ARRAY;
+    projectors.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB;
+    // Blits write it, which takes a color target.
+    projectors.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+    projectors.width = kProjectorSize;
+    projectors.height = kProjectorSize;
+    projectors.layer_count_or_depth = kProjectorLayers;
+    projectors.num_levels = kProjectorLevels;
+    projectors_ = SDL_CreateGPUTexture(device_, &projectors);
+    if(!projectors_)
+    {
+        log::error("creating the projector textures failed: {}", SDL_GetError());
+    }
+
     return white_ && black_ && flatNormal_ && whiteLayers_ && blackLayers_ && flatNormalLayers_ &&
-           shadowMap_ && terrainBlendRamp_;
+           shadowMap_ && terrainBlendRamp_ && projectors_;
 }
 
 bool Renderer::ensureTargets(uint32_t width, uint32_t height)
@@ -687,7 +705,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     SDL_GPUBuffer* boundVertices = nullptr;
     SDL_GPUBuffer* boundIndices = nullptr;
     SDL_GPUGraphicsPipeline* boundPipeline = nullptr;
-    std::array<SDL_GPUTextureSamplerBinding, 6> boundSamplers{};
+    std::array<SDL_GPUTextureSamplerBinding, 8> boundSamplers{};
     size_t boundSamplerCount = 0;
     auto drawMesh = [&](const Mesh& mesh, uint32_t instance = 0)
     {
@@ -765,7 +783,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler},
                 {terrainBlendRamp_.get(), p.clampSampler},
-                {shadowMap_, p.shadowSampler}};
+                {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler}};
             bindSamplers(samplers);
             pushVertexUniforms(commands, 1, terrainVs(draw.transform, m->textureRepeatsPerMeter));
         }
@@ -779,6 +798,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->normalLayers, flatNormalLayers_), p.repeatSampler},
                 {terrainBlendRamp_.get(), p.clampSampler},
                 {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler},
             };
             bindSamplers(samplers);
             pushVertexUniforms(commands, 1, terrainVs(draw.transform, t->textureRepeatsPerMeter));
@@ -920,6 +940,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(m->normal, flatNormal_), p.repeatSampler},
                 {texture(m->specular, white_), p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler},
             };
             bindSamplers(samplers);
         }
@@ -932,6 +953,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->emissive, white_), p.repeatSampler},
                 {texture(t->normal, flatNormal_), p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler},
             };
             bindSamplers(samplers);
         }
@@ -1354,14 +1376,43 @@ uint32_t Renderer::uploadLights(SDL_GPUCommandBuffer* commands, const Scene& sce
     {
         return 0;
     }
-    auto* out =
-        static_cast<LightData*>(SDL_MapGPUTransferBuffer(device_, lightBuffer_.transfer, true));
+    // Projector textures into their layers first (blits go outside passes).
+    lightUploads_++;
+    std::vector<LightData> data(count);
     for(size_t i = 0; i < count; i++)
     {
         const LocalLight& l = *chosen[i].second;
-        out[i] = {glm::vec4(l.position, l.range), glm::vec4(l.color, l.falloff),
-                  glm::vec4(l.direction, l.coneCos)};
+        LightData& d = data[i];
+        d.positionRange = glm::vec4(l.position, l.range);
+        d.colorFalloff = glm::vec4(l.color, l.falloff);
+        d.originLayer = glm::vec4(0.0f, 0.0f, 0.0f, -2.0f); // a point light
+        if(!l.projector)
+        {
+            continue;
+        }
+        const LocalLight::Projector& pr = *l.projector;
+        int layer = -1; // white, until its texture is in
+        float maxLod = 0.0f;
+        float lodBias = 0.0f;
+        if(pr.texture && *pr.texture && projectors_)
+        {
+            layer = projectorLayer(commands, *pr.texture);
+            if(layer >= 0)
+            {
+                // Mip levels as the texture's own (official viewer): level
+                // n here is level n + bias of the original.
+                maxLod = std::log2(static_cast<float>(std::max(pr.texture->width(), 1u)));
+                lodBias = maxLod - std::log2(static_cast<float>(kProjectorSize));
+            }
+        }
+        d.projector = pr.matrix;
+        d.originLayer = glm::vec4(pr.origin, static_cast<float>(layer));
+        d.axisFocus = glm::vec4(pr.axis, pr.focus);
+        d.projectorParams = glm::vec4(pr.depth, maxLod, pr.ambiance, lodBias);
     }
+    auto* out =
+        static_cast<LightData*>(SDL_MapGPUTransferBuffer(device_, lightBuffer_.transfer, true));
+    std::copy(data.begin(), data.end(), out);
     SDL_UnmapGPUTransferBuffer(device_, lightBuffer_.transfer);
     SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
     const SDL_GPUTransferBufferLocation source = {lightBuffer_.transfer, 0};
@@ -1370,6 +1421,57 @@ uint32_t Renderer::uploadLights(SDL_GPUCommandBuffer* commands, const Scene& sce
     SDL_UploadToGPUBuffer(copy, &source, &destination, true);
     SDL_EndGPUCopyPass(copy);
     return static_cast<uint32_t>(count);
+}
+
+int Renderer::projectorLayer(SDL_GPUCommandBuffer* commands, const GpuTexture& texture)
+{
+    ProjectorLayer* oldest = nullptr;
+    for(ProjectorLayer& layer : projectorLayers_)
+    {
+        if(layer.source == texture.get() && layer.width == texture.width())
+        {
+            layer.usedIn = lightUploads_;
+            return static_cast<int>(&layer - projectorLayers_.data());
+        }
+        if(layer.usedIn != lightUploads_ && (!oldest || layer.usedIn < oldest->usedIn))
+        {
+            oldest = &layer;
+        }
+    }
+    if(!oldest)
+    {
+        return -1;
+    }
+    oldest->source = texture.get();
+    oldest->width = texture.width();
+    oldest->usedIn = lightUploads_;
+    const auto index = static_cast<uint32_t>(oldest - projectorLayers_.data());
+    // Each level from the source level nearest its size (at least as big),
+    // scaled to fit.
+    for(uint32_t level = 0; level < kProjectorLevels; level++)
+    {
+        const uint32_t size = std::max(kProjectorSize >> level, 1u);
+        uint32_t from = 0;
+        while(from + 1 < texture.levels() && std::max(texture.width() >> (from + 1), 1u) >= size &&
+              std::max(texture.height() >> (from + 1), 1u) >= size)
+        {
+            from++;
+        }
+        SDL_GPUBlitInfo blit = {};
+        blit.source.texture = texture.get();
+        blit.source.mip_level = from;
+        blit.source.w = std::max(texture.width() >> from, 1u);
+        blit.source.h = std::max(texture.height() >> from, 1u);
+        blit.destination.texture = projectors_;
+        blit.destination.mip_level = level;
+        blit.destination.layer_or_depth_plane = index;
+        blit.destination.w = size;
+        blit.destination.h = size;
+        blit.load_op = SDL_GPU_LOADOP_DONT_CARE;
+        blit.filter = SDL_GPU_FILTER_LINEAR;
+        SDL_BlitGPUTexture(commands, &blit);
+    }
+    return static_cast<int>(index);
 }
 
 bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)

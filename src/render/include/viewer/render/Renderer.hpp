@@ -151,6 +151,24 @@ private:
     std::vector<glm::vec4> casterSpheres_; // xyz center, w radius, per scene object
     std::array<uint32_t, 4> shadowDrawCounts_{};
     uint32_t lightsUsed_ = 0;
+    // Projector textures, each copied (scaled, into every mip level) into a
+    // layer of one array, so every surface shader samples them through one
+    // binding. A layer keeps its texture until another needs the room.
+    static constexpr uint32_t kProjectorLayers = 8;
+    static constexpr uint32_t kProjectorSize = 512;
+    static constexpr uint32_t kProjectorLevels = 10; // 512 down to 1
+    SDL_GPUTexture* projectors_ = nullptr;
+    struct ProjectorLayer
+    {
+        SDL_GPUTexture* source = nullptr;
+        uint32_t width = 0;
+        uint64_t usedIn = 0; // the light upload that last used it
+    };
+    std::array<ProjectorLayer, kProjectorLayers> projectorLayers_{};
+    uint64_t lightUploads_ = 0;
+    // The layer holding `texture` (copied there if need be); -1 if every
+    // layer is taken this frame.
+    int projectorLayer(SDL_GPUCommandBuffer* commands, const GpuTexture& texture);
     uint32_t targetWidth_ = 0;
     uint32_t targetHeight_ = 0;
 

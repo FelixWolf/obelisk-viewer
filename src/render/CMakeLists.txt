@@ -59,6 +59,7 @@ add_library(viewer_render STATIC
   Renderer.cpp
   RendererScene.cpp
   Frustum.cpp
+  Projector.cpp
   ShadowCascades.cpp
   MeshPool.cpp
   ${shader_header}

@@ -385,13 +385,27 @@ texture, field of view, focus, ambiance). `ObjectView` turns each lit prim
 within range into a `render::LocalLight` before culling it (a light out of
 view still lights the view), as the official viewer's deferred lights
 (pipeline.cpp): reach 1.5 times the radius, half the falloff, color times
-intensity; projectors shine a cone along the prim's -Z (their texture
-isn't projected yet). The renderer keeps the lights whose reach touches the
+intensity. The renderer keeps the lights whose reach touches the
 view frustum, nearest first, at most 64 (`Renderer::kMaxLights`), in a
 storage buffer every surface shader loops over (`lights.glsl`):
 (1 - clamp((d + falloff) / (1 + falloff)))^2 * 2 with d the distance over
 the reach, times N.L, as the official legacy lighting; PBR surfaces take it
 on their diffuse color only for now. Local lights cast no shadows.
+
+Projectors: a light with a texture (llprimitive.h isLightSpotlight; the
+field of view alone doesn't make one) shines it through a frustum
+(`render::projectorFor`, as pipeline.cpp setupSpotLight): the near plane is
+the prim's -Z face, the field of view spans the prim's Y size there, the
+aspect is X over Y, and the far plane is the reach beyond. As
+spotLightF.glsl's legacy branch, the image is sharp at the focus distance
+and blurs (higher mip levels) towards the far plane, its edges fading over
+a margin that grows with the blur; ambiance adds the most blurred image,
+faded to a circle, to what faces away from the projector. Projector images
+are copied (blits, scaled) into the layers of one 512² mipmapped array,
+eight at most at a time, so every surface shader samples them through one
+binding; a level of the array stands for the texture's own level of the
+same size, so the blur matches the official viewer's whatever the
+texture's size. Until its texture loads a projector shines white.
 
 ### PBR materials
 

@@ -21,11 +21,12 @@ FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
 #include "shadow.glsl"
-#define LIGHTS_BINDING 5
+#define PROJECTORS_BINDING 4
+#define LIGHTS_BINDING 6
 #include "lights.glsl"
 
 layout(location = 4) flat in uint inDraw;
-layout(std430, set = 2, binding = 4) readonly buffer Draws
+layout(std430, set = 2, binding = 5) readonly buffer Draws
 {
     DrawData draws[];
 };

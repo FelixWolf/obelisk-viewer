@@ -282,7 +282,8 @@ bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& obje
 
 void ObjectView::addLight(render::Scene& scene, const world::World& world,
                           const world::Object& object, uint64_t originHandle,
-                          const AvatarView* avatars, float drawDistance) const
+                          TextureManager& textures, const AvatarView* avatars,
+                          float drawDistance) const
 {
     const world::LightParams& light = *object.light;
     if(light.intensity <= 0.0f || light.radius <= 0.0f)
@@ -305,11 +306,15 @@ void ObjectView::addLight(render::Scene& scene, const world::World& world,
     }
     out.color = light.color * light.intensity;
     out.falloff = light.falloff * 0.5f;
-    if(object.lightImage && object.lightImage->fov > 0.0f)
+    // A light with a texture is a projector (llprimitive.h isLightSpotlight),
+    // shining along the prim's -Z.
+    if(object.lightImage && !object.lightImage->texture.isNull())
     {
-        // Projectors shine along the prim's -Z.
-        out.direction = glm::normalize(glm::mat3(*frame) * glm::vec3(0.0f, 0.0f, -1.0f));
-        out.coneCos = std::cos(std::min(object.lightImage->fov, 3.1f) * 0.5f);
+        const world::LightImage& image = *object.lightImage;
+        out.projector =
+            render::projectorFor(out.position, glm::quat_cast(glm::mat3(*frame)), object.scale,
+                                 out.range, image.fov, image.focus, image.ambiance);
+        out.projector->texture = textures.get(image.texture);
     }
     scene.lights.push_back(out);
 }
@@ -469,7 +474,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         if(object.light)
         {
-            addLight(scene, world, object, originHandle, avatars, drawDistance);
+            addLight(scene, world, object, originHandle, textures, avatars, drawDistance);
         }
         const uint8_t sculpt = object.sculptType & world::SculptType::Mask;
         const bool isMesh = sculpt == world::SculptType::Mesh;

@@ -10,7 +10,9 @@
 #include "viewer/render/Mesh.hpp"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
+#include <optional>
 #include <span>
 #include <variant>
 #include <vector>
@@ -127,9 +129,28 @@ struct LocalLight
     float range = 0.0f;
     glm::vec3 color{0.0f}; // linear, times the light's intensity
     float falloff = 0.0f;
-    glm::vec3 direction{0.0f, 0.0f, -1.0f};
-    float coneCos = -2.0f; // cosine of the cone's half angle; below -1: all around
+    // A projector shines its texture through a frustum instead of all
+    // around (see projectorFor).
+    struct Projector
+    {
+        glm::mat4 matrix{1.0f}; // scene -> texture: xy in 0..1 after the divide, z >= 0 in front
+        glm::vec3 origin{0.0f}; // the frustum's apex
+        glm::vec3 axis{0.0f, 0.0f, -1.0f}; // the way it shines
+        float focus = 0.0f;    // sharp this far along the axis (from the light), blurrier beyond
+        float depth = 1.0f;    // near to far plane: blurring reaches its most over this
+        float ambiance = 0.0f; // diffuse fill, from the blurred texture
+        const GpuTexture* texture = nullptr; // nothing yet: white
+    };
+    std::optional<Projector> projector;
 };
+
+// The projector of a light at `position`, turned by `rotation`, of a prim
+// sized `scale`, reaching `range`: as the official viewer's (pipeline.cpp
+// setupSpotLight), its near plane is the prim's -Z face, its field of view
+// `fov` spans the prim's Y size there, and its aspect is the prim's X/Y.
+LocalLight::Projector projectorFor(const glm::vec3& position, const glm::quat& rotation,
+                                   const glm::vec3& scale, float range, float fov, float focus,
+                                   float ambiance);
 
 enum class Visibility : uint8_t
 {
