@@ -4,6 +4,7 @@
 #include "AnimationManager.hpp"
 #include "AvatarView.hpp"
 #include "CameraController.hpp"
+#include "EnvironmentManager.hpp"
 #include "FrameProfile.hpp"
 #include "LoginPanel.hpp"
 #include "ObjectView.hpp"
@@ -50,7 +51,8 @@ struct AppOptions
     float screenshotDelay = 3.0f;               // seconds after startup
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
     std::string teleport;                       // teleport here 5 s after logging in ("home" too)
-    std::optional<float> walk; // walk this way (degrees from east) once in (after --teleport)
+    std::optional<float> walk;    // walk this way (degrees from east) once in (after --teleport)
+    std::optional<float> dayTime; // a fixed time of day, 0..1 (0.5 is midday in most cycles)
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -96,6 +98,7 @@ private:
     // Our avatar's position, in global meters; nothing until we see it.
     std::optional<glm::dvec3> agentGlobalPosition();
     void drawTeleportWindow();
+    void drawEnvironmentWindow();
 
     struct SdlRuntime
     {
@@ -123,6 +126,7 @@ private:
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<TextureManager> textures_;
+    std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;
     ObjectMotion motion_;                          // before the views that read it
     std::unique_ptr<AnimationManager> animations_; // with avatars_

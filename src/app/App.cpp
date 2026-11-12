@@ -66,7 +66,7 @@ void printUsage()
     std::println(stderr,
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
-                 "[--walk DEGREES]");
+                 "[--walk DEGREES] [--day-time 0..1]");
 }
 
 } // namespace
@@ -141,6 +141,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.walk = std::strtof(args[i], nullptr);
+        }
+        else if(arg == "--day-time" && hasValue)
+        {
+            i++;
+            options.dayTime = std::strtof(args[i], nullptr);
         }
         else if(arg == "--grid" && hasValue)
         {
@@ -242,6 +247,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     // results queue, and the texture browser drains its own.
     app->worldTextureCache_ =
         std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
+    app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
+    app->environment_->setDayPosition(options.dayTime);
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
                                                       *app->http_, *app->jobs_);
     app->meshes_ =
@@ -589,6 +596,20 @@ void App::updateSession()
         session_->setCamera(view);
         session_->setControls(agent_.controlFlags(), agent_.bodyRotation());
     }
+    // The sky: the main region's environment (once its capabilities are in).
+    {
+        const session::Region* main = session_->mainRegion();
+        std::string_view url;
+        if(main)
+        {
+            if(const auto it = main->capabilities.find("ExtEnvironment");
+               it != main->capabilities.end())
+            {
+                url = it->second;
+            }
+        }
+        environment_->update(main ? std::optional<uint64_t>(main->handle) : std::nullopt, url);
+    }
     const std::string viewerAsset(session_->capability("ViewerAsset").value_or(""));
     textures_->setViewerAssetUrl(viewerAsset);
     if(avatars_)
@@ -698,6 +719,7 @@ void App::endSession()
     {
         animations_->setViewerAssetUrl({});
     }
+    environment_->update(std::nullopt, {});
     motion_.update(nullptr, nullptr, std::chrono::steady_clock::now());
     session_.reset();
     world_.reset();
@@ -721,6 +743,13 @@ void App::buildScene(render::Scene& scene)
     scene.terrain.clear();
     scene.worldOrigin = {};
     scene.camera = camera_.camera();
+    const auto wallClock = std::chrono::system_clock::now().time_since_epoch();
+    environment_->apply(
+        scene.lighting,
+        static_cast<double>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(wallClock).count()) /
+            1000.0,
+        scene.camera.position.z);
     int width = 0;
     int height = 0;
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
@@ -855,6 +884,43 @@ void App::drawFpsOverlay()
     ImGui::End();
 }
 
+void App::drawEnvironmentWindow()
+{
+    if(ImGui::Begin("Environment"))
+    {
+        const EnvironmentManager::Status& s = environment_->status();
+        ImGui::Text("%s%s", s.name.c_str(), s.fromRegion ? "" : " (none from the region)");
+        if(s.dayLength > 0.0)
+        {
+            ImGui::Text("Day: %.0f%% through, %.1f hours long", s.position * 100.0,
+                        s.dayLength / 3600.0);
+        }
+        const float up = std::clamp(s.sunDirection.z, -1.0f, 1.0f);
+        ImGui::Text("Sun %.0f degrees up", static_cast<double>(glm::degrees(std::asin(up))));
+        bool fixed = environment_->dayPosition().has_value();
+        if(ImGui::Checkbox("Fixed time of day", &fixed))
+        {
+            environment_->setDayPosition(
+                fixed ? std::optional<float>(static_cast<float>(s.position)) : std::nullopt);
+        }
+        float exposure = environment_->exposure();
+        if(ImGui::SliderFloat("Exposure", &exposure, 0.1f, 4.0f, "%.2f",
+                              ImGuiSliderFlags_Logarithmic))
+        {
+            environment_->setExposure(exposure);
+        }
+        if(fixed)
+        {
+            float position = *environment_->dayPosition();
+            if(ImGui::SliderFloat("Time of day", &position, 0.0f, 1.0f))
+            {
+                environment_->setDayPosition(position);
+            }
+        }
+    }
+    ImGui::End();
+}
+
 void App::drawTeleportWindow()
 {
     if(!session_ || session_->state() != session::SessionState::Connected)
@@ -968,6 +1034,7 @@ void App::drawUi()
     }
     textureBrowser_->draw();
     drawTeleportWindow();
+    drawEnvironmentWindow();
     handleLoginAction(loginPanel_->draw(session_.get()));
 
     if(showDemoWindow_)

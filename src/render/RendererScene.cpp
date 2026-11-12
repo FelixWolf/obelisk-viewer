@@ -57,6 +57,21 @@ struct FrameFS
     glm::vec4 sunColor;
     glm::vec4 skyAmbient;
     glm::vec4 groundAmbient;
+    // The atmosphere (atmosphere.glsl).
+    glm::vec4 atmoLight;
+    glm::vec4 atmoSunlight;
+    glm::vec4 atmoAmbient;
+    glm::vec4 blueHorizon;
+    glm::vec4 blueDensity;
+    glm::vec4 atmoParams;
+    glm::vec4 glow;
+    glm::vec4 sunDisc;
+    glm::vec4 moonDisc;
+    glm::vec4 moonInfo;
+};
+struct SkyFS
+{
+    glm::mat4 inverseViewProjection;
 };
 struct TerrainPbrFS
 {
@@ -143,6 +158,8 @@ bool Renderer::createPipelines()
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
         createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "tonemap.frag");
+    SDL_GPUShader* skyFrag =
+        createShader(device_, {kSkyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 2}, "sky.frag");
 
     // Vertex layouts.
     // Object layouts have a second, per-instance buffer: the draw indices
@@ -277,8 +294,29 @@ bool Renderer::createPipelines()
         }
     }
 
-    for(SDL_GPUShader* s : {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert,
-                            terrainBlinnPhongFrag, terrainPbrFrag, fullscreenVert, tonemapFrag})
+    if(fullscreenVert && skyFrag)
+    {
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kHdrFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = skyFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true; // in the scene pass, unused
+        info.target_info.depth_stencil_format = depthFormat_;
+        p.sky = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!p.sky)
+        {
+            log::error("creating the sky pipeline failed: {}", SDL_GetError());
+        }
+    }
+
+    for(SDL_GPUShader* s :
+        {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert, terrainBlinnPhongFrag,
+         terrainPbrFrag, fullscreenVert, tonemapFrag, skyFrag})
     {
         if(s)
         {
@@ -305,7 +343,7 @@ bool Renderer::createPipelines()
 
     return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.blinnPhongSkinned &&
            p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
-           p.tonemap && p.repeatSampler && p.clampSampler;
+           p.tonemap && p.sky && p.repeatSampler && p.clampSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -424,10 +462,23 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
 
     const FrameVS frameVs{projection * view, glm::vec4(camera.position, 1.0f)};
     const Lighting& light = scene.lighting;
+    const Atmosphere& atmo = light.atmosphere;
     const FrameFS frameFs{
-        glm::vec4(camera.position, 1.0f),     glm::vec4(glm::normalize(light.sunDirection), 0.0f),
-        glm::vec4(light.sunColor, 1.0f),      glm::vec4(light.skyAmbient, 1.0f),
+        glm::vec4(camera.position, 1.0f),
+        glm::vec4(glm::normalize(light.sunDirection), 0.0f),
+        glm::vec4(light.sunColor, 1.0f),
+        glm::vec4(light.skyAmbient, 1.0f),
         glm::vec4(light.groundAmbient, 1.0f),
+        glm::vec4(atmo.lightDirection, atmo.enabled ? 1.0f : 0.0f),
+        glm::vec4(atmo.sunlight, atmo.sunUp ? 1.0f : 0.0f),
+        glm::vec4(atmo.ambient, atmo.cloudShadow),
+        glm::vec4(atmo.blueHorizon, atmo.hazeHorizon),
+        glm::vec4(atmo.blueDensity, atmo.hazeDensity),
+        glm::vec4(atmo.densityMultiplier, atmo.distanceMultiplier, atmo.maxY, atmo.sunMoonGlow),
+        glm::vec4(atmo.glow, atmo.starBrightness),
+        glm::vec4(atmo.sunDirection, atmo.sunRadius),
+        glm::vec4(atmo.moonDirection, atmo.moonRadius),
+        glm::vec4(atmo.moonBrightness, 0.0f, 0.0f, 0.0f),
     };
 
     // Draw data and joint matrices go up before the render pass (copy passes
@@ -449,6 +500,15 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     depth.cycle = true;
 
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+
+    // The sky first, behind everything (no depth).
+    if(atmo.enabled)
+    {
+        SDL_BindGPUGraphicsPipeline(pass, pipelines_->sky);
+        pushFragmentUniforms(commands, 0, frameFs);
+        pushFragmentUniforms(commands, 1, SkyFS{glm::inverse(projection * view)});
+        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    }
 
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
     { return t && *t ? t->get() : fallback.get(); };

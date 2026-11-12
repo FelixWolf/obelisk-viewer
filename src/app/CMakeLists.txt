@@ -19,6 +19,7 @@ add_executable(viewer
   AvatarView.cpp
   AgentController.cpp
   CameraController.cpp
+  EnvironmentManager.cpp
   FaceUpload.cpp
   LoginPanel.cpp
   MeshManager.cpp
@@ -46,6 +47,7 @@ target_link_libraries(viewer PRIVATE
   viewer::net
   viewer::session
   viewer::world
+  viewer::environment
   viewer::avatar
   viewer::volume
   viewer::render

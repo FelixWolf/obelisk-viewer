@@ -28,6 +28,17 @@ const float PI = 3.14159265359;
         vec4 sunColor;     /* linear RGB * intensity */                                       \
         vec4 skyAmbient;                                                                      \
         vec4 groundAmbient;                                                                   \
+        /* The atmosphere (RendererScene.cpp FrameFS, render::Atmosphere). */                 \
+        vec4 atmoLight;    /* xyz towards the sun or moon, w enabled (1) */                   \
+        vec4 atmoSunlight; /* xyz light color (settings units), w sun up (1) */               \
+        vec4 atmoAmbient;  /* xyz ambient, w cloud shadow */                                  \
+        vec4 blueHorizon;  /* xyz, w haze horizon */                                          \
+        vec4 blueDensity;  /* xyz, w haze density */                                          \
+        vec4 atmoParams;   /* x density mult, y distance mult, z max y, w sun/moon glow */    \
+        vec4 glow;         /* xyz glow, w star brightness */                                  \
+        vec4 sunDisc;      /* xyz towards the sun, w its radius (radians) */                  \
+        vec4 moonDisc;     /* xyz towards the moon, w its radius */                           \
+        vec4 moonInfo;     /* x moon brightness */                                            \
     }                                                                                         \
     frame;
 

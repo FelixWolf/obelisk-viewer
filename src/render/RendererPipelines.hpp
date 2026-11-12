@@ -20,6 +20,7 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* terrainBlinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
     SDL_GPUGraphicsPipeline* tonemap = nullptr;
+    SDL_GPUGraphicsPipeline* sky = nullptr;
     SDL_GPUSampler* repeatSampler = nullptr;
     SDL_GPUSampler* clampSampler = nullptr;
 
@@ -27,7 +28,7 @@ struct Renderer::Pipelines
     {
         for(SDL_GPUGraphicsPipeline* p :
             {blinnPhong, blinnPhongBlend, pbr, blinnPhongSkinned, blinnPhongSkinnedBlend,
-             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap})
+             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap, sky})
         {
             if(p)
             {

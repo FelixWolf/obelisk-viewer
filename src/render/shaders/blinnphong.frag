@@ -18,6 +18,8 @@ layout(set = 2, binding = 2) uniform sampler2D specularMap;
 
 FRAME_FS_BLOCK
 
+#include "atmosphere.glsl"
+
 layout(location = 4) flat in uint inDraw;
 layout(std430, set = 2, binding = 3) readonly buffer Draws
 {
@@ -45,7 +47,7 @@ void main()
     }
     if(material.options.y > 0.0)
     {
-        outColor = albedo;
+        outColor = vec4(applyAtmosphere(albedo.rgb, inWorldPosition), albedo.a);
         return;
     }
     vec4 normalTexel = texture(normalMap, inUv);
@@ -62,5 +64,5 @@ void main()
 
     vec3 color = blinnPhong(n, v, l, albedo.rgb, specularColor, exponent, frame.sunColor.rgb);
     color += albedo.rgb * hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
-    outColor = vec4(color, albedo.a);
+    outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }

@@ -300,6 +300,49 @@ owns. `Renderer::drawScene` renders it into an RGBA16F target with a depth
 buffer, then a tonemap pass (exposure, ACES fit, sRGB encoding) writes the
 swapchain image, and ImGui draws on top.
 
+### Sky and lighting
+
+The light comes from the agent's region's environment
+(`viewer::environment`, checked against llsettingssky.cpp,
+llsettingsdaycycle.cpp and llenvironment.cpp). `EnvironmentManager` (app)
+GETs the main region's `ExtEnvironment` capability whenever the region
+changes: a day cycle whose five tracks (water, then skies for four altitude
+bands from `track_altitudes`) list keyframes at positions 0..1 through the
+day, naming sky frames. The position now is (seconds since 1970 +
+`day_offset`) mod `day_length`, over `day_length`; the sky blends the
+keyframes on either side (values linearly, sun and moon rotations by
+slerp, textures switching half way), on the highest track the camera's
+altitude reaches. Values under `legacy_haze` take precedence, as in the
+official viewer. Without an environment (logged out, or a reply with only a
+day asset) a default midday sky is used. Parcel environments aren't
+fetched yet.
+
+From a sky, `computeLighting` works out the sun and moon directions (+X
+rotated by their rotations), which lights surfaces (the sun if up, else the
+moon at its brightness), the light dimmed along its path through the air
+(more when low: redder sunsets) and the ambient raised by cloud cover. The
+App turns that into linear light the way the official PBR pipeline does
+(the settings' sRGB-ish colors linearized, sunlight x1.5 and x pi for our
+BRDFs' 1/pi, ambient as gray x1.5) and passes the atmosphere itself to the
+shaders (`render::Atmosphere`, in the frame uniforms):
+
+- `sky.frag`, a full-screen triangle drawn first, is the windlight sky
+  model (as the official skyF.glsl, with Z up): blue and haze scattering by
+  density, the glow around the sun, the darker air below the clouds near
+  the horizon. Then the sun and moon as soft discs and, at night, hashed
+  stars.
+- `atmosphere.glsl`'s `applyAtmosphere` hazes every surface by distance
+  (the official calcAtmosphericVars): its color dimmed, scattered light
+  added.
+
+Exposure is fixed (0.6, adjustable in the Environment window; the official
+viewer adjusts it to the scene), and the tonemap dithers its output so the
+sky's slow gradients don't band. The Environment window shows the day cycle
+and can fix the time of day; `--day-time 0..1` does that from the command
+line. Not drawn yet: clouds, sun and moon textures, moon phases, water.
+
+### Materials
+
 Four material families, each its own pipeline:
 
 | Material | Shaders | Textures |

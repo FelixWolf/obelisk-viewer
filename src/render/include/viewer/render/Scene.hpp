@@ -28,14 +28,45 @@ struct Camera
     float farPlane = 1024.0f;
 };
 
+// Second Life's atmosphere model ("windlight"): the sky is drawn from it,
+// and surfaces are hazed by it with distance. Values are in the sky
+// settings' own (roughly sRGB) units; see environment::SkySettings.
+struct Atmosphere
+{
+    bool enabled = false;                       // off: a plain skyColor background, no haze
+    glm::vec3 lightDirection{0.0f, 0.0f, 1.0f}; // towards the sun (or moon)
+    glm::vec3 sunlight{0.73f, 0.78f, 0.9f};     // the settings' light color
+    glm::vec3 ambient{0.25f};
+    glm::vec3 blueHorizon{0.5f, 0.5f, 0.64f};
+    glm::vec3 blueDensity{0.24f, 0.45f, 0.76f};
+    float hazeHorizon = 0.19f;
+    float hazeDensity = 0.7f;
+    float densityMultiplier = 0.0001f;
+    float distanceMultiplier = 0.8f;
+    float maxY = 1605.0f;
+    glm::vec3 glow{5.0f, 0.001f, -0.48f};
+    float cloudShadow = 0.27f;
+    float sunMoonGlow = 1.0f; // 1 while the sun is up
+    bool sunUp = true;
+    // The discs and stars.
+    glm::vec3 sunDirection{0.0f, 0.0f, 1.0f};
+    glm::vec3 moonDirection{0.0f, 0.0f, -1.0f};
+    float sunRadius = 0.012f; // radians
+    float moonRadius = 0.02f;
+    float moonBrightness = 0.5f;
+    float starBrightness = 0.0f; // 0..500ish, as the settings
+};
+
 struct Lighting
 {
-    glm::vec3 sunDirection = glm::normalize(glm::vec3(0.4f, 0.3f, 0.8f)); // towards the sun
-    glm::vec3 sunColor{3.0f, 2.85f, 2.6f};
-    glm::vec3 skyAmbient{0.35f, 0.45f, 0.6f};
+    // The light surfaces are lit by: the sun, or the moon at night.
+    glm::vec3 sunDirection = glm::normalize(glm::vec3(0.4f, 0.3f, 0.8f)); // towards it
+    glm::vec3 sunColor{3.0f, 2.85f, 2.6f};                                // linear
+    glm::vec3 skyAmbient{0.35f, 0.45f, 0.6f};                             // linear
     glm::vec3 groundAmbient{0.15f, 0.13f, 0.1f};
-    glm::vec3 skyColor{0.45f, 0.6f, 0.85f}; // background
+    glm::vec3 skyColor{0.45f, 0.6f, 0.85f}; // background when there's no atmosphere
     float exposure = 1.0f;
+    Atmosphere atmosphere;
 };
 
 struct ObjectDraw

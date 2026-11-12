@@ -21,6 +21,8 @@ layout(set = 2, binding = 4) uniform sampler2D blendRamp;
 
 FRAME_FS_BLOCK
 
+#include "atmosphere.glsl"
+
 layout(set = 3, binding = 1) uniform MaterialFS
 {
     vec4 baseColorFactor[4];
@@ -122,5 +124,5 @@ void main()
     color += orm.r * pbrAmbient(n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
                                 frame.groundAmbient.rgb);
     color += emissive;
-    outColor = vec4(color, 1.0);
+    outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);
 }

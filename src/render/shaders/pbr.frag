@@ -20,6 +20,8 @@ layout(set = 2, binding = 3) uniform sampler2D normalMap;
 
 FRAME_FS_BLOCK
 
+#include "atmosphere.glsl"
+
 layout(location = 4) flat in uint inDraw;
 layout(std430, set = 2, binding = 4) readonly buffer Draws
 {
@@ -62,5 +64,5 @@ void main()
     color += occlusion * pbrAmbient(n, v, baseColor.rgb, roughness, metallic,
                                     frame.skyAmbient.rgb, frame.groundAmbient.rgb);
     color += texture(emissiveMap, inUv).rgb * material.emissiveTint.rgb * material.emissiveTint.a;
-    outColor = vec4(color, baseColor.a);
+    outColor = vec4(applyAtmosphere(color, inWorldPosition), baseColor.a);
 }

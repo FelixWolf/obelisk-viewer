@@ -7,6 +7,7 @@
 #   core  <-  llsd, net, protocol  <-  session   (login, regions, caps, event queues)
 #   volume                             (prim geometry from shape parameters)
 #   core  <-  protocol, volume  <-  world   (terrain, objects)
+#   core, llsd  <-  environment         (sky settings, day cycles, lighting)
 #   app sees everything
 #
 # Planned: xr, voice.
@@ -20,6 +21,7 @@ add_subdirectory(session)
 add_subdirectory(volume)
 add_subdirectory(assets)
 add_subdirectory(world)
+add_subdirectory(environment)
 add_subdirectory(avatar)
 add_subdirectory(render)
 add_subdirectory(ui)

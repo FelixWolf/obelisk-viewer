@@ -16,6 +16,8 @@ layout(set = 2, binding = 1) uniform sampler2D blendRamp;
 
 FRAME_FS_BLOCK
 
+#include "atmosphere.glsl"
+
 layout(location = 0) out vec4 outColor;
 
 void main()
@@ -32,5 +34,5 @@ void main()
     vec3 color = blinnPhong(n, v, frame.sunDirection.xyz, albedo, vec3(0.0), 1.0,
                             frame.sunColor.rgb);
     color += albedo * hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
-    outColor = vec4(color, 1.0);
+    outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);
 }

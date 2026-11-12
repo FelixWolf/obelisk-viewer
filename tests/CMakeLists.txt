@@ -9,6 +9,7 @@ add_executable(viewer_tests
   LlsdTests.cpp
   LoginTests.cpp
   Md5Tests.cpp
+  EnvironmentTests.cpp
   FrustumTests.cpp
   MeshPoolTests.cpp
   MeshTests.cpp
@@ -32,6 +33,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::protocol
   viewer::session
   viewer::world
+  viewer::environment
   viewer::avatar
   viewer::volume
   viewer::render
