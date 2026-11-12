@@ -51,11 +51,22 @@ fs::path defaultCacheDirectory()
     return fs::temp_directory_path() / kAppDirectoryName;
 }
 
+// Where `region`'s corner is, in meters from `origin`'s.
+glm::vec3 regionOffset(uint64_t region, uint64_t origin)
+{
+    return glm::vec3(
+        static_cast<float>(static_cast<int64_t>(region >> 32) - static_cast<int64_t>(origin >> 32)),
+        static_cast<float>(static_cast<int64_t>(region & 0xFFFFFFFFu) -
+                           static_cast<int64_t>(origin & 0xFFFFFFFFu)),
+        0.0f);
+}
+
 void printUsage()
 {
     std::println(stderr,
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
-                 "[--login-file PATH] [--no-vsync]");
+                 "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
+                 "[--walk DEGREES]");
 }
 
 } // namespace
@@ -120,6 +131,16 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.loginFile = args[i];
+        }
+        else if(arg == "--teleport" && hasValue)
+        {
+            i++;
+            options.teleport = args[i];
+        }
+        else if(arg == "--walk" && hasValue)
+        {
+            i++;
+            options.walk = std::strtof(args[i], nullptr);
         }
         else if(arg == "--grid" && hasValue)
         {
@@ -209,6 +230,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         app->camera_.lookAt(glm::vec3(c[0], c[1], c[2]), c[3], c[4], c[5]);
     }
     app->fixedCamera_ = options.camera.has_value();
+    app->pendingTeleport_ = options.teleport;
+    app->walkHeading_ = options.walk;
     app->screenshotPath_ = options.screenshotPath;
     app->screenshotDelay_ = options.screenshotDelay;
     app->startTicks_ = SDL_GetTicksNS();
@@ -308,6 +331,10 @@ int App::run()
             {
                 camera_.handleEvent(event);
             }
+            if(!uiConsumed && !ImGui::GetIO().WantCaptureKeyboard)
+            {
+                agent_.handleEvent(event);
+            }
 
             if(event.type == SDL_EVENT_QUIT)
             {
@@ -335,10 +362,12 @@ int App::run()
         textures_->update();
         profile_.mark(FrameProfile::Textures);
         const uint64_t now = SDL_GetTicksNS();
-        if(!ImGui::GetIO().WantCaptureKeyboard)
+        const bool keyboardFree = !ImGui::GetIO().WantCaptureKeyboard;
+        if(keyboardFree)
         {
             camera_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f);
         }
+        agent_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f, keyboardFree);
         constexpr size_t kFrameHistory = 240;
         if(frameTimes_.size() >= kFrameHistory)
         {
@@ -471,33 +500,65 @@ void App::updateSession()
         worldThread_->retire(std::exchange(world_, std::move(latest)));
     }
 
-    // Once we know where the agent is, put the world origin at its region
-    // and the camera behind it.
-    if(!originHandle_ && session_->agentRegion())
+    // Arrivals move the world origin to the agent's region, and the camera
+    // with it.
+    if(session_->arrivals() != seenArrivals_)
     {
-        originHandle_ = session_->agentRegion();
-        const auto p = session_->agentPosition();
-        if(!fixedCamera_)
+        seenArrivals_ = session_->arrivals();
+        handleArrival(session_->lastArrival());
+    }
+
+    // The camera follows our avatar: it moves as the avatar does.
+    if(world_ && originHandle_)
+    {
+        if(const auto global = agentGlobalPosition())
         {
-            camera_.lookAt(glm::vec3(p.x, p.y, p.z + 0.3f), 5.0f, 90.0f, 12.0f);
+            if(lastAgentGlobal_ && !fixedCamera_)
+            {
+                const glm::dvec3 moved = *global - *lastAgentGlobal_;
+                if(glm::length(moved) < 50.0) // larger jumps are teleports: handleArrival
+                {
+                    camera_.shift(glm::vec3(moved));
+                }
+            }
+            lastAgentGlobal_ = global;
         }
     }
 
-    // Tell the region where our camera is (its coordinates are the origin
-    // region's, which is where the agent arrived).
-    if(originHandle_)
+    // --teleport, a few seconds after logging in.
+    if(!pendingTeleport_.empty() && seenArrivals_ > 0 &&
+       session_->state() == session::SessionState::Connected &&
+       SDL_GetTicksNS() - arrivedTicks_ > 5'000'000'000ull)
+    {
+        if(pendingTeleport_ == "home")
+        {
+            session_->teleportHome();
+        }
+        else if(const auto location = session::parseLocation(pendingTeleport_))
+        {
+            session_->teleportTo(*location);
+        }
+        pendingTeleport_.clear();
+    }
+
+    // Tell the region where our camera is, in the agent's region's
+    // coordinates, and how we want to move.
+    if(originHandle_ && session_->agentRegion())
     {
         const render::Camera c = camera_.camera();
         const glm::vec3 at = glm::normalize(c.target - c.position);
         const glm::vec3 left = glm::normalize(glm::cross(glm::vec3(0, 0, 1), at));
         const glm::vec3 up = glm::cross(at, left);
+        const glm::vec3 position =
+            c.position + regionOffset(*originHandle_, *session_->agentRegion());
         session::Session::CameraView view;
-        view.position = {c.position.x, c.position.y, c.position.z};
+        view.position = {position.x, position.y, position.z};
         view.atAxis = {at.x, at.y, at.z};
         view.leftAxis = {left.x, left.y, left.z};
         view.upAxis = {up.x, up.y, up.z};
         view.farDistance = 128.0f;
         session_->setCamera(view);
+        session_->setControls(agent_.controlFlags(), agent_.bodyRotation());
     }
     const std::string viewerAsset(session_->capability("ViewerAsset").value_or(""));
     textures_->setViewerAssetUrl(viewerAsset);
@@ -519,6 +580,86 @@ void App::updateSession()
     }
 }
 
+void App::handleArrival(const session::Arrival& arrival)
+{
+    arrivedTicks_ = SDL_GetTicksNS();
+    if(arrival.kind == session::Arrival::Kind::Crossing && originHandle_)
+    {
+        // The same world from a new origin: the camera keeps its place.
+        camera_.shift(regionOffset(*originHandle_, arrival.region));
+        originHandle_ = arrival.region;
+        return;
+    }
+    originHandle_ = arrival.region;
+    lastAgentGlobal_.reset();
+    const glm::vec2 look(arrival.lookAt.x, arrival.lookAt.y);
+    if(glm::length(look) > 0.01f)
+    {
+        agent_.setYaw(glm::degrees(std::atan2(look.y, look.x)));
+    }
+    if(walkHeading_ && pendingTeleport_.empty())
+    {
+        agent_.setYaw(*walkHeading_);
+        agent_.setAutoWalk(true);
+    }
+    if(fixedCamera_ && arrival.kind == session::Arrival::Kind::Login)
+    {
+        return;
+    }
+    // Behind the avatar, looking where it faces.
+    const auto& p = arrival.position;
+    camera_.lookAt(glm::vec3(p.x, p.y, p.z + 0.3f), 5.0f, agent_.yaw(), 12.0f);
+}
+
+std::optional<glm::dvec3> App::agentGlobalPosition()
+{
+    const session::LoginSuccess* login = session_->login();
+    if(!login)
+    {
+        return std::nullopt;
+    }
+    const world::Object* self =
+        agentKey_ ? world_->object(agentKey_->region, agentKey_->localId) : nullptr;
+    if(self && (self->id != login->agentId || self->region != session_->agentRegion()))
+    {
+        self = nullptr;
+    }
+    if(!self && world_->objectsRevision() != agentSearchRevision_)
+    {
+        // Look for it again (new region, or not seen yet). During a crossing
+        // both regions may have it for a moment: prefer the agent's region.
+        agentSearchRevision_ = world_->objectsRevision();
+        agentKey_.reset();
+        for(const auto& [key, object] : world_->objects())
+        {
+            if(object.type == world::ObjectType::Avatar && object.id == login->agentId)
+            {
+                agentKey_ = key;
+                self = &object;
+                if(key.region == session_->agentRegion())
+                {
+                    break;
+                }
+            }
+        }
+    }
+    if(!self)
+    {
+        return std::nullopt;
+    }
+    glm::vec3 local = self->position;
+    if(self->parentId != 0)
+    {
+        // Sitting: relative to what it sits on.
+        if(const world::Object* seat = world_->object(self->region, self->parentId))
+        {
+            local = seat->position + seat->rotation * self->position;
+        }
+    }
+    return glm::dvec3(static_cast<double>(self->region >> 32) + local.x,
+                      static_cast<double>(self->region & 0xFFFFFFFFu) + local.y, local.z);
+}
+
 void App::endSession()
 {
     textures_->setViewerAssetUrl({});
@@ -536,6 +677,10 @@ void App::endSession()
         avatars_->clear();
     }
     originHandle_.reset();
+    seenArrivals_ = 0;
+    agentKey_.reset();
+    agentSearchRevision_ = ~0ull;
+    lastAgentGlobal_.reset();
 }
 
 void App::buildScene(render::Scene& scene)
@@ -674,6 +819,63 @@ void App::drawFpsOverlay()
     ImGui::End();
 }
 
+void App::drawTeleportWindow()
+{
+    if(!session_ || session_->state() != session::SessionState::Connected)
+    {
+        return;
+    }
+    if(ImGui::Begin("Teleport"))
+    {
+        if(const session::Region* main = session_->mainRegion())
+        {
+            const auto p = session_->agentPosition();
+            ImGui::Text("In %s (grid %u, %u)%s", main->name.c_str(), main->gridX(), main->gridY(),
+                        session_->agentRegion() == main->handle ? "" : ", arriving");
+            if(const auto global = agentGlobalPosition())
+            {
+                ImGui::Text("Avatar at %.1f, %.1f, %.1f", std::fmod(global->x, 256.0),
+                            std::fmod(global->y, 256.0), global->z);
+            }
+            else
+            {
+                ImGui::Text("Arrived at %.1f, %.1f, %.1f", static_cast<double>(p.x),
+                            static_cast<double>(p.y), static_cast<double>(p.z));
+            }
+        }
+        const session::TeleportStatus& status = session_->teleport();
+        const bool idle = status.state == session::TeleportState::None;
+        ImGui::BeginDisabled(!idle);
+        ImGui::SetNextItemWidth(-80.0f);
+        const bool entered = ImGui::InputTextWithHint(
+            "##where", "Region/x/y/z or secondlife:// link", teleportInput_.data(),
+            teleportInput_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if(ImGui::Button("Teleport") || entered)
+        {
+            if(const auto location = session::parseLocation(teleportInput_.data()))
+            {
+                session_->teleportTo(*location);
+            }
+        }
+        if(ImGui::Button("Home"))
+        {
+            session_->teleportHome();
+        }
+        ImGui::EndDisabled();
+        if(!idle)
+        {
+            ImGui::Text("%s%s%s", std::string(session::teleportStateName(status.state)).c_str(),
+                        status.message.empty() ? "" : ": ", status.message.c_str());
+        }
+        else if(!status.failure.empty())
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", status.failure.c_str());
+        }
+    }
+    ImGui::End();
+}
+
 void App::drawUi()
 {
     ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
@@ -715,6 +917,8 @@ void App::drawUi()
                         static_cast<double>(m.bytesDownloaded) / 1e6, o.meshObjects);
         }
         ImGui::TextDisabled("Right-drag: look, wheel: zoom, middle-drag: pan, WASD/QE: move");
+        ImGui::TextDisabled("Arrows: walk and turn (Shift: sideways), PgUp/PgDn: up/down, "
+                            "Home: fly");
     }
     ImGui::End();
 
@@ -723,6 +927,7 @@ void App::drawUi()
         drawFpsOverlay();
     }
     textureBrowser_->draw();
+    drawTeleportWindow();
     handleLoginAction(loginPanel_->draw(session_.get()));
 
     if(showDemoWindow_)

@@ -99,3 +99,61 @@ TEST_CASE("World thread: applies messages in order and publishes snapshots")
     }
     busy.reset();
 }
+
+namespace
+{
+
+world::WorldUpdate fullUpdate(uint64_t region, uint32_t localId, const Uuid& id,
+                              uint32_t parentId = 0)
+{
+    world::ObjectUpdateData u;
+    u.localId = localId;
+    u.full.id = id;
+    u.full.localId = localId;
+    u.full.parentId = parentId;
+    u.full.type = world::ObjectType::Avatar;
+    world::WorldUpdate::Objects objects;
+    objects.updates.push_back(u);
+    return world::WorldUpdate{.region = region, .change = std::move(objects)};
+}
+
+} // namespace
+
+TEST_CASE("World: an object moving to another region leaves no copy behind")
+{
+    const uint64_t west = 1000ull * 256 << 32 | 1000 * 256;
+    const uint64_t east = 1001ull * 256 << 32 | 1000 * 256;
+    const Uuid avatar = *Uuid::parse("6f1cbf7d-7945-47cb-8428-8cc14a60e94c");
+    const Uuid hair = *Uuid::parse("00000000-0000-0000-0000-000000000001");
+    const Uuid hairPart = *Uuid::parse("00000000-0000-0000-0000-000000000002");
+    const Uuid other = *Uuid::parse("00000000-0000-0000-0000-000000000003");
+
+    world::World world;
+    world.apply(fullUpdate(west, 10, avatar));
+    world.apply(fullUpdate(west, 11, hair, 10));     // attached to the avatar
+    world.apply(fullUpdate(west, 12, hairPart, 11)); // linked to the attachment
+    world.apply(fullUpdate(west, 13, other));
+    const world::World snapshot = world; // copies don't disturb the original
+    CHECK(snapshot.objectCount() == 4);
+
+    // It walks east: the east region sends it; the west one never kills it.
+    world.apply(fullUpdate(east, 50, avatar));
+    CHECK(world.object(west, 10) == nullptr);
+    CHECK(world.object(west, 11) == nullptr);
+    CHECK(world.object(west, 12) == nullptr);
+    CHECK(world.object(west, 13) != nullptr);
+    CHECK(world.object(east, 50) != nullptr);
+    CHECK(world.objectCount() == 2);
+    CHECK(snapshot.objectCount() == 4);
+
+    // A copy that gets updated rebuilds its index first.
+    world::World copy = snapshot;
+    copy.apply(fullUpdate(east, 50, avatar));
+    CHECK(copy.objectCount() == 2);
+
+    // Killed and sent again: no stale index entry removes anything.
+    world.apply(world::WorldUpdate{.region = east, .change = world::WorldUpdate::Kill{{50}}});
+    world.apply(fullUpdate(west, 20, avatar));
+    CHECK(world.objectCount() == 2);
+    CHECK(world.object(west, 20) != nullptr);
+}

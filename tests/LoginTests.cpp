@@ -205,3 +205,22 @@ TEST_CASE("start locations from names and links")
     CHECK(startLocation("https://maps.secondlife.com/secondlife/Da%20Boom/10/20/30/") ==
           "uri:Da Boom&10&20&30");
 }
+
+TEST_CASE("teleport locations from names and links")
+{
+    using viewer::session::parseLocation;
+    const auto plain = parseLocation("Mauve");
+    REQUIRE(plain.has_value());
+    CHECK(plain->region == "Mauve");
+    CHECK(plain->x == 128.0f);
+    CHECK(plain->z == 0.0f);
+    const auto link =
+        parseLocation("secondlife://util.aditi.lindenlab.com/secondlife/Da%20Boom/10/20.5/30");
+    REQUIRE(link.has_value());
+    CHECK(link->region == "Da Boom");
+    CHECK(link->x == 10.0f);
+    CHECK(link->y == 20.5f);
+    CHECK(link->z == 30.0f);
+    CHECK(!parseLocation("  ").has_value());
+    CHECK(!parseLocation("Mauve/abc").has_value());
+}

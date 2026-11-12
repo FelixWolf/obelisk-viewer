@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -64,6 +65,18 @@ std::vector<std::string> defaultLoginOptions();
 // "Region Name/x/y/z" (as in secondlife:// links); a region alone means its
 // center.
 std::string startLocation(std::string_view where);
+
+// A place in a named region, as in secondlife:// and map links.
+struct Location
+{
+    std::string region;
+    float x = 128.0f; // meters in the region
+    float y = 128.0f;
+    float z = 0.0f;
+};
+// "Region Name", "Region Name/x/y/z" or a secondlife:// or map link to one.
+// Missing coordinates are the region's center; nothing if there's no name.
+std::optional<Location> parseLocation(std::string_view where);
 
 struct LoginParameters
 {

@@ -5,6 +5,7 @@
 #include "viewer/protocol/Messages.hpp"
 
 #include <bit>
+#include <cctype>
 #include <format>
 
 namespace viewer::session
@@ -23,6 +24,13 @@ constexpr auto kLoginTimeout = 60s;
 constexpr auto kEventQueueTimeout = 60s;
 constexpr auto kLogoutTimeout = 5s;
 constexpr auto kAgentUpdateInterval = 1s;
+// While the agent moves, and the soonest after a change.
+constexpr auto kMovingUpdateInterval = 200ms;
+constexpr auto kMinUpdateInterval = 20ms;
+constexpr auto kMapLookupTimeout = 15s;
+constexpr auto kTeleportTimeout = 90s;
+// MapNameRequest flags: the map's region layer (llworldmapmessage.cpp's LAYER_FLAG).
+constexpr uint32_t kMapLayerFlag = 2;
 
 net::HttpRequest llsdPost(std::string url, const llsd::Value& body)
 {
@@ -70,6 +78,16 @@ uint32_t ipFromBinary(const llsd::Binary& bytes)
     return v;
 }
 
+std::string lowercase(std::string_view s)
+{
+    std::string out(s);
+    for(char& c : out)
+    {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
 std::string messageName(protocol::MessageId id)
 {
     if(const auto* info = protocol::findMessage(id))
@@ -97,6 +115,24 @@ std::string_view stateName(SessionState state)
         return "logged out";
     case SessionState::Failed:
         return "failed";
+    }
+    return "unknown";
+}
+
+std::string_view teleportStateName(TeleportState state)
+{
+    switch(state)
+    {
+    case TeleportState::None:
+        return "none";
+    case TeleportState::LookingUp:
+        return "looking up the region";
+    case TeleportState::Requested:
+        return "requested";
+    case TeleportState::InProgress:
+        return "teleporting";
+    case TeleportState::Arriving:
+        return "arriving";
     }
     return "unknown";
 }
@@ -157,17 +193,27 @@ const Region* Session::mainRegion() const
 
 std::optional<std::string_view> Session::capability(std::string_view name) const
 {
-    const Region* region = mainRegion();
-    if(!region)
+    if(const Region* main = mainRegion())
     {
-        return std::nullopt;
+        if(const auto it = main->capabilities.find(name); it != main->capabilities.end())
+        {
+            return it->second;
+        }
+        if(main->capabilitiesReceived)
+        {
+            return std::nullopt;
+        }
     }
-    const auto it = region->capabilities.find(name);
-    if(it == region->capabilities.end())
+    // The main region's haven't arrived (yet): one we were in before has
+    // the same services.
+    for(const auto& [id, region] : regions_)
     {
-        return std::nullopt;
+        if(const auto it = region->capabilities.find(name); it != region->capabilities.end())
+        {
+            return it->second;
+        }
     }
-    return it->second;
+    return std::nullopt;
 }
 
 Region* Session::findRegion(protocol::CircuitId circuit)
@@ -191,9 +237,10 @@ Region* Session::findRegion(const net::Endpoint& endpoint)
 void Session::sendHttp(RequestKind kind, Region* region, net::HttpRequest request)
 {
     const protocol::CircuitId circuit = region ? region->circuit : 0;
+    const uint32_t generation = region ? region->httpGeneration : 0;
     net::HttpRequestGroup& group = region ? *region->http : loginHttp_;
-    group.send(std::move(request), [this, kind, circuit](net::HttpResponse&& response)
-               { completed_.push({kind, circuit, std::move(response)}); });
+    group.send(std::move(request), [this, kind, circuit, generation](net::HttpResponse&& response)
+               { completed_.push({kind, circuit, generation, std::move(response)}); });
 }
 
 // --- update -----------------------------------------------------------------
@@ -213,7 +260,8 @@ void Session::update()
         {
             handleLogin(c.response);
         }
-        else if(Region* region = findRegion(c.circuit))
+        else if(Region* region = findRegion(c.circuit);
+                region && region->httpGeneration == c.generation)
         {
             if(c.kind == RequestKind::Seed)
             {
@@ -224,7 +272,8 @@ void Session::update()
                 handleEventQueue(*region, c.response);
             }
         }
-        // else: the region was removed while the request was in flight.
+        // else: the region was removed (or re-seeded) while the request was
+        // in flight.
         if(state_ == SessionState::Failed || state_ == SessionState::LoggedOut)
         {
             return;
@@ -255,12 +304,27 @@ void Session::update()
         }
     }
 
-    if(state_ == SessionState::Connected && now - lastAgentUpdate_ >= kAgentUpdateInterval)
+    // AgentUpdate: at once when the controls change, often while moving,
+    // and once a second otherwise. Not while the simulators move us
+    // between regions (as llviewermessage.cpp's send_agent_update).
+    const bool moving = controlFlags_ & ~(control::kFly);
+    const auto interval = controlsChanged_ ? kMinUpdateInterval
+                          : moving         ? kMovingUpdateInterval
+                                           : kAgentUpdateInterval;
+    const bool betweenRegions =
+        teleport_.state == TeleportState::InProgress || teleport_.state == TeleportState::Arriving;
+    if(state_ == SessionState::Connected && !betweenRegions && now - lastAgentUpdate_ >= interval)
     {
         if(const Region* main = mainRegion())
         {
             sendAgentUpdate(*main);
         }
+    }
+
+    if(teleport_.state != TeleportState::None && now >= teleportDeadline_)
+    {
+        teleportFailed(teleport_.state == TeleportState::LookingUp ? "The map didn't answer."
+                                                                   : "The teleport took too long.");
     }
 
     if(state_ == SessionState::LoggingOut && now >= logoutDeadline_)
@@ -389,6 +453,26 @@ void Session::requestSeed(Region& region)
     }
     sendHttp(RequestKind::Seed, &region,
              llsdPost(region.seedCapability, llsd::Value(std::move(names))));
+}
+
+void Session::setSeed(Region& region, const std::string& seed)
+{
+    if(seed.empty() || seed == region.seedCapability)
+    {
+        return; // the same seed: its capabilities still hold
+    }
+    // A new set: drop the old capabilities and the requests using them.
+    region.http = std::make_unique<net::HttpRequestGroup>(loginHttp_.client());
+    region.httpGeneration++;
+    region.seedCapability = seed;
+    region.capabilities.clear();
+    region.capabilitiesReceived = false;
+    region.seedAttempts = 0;
+    region.seedRetryAt.reset();
+    region.eventQueueRunning = false;
+    region.eventQueueAck = {};
+    region.eventQueueRetryAt.reset();
+    requestSeed(region);
 }
 
 void Session::handleSeed(Region& region, const net::HttpResponse& response)
@@ -534,14 +618,261 @@ void Session::handleEvent(Region& region, const std::string& name, const llsd::V
         }
         if(target->seedCapability.empty())
         {
-            target->seedCapability = body["seed-capability"].asString();
-            requestSeed(*target);
+            setSeed(*target, body["seed-capability"].asString());
         }
     }
-    else if(name == "TeleportFinish" || name == "CrossedRegion")
+    else if(name == "TeleportFinish")
     {
-        // Moving the agent to another main region isn't implemented yet.
-        log::warn("{} from {} isn't handled yet", name, region.endpoint.toString());
+        const llsd::Value& info = body["Info"][0];
+        if(info["AgentID"].asUuid() != login_->agentId)
+        {
+            return;
+        }
+        const net::Endpoint endpoint{ipFromBinary(info["SimIP"].asBinary()),
+                                     static_cast<uint16_t>(info["SimPort"].asInteger())};
+        moveToRegion(endpoint, u64FromBinary(info["RegionHandle"].asBinary()),
+                     info["SeedCapability"].asString(), true);
+    }
+    else if(name == "CrossedRegion")
+    {
+        const llsd::Value& data = body["RegionData"][0];
+        const net::Endpoint endpoint{ipFromBinary(data["SimIP"].asBinary()),
+                                     static_cast<uint16_t>(data["SimPort"].asInteger())};
+        moveToRegion(endpoint, u64FromBinary(data["RegionHandle"].asBinary()),
+                     data["SeedCapability"].asString(), false);
+    }
+    else if(name == "TeleportFailed")
+    {
+        const llsd::Value& alerts = body["AlertInfo"];
+        std::string reason = body["Info"][0]["Reason"].asString();
+        if(reason.empty() && alerts.size() > 0)
+        {
+            reason = alerts[0]["Message"].asString();
+        }
+        teleportFailed(reason);
+    }
+    (void)region;
+}
+
+// --- moving between regions -------------------------------------------------
+
+void Session::moveToRegion(const net::Endpoint& endpoint, uint64_t handle, const std::string& seed,
+                           bool teleport)
+{
+    Region* target = findRegion(endpoint);
+    if(target && target->handle != handle)
+    {
+        // The same simulator now hosts another region: start over with it.
+        removeRegion(target->circuit, "it moved to another region");
+        target = nullptr;
+    }
+    if(!target)
+    {
+        target = addRegion(endpoint, handle, false);
+        if(!target)
+        {
+            if(teleport)
+            {
+                teleportFailed("Couldn't connect to the destination.");
+                return;
+            }
+            fail("circuit", "Couldn't connect to the region we walked into.");
+            return;
+        }
+    }
+    else if(teleport)
+    {
+        // As the official viewer: introduce ourselves again either way.
+        msg::UseCircuitCode use;
+        use.CircuitCode.Code = login_->circuitCode;
+        use.CircuitCode.SessionID = login_->sessionId;
+        use.CircuitCode.ID = login_->agentId;
+        send(*target, use, true);
+    }
+
+    log::info("{} to {} (grid {}, {})", teleport ? "teleporting" : "crossing", endpoint.toString(),
+              target->gridX(), target->gridY());
+    for(auto& [id, region] : regions_)
+    {
+        region->isMain = region.get() == target;
+    }
+    msg::CompleteAgentMovement complete;
+    complete.AgentData.AgentID = login_->agentId;
+    complete.AgentData.SessionID = login_->sessionId;
+    complete.AgentData.CircuitCode = login_->circuitCode;
+    send(*target, complete, true);
+    setSeed(*target, seed);
+    if(teleport)
+    {
+        teleport_.state = TeleportState::Arriving;
+        teleportDeadline_ = Clock::now() + kTeleportTimeout;
+    }
+    else
+    {
+        pendingCrossing_ = true;
+    }
+}
+
+void Session::handleAgentMovementComplete(Region& region, const protocol::CircuitEvent& event)
+{
+    const auto m = event.decode<msg::AgentMovementComplete>();
+    if(!m || m->AgentData.AgentID != login_->agentId)
+    {
+        return;
+    }
+    if(!region.isMain)
+    {
+        // We arrived somewhere we didn't expect; the simulator decides.
+        for(auto& [id, r] : regions_)
+        {
+            r->isMain = r.get() == &region;
+        }
+    }
+
+    Arrival arrival;
+    arrival.kind = teleport_.state == TeleportState::Arriving ? Arrival::Kind::Teleport
+                   : arrivals_ == 0                           ? Arrival::Kind::Login
+                                                              : Arrival::Kind::Crossing;
+    arrival.region = region.handle;
+    arrival.position = m->Data.Position;
+    arrival.lookAt = m->Data.LookAt;
+    agentRegion_ = region.handle;
+    agentPosition_ = m->Data.Position;
+    lastArrival_ = arrival;
+    arrivals_++;
+    pendingCrossing_ = false;
+    if(arrival.kind == Arrival::Kind::Teleport)
+    {
+        teleport_ = {};
+    }
+    log::info("arrived in {} at ({:.1f}, {:.1f}, {:.1f}); simulator {}",
+              region.name.empty() ? region.endpoint.toString() : region.name,
+              static_cast<double>(m->Data.Position.x), static_cast<double>(m->Data.Position.y),
+              static_cast<double>(m->Data.Position.z),
+              protocol::toString(m->SimData.ChannelVersion));
+    if(arrivals_ > 1)
+    {
+        // A new main region: it needs our throttles and view too.
+        sendAgentSetup(region);
+    }
+}
+
+void Session::teleportTo(const Location& location)
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || teleport_.state != TeleportState::None || !main)
+    {
+        return;
+    }
+    teleport_ = {.state = TeleportState::LookingUp};
+    teleportDeadline_ = Clock::now() + kMapLookupTimeout;
+    lookup_ = location;
+    log::info("teleport: looking up '{}'", location.region);
+
+    msg::MapNameRequest request;
+    request.AgentData.AgentID = login_->agentId;
+    request.AgentData.SessionID = login_->sessionId;
+    request.AgentData.Flags = kMapLayerFlag;
+    request.NameData.Name = protocol::fromString(location.region);
+    send(*main, request, true);
+}
+
+void Session::teleportTo(uint64_t regionHandle, protocol::Vector3 position)
+{
+    if(state_ != SessionState::Connected || teleport_.state != TeleportState::None)
+    {
+        return;
+    }
+    teleport_ = {};
+    sendTeleportRequest(regionHandle, position);
+}
+
+void Session::teleportHome()
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || teleport_.state != TeleportState::None || !main)
+    {
+        return;
+    }
+    // A null landmark means home (llagent.cpp).
+    msg::TeleportLandmarkRequest request;
+    request.Info.AgentID = login_->agentId;
+    request.Info.SessionID = login_->sessionId;
+    send(*main, request, true);
+    teleport_ = {.state = TeleportState::Requested};
+    teleportDeadline_ = Clock::now() + kTeleportTimeout;
+    log::info("teleport: home");
+}
+
+void Session::sendTeleportRequest(uint64_t regionHandle, protocol::Vector3 position)
+{
+    const Region* main = mainRegion();
+    if(!main)
+    {
+        teleportFailed("Not in a region.");
+        return;
+    }
+    msg::TeleportLocationRequest request;
+    request.AgentData.AgentID = login_->agentId;
+    request.AgentData.SessionID = login_->sessionId;
+    request.Info.RegionHandle = regionHandle;
+    request.Info.Position = position;
+    request.Info.LookAt = camera_ ? camera_->atAxis : protocol::Vector3{0, 1, 0};
+    send(*main, request, true);
+    teleport_.state = TeleportState::Requested;
+    teleportDeadline_ = Clock::now() + kTeleportTimeout;
+    log::info("teleport: to grid ({}, {}) at ({:.0f}, {:.0f}, {:.0f})",
+              static_cast<uint32_t>(regionHandle >> 32) / 256,
+              static_cast<uint32_t>(regionHandle) / 256, static_cast<double>(position.x),
+              static_cast<double>(position.y), static_cast<double>(position.z));
+}
+
+void Session::handleMapBlockReply(const protocol::CircuitEvent& event)
+{
+    if(teleport_.state != TeleportState::LookingUp || !lookup_)
+    {
+        return;
+    }
+    const auto reply = event.decode<msg::MapBlockReply>();
+    if(!reply)
+    {
+        return;
+    }
+    const std::string wanted = lowercase(lookup_->region);
+    for(const auto& block : reply->Data)
+    {
+        if(lowercase(protocol::toString(block.Name)) == wanted)
+        {
+            const uint64_t handle =
+                static_cast<uint64_t>(block.X) * 256 << 32 | static_cast<uint64_t>(block.Y) * 256;
+            const protocol::Vector3 position{lookup_->x, lookup_->y, lookup_->z};
+            lookup_.reset();
+            sendTeleportRequest(handle, position);
+            return;
+        }
+    }
+    const std::string name = lookup_->region;
+    teleportFailed(std::format("There's no region named '{}'.", name));
+}
+
+void Session::teleportFailed(std::string reason)
+{
+    if(reason.empty())
+    {
+        reason = "The teleport failed.";
+    }
+    log::warn("teleport failed: {}", reason);
+    teleport_ = {.failure = std::move(reason)};
+    lookup_.reset();
+}
+
+void Session::setControls(uint32_t flags, protocol::Quaternion bodyRotation)
+{
+    if(flags != controlFlags_ || !(bodyRotation == bodyRotation_))
+    {
+        controlFlags_ = flags;
+        bodyRotation_ = bodyRotation;
+        controlsChanged_ = true;
     }
 }
 
@@ -557,7 +888,7 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
 
     if(event.kind == protocol::CircuitEvent::Kind::Lost)
     {
-        if(region->isMain)
+        if(region->isMain && !movingBetweenRegions())
         {
             fail("connection_lost", "The connection to the region was lost.");
         }
@@ -577,15 +908,56 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
     }
     else if(event.is<msg::AgentMovementComplete>())
     {
-        if(auto m = event.decode<msg::AgentMovementComplete>())
+        handleAgentMovementComplete(*region, event);
+    }
+    else if(event.is<msg::MapBlockReply>())
+    {
+        handleMapBlockReply(event);
+    }
+    else if(event.is<msg::TeleportStart>())
+    {
+        // Also unasked: the simulator may move us (sent home, say).
+        if(teleport_.state != TeleportState::Arriving)
         {
-            agentRegion_ = region->handle;
-            agentPosition_ = m->Data.Position;
-            log::info("arrived at ({:.1f}, {:.1f}, {:.1f}); simulator {}",
-                      static_cast<double>(m->Data.Position.x),
-                      static_cast<double>(m->Data.Position.y),
-                      static_cast<double>(m->Data.Position.z),
-                      protocol::toString(m->SimData.ChannelVersion));
+            teleport_.state = TeleportState::InProgress;
+            teleport_.failure.clear();
+            teleportDeadline_ = Clock::now() + kTeleportTimeout;
+        }
+    }
+    else if(event.is<msg::TeleportProgress>())
+    {
+        if(const auto m = event.decode<msg::TeleportProgress>();
+           m && teleport_.state != TeleportState::None)
+        {
+            teleport_.message = protocol::toString(m->Info.Message);
+        }
+    }
+    else if(event.is<msg::TeleportFailed>())
+    {
+        if(const auto m = event.decode<msg::TeleportFailed>())
+        {
+            std::string reason = protocol::toString(m->Info.Reason);
+            if(reason.empty() && !m->AlertInfo.empty())
+            {
+                reason = protocol::toString(m->AlertInfo[0].Message);
+            }
+            teleportFailed(std::move(reason));
+        }
+    }
+    else if(event.is<msg::TeleportLocal>())
+    {
+        if(const auto m = event.decode<msg::TeleportLocal>();
+           m && m->Info.AgentID == login_->agentId)
+        {
+            agentPosition_ = m->Info.Position;
+            lastArrival_ = Arrival{Arrival::Kind::LocalTeleport, region->handle, m->Info.Position,
+                                   m->Info.LookAt};
+            arrivals_++;
+            teleport_ = {};
+            log::info("teleported within the region to ({:.1f}, {:.1f}, {:.1f})",
+                      static_cast<double>(m->Info.Position.x),
+                      static_cast<double>(m->Info.Position.y),
+                      static_cast<double>(m->Info.Position.z));
         }
     }
     else if(event.is<msg::LogoutReply>())
@@ -597,7 +969,7 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
     }
     else if(event.is<msg::DisableSimulator>())
     {
-        if(region->isMain)
+        if(region->isMain && !movingBetweenRegions())
         {
             fail("disabled", "The region closed the connection.");
         }
@@ -705,8 +1077,12 @@ void Session::sendAgentUpdate(const Region& region)
     update.AgentData.CameraLeftAxis = camera.leftAxis;
     update.AgentData.CameraUpAxis = camera.upAxis;
     update.AgentData.Far = camera.farDistance;
+    update.AgentData.BodyRotation = bodyRotation_;
+    update.AgentData.HeadRotation = bodyRotation_;
+    update.AgentData.ControlFlags = controlFlags_;
     send(region, update);
     lastAgentUpdate_ = Clock::now();
+    controlsChanged_ = false;
 }
 
 void Session::checkConnected()

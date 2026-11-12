@@ -3,6 +3,7 @@
 #include "viewer/core/Log.hpp"
 #include "viewer/protocol/Messages.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -51,6 +52,8 @@ void World::removeRegion(uint64_t regionHandle)
 {
     terrain_.erase(regionHandle);
     std::erase_if(objects_, [&](const auto& entry) { return entry.first.region == regionHandle; });
+    std::erase_if(ids_.keys,
+                  [&](const auto& entry) { return entry.second.region == regionHandle; });
     objectsRevision_++;
 }
 
@@ -88,10 +91,75 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update)
     }
     else
     {
+        if(!update.full.id.isNull())
+        {
+            auto [it, inserted] = ids().keys.try_emplace(update.full.id, key);
+            if(!inserted && it->second != key)
+            {
+                // It moved (crossed into this region): drop the old copy.
+                const ObjectKey old = std::exchange(it->second, key);
+                removeWithChildren(old);
+            }
+        }
         Object& object = writable(objects_[key]);
         applyUpdate(object, update);
         object.region = regionHandle;
     }
+}
+
+World::IdIndex& World::ids()
+{
+    if(!ids_.valid)
+    {
+        ids_.keys.clear();
+        for(const auto& [key, object] : objects_)
+        {
+            ids_.keys[object->id] = key;
+        }
+        ids_.valid = true;
+    }
+    return ids_;
+}
+
+void World::forgetId(const ObjectKey& key, const Object& object)
+{
+    IdIndex& index = ids();
+    if(const auto it = index.keys.find(object.id); it != index.keys.end() && it->second == key)
+    {
+        index.keys.erase(it);
+    }
+}
+
+void World::removeWithChildren(const ObjectKey& key)
+{
+    // Children first found by parent: an avatar's attachments, then their
+    // linked prims (a few levels at most).
+    std::vector<uint32_t> removed{key.localId};
+    for(size_t first = 0; first < removed.size();)
+    {
+        const size_t end = removed.size();
+        for(const auto& [k, object] : objects_)
+        {
+            if(k.region == key.region && object->parentId != 0 &&
+               std::find(removed.begin() + static_cast<ptrdiff_t>(first), removed.end(),
+                         object->parentId) != removed.end() &&
+               std::find(removed.begin(), removed.end(), k.localId) == removed.end())
+            {
+                removed.push_back(k.localId);
+            }
+        }
+        first = end;
+    }
+    for(const uint32_t localId : removed)
+    {
+        const ObjectKey k{key.region, localId};
+        if(const auto it = objects_.find(k); it != objects_.end())
+        {
+            forgetId(k, *it->second);
+            objects_.erase(it);
+        }
+    }
+    objectsRevision_++;
 }
 
 namespace
@@ -363,7 +431,12 @@ void World::apply(WorldUpdate update)
     {
         for(const uint32_t id : kill->localIds)
         {
-            objects_.erase(ObjectKey{regionHandle, id});
+            const ObjectKey key{regionHandle, id};
+            if(const auto it = objects_.find(key); it != objects_.end())
+            {
+                forgetId(key, *it->second);
+                objects_.erase(it);
+            }
         }
         objectsRevision_++;
     }

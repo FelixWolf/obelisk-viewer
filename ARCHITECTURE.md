@@ -223,8 +223,54 @@ After login the session is in several simulators at once. Each one is a
 4. Logging out sends `LogoutRequest` and waits up to 5 s for `LogoutReply`.
    The App does this on quit too.
 
-Teleports and region crossings (`TeleportFinish`, `CrossedRegion`) aren't
-handled yet.
+### Teleports and region crossings
+
+The main region changes when the agent moves to another simulator; the
+destination becomes the main region at once (checked against
+llviewermessage.cpp and llagent.cpp):
+
+- **Teleport.** `Session::teleportTo(Location)` asks the map for the region's
+  handle (`MapNameRequest` with the region layer flag; the `MapBlockReply`
+  entry whose name matches, ignoring case), then sends
+  `TeleportLocationRequest`. `teleportHome()` sends `TeleportLandmarkRequest`
+  with a null landmark. The simulator answers with `TeleportStart`,
+  `TeleportProgress`, and then either `TeleportFailed` (the reason shows in
+  `teleport().failure`) or, through the event queue, `TeleportFinish`. On
+  `TeleportFinish` we open a circuit to the destination (or reuse it),
+  send `UseCircuitCode` and `CompleteAgentMovement`, and post to its seed
+  capability. A teleport within the region comes back as `TeleportLocal`.
+- **Crossing.** Walking into a neighbour sends `CrossedRegion` (event queue).
+  The neighbour already has a circuit; it gets `CompleteAgentMovement`.
+
+Either way the agent has arrived when the new region sends
+`AgentMovementComplete`; it then gets throttles, view size and an
+`AgentUpdate`. `arrivals()` counts arrivals and `lastArrival()` says what
+kind, so the App can react. A seed capability that differs from the
+region's current one replaces its capabilities and event queue; replies to
+the old requests are dropped (`Region::httpGeneration`). Until the new main
+region's capabilities arrive, `capability()` answers from another region.
+
+While moving between regions, losing the main region (`DisableSimulator`,
+silence) doesn't end the session, and no `AgentUpdate`s are sent. Regions the
+destination doesn't need are closed by their simulators with
+`DisableSimulator`, which can take a minute.
+
+The App keeps world coordinates relative to the agent's region: on a
+teleport the origin moves there and the camera goes behind the avatar; on a
+crossing the origin moves to the neighbour and the camera shifts by the
+same amount, so nothing visibly moves. The camera follows our avatar (found
+by agent id among the avatars) as it moves. `AgentController` turns the
+arrow keys into `AgentUpdate` control flags and a body rotation; Home
+toggles flying. The Teleport window takes a region name, `Region/x/y/z` or
+a `secondlife://` or map link (`parseLocation`). For testing,
+`--teleport LOCATION` teleports 5 s after logging in and `--walk DEGREES`
+walks that way (0 = east) once there.
+
+Objects that cross into another region (our avatar, other avatars, vehicles)
+arrive as new objects there; the region they left doesn't always kill its
+copy. `World` keeps an index from object id to key, and a full update for an
+id it already has elsewhere removes the old copy and everything attached or
+linked to it.
 
 ## UDP circuits
 

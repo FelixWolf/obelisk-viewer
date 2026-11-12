@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AgentController.hpp"
 #include "AnimationManager.hpp"
 #include "AvatarView.hpp"
 #include "CameraController.hpp"
@@ -48,6 +49,8 @@ struct AppOptions
     std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
     float screenshotDelay = 3.0f;               // seconds after startup
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
+    std::string teleport;                       // teleport here 5 s after logging in ("home" too)
+    std::optional<float> walk; // walk this way (degrees from east) once in (after --teleport)
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -87,6 +90,12 @@ private:
     // Fills the frame's scene (cleared first).
     void buildScene(render::Scene& scene);
     void endSession();
+    // The agent arrived (login, teleport, region crossing): move the world
+    // origin and the camera.
+    void handleArrival(const session::Arrival& arrival);
+    // Our avatar's position, in global meters; nothing until we see it.
+    std::optional<glm::dvec3> agentGlobalPosition();
+    void drawTeleportWindow();
 
     struct SdlRuntime
     {
@@ -129,6 +138,15 @@ private:
     TerrainView terrainView_;
     std::vector<session::RegionMessage> regionMessages_;
     std::optional<uint64_t> originHandle_; // world coordinates are relative to this region
+    uint64_t seenArrivals_ = 0;
+    std::optional<world::ObjectKey> agentKey_; // our avatar's object, when last found
+    uint64_t agentSearchRevision_ = ~0ull;     // objects revision we last searched
+    std::optional<glm::dvec3> lastAgentGlobal_;
+    AgentController agent_;
+    std::string pendingTeleport_;      // --teleport, once we're in
+    std::optional<float> walkHeading_; // --walk
+    uint64_t arrivedTicks_ = 0;
+    std::array<char, 256> teleportInput_{};
 
     CameraController camera_;
     bool running_ = true;

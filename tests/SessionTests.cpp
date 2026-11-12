@@ -108,6 +108,38 @@ llsd::Value enableSimulator(const viewer::net::Endpoint& endpoint)
     return event;
 }
 
+llsd::Binary ipBinary(const viewer::net::Endpoint& endpoint)
+{
+    return llsd::Binary{
+        static_cast<uint8_t>(endpoint.address >> 24), static_cast<uint8_t>(endpoint.address >> 16),
+        static_cast<uint8_t>(endpoint.address >> 8), static_cast<uint8_t>(endpoint.address)};
+}
+
+llsd::Binary handleBinary(uint64_t handle)
+{
+    llsd::Binary bytes(8);
+    for(int i = 0; i < 8; i++)
+    {
+        bytes[static_cast<size_t>(i)] = static_cast<uint8_t>(handle >> (56 - 8 * i));
+    }
+    return bytes;
+}
+
+constexpr uint64_t gridHandle(uint32_t x, uint32_t y)
+{
+    return static_cast<uint64_t>(x * 256) << 32 | y * 256;
+}
+
+msg::AgentMovementComplete movementComplete(float x, float y, float z)
+{
+    msg::AgentMovementComplete m;
+    m.AgentData.AgentID = kAgent;
+    m.AgentData.SessionID = kSession;
+    m.Data.Position = {x, y, z};
+    m.Data.LookAt = {0, 1, 0};
+    return m;
+}
+
 } // namespace
 
 TEST_CASE("Session: login, circuit, handshake, neighbours and logout")
@@ -346,6 +378,230 @@ TEST_CASE("Destroying a Session mid-login is safe")
         std::this_thread::sleep_for(20ms);
         session.reset(); // cancels the request; its callback must never run
     }
+}
+
+TEST_CASE("Session: teleport by region name, then walk into a neighbour")
+{
+    FakeSimulator start;       // where we log in, grid (1000, 1000)
+    FakeSimulator destination; // "Far Away", grid (2000, 2000)
+    FakeSimulator next;        // its eastern neighbour, (2001, 2000)
+    std::atomic<uint16_t> httpPort{0};
+    std::atomic<bool> finishTeleport{false};
+    std::atomic<bool> cross{false};
+    std::atomic<int> startPolls{0};
+    std::atomic<int> destinationPolls{0};
+
+    auto caps = [&](std::string_view queue)
+    {
+        llsd::Value c;
+        c["EventQueueGet"] = std::format("http://127.0.0.1:{}/{}", httpPort.load(), queue);
+        c["ViewerAsset"] = std::format("http://assets/{}", queue);
+        return LoopbackReply{.body = llsd::toXml(c)};
+    };
+    auto events = [](llsd::Value event)
+    {
+        llsd::Value reply;
+        reply["id"] = 1;
+        reply["events"].append(std::move(event));
+        return LoopbackReply{.body = llsd::toXml(reply)};
+    };
+    auto idle = []
+    {
+        std::this_thread::sleep_for(50ms);
+        return LoopbackReply{.status = 502};
+    };
+    viewer::test::LoopbackHttpServer server(
+        [&](const LoopbackRequest& request) -> std::optional<LoopbackReply>
+        {
+            if(request.path == "/login")
+            {
+                return LoopbackReply{.body = loginSuccessXml(httpPort, start.endpoint().port)};
+            }
+            if(request.path == "/seed")
+            {
+                return caps("eq-start");
+            }
+            if(request.path == "/seed-destination")
+            {
+                return caps("eq-destination");
+            }
+            if(request.path == "/seed-next")
+            {
+                return caps("eq-next");
+            }
+            if(request.path == "/eq-start" && finishTeleport && startPolls++ == 0)
+            {
+                llsd::Value info;
+                info["AgentID"] = kAgent;
+                info["SimIP"] = ipBinary(destination.endpoint());
+                info["SimPort"] = destination.endpoint().port;
+                info["RegionHandle"] = handleBinary(gridHandle(2000, 2000));
+                info["SeedCapability"] =
+                    std::format("http://127.0.0.1:{}/seed-destination", httpPort.load());
+                llsd::Value event;
+                event["message"] = "TeleportFinish";
+                event["body"]["Info"].append(info);
+                return events(event);
+            }
+            if(request.path == "/eq-destination" && cross && destinationPolls++ == 0)
+            {
+                llsd::Value data;
+                data["SimIP"] = ipBinary(next.endpoint());
+                data["SimPort"] = next.endpoint().port;
+                data["RegionHandle"] = handleBinary(gridHandle(2001, 2000));
+                data["SeedCapability"] =
+                    std::format("http://127.0.0.1:{}/seed-next", httpPort.load());
+                llsd::Value event;
+                event["message"] = "CrossedRegion";
+                event["body"]["RegionData"].append(data);
+                return events(event);
+            }
+            return idle();
+        });
+    httpPort = portOf(server.url(""));
+    auto http = viewer::net::createHttpClient();
+    Session session(*http, testParameters(server));
+
+    // Log in and arrive.
+    REQUIRE(pumpUntil(session, [&] { return start.count<msg::CompleteAgentMovement>() > 0; }));
+    start.send(handshake("Start"), true);
+    start.send(movementComplete(10, 20, 30), true);
+    REQUIRE(pumpUntil(session, [&] { return settled(session) && session.arrivals() == 1; }));
+    REQUIRE(session.state() == SessionState::Connected);
+    CHECK(session.lastArrival().kind == Arrival::Kind::Login);
+    CHECK(session.agentRegion() == gridHandle(1000, 1000));
+
+    // An unknown name fails with a reason.
+    session.teleportTo(Location{.region = "Nowhere"});
+    CHECK(session.teleport().state == TeleportState::LookingUp);
+    REQUIRE(start.waitFor<msg::MapNameRequest>().has_value());
+    start.send(msg::MapBlockReply{}, true);
+    REQUIRE(pumpUntil(session, [&] { return session.teleport().state == TeleportState::None; }));
+    CHECK(session.teleport().failure.find("Nowhere") != std::string::npos);
+
+    // By name: the map gives the handle, then the start region moves us.
+    session.teleportTo(Location{.region = "Far Away", .x = 5, .y = 6, .z = 7});
+    const auto lookup = start.waitFor<msg::MapNameRequest>();
+    REQUIRE(lookup.has_value());
+    CHECK(viewer::protocol::toString(lookup->second.NameData.Name) == "Far Away");
+    msg::MapBlockReply blocks;
+    blocks.Data.resize(2);
+    blocks.Data[0].X = 1999;
+    blocks.Data[0].Name = viewer::protocol::fromString("Far Away Too");
+    blocks.Data[1].X = 2000;
+    blocks.Data[1].Y = 2000;
+    blocks.Data[1].Name = viewer::protocol::fromString("far away");
+    start.send(blocks, true);
+    std::optional<std::pair<FakeSimulator::Received, msg::TeleportLocationRequest>> request;
+    REQUIRE(
+        pumpUntil(session, [&]
+                  { return (request = start.take<msg::TeleportLocationRequest>()).has_value(); }));
+    CHECK(request->second.Info.RegionHandle == gridHandle(2000, 2000));
+    CHECK(request->second.Info.Position == viewer::protocol::Vector3{5, 6, 7});
+
+    start.send(msg::TeleportStart{}, true);
+    REQUIRE(
+        pumpUntil(session, [&] { return session.teleport().state == TeleportState::InProgress; }));
+    msg::TeleportProgress progress;
+    progress.Info.Message = viewer::protocol::fromString("sending_dest");
+    start.send(progress, true);
+    REQUIRE(pumpUntil(session, [&] { return session.teleport().message == "sending_dest"; }));
+
+    // TeleportFinish: a circuit to the destination, which becomes the main
+    // region; until its capabilities arrive the old region's serve.
+    finishTeleport = true;
+    REQUIRE(
+        pumpUntil(session, [&] { return destination.count<msg::CompleteAgentMovement>() > 0; }));
+    CHECK(destination.count<msg::UseCircuitCode>() == 1);
+    CHECK(session.teleport().state == TeleportState::Arriving);
+    REQUIRE(session.mainRegion() != nullptr);
+    CHECK(session.mainRegion()->handle == gridHandle(2000, 2000));
+    CHECK(session.capability("ViewerAsset").has_value());
+
+    // The old region lets go of us before we've arrived: that's fine.
+    start.send(msg::DisableSimulator{});
+    REQUIRE(pumpUntil(session, [&] { return session.regions().size() == 1; }));
+    CHECK(session.state() == SessionState::Connected);
+
+    destination.send(handshake("Far Away"), true);
+    destination.send(movementComplete(5, 6, 7), true);
+    REQUIRE(pumpUntil(session, [&] { return session.arrivals() == 2; }));
+    CHECK(session.lastArrival().kind == Arrival::Kind::Teleport);
+    CHECK(session.agentRegion() == gridHandle(2000, 2000));
+    CHECK(session.agentPosition() == viewer::protocol::Vector3{5, 6, 7});
+    CHECK(session.teleport().state == TeleportState::None);
+    CHECK(session.teleport().failure.empty());
+    REQUIRE(pumpUntil(session, [&] { return destination.count<msg::AgentThrottle>() > 0; }));
+    REQUIRE(
+        pumpUntil(session, [&]
+                  { return session.capability("ViewerAsset") == "http://assets/eq-destination"; }));
+
+    // Walking: the controls reach the main region right away.
+    session.setControls(control::kAtPos, viewer::protocol::Quaternion{0, 0, 0.7071f, 0.7071f});
+    REQUIRE(pumpUntil(
+        session,
+        [&]
+        {
+            while(auto update = destination.take<msg::AgentUpdate>())
+            {
+                if(update->second.AgentData.ControlFlags == control::kAtPos)
+                {
+                    return true;
+                }
+            }
+            return false;
+        },
+        1s));
+
+    // CrossedRegion: into the neighbour.
+    cross = true;
+    REQUIRE(pumpUntil(session, [&] { return next.count<msg::CompleteAgentMovement>() > 0; }));
+    CHECK(session.mainRegion()->handle == gridHandle(2001, 2000));
+    next.send(handshake("Next"), true);
+    next.send(movementComplete(1, 6, 7), true);
+    REQUIRE(pumpUntil(session, [&] { return session.arrivals() == 3; }));
+    CHECK(session.lastArrival().kind == Arrival::Kind::Crossing);
+    CHECK(session.agentRegion() == gridHandle(2001, 2000));
+    // The region we left is a neighbour now; losing it is no failure.
+    destination.send(msg::DisableSimulator{});
+    REQUIRE(pumpUntil(session, [&] { return session.regions().size() == 1; }));
+    CHECK(session.state() == SessionState::Connected);
+}
+
+TEST_CASE("Session: a refused teleport keeps us where we are")
+{
+    FakeSimulator sim;
+    std::atomic<uint16_t> httpPort{0};
+    viewer::test::LoopbackHttpServer server(
+        [&](const LoopbackRequest& request) -> std::optional<LoopbackReply>
+        {
+            if(request.path == "/login")
+            {
+                return LoopbackReply{.body = loginSuccessXml(httpPort, sim.endpoint().port)};
+            }
+            return LoopbackReply{.body = llsd::toXml(llsd::Value(llsd::Map{}))};
+        });
+    httpPort = portOf(server.url(""));
+    auto http = viewer::net::createHttpClient();
+    Session session(*http, testParameters(server));
+    REQUIRE(pumpUntil(session, [&] { return sim.count<msg::CompleteAgentMovement>() > 0; }));
+    sim.send(handshake("Here"), true);
+    sim.send(movementComplete(1, 2, 3), true);
+    REQUIRE(pumpUntil(session, [&] { return settled(session) && session.arrivals() == 1; }));
+
+    session.teleportHome();
+    REQUIRE(pumpUntil(session, [&] { return sim.count<msg::TeleportLandmarkRequest>() > 0; }));
+    CHECK(session.teleport().state == TeleportState::Requested);
+    session.teleportHome(); // ignored while one is under way
+    msg::TeleportFailed failed;
+    failed.Info.AgentID = kAgent;
+    failed.Info.Reason = viewer::protocol::fromString("Home is unavailable.");
+    sim.send(failed, true);
+    REQUIRE(pumpUntil(session, [&] { return session.teleport().state == TeleportState::None; }));
+    CHECK(session.teleport().failure == "Home is unavailable.");
+    CHECK(sim.count<msg::TeleportLandmarkRequest>() == 1);
+    CHECK(session.mainRegion()->name == "Here");
+    CHECK(session.state() == SessionState::Connected);
 }
 
 #endif // _WIN32

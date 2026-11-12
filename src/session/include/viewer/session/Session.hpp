@@ -10,6 +10,12 @@
 // through the event queue (EnableSimulator). Each one is a Region with its own
 // UDP circuit, capabilities and event queue poller.
 //
+// The main region changes when the agent teleports (TeleportFinish) or walks
+// into a neighbour (CrossedRegion): the destination becomes the main region at
+// once and the agent arrives there with AgentMovementComplete (see
+// arrivals()). Regions the destination doesn't need are closed by their
+// simulators (DisableSimulator) or go silent.
+//
 // Threading: HTTP callbacks run on the HttpClient's I/O thread and the UDP
 // circuits on the CircuitManager's network thread; both only queue what
 // arrived. All state changes happen in update(), on the thread that owns the
@@ -49,6 +55,60 @@ enum class SessionState : uint8_t
 
 std::string_view stateName(SessionState state);
 
+enum class TeleportState : uint8_t
+{
+    None,
+    LookingUp,  // asking the map for the region's handle (teleport by name)
+    Requested,  // request sent; waiting for the simulator to start
+    InProgress, // TeleportStart: the simulator is moving us
+    Arriving,   // TeleportFinish: connecting to the destination
+};
+
+std::string_view teleportStateName(TeleportState state);
+
+struct TeleportStatus
+{
+    TeleportState state = TeleportState::None;
+    std::string message{}; // the simulator's latest progress message
+    std::string failure{}; // why the last teleport failed; empty if it didn't
+};
+
+// The agent arrived somewhere: logged in, teleported, walked into another
+// region, or teleported within its region.
+struct Arrival
+{
+    enum class Kind : uint8_t
+    {
+        Login,
+        Teleport,
+        Crossing,
+        LocalTeleport,
+    };
+    Kind kind = Kind::Login;
+    uint64_t region = 0; // handle
+    protocol::Vector3 position{};
+    protocol::Vector3 lookAt{1, 0, 0};
+};
+
+// AgentUpdate control flags (as indra_constants.h's AGENT_CONTROL_*).
+namespace control
+{
+inline constexpr uint32_t kAtPos = 1u << 0; // forward
+inline constexpr uint32_t kAtNeg = 1u << 1;
+inline constexpr uint32_t kLeftPos = 1u << 2; // strafe left
+inline constexpr uint32_t kLeftNeg = 1u << 3;
+inline constexpr uint32_t kUpPos = 1u << 4; // jump / fly up
+inline constexpr uint32_t kUpNeg = 1u << 5;
+inline constexpr uint32_t kYawPos = 1u << 8; // turning left (the body rotation does the turning)
+inline constexpr uint32_t kYawNeg = 1u << 9;
+inline constexpr uint32_t kFastAt = 1u << 10;
+inline constexpr uint32_t kFastLeft = 1u << 11;
+inline constexpr uint32_t kFastUp = 1u << 12;
+inline constexpr uint32_t kFly = 1u << 13;
+inline constexpr uint32_t kStop = 1u << 14;
+inline constexpr uint32_t kStandUp = 1u << 16;
+} // namespace control
+
 // Capability names requested from each region's seed. Regions grant a subset.
 std::vector<std::string> defaultCapabilityNames();
 
@@ -74,6 +134,9 @@ struct Region
     std::optional<std::chrono::steady_clock::time_point> seedRetryAt{};
 
     bool eventQueueRunning = false;
+    // Bumped when the region's HTTP requests are replaced (a new seed):
+    // replies to the old ones are dropped.
+    uint32_t httpGeneration = 0;
     llsd::Value eventQueueAck{}; // id of the last batch we received
     std::optional<std::chrono::steady_clock::time_point> eventQueueRetryAt{};
 
@@ -129,11 +192,30 @@ public:
     }
 
     // Where the agent is: its region's handle and the position in it
-    // (from AgentMovementComplete; updated by later messages in time).
+    // (from AgentMovementComplete and TeleportLocal).
     std::optional<uint64_t> agentRegion() const { return agentRegion_; }
     protocol::Vector3 agentPosition() const { return agentPosition_; }
 
-    // Where the camera is, in the agent's region's coordinates. Simulators
+    // Counts arrivals (AgentMovementComplete, TeleportLocal); lastArrival()
+    // is the latest. Compare the count to notice new ones.
+    uint64_t arrivals() const { return arrivals_; }
+    const Arrival& lastArrival() const { return lastArrival_; }
+
+    // Teleports. Ignored unless Connected and no teleport is under way; the
+    // outcome shows in teleport() and, on success, arrivals().
+    // By region name: the map gives us its handle first.
+    void teleportTo(const Location& location);
+    // To a region by handle, `position` in its coordinates.
+    void teleportTo(uint64_t regionHandle, protocol::Vector3 position);
+    void teleportHome();
+    const TeleportStatus& teleport() const { return teleport_; }
+
+    // How the agent wants to move: control::* flags and the direction the
+    // body faces. Sent to the main region at once when they change, and
+    // repeated while moving.
+    void setControls(uint32_t flags, protocol::Quaternion bodyRotation);
+
+    // Where the camera is, in the agent's region's coordinates (agentRegion()). Simulators
     // send objects around the camera (within `farDistance`), so this decides
     // what we get to see. Until it's set, the camera is at the agent.
     struct CameraView
@@ -156,7 +238,8 @@ public:
         return regions_;
     }
     const Region* mainRegion() const;
-    // The main region's capability URL, if it granted it.
+    // The main region's capability URL, if it granted it. Until a new main
+    // region's capabilities arrive (after a teleport), another region's.
     std::optional<std::string_view> capability(std::string_view name) const;
 
     std::optional<protocol::CircuitStats> circuitStats(protocol::CircuitId circuit) const
@@ -181,6 +264,7 @@ private:
     {
         RequestKind kind;
         protocol::CircuitId circuit; // 0 for the login request
+        uint32_t generation;         // the region's httpGeneration when sent
         net::HttpResponse response;
     };
 
@@ -198,10 +282,29 @@ private:
     Region* findRegion(const net::Endpoint& endpoint);
 
     void requestSeed(Region& region);
+    // Uses this seed capability from now on (a new one replaces the
+    // region's capabilities and event queue).
+    void setSeed(Region& region, const std::string& seed);
     void handleSeed(Region& region, const net::HttpResponse& response);
     void pollEventQueue(Region& region);
     void handleEventQueue(Region& region, const net::HttpResponse& response);
     void handleEvent(Region& region, const std::string& name, const llsd::Value& body);
+
+    // TeleportFinish and CrossedRegion: the agent is moving to this
+    // simulator, which becomes the main region.
+    void moveToRegion(const net::Endpoint& endpoint, uint64_t handle, const std::string& seed,
+                      bool teleport);
+    void handleAgentMovementComplete(Region& region, const protocol::CircuitEvent& event);
+    void handleMapBlockReply(const protocol::CircuitEvent& event);
+    void sendTeleportRequest(uint64_t regionHandle, protocol::Vector3 position);
+    void teleportFailed(std::string reason);
+    // Teleporting or crossing: the main region may be the one we're
+    // leaving or one we haven't arrived in yet, so losing it isn't fatal.
+    bool movingBetweenRegions() const
+    {
+        return pendingCrossing_ || teleport_.state == TeleportState::InProgress ||
+               teleport_.state == TeleportState::Arriving;
+    }
 
     void handleCircuitEvent(const protocol::CircuitEvent& event);
     void handleRegionHandshake(Region& region, const protocol::CircuitEvent& event);
@@ -224,7 +327,18 @@ private:
     std::vector<RegionMessage> regionMessages_;
     std::optional<uint64_t> agentRegion_;
     protocol::Vector3 agentPosition_{};
+    uint64_t arrivals_ = 0;
+    Arrival lastArrival_{};
     std::optional<CameraView> camera_;
+
+    TeleportStatus teleport_;
+    std::chrono::steady_clock::time_point teleportDeadline_{};
+    std::optional<Location> lookup_; // the teleport waiting for MapBlockReply
+    bool pendingCrossing_ = false;   // CrossedRegion, until AgentMovementComplete
+
+    uint32_t controlFlags_ = 0;
+    protocol::Quaternion bodyRotation_{};
+    bool controlsChanged_ = false;
 
     // Declaration order is destruction order in reverse: the HTTP groups go
     // first (no more callbacks), then the circuits (network thread joined),

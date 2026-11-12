@@ -20,6 +20,10 @@ public:
     void lookAt(glm::vec3 target, float distance, float yawDegrees, float pitchDegrees);
     render::Camera camera() const;
     glm::vec3 target() const { return target_; }
+    // Moves the camera without turning it (following the avatar, or the
+    // world origin moving).
+    void shift(glm::vec3 offset) { target_ += offset; }
+    float yaw() const { return yaw_; }
 
 private:
     glm::vec3 forward() const;

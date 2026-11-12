@@ -187,7 +187,33 @@ public:
     const Stats& stats() const { return stats_; }
 
 private:
+    // Object id -> where it is, so an object that moves to another region
+    // (an avatar walking across) replaces its copy in the old one, whose
+    // simulator doesn't always kill it. Only the world being updated needs
+    // it: copies (snapshots) start without and rebuild it if ever updated.
+    struct IdIndex
+    {
+        std::unordered_map<Uuid, ObjectKey> keys;
+        bool valid = true;
+
+        IdIndex() = default;
+        IdIndex(const IdIndex&) : valid(false) {}
+        IdIndex(IdIndex&&) = default;
+        IdIndex& operator=(const IdIndex&)
+        {
+            keys.clear();
+            valid = false;
+            return *this;
+        }
+        IdIndex& operator=(IdIndex&&) = default;
+        ~IdIndex() = default;
+    };
+
     void applyObject(uint64_t regionHandle, const ObjectUpdateData& update);
+    IdIndex& ids();
+    // Removes the object and everything linked or attached to it.
+    void removeWithChildren(const ObjectKey& key);
+    void forgetId(const ObjectKey& key, const Object& object);
 
     // A region's terrain to change: its own copy if a copy of the world
     // still shares it.
@@ -195,6 +221,7 @@ private:
 
     std::map<uint64_t, std::shared_ptr<RegionTerrain>> terrain_;
     ObjectMap objects_;
+    IdIndex ids_;
     std::unordered_map<Uuid, std::shared_ptr<const Appearance>> appearances_;
     uint64_t appearanceSerial_ = 0;
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<PlayingAnimation>>> animations_;

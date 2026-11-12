@@ -17,6 +17,7 @@ add_executable(viewer
   FrameProfile.cpp
   AnimationManager.cpp
   AvatarView.cpp
+  AgentController.cpp
   CameraController.cpp
   FaceUpload.cpp
   LoginPanel.cpp

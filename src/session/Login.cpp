@@ -2,6 +2,7 @@
 
 #include "viewer/core/Md5.hpp"
 
+#include <charconv>
 #include <format>
 
 namespace viewer::session
@@ -139,6 +140,40 @@ std::string_view stripLink(std::string_view where)
 
 } // namespace
 
+std::optional<Location> parseLocation(std::string_view where)
+{
+    std::string text = unescape(stripLink(trim(where)));
+    Location location;
+    std::string coordinates;
+    if(const size_t slash = text.find('/'); slash != std::string::npos)
+    {
+        coordinates = text.substr(slash + 1);
+        text.resize(slash);
+    }
+    location.region = std::string(trim(text));
+    if(location.region.empty())
+    {
+        return std::nullopt;
+    }
+    float* parts[] = {&location.x, &location.y, &location.z};
+    for(float* part : parts)
+    {
+        const size_t next = coordinates.find('/');
+        const std::string value = coordinates.substr(0, next);
+        if(!value.empty())
+        {
+            const auto [end, ec] =
+                std::from_chars(value.data(), value.data() + value.size(), *part);
+            if(ec != std::errc())
+            {
+                return std::nullopt;
+            }
+        }
+        coordinates = next == std::string::npos ? std::string() : coordinates.substr(next + 1);
+    }
+    return location;
+}
+
 std::string startLocation(std::string_view where)
 {
     where = trim(where);
@@ -146,26 +181,12 @@ std::string startLocation(std::string_view where)
     {
         return where.empty() ? std::string("last") : std::string(where);
     }
-    std::string region = unescape(stripLink(where));
-    std::string x = "128";
-    std::string y = "128";
-    std::string z = "0";
-    if(const size_t slash = region.find('/'); slash != std::string::npos)
+    const auto location = parseLocation(where);
+    if(!location)
     {
-        std::string coordinates = region.substr(slash + 1);
-        region.resize(slash);
-        std::string* parts[] = {&x, &y, &z};
-        for(std::string* part : parts)
-        {
-            const size_t next = coordinates.find('/');
-            if(!coordinates.empty())
-            {
-                *part = coordinates.substr(0, next);
-            }
-            coordinates = next == std::string::npos ? std::string() : coordinates.substr(next + 1);
-        }
+        return "last";
     }
-    return std::format("uri:{}&{}&{}&{}", region, x, y, z);
+    return std::format("uri:{}&{}&{}&{}", location->region, location->x, location->y, location->z);
 }
 
 llsd::Value buildLoginRequest(const LoginParameters& p)
