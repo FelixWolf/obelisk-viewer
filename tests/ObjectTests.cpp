@@ -165,4 +165,13 @@ TEST_CASE("Extra parameters: sculpts and meshes")
     CHECK(o.flexible);
     CHECK(o.sculptType == SculptType::Sphere);
     CHECK(o.sculptTexture.bytes[0] == 0xAB);
+    CHECK_FALSE(o.animatedMesh);
+
+    // Extended mesh (type 0x70): flags, bit 0 makes it an animated object.
+    const std::vector<uint8_t> animated = {0x01, 0x70, 0x00, 0x04, 0x00, 0x00, 0x00,
+                                           0x01, 0x00, 0x00, 0x00};
+    applyExtraParams(o, animated);
+    CHECK(o.animatedMesh);
+    applyExtraParams(o, {});
+    CHECK_FALSE(o.animatedMesh);
 }

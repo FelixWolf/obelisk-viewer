@@ -91,6 +91,7 @@ struct Object
     uint8_t sculptType = SculptType::None; // with flags (invert 0x40, mirror 0x80)
     Uuid sculptTexture{};                  // or mesh asset
     bool flexible = false;
+    bool animatedMesh = false; // animesh: its rigged mesh follows a skeleton of its own
 
     std::string hoverText{};
     uint32_t revision = 0;      // bumped on every change

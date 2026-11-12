@@ -287,6 +287,7 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
     object.sculptType = SculptType::None;
     object.sculptTexture = {};
     object.flexible = false;
+    object.animatedMesh = false;
     if(data.empty())
     {
         return;
@@ -307,6 +308,9 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
         case 0x60: // mesh: same layout (asset id, type 5)
             object.sculptTexture = p.uuid();
             object.sculptType = p.u8();
+            break;
+        case 0x70: // extended mesh: flags (llprimitive.h ANIMATED_MESH_ENABLED_FLAG)
+            object.animatedMesh = (p.u32() & 0x1) != 0;
             break;
         default:
             break;

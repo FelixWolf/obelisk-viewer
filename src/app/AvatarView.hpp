@@ -16,6 +16,9 @@
 // Body parts whose bake an attachment shows (Bake on Mesh) are hidden, as
 // llvoavatar.cpp updateMeshVisibility does.
 //
+// Animated objects get a skeleton of their own (the default shape, no
+// body), posed by their animations; their rigged mesh is skinned to it.
+//
 // Not yet: the official viewer's procedural motions (head and eye movement,
 // breathing, hand poses).
 
@@ -43,6 +46,17 @@ namespace viewer
 
 // The avatar an object is attached to (through its link parents), if any.
 const world::Object* attachedAvatar(const world::World& world, const world::Object& object);
+
+// Whose skeleton an object's rigged mesh follows: its animated link set's
+// root (worn or not), else the avatar it's attached to; and its link set's
+// root (the prim attached to the avatar, if worn).
+struct SkeletonOwner
+{
+    const world::Object* owner = nullptr;
+    const world::Object* root = nullptr;
+    bool animated = false; // owner is an animated object, not an avatar
+};
+SkeletonOwner skeletonOwner(const world::World& world, const world::Object& object);
 
 class AvatarView
 {
@@ -85,6 +99,7 @@ public:
                double now, float drawDistance);
 
     size_t drawn() const { return drawn_; }
+    size_t animatedObjects() const { return animatedObjects_; }
 
 private:
     // A shaped body: shared by every avatar with the same appearance (all
@@ -114,32 +129,42 @@ private:
     std::shared_ptr<const Body> build(const avatar::ParamWeights& weights) const;
     const Body& bodyOf(const world::Object& avatar) const;
     // Joint position (and scale lock) overrides from rigged attachments, by
-    // avatar: per joint, the one from the mesh with the lowest id (as the
-    // official viewer picks among conflicting ones).
+    // avatar: per joint, the one from the mesh with the highest id (as the
+    // official viewer picks among conflicting ones); and the pelvis offset
+    // that raises the whole avatar, chosen the same way.
     struct Override
     {
         Uuid mesh;
         glm::vec3 position{0.0f};
         bool lockScale = false;
     };
-    using Overrides = std::unordered_map<int, Override>;
+    struct Overrides
+    {
+        std::unordered_map<int, Override> joints;
+        Uuid pelvisOffsetMesh;
+        float pelvisOffset = 0.0f;
+    };
     // What each avatar's attachments change about it: joint positions, and
     // the bakes they use (Bake on Mesh), whose body parts are then hidden.
     void collectAttachments(const world::World& world, MeshManager& meshes);
 
     void animate(Avatar& a, const world::World& world, const Uuid& id, AnimationManager& animations,
                  double now);
+    // Animates and poses a skeleton (an avatar's or an animated object's).
+    void pose(Avatar& a, const avatar::Shape& shape, const world::World& world, const Uuid& id,
+              AnimationManager& animations, double now);
 
     avatar::BaseAvatar base_;
     render::Renderer& renderer_;
     std::shared_ptr<const Body> defaultBody_; // until an avatar's appearance arrives
     std::vector<glm::mat4> defaultJoints_;    // its rest pose
     std::unordered_map<Uuid, Avatar> avatars_;
-    std::unordered_map<Uuid, Overrides> overrides_; // rebuilt every frame
+    std::unordered_map<Uuid, Overrides> overrides_; // by avatar; rebuilt every frame
     std::unordered_map<Uuid, uint64_t> bakesInUse_; // bit per texture entry index; ditto
     std::string appearanceUrl_;
     uint64_t frame_ = 0;
     size_t drawn_ = 0;
+    size_t animatedObjects_ = 0; // skeletons posed for animated objects last frame
 };
 
 } // namespace viewer

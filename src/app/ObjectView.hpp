@@ -90,7 +90,8 @@ private:
     static std::optional<render::BlinnPhongMaterial>
     material(const world::TextureFace& face, TextureManager& textures, const world::World& world,
              const world::Object* wearer, const AvatarView* avatars);
-    // A rigged mesh worn by an avatar, skinned to its posed skeleton.
+    // A rigged mesh, skinned to the posed skeleton it follows (its avatar's
+    // or its animated object's).
     void addRigged(render::Scene& scene, const world::World& world, const world::Object& object,
                    uint64_t originHandle, TextureManager& textures, MeshManager& meshes,
                    const AvatarView* avatars, float drawDistance);

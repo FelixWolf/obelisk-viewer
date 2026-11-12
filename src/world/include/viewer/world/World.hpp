@@ -171,9 +171,9 @@ public:
     using Appearance = AvatarAppearance;
     using PlayingAnimation = world::PlayingAnimation;
     const Appearance* appearance(const Uuid& avatar) const;
-    // The animations an avatar is playing (from AvatarAnimation: the full
-    // list each time).
-    const std::vector<PlayingAnimation>* animations(const Uuid& avatar) const;
+    // The animations an avatar or animated object is playing (from
+    // AvatarAnimation or ObjectAnimation: the full list each time).
+    const std::vector<PlayingAnimation>* animations(const Uuid& id) const;
     // Bumped whenever any object is added, changed or removed.
     uint64_t objectsRevision() const { return objectsRevision_; }
 

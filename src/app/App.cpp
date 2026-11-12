@@ -387,8 +387,9 @@ int App::run()
                         "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
                         avatars_ ? avatars_->drawn() : size_t{0}, o.drawn, o.meshObjects, o.faces,
                         m.meshes, m.lodsReady, m.diskHits, m.failed, t.resident, t.failed);
-                    log::info("rigged meshes drawn: {}; skipped objects: {}", o.palettes,
-                              o.skipped);
+                    log::info("rigged meshes drawn: {}; skipped objects: {}; animated objects: {}",
+                              o.palettes, o.skipped,
+                              avatars_ ? avatars_->animatedObjects() : size_t{0});
                     if(animations_)
                     {
                         const auto a = animations_->stats();
@@ -401,6 +402,15 @@ int App::run()
                         {
                             log::info("avatar {} at ({:.1f}, {:.1f}, {:.1f})", object.id.toString(),
                                       object.position.x, object.position.y, object.position.z);
+                        }
+                        else if(object.animatedMesh && object.parentId == 0)
+                        {
+                            log::info("animated object {} at ({:.1f}, {:.1f}, {:.1f}), {} playing",
+                                      object.id.toString(), object.position.x, object.position.y,
+                                      object.position.z,
+                                      world_->animations(object.id)
+                                          ? world_->animations(object.id)->size()
+                                          : size_t{0});
                         }
                     }
                 }

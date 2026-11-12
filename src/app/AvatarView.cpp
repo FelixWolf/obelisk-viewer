@@ -72,6 +72,33 @@ const world::Object* attachedAvatar(const world::World& world, const world::Obje
     return nullptr;
 }
 
+SkeletonOwner skeletonOwner(const world::World& world, const world::Object& object)
+{
+    // Up to the link set's root: an animated object's root, or what's
+    // attached to an avatar (or neither).
+    const world::Object* root = &object;
+    const world::Object* avatar = nullptr;
+    for(int depth = 0; depth < 16 && root->parentId != 0; depth++)
+    {
+        const world::Object* parent = world.object(root->region, root->parentId);
+        if(!parent)
+        {
+            return {};
+        }
+        if(parent->type == world::ObjectType::Avatar)
+        {
+            avatar = parent;
+            break;
+        }
+        root = parent;
+    }
+    if(root->type == world::ObjectType::Prim && root->animatedMesh)
+    {
+        return {root, root, true}; // even when worn (llcontrolavatar.cpp)
+    }
+    return {avatar, root, false};
+}
+
 AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer)
     : base_(std::move(base)), renderer_(renderer)
 {
@@ -117,8 +144,14 @@ glm::mat4 AvatarView::rootFrame(const world::Object& avatar, const world::World&
     const world::World::Appearance* appearance = world.appearance(avatar.id);
     const glm::vec3 hover =
         (appearance ? appearance->hover : glm::vec3(0.0f)) + glm::vec3(0.0f, 0.0f, shape.hover);
-    const glm::vec3 root = regionOffset(avatar.region, originHandle) + avatar.position + hover -
-                           glm::vec3(0.0f, 0.0f, 0.5f * shape.bodyHeight - shape.pelvisToFoot);
+    // A rigged attachment's pelvis offset moves where the avatar is drawn
+    // (llvoavatar.cpp getRenderPosition).
+    const auto overrides = overrides_.find(avatar.id);
+    const float pelvisOffset =
+        overrides != overrides_.end() ? overrides->second.pelvisOffset : 0.0f;
+    const glm::vec3 root =
+        regionOffset(avatar.region, originHandle) + avatar.position + hover -
+        glm::vec3(0.0f, 0.0f, 0.5f * shape.bodyHeight - shape.pelvisToFoot - pelvisOffset);
     return glm::translate(glm::mat4(1.0f), root) * glm::mat4_cast(avatar.rotation);
 }
 
@@ -205,34 +238,32 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
 {
     overrides_.clear();
     bakesInUse_.clear();
-    const int pelvis = base_.skeleton.find("mPelvis");
     for(const auto& [key, object] : world.objects())
     {
-        if(object.type != world::ObjectType::Prim || object.parentId == 0)
-        {
-            continue;
-        }
-        const world::Object* avatar = attachedAvatar(world, object);
-        if(!avatar)
+        if(object.type != world::ObjectType::Prim)
         {
             continue;
         }
 
-        // Bake on Mesh: any face showing a bake.
-        uint64_t bakes = 0;
-        for(const world::TextureFace& face : object.faces)
+        // Bake on Mesh: any face of an attachment showing a bake.
+        if(const world::Object* avatar =
+               object.parentId != 0 ? attachedAvatar(world, object) : nullptr)
         {
-            for(const BakeSlot& b : kBakeSlots)
+            uint64_t bakes = 0;
+            for(const world::TextureFace& face : object.faces)
             {
-                if(face.texture == b.placeholder)
+                for(const BakeSlot& b : kBakeSlots)
                 {
-                    bakes |= uint64_t(1) << b.slot;
+                    if(face.texture == b.placeholder)
+                    {
+                        bakes |= uint64_t(1) << b.slot;
+                    }
                 }
             }
-        }
-        if(bakes != 0)
-        {
-            bakesInUse_[avatar->id] |= bakes;
+            if(bakes != 0)
+            {
+                bakesInUse_[avatar->id] |= bakes;
+            }
         }
 
         if((object.sculptType & world::SculptType::Mask) != world::SculptType::Mesh ||
@@ -240,18 +271,25 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
         {
             continue;
         }
-        const auto skin = meshes.skin(object.sculptTexture);
+        // Joint positions go to the skeleton the mesh follows.
+        const world::Object* owner = skeletonOwner(world, object).owner;
+        const auto skin = owner ? meshes.skin(object.sculptTexture) : nullptr;
         if(!skin || skin->alternateBind.empty())
         {
             continue;
         }
-        Overrides& overrides = overrides_[avatar->id];
+        Overrides& overrides = overrides_[owner->id];
+        const Uuid& mesh = object.sculptTexture;
+        if(skin->pelvisOffset != 0.0f &&
+           (overrides.pelvisOffsetMesh.isNull() || mesh > overrides.pelvisOffsetMesh))
+        {
+            overrides.pelvisOffsetMesh = mesh;
+            overrides.pelvisOffset = skin->pelvisOffset;
+        }
         for(size_t j = 0; j < skin->jointNames.size(); j++)
         {
             const int joint = base_.skeleton.find(skin->jointNames[j]);
-            // The pelvis stays at the root (its offset is a hover change in
-            // the official viewer; not done yet).
-            if(joint < 0 || joint == pelvis)
+            if(joint < 0)
             {
                 continue;
             }
@@ -262,13 +300,49 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
             {
                 continue;
             }
-            const auto it = overrides.find(joint);
-            if(it == overrides.end() || object.sculptTexture < it->second.mesh)
+            // Compared with the skeleton file's position, also for the
+            // pelvis: it sits at the root unless a mesh moves it, and then
+            // it's where the mesh says (llavatarappearance.cpp, lljoint.cpp).
+            const auto it = overrides.joints.find(joint);
+            if(it == overrides.joints.end() || mesh > it->second.mesh)
             {
-                overrides[joint] = {object.sculptTexture, position, skin->lockScaleIfJointPosition};
+                overrides.joints[joint] = {mesh, position, skin->lockScaleIfJointPosition};
             }
         }
     }
+}
+
+void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World& world,
+                      const Uuid& id, AnimationManager& animations, double now)
+{
+    animate(a, world, id, animations, now);
+    a.animator.evaluate(now, base_.skeleton.joints.size(), a.pose);
+    // Rigged mesh's joint positions replace the shape's, but not animated
+    // ones.
+    if(const auto o = overrides_.find(id); o != overrides_.end())
+    {
+        for(const auto& [joint, override] : o->second.joints)
+        {
+            avatar::JointPose& p = a.pose[static_cast<size_t>(joint)];
+            if(!p.position)
+            {
+                p.position = override.position;
+            }
+            if(override.lockScale)
+            {
+                p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
+            }
+        }
+    }
+    a.joints = avatar::poseJoints(base_, shape, a.pose);
+    glm::vec3 low(a.joints.empty() ? 0.0f : std::numeric_limits<float>::max());
+    glm::vec3 high(a.joints.empty() ? 0.0f : std::numeric_limits<float>::lowest());
+    for(const glm::mat4& joint : a.joints)
+    {
+        low = glm::min(low, glm::vec3(joint[3]));
+        high = glm::max(high, glm::vec3(joint[3]));
+    }
+    a.extent = glm::length(high - low);
 }
 
 // Starts and stops animations to match what the simulator says is playing.
@@ -318,6 +392,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
 {
     frame_++;
     drawn_ = 0;
+    animatedObjects_ = 0;
     collectAttachments(world, meshes);
     for(const auto& [key, object] : world.objects())
     {
@@ -342,34 +417,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
 
         // Pose: every avatar's, since attachments follow it even when the
         // body is out of sight.
-        animate(a, world, object.id, animations, now);
-        a.animator.evaluate(now, base_.skeleton.joints.size(), a.pose);
-        // Rigged attachments' joint positions replace the shape's, but not
-        // animated ones.
-        if(const auto o = overrides_.find(object.id); o != overrides_.end())
-        {
-            for(const auto& [joint, override] : o->second)
-            {
-                avatar::JointPose& p = a.pose[static_cast<size_t>(joint)];
-                if(!p.position)
-                {
-                    p.position = override.position;
-                }
-                if(override.lockScale)
-                {
-                    p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
-                }
-            }
-        }
-        a.joints = avatar::poseJoints(base_, body.shape, a.pose);
-        glm::vec3 low(a.joints.empty() ? 0.0f : std::numeric_limits<float>::max());
-        glm::vec3 high(a.joints.empty() ? 0.0f : std::numeric_limits<float>::lowest());
-        for(const glm::mat4& joint : a.joints)
-        {
-            low = glm::min(low, glm::vec3(joint[3]));
-            high = glm::max(high, glm::vec3(joint[3]));
-        }
-        a.extent = glm::length(high - low);
+        pose(a, body.shape, world, object.id, animations, now);
 
         const glm::mat4 root = rootFrame(object, world, originHandle);
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance)
@@ -403,7 +451,23 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
     }
 
-    // Forget avatars that are gone.
+    // Animated objects: a skeleton of the default shape with no body, posed
+    // by the object's animations (llcontrolavatar.cpp). Their rigged mesh
+    // is skinned to it by ObjectView.
+    for(const auto& [key, object] : world.objects())
+    {
+        if(object.type != world::ObjectType::Prim || !object.animatedMesh ||
+           skeletonOwner(world, object).owner != &object)
+        {
+            continue;
+        }
+        Avatar& a = avatars_[object.id];
+        a.seen = frame_;
+        pose(a, defaultBody_->shape, world, object.id, animations, now);
+        animatedObjects_++;
+    }
+
+    // Forget avatars and animated objects that are gone.
     std::erase_if(avatars_, [&](const auto& entry) { return entry.second.seen != frame_; });
 }
 

@@ -54,9 +54,9 @@ void World::removeRegion(uint64_t regionHandle)
     objectsRevision_++;
 }
 
-const std::vector<World::PlayingAnimation>* World::animations(const Uuid& avatar) const
+const std::vector<World::PlayingAnimation>* World::animations(const Uuid& id) const
 {
-    const auto it = animations_.find(avatar);
+    const auto it = animations_.find(id);
     return it == animations_.end() ? nullptr : it->second.get();
 }
 
@@ -241,6 +241,20 @@ WorldUpdate decodeMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
     else if(event.is<msg::AvatarAnimation>())
     {
         if(const auto m = event.decode<msg::AvatarAnimation>())
+        {
+            WorldUpdate::Animations a{m->Sender.ID, {}};
+            for(const auto& anim : m->AnimationList)
+            {
+                a.playing.push_back({anim.AnimID, anim.AnimSequenceID});
+            }
+            out.change = std::move(a);
+        }
+    }
+    else if(event.is<msg::ObjectAnimation>())
+    {
+        // An animated object's: kept by its id like an avatar's, also before
+        // the object itself is known (as llviewermessage.cpp does).
+        if(const auto m = event.decode<msg::ObjectAnimation>())
         {
             WorldUpdate::Animations a{m->Sender.ID, {}};
             for(const auto& anim : m->AnimationList)

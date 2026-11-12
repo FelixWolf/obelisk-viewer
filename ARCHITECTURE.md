@@ -426,9 +426,12 @@ skeleton doesn't have following the pelvis. Fitted mesh is weighted to the
 skeleton's collision volumes, which are joints too: they inherit their bone's
 skeletal changes in proportion to their own scale, and morph parameters'
 `volume_morph`s resize them. Joint positions a rigged attachment asks for
-replace the shape's (the mesh with the lowest id wins a conflict, as the
-official viewer picks) unless an animation moves that joint; the pelvis
-offset isn't applied yet. Bake on Mesh: attachment faces showing one of the
+replace the shape's (the mesh with the highest id wins a conflict, as the
+official viewer picks) unless an animation moves that joint. That includes
+the pelvis, which otherwise sits at the root. A mesh's pelvis offset raises
+the whole avatar (the render position, so attachments too); again the
+highest mesh id's wins. Both only come from meshes that carry joint
+positions, as in llvoavatar.cpp addAttachmentOverridesForObject. Bake on Mesh: attachment faces showing one of the
 `IMG_USE_BAKED_*` placeholders show the wearer's bake instead (head, upper,
 lower, eyes, skirt, hair, left arm, left leg, aux 1-3), and the default body
 parts using those bakes are hidden (head and eyelashes, upper, lower, eyes,
@@ -437,6 +440,17 @@ mesh's level of detail comes from its avatar's size (the diagonal of its
 posed joints' box, used as a radius, as LLVOVolume::calcLOD does), not the
 object's scale.
 
-Not yet: animated objects (animesh), IK constraints, the official viewer's
+Animated objects (animesh: the extended mesh parameter's flag on a link
+set's root) get a skeleton of their own, as llcontrolavatar.cpp does: the
+default shape with no body, its root where the root prim is (turned by the
+root mesh's bind shape rotation unless worn), posed by the animations
+ObjectAnimation lists for the object. Every rigged prim of the link set is
+skinned to it, also when the object is worn. The simulator only sends
+ObjectAnimation to viewers that ask for the ObjectAnimation capability, so
+the seed request names it although nothing fetches it. Not yet: the
+official viewer's size and position limits on where animations may move
+them (AnimatedObjectsMaxLegalOffset and MaxLegalSize).
+
+Not yet: IK constraints, the official viewer's
 procedural motions (head and eye movement, breathing, hand poses), clothing
 morph masks and the physics-driven morphs (breast, belly and butt physics).

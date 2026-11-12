@@ -180,24 +180,54 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                            TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
                            float drawDistance)
 {
-    const world::Object* avatar = avatars ? attachedAvatar(world, object) : nullptr;
-    if(!avatar)
+    const SkeletonOwner owner = avatars ? skeletonOwner(world, object) : SkeletonOwner{};
+    if(!owner.owner)
     {
-        stats_.skipped++; // not worn (animated objects aren't drawn yet)
+        stats_.skipped++; // not worn, and not part of an animated object
         return;
     }
-    const glm::mat4 root = avatars->rootFrame(*avatar, world, originHandle);
+    glm::mat4 root(1.0f);
+    float radius = 0.0f;
+    if(owner.animated)
+    {
+        // An animated object's skeleton stands where its root prim is
+        // (llcontrolavatar.cpp matchVolumeTransform): turned by the root's
+        // bind shape rotation too unless worn.
+        const auto frame = frameOf(*owner.root, world, originHandle, avatars);
+        if(!frame)
+        {
+            stats_.skipped++;
+            return;
+        }
+        root = *frame;
+        if(owner.root->parentId == 0 &&
+           (owner.root->sculptType & world::SculptType::Mask) == world::SculptType::Mesh)
+        {
+            if(const auto rootSkin = meshes.skin(owner.root->sculptTexture))
+            {
+                const glm::mat3 bind(rootSkin->bindShape);
+                root *= glm::mat4(glm::mat3_cast(glm::quat_cast(glm::mat3(
+                    glm::normalize(bind[0]), glm::normalize(bind[1]), glm::normalize(bind[2])))));
+            }
+        }
+        // Its extent is used as a radius, unlike an avatar's (LLVOVolume::calcLOD).
+        radius = 0.5f * avatars->extent(*owner.owner);
+    }
+    else
+    {
+        root = avatars->rootFrame(*owner.owner, world, originHandle);
+        radius = avatars->extent(*owner.owner);
+    }
     const float distance = glm::length(glm::vec3(root[3]) - scene.camera.position);
     if(distance > drawDistance)
     {
         return;
     }
     const auto skin = meshes.skin(object.sculptTexture);
-    // Rigged mesh is avatar sized, whatever the object's scale says: as the
+    // Rigged mesh is skeleton sized, whatever the object's scale says: as the
     // official viewer (LLVOVolume::calcLOD), its level of detail comes from
-    // the avatar's extent, which it uses as a radius.
-    const auto* faces =
-        meshes.get(object.sculptTexture, detailFor(avatars->extent(*avatar), distance));
+    // the skeleton's extent.
+    const auto* faces = meshes.get(object.sculptTexture, detailFor(radius, distance));
     if(!skin || !faces)
     {
         return;
@@ -207,7 +237,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     // to the joint as posed now (joints the avatar doesn't have follow the
     // pelvis).
     const avatar::Skeleton& skeleton = avatars->base().skeleton;
-    const std::vector<glm::mat4>& joints = avatars->posedJoints(*avatar);
+    const std::vector<glm::mat4>& joints = avatars->posedJoints(*owner.owner);
     const int pelvis = skeleton.find("mPelvis");
     std::vector<glm::mat4>& palette = palettes_.emplace_back();
     palette.reserve(skin->jointNames.size());
@@ -230,7 +260,9 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         {
             continue;
         }
-        const auto m = material(face, textures, world, avatar, avatars);
+        // Bake on Mesh shows the wearer's bakes; an animated object has none.
+        const auto m =
+            material(face, textures, world, owner.animated ? nullptr : owner.owner, avatars);
         if(!m)
         {
             continue;
@@ -269,8 +301,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
 
-        // Rigged mesh: skinned to the avatar it's attached to, wherever the
-        // attachment point is.
+        // Rigged mesh: skinned to the skeleton it follows (its avatar's or
+        // its animated object's), wherever the prim itself is.
         if(isMesh && meshes.isRigged(object.sculptTexture).value_or(false))
         {
             addRigged(scene, world, object, originHandle, textures, meshes, avatars, drawDistance);

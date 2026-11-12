@@ -104,11 +104,24 @@ std::string_view stateName(SessionState state)
 std::vector<std::string> defaultCapabilityNames()
 {
     return {
-        "AgentPreferences", "ChatSessionRequest",   "EventQueueGet",
-        "ExtEnvironment",   "FetchInventory2",      "FetchInventoryDescendents2",
-        "FetchLib2",        "FetchLibDescendents2", "GetDisplayNames",
-        "HomeLocation",     "ObjectMedia",          "ProvisionVoiceAccountRequest",
-        "ReadOfflineMsgs",  "SimulatorFeatures",    "UpdateAgentLanguage",
+        "AgentPreferences",
+        "ChatSessionRequest",
+        "EventQueueGet",
+        "ExtEnvironment",
+        "FetchInventory2",
+        "FetchInventoryDescendents2",
+        "FetchLib2",
+        "FetchLibDescendents2",
+        "GetDisplayNames",
+        "HomeLocation",
+        // Never fetched: asking for it is how a viewer tells the simulator
+        // it handles animated objects, which then sends ObjectAnimation.
+        "ObjectAnimation",
+        "ObjectMedia",
+        "ProvisionVoiceAccountRequest",
+        "ReadOfflineMsgs",
+        "SimulatorFeatures",
+        "UpdateAgentLanguage",
         "ViewerAsset",
     };
 }
