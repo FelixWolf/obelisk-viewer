@@ -158,6 +158,10 @@ MeshPool::~MeshPool()
         SDL_ReleaseGPUBuffer(device_, block->vertices);
         SDL_ReleaseGPUBuffer(device_, block->indices);
     }
+    if(transfer_)
+    {
+        SDL_ReleaseGPUTransferBuffer(device_, transfer_);
+    }
 }
 
 MeshBlock* MeshPool::newBlock(VertexLayout layout, uint32_t vertexCount, uint32_t indexCount)
@@ -187,8 +191,9 @@ MeshBlock* MeshPool::newBlock(VertexLayout layout, uint32_t vertexCount, uint32_
         SDL_ReleaseGPUBuffer(device_, indexBuffer);
         return nullptr;
     }
-    blocks_.push_back(std::make_unique<MeshBlock>(MeshBlock{
-        layout, vertexBuffer, indexBuffer, RangeAllocator(vertices), RangeAllocator(indices)}));
+    blocks_.push_back(std::make_unique<MeshBlock>(
+        MeshBlock{layout, static_cast<uint32_t>(blocks_.size()), vertexBuffer, indexBuffer,
+                  RangeAllocator(vertices), RangeAllocator(indices)}));
     return blocks_.back().get();
 }
 
@@ -246,39 +251,73 @@ Mesh MeshPool::create(VertexLayout layout, const void* vertices, uint32_t vertex
         mesh.layout = layout;
     }
 
-    // Upload into the ranges. Nothing draws them yet: they were free for at
-    // least kFramesInFlight frames.
+    // Staged; flush() uploads everything staged this frame at once. The
+    // ranges were free for at least kFramesInFlight frames, so nothing
+    // draws them while they're written.
     const uint32_t stride = vertexStride(layout);
     const uint32_t vertexBytes = vertexCount * stride;
     const uint32_t indexBytes = indexCount * static_cast<uint32_t>(sizeof(uint32_t));
-    SDL_GPUTransferBufferCreateInfo transferInfo = {};
-    transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    transferInfo.size = vertexBytes + indexBytes;
-    SDL_GPUTransferBuffer* transfer = SDL_CreateGPUTransferBuffer(device_, &transferInfo);
-    if(!transfer)
+    std::lock_guard lock(mutex_);
+    const auto stage = [&](SDL_GPUBuffer* buffer, uint32_t offset, const void* data, uint32_t size)
     {
-        log::error("creating a mesh transfer buffer failed: {}", SDL_GetError());
-        return {};
-    }
-    auto* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device_, transfer, false));
-    std::memcpy(mapped, vertices, vertexBytes);
-    std::memcpy(mapped + vertexBytes, indices.data(), indexBytes);
-    SDL_UnmapGPUTransferBuffer(device_, transfer);
+        copies_.push_back({buffer, offset, static_cast<uint32_t>(staging_.size()), size});
+        const auto* bytes = static_cast<const uint8_t*>(data);
+        staging_.insert(staging_.end(), bytes, bytes + size);
+    };
+    stage(mesh.block->vertices, mesh.firstVertex * stride, vertices, vertexBytes);
+    stage(mesh.block->indices, mesh.firstIndex * static_cast<uint32_t>(sizeof(uint32_t)),
+          indices.data(), indexBytes);
+    return mesh;
+}
 
-    SDL_GPUCommandBuffer* commands = SDL_AcquireGPUCommandBuffer(device_);
+void MeshPool::flush()
+{
+    std::lock_guard lock(mutex_);
+    if(copies_.empty())
+    {
+        return;
+    }
+    const auto bytes = static_cast<uint32_t>(staging_.size());
+    if(transferSize_ < bytes)
+    {
+        if(transfer_)
+        {
+            SDL_ReleaseGPUTransferBuffer(device_, transfer_);
+        }
+        uint32_t size = 1u << 20;
+        while(size < bytes)
+        {
+            size *= 2;
+        }
+        SDL_GPUTransferBufferCreateInfo info = {};
+        info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        info.size = size;
+        transfer_ = SDL_CreateGPUTransferBuffer(device_, &info);
+        transferSize_ = transfer_ ? size : 0;
+    }
+    SDL_GPUCommandBuffer* commands = transfer_ ? SDL_AcquireGPUCommandBuffer(device_) : nullptr;
+    if(!commands)
+    {
+        log::error("uploading meshes failed: {}", SDL_GetError());
+        copies_.clear();
+        staging_.clear();
+        return;
+    }
+    // Cycled: the GPU may still be reading the previous frame's batch.
+    auto* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device_, transfer_, true));
+    std::memcpy(mapped, staging_.data(), bytes);
+    SDL_UnmapGPUTransferBuffer(device_, transfer_);
     SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
-    SDL_GPUTransferBufferLocation source = {transfer, 0};
-    SDL_GPUBufferRegion destination = {mesh.block->vertices, mesh.firstVertex * stride,
-                                       vertexBytes};
-    SDL_UploadToGPUBuffer(copy, &source, &destination, false);
-    source.offset = vertexBytes;
-    destination = {mesh.block->indices, mesh.firstIndex * static_cast<uint32_t>(sizeof(uint32_t)),
-                   indexBytes};
-    SDL_UploadToGPUBuffer(copy, &source, &destination, false);
+    for(const Copy& c : copies_)
+    {
+        const SDL_GPUTransferBufferLocation source = {transfer_, c.source};
+        const SDL_GPUBufferRegion destination = {c.buffer, c.offset, c.size};
+        SDL_UploadToGPUBuffer(copy, &source, &destination, false);
+    }
     SDL_EndGPUCopyPass(copy);
     SDL_SubmitGPUCommandBuffer(commands);
-    SDL_ReleaseGPUTransferBuffer(device_, transfer);
-    return mesh;
+    copies_.clear();
+    staging_.clear();
 }
 
 void MeshPool::release(const Mesh& mesh)

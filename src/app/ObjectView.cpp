@@ -4,6 +4,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <bit>
 #include <cmath>
 #include <thread>
 
@@ -50,6 +51,28 @@ void uvTransform(const world::TextureFace& face, glm::vec3& row0, glm::vec3& row
 }
 
 } // namespace
+
+size_t ObjectView::KeyHash::operator()(const Key& key) const
+{
+    uint64_t h = 1469598103934665603ull; // FNV-1a over the fields' bits
+    const auto mix = [&](uint32_t bits) { h = (h ^ bits) * 1099511628211ull; };
+    const auto mixFloat = [&](float f) { mix(std::bit_cast<uint32_t>(f)); };
+    const volume::ProfileParams& profile = key.params.profile;
+    const volume::PathParams& path = key.params.path;
+    mix(profile.curve);
+    mixFloat(profile.begin);
+    mixFloat(profile.end);
+    mixFloat(profile.hollow);
+    mix(path.curve);
+    for(const float f : {path.begin, path.end, path.scale.x, path.scale.y, path.shear.x,
+                         path.shear.y, path.twistBegin, path.twist, path.radiusOffset, path.taper.x,
+                         path.taper.y, path.revolutions, path.skew})
+    {
+        mixFloat(f);
+    }
+    mix(static_cast<uint32_t>(key.detail));
+    return static_cast<size_t>(h);
+}
 
 ObjectView::ObjectView(JobSystem& jobs, render::Renderer& renderer)
     : jobs_(jobs), renderer_(renderer)
@@ -236,17 +259,21 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     // The matrices the vertices' joints refer to: from the mesh's bind pose
     // to the joint as posed now (joints the avatar doesn't have follow the
     // pelvis).
-    const avatar::Skeleton& skeleton = avatars->base().skeleton;
     const std::vector<glm::mat4>& joints = avatars->posedJoints(*owner.owner);
-    const int pelvis = skeleton.find("mPelvis");
-    std::vector<glm::mat4>& palette = palettes_.emplace_back();
-    palette.reserve(skin->jointNames.size());
-    for(size_t j = 0; j < skin->jointNames.size(); j++)
+    const AvatarView::SkinBinding& binding = avatars->binding(skin);
+    const auto pelvis = static_cast<size_t>(std::max(avatars->base().skeleton.find("mPelvis"), 0));
+    // Kept from frame to frame (their capacity too); the deque keeps them
+    // where they are, since draws point at them until the frame is drawn.
+    if(palettesUsed_ == palettes_.size())
     {
-        int joint = skeleton.find(skin->jointNames[j]);
-        joint = joint < 0 ? pelvis : joint;
-        palette.push_back(joints[static_cast<size_t>(joint)] * skin->inverseBind[j] *
-                          skin->bindShape);
+        palettes_.emplace_back();
+    }
+    std::vector<glm::mat4>& palette = palettes_[palettesUsed_++];
+    palette.resize(binding.joints.size());
+    for(size_t j = 0; j < binding.joints.size(); j++)
+    {
+        const int joint = binding.joints[j];
+        palette[j] = joints[joint < 0 ? pelvis : static_cast<size_t>(joint)] * binding.bind[j];
     }
 
     stats_.drawn++;
@@ -281,7 +308,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
 {
     stats_.drawn = 0;
     stats_.faces = 0;
-    palettes_.clear(); // last frame's draws are done
+    palettesUsed_ = 0; // last frame's draws are done
     stats_.skipped = 0;
     stats_.meshObjects = 0;
     const glm::vec3 camera = scene.camera.position;
@@ -368,7 +395,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     }
 
     stats_.meshes = cache_.size();
-    stats_.palettes = palettes_.size();
+    stats_.palettes = palettesUsed_;
     stats_.pending = static_cast<size_t>(std::max(running_.load(), 0));
 }
 

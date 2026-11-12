@@ -122,8 +122,13 @@ Package sources are cached in `build/_cpm-cache` unless the `CPM_SOURCE_CACHE`
 environment variable is set. Debug builds turn on SDL GPU validation; on Vulkan
 this only does something if the Khronos validation layer is installed. They
 compile with `-Og`: unoptimized, the per-object math alone holds a busy
-region under 20 FPS. `--no-vsync` shows how fast frames really are; the
-screenshot log line reports the frame rate over the last 240 frames.
+region under 20 FPS. Release builds keep frame pointers, so
+`perf record --call-graph fp` attributes time to callers cheaply.
+`--no-vsync` shows how fast frames really are. `FrameProfile` times each
+stage of the main thread's frame (session, textures, acquire, loading,
+terrain, avatars, objects, ui, render, submit); the FPS overlay shows the
+averages, and the screenshot log reports the frame rate, the averages and
+the slowest frame's breakdown over the last 240 frames.
 
 ## Code style
 
@@ -249,6 +254,21 @@ flight can still draw it. Thousands of separate buffers made frames slow:
 SDL's Vulkan backend searches a list of every buffer a command buffer has
 used on each bind. `drawScene` sorts opaque draws by pipeline, texture and
 block, and only sets state (pipeline, samplers, buffers) when it changes.
+New meshes' contents are staged and go up in one copy pass per frame
+(`MeshPool::flush`), before the frame that may draw them.
+
+Object draws push no uniforms: each frame, every draw's transform, normal
+matrix, texture transform, material values and first joint matrix go into
+one storage buffer (`DrawData`, shared by object and fragment shaders), and
+a draw finds its entry through an instance-rate vertex attribute holding
+the draw's index, which it's drawn with as its first instance. (SDL warns
+that built-in instance ids differ between backends; attribute fetch with a
+first instance doesn't.) Terrain, a handful of draws, still uses uniforms.
+
+Texture uploads run on worker threads: SDL GPU lets any thread create
+textures and record and submit its own command buffer, and a texture is
+usable in frames submitted after its upload was. Decoded textures are
+flipped (bottom row first) on the decode worker too.
 
 Skinned meshes (`SkinnedVertex`: up to four joint indices and weights per
 vertex) use skinned.vert with the Blinn-Phong or PBR fragment shaders. Each

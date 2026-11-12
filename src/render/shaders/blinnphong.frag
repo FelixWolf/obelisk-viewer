@@ -18,17 +18,26 @@ layout(set = 2, binding = 2) uniform sampler2D specularMap;
 
 FRAME_FS_BLOCK
 
-layout(set = 3, binding = 1) uniform MaterialFS
+layout(location = 4) flat in uint inDraw;
+layout(std430, set = 2, binding = 3) readonly buffer Draws
 {
-    vec4 diffuseTint;   // RGB color, A opacity
-    vec4 specularTint;  // RGB color, A max exponent
-    vec4 options;       // x alpha cutoff (< 0: none), y fullbright (unlit) if > 0
-} material;
+    DrawData draws[];
+};
+
+struct Material
+{
+    vec4 diffuseTint;  // RGB color, A opacity
+    vec4 specularTint; // RGB color, A max exponent
+    vec4 options;      // x alpha cutoff (< 0: none), y fullbright (unlit) if > 0
+};
+Material material;
 
 layout(location = 0) out vec4 outColor;
 
 void main()
 {
+    material = Material(draws[inDraw].material[0], draws[inDraw].material[1],
+                        draws[inDraw].material[2]);
     vec4 albedo = texture(diffuseMap, inUv) * material.diffuseTint;
     if(albedo.a < material.options.x)
     {

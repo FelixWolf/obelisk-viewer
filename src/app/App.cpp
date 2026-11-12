@@ -216,8 +216,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     // results queue, and the texture browser drains its own.
     app->worldTextureCache_ = std::make_unique<assets::TextureCache>(
         cacheRoot / "textures", *app->jobs_, *app->j2kDecoder_);
-    app->textures_ =
-        std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_, *app->http_);
+    app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
+                                                      *app->http_, *app->jobs_);
     app->meshes_ = std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_,
                                                  cacheRoot / "meshes");
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_);
@@ -317,8 +317,10 @@ int App::run()
             }
         }
 
+        profile_.beginFrame();
         // Keep the session going even while minimized.
         updateSession();
+        profile_.mark(FrameProfile::Session);
 
         if(SDL_GetWindowFlags(window_.get()) & SDL_WINDOW_MINIMIZED)
         {
@@ -328,6 +330,7 @@ int App::run()
 
         textureBrowser_->update();
         textures_->update();
+        profile_.mark(FrameProfile::Textures);
         const uint64_t now = SDL_GetTicksNS();
         if(!ImGui::GetIO().WantCaptureKeyboard)
         {
@@ -347,16 +350,24 @@ int App::run()
             screenshotRequested_ = true;
         }
 
+        // The scene before the swapchain: building it overlaps the GPU
+        // finishing earlier frames.
+        buildScene(scene_);
         ui_->beginFrame();
         drawUi();
         ui_->endFrame();
+        profile_.mark(FrameProfile::Ui);
 
         if(auto frame = renderer_->beginFrame())
         {
-            renderer_->drawScene(*frame, buildScene());
+            profile_.mark(FrameProfile::Acquire);
+            renderer_->drawScene(*frame, scene_);
             ui_->record(*frame);
+            profile_.mark(FrameProfile::Render);
         }
         renderer_->endFrame();
+        profile_.mark(FrameProfile::Submit);
+        profile_.endFrame();
 
         if(auto shot = renderer_->takeScreenshot())
         {
@@ -375,6 +386,10 @@ int App::run()
                     const float average = total / static_cast<float>(frameTimes_.size());
                     log::info("frames: {:.1f} FPS, {:.2f} ms average, {:.2f} ms worst (last {})",
                               1000.0f / average, average, worst, frameTimes_.size());
+                    log::info("frame stages, average: {}",
+                              FrameProfile::describe(profile_.average()));
+                    log::info("frame stages, slowest frame: {}",
+                              FrameProfile::describe(profile_.worst()));
                 }
                 if(world_)
                 {
@@ -513,12 +528,19 @@ void App::endSession()
     world_.reset();
     worldThread_.reset();
     terrainView_.clear();
+    if(avatars_)
+    {
+        avatars_->clear();
+    }
     originHandle_.reset();
 }
 
-render::Scene App::buildScene()
+void App::buildScene(render::Scene& scene)
 {
-    render::Scene scene;
+    // Kept from frame to frame, so its lists keep their capacity.
+    scene.objects.clear();
+    scene.terrain.clear();
+    scene.worldOrigin = {};
     scene.camera = camera_.camera();
     if(world_ && originHandle_)
     {
@@ -538,6 +560,7 @@ render::Scene App::buildScene()
                                                                 *textures_, placeholder);
                            });
         const float seconds = static_cast<float>(SDL_GetTicksNS() - startTicks_) * 1e-9f;
+        profile_.mark(FrameProfile::Terrain);
         for(const auto& [handle, terrain] : world_->terrain())
         {
             if(!terrain.hasComposition)
@@ -553,15 +576,21 @@ render::Scene App::buildScene()
         }
         objects_->update();
         meshes_->update();
-        if(avatars_)
+        if(animations_)
         {
             animations_->update();
+        }
+        profile_.mark(FrameProfile::Loading);
+        if(avatars_)
+        {
             const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
             avatars_->addTo(scene, *world_, *originHandle_, *textures_, *animations_, *meshes_, now,
                             128.0f);
         }
+        profile_.mark(FrameProfile::Avatars);
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, avatars_.get(),
                         128.0f);
+        profile_.mark(FrameProfile::Objects);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
     }
@@ -572,7 +601,6 @@ render::Scene App::buildScene()
             originHandle_ ? camera_.target() + glm::vec3(0.0f, 30.0f, 0.0f) : glm::vec3(0.0f);
         sceneAssets_->addTestScene(scene, origin);
     }
-    return scene;
 }
 
 void App::logOutBeforeExit()
@@ -629,6 +657,16 @@ void App::drawFpsOverlay()
                     static_cast<double>(worst));
         ImGui::PlotLines("##frames", frameTimes_.data(), static_cast<int>(frameTimes_.size()), 0,
                          nullptr, 0.0f, std::max(33.3f, worst), ImVec2(200.0f, 40.0f));
+        // Where the main thread's time goes (averages, stages over 0.05 ms).
+        const FrameProfile::Times stages = profile_.average();
+        for(size_t i = 0; i < FrameProfile::kStageCount; i++)
+        {
+            if(stages[i] >= 0.05f)
+            {
+                ImGui::Text("%-9s %5.2f ms", FrameProfile::kNames[i],
+                            static_cast<double>(stages[i]));
+            }
+        }
     }
     ImGui::End();
 }

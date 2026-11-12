@@ -52,6 +52,7 @@ private:
 struct MeshBlock
 {
     VertexLayout layout = VertexLayout::Object;
+    uint32_t index = 0; // in creation order
     SDL_GPUBuffer* vertices = nullptr;
     SDL_GPUBuffer* indices = nullptr;
     RangeAllocator vertexRanges; // in vertices
@@ -70,9 +71,13 @@ public:
     MeshPool(const MeshPool&) = delete;
     MeshPool& operator=(const MeshPool&) = delete;
 
-    // Room for a mesh and its contents uploaded; an empty mesh on failure.
+    // Room for a mesh, its contents staged for upload; an empty mesh on
+    // failure.
     Mesh create(VertexLayout layout, const void* vertices, uint32_t vertexCount,
                 std::span<const uint32_t> indices);
+    // Uploads everything staged, in one command buffer. Before a frame that
+    // may draw the new meshes is submitted.
+    void flush();
 
     // Called by ~Mesh.
     void release(const Mesh& mesh);
@@ -102,6 +107,17 @@ private:
     mutable std::mutex mutex_;
     std::vector<std::unique_ptr<MeshBlock>> blocks_;
     std::vector<Released> released_;
+    struct Copy
+    {
+        SDL_GPUBuffer* buffer;
+        uint32_t offset; // in the buffer
+        uint32_t source; // in staging_
+        uint32_t size;
+    };
+    std::vector<Copy> copies_;
+    std::vector<uint8_t> staging_;
+    SDL_GPUTransferBuffer* transfer_ = nullptr;
+    uint32_t transferSize_ = 0;
     uint64_t frame_ = 0;
 };
 

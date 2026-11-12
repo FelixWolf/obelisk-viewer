@@ -11,6 +11,7 @@
 #include <SDL3/SDL_video.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <utility>
@@ -66,7 +67,9 @@ public:
     // Creates sampled textures and uploads every mip level, as one transfer
     // buffer and one copy pass. Output order matches input; a failed texture
     // comes back empty. Total upload size must stay under 4 GiB per call;
-    // callers should batch to a per-frame budget anyway.
+    // callers should batch anyway. Safe to call from any thread (calls are
+    // serialized; each submits its own command buffer): textures are usable
+    // in frames submitted after it returns.
     // srgb: sample as sRGB (color data) instead of raw UNORM (normals, masks, UI).
     std::vector<GpuTexture> uploadTextures(std::span<const image::TextureData* const> textures,
                                            bool srgb);
@@ -100,9 +103,18 @@ private:
     void drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, float exposure,
                      bool clear);
     void finishScreenshot();
-    // Uploads every skinned draw's joint matrices into jointBuffer_; returns
-    // each draw's first matrix (by index into scene.objects).
-    std::vector<uint32_t> uploadJoints(SDL_GPUCommandBuffer* commands, const Scene& scene);
+    // A GPU buffer refilled every frame through its own upload buffer.
+    struct FrameBuffer
+    {
+        GpuBuffer buffer;
+        SDL_GPUTransferBuffer* transfer = nullptr; // same size as buffer
+    };
+    // Makes `b` at least `bytes` large (contents lost when it grows).
+    bool reserve(FrameBuffer& b, uint32_t bytes, SDL_GPUBufferUsageFlags usage);
+    // Uploads every object draw's data (by index into scene.objects) and the
+    // skinned draws' joint matrices; false if there's nothing to draw or
+    // the buffers couldn't be made.
+    bool uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene);
 
     SDL_Window* window_ = nullptr;
     SDL_GPUDevice* device_ = nullptr;
@@ -125,9 +137,12 @@ private:
     GpuTexture terrainBlendRamp_;
 
     std::unique_ptr<MeshPool> meshPool_;
-    GpuBuffer jointBuffer_; // this frame's joint matrices (storage buffer)
-    SDL_GPUTransferBuffer* jointTransfer_ = nullptr;
-    uint32_t jointTransferSize_ = 0;
+    std::vector<std::pair<uint64_t, const ObjectDraw*>> keyedDraws_; // drawScene's, kept
+    FrameBuffer drawBuffer_;     // this frame's DrawData, one per object draw
+    FrameBuffer jointBuffer_;    // this frame's joint matrices
+    FrameBuffer instanceBuffer_; // 0, 1, 2, ...: each draw's index, per instance
+    std::mutex uploadMutex_;     // uploadTextures runs on workers too
+    SDL_GPUTransferBuffer* textureStaging_ = nullptr; // for uploadTextures batches
 
     bool screenshotRequested_ = false;
     SDL_GPUTexture* screenshotTexture_ = nullptr;

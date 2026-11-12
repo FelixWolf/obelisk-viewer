@@ -38,6 +38,7 @@ struct TextureRequest
     J2kSource source{};        // may be empty: then only the cache is consulted
     uint32_t discardLevel = 0; // J2K resolution level to decode on a miss
     uint32_t maxDimension = 0; // drop larger mips from the *result* (the cache keeps all)
+    bool flipRows = false;     // the result bottom row first (image::flipRows), on the worker
 };
 
 struct TextureResult

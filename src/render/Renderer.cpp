@@ -76,9 +76,13 @@ Renderer::~Renderer()
             SDL_ReleaseGPUTexture(device_, t);
         }
     }
-    jointBuffer_.reset();
     meshPool_.reset();
-    for(SDL_GPUTransferBuffer* t : {screenshotTransfer_, jointTransfer_})
+    for(FrameBuffer* b : {&drawBuffer_, &jointBuffer_, &instanceBuffer_})
+    {
+        b->buffer.reset();
+    }
+    for(SDL_GPUTransferBuffer* t : {screenshotTransfer_, textureStaging_, drawBuffer_.transfer,
+                                    jointBuffer_.transfer, instanceBuffer_.transfer})
     {
         if(t)
         {
@@ -129,6 +133,7 @@ std::vector<GpuTexture>
 Renderer::uploadTextures(std::span<const image::TextureData* const> textures, bool srgb)
 {
     std::vector<GpuTexture> out(textures.size());
+    std::lock_guard lock(uploadMutex_);
 
     uint64_t totalBytes = 0;
     for(const image::TextureData* t : textures)
@@ -147,21 +152,45 @@ Renderer::uploadTextures(std::span<const image::TextureData* const> textures, bo
         return out;
     }
 
-    SDL_GPUTransferBufferCreateInfo transferInfo = {};
-    transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    transferInfo.size = static_cast<Uint32>(totalBytes);
-    SDL_GPUTransferBuffer* transfer = SDL_CreateGPUTransferBuffer(device_, &transferInfo);
+    // Batches that fit go through one kept staging buffer (cycled: SDL
+    // hands out fresh memory while the GPU still reads the last batch);
+    // larger ones get their own. Creating a staging buffer per batch made
+    // loading frames slow.
+    constexpr uint32_t kStagingSize = 32u << 20;
+    const bool kept = totalBytes <= kStagingSize;
+    if(kept && !textureStaging_)
+    {
+        SDL_GPUTransferBufferCreateInfo info = {};
+        info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        info.size = kStagingSize;
+        textureStaging_ = SDL_CreateGPUTransferBuffer(device_, &info);
+    }
+    SDL_GPUTransferBuffer* transfer = kept ? textureStaging_ : nullptr;
+    if(!kept)
+    {
+        SDL_GPUTransferBufferCreateInfo info = {};
+        info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        info.size = static_cast<Uint32>(totalBytes);
+        transfer = SDL_CreateGPUTransferBuffer(device_, &info);
+    }
     if(!transfer)
     {
         log::error("SDL_CreateGPUTransferBuffer failed: {}", SDL_GetError());
         return out;
     }
+    auto release = [&]
+    {
+        if(!kept)
+        {
+            SDL_ReleaseGPUTransferBuffer(device_, transfer); // deferred until the upload completes
+        }
+    };
 
-    auto* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device_, transfer, false));
+    auto* mapped = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device_, transfer, kept));
     if(!mapped)
     {
         log::error("SDL_MapGPUTransferBuffer failed: {}", SDL_GetError());
-        SDL_ReleaseGPUTransferBuffer(device_, transfer);
+        release();
         return out;
     }
 
@@ -170,7 +199,7 @@ Renderer::uploadTextures(std::span<const image::TextureData* const> textures, bo
     {
         log::error("SDL_AcquireGPUCommandBuffer failed: {}", SDL_GetError());
         SDL_UnmapGPUTransferBuffer(device_, transfer);
-        SDL_ReleaseGPUTransferBuffer(device_, transfer);
+        release();
         return out;
     }
     SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
@@ -237,12 +266,13 @@ Renderer::uploadTextures(std::span<const image::TextureData* const> textures, bo
     {
         log::error("SDL_SubmitGPUCommandBuffer (upload) failed: {}", SDL_GetError());
     }
-    SDL_ReleaseGPUTransferBuffer(device_, transfer); // deferred until the upload completes
+    release();
     return out;
 }
 
 void Renderer::endFrame()
 {
+    meshPool_->flush(); // also when nothing was drawn
     if(!currentCommands_)
     {
         return;

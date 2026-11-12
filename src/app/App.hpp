@@ -3,6 +3,7 @@
 #include "AnimationManager.hpp"
 #include "AvatarView.hpp"
 #include "CameraController.hpp"
+#include "FrameProfile.hpp"
 #include "LoginPanel.hpp"
 #include "ObjectView.hpp"
 #include "SceneAssets.hpp"
@@ -82,7 +83,8 @@ private:
     void loadTerrainBlendRamp();
     void updateSession();
     void logOutBeforeExit();
-    render::Scene buildScene();
+    // Fills the frame's scene (cleared first).
+    void buildScene(render::Scene& scene);
     void endSession();
 
     struct SdlRuntime
@@ -139,6 +141,8 @@ private:
     uint64_t lastFrameTicks_ = 0;
     // Recent frame times (milliseconds, oldest first) for the FPS overlay.
     std::vector<float> frameTimes_;
+    FrameProfile profile_;
+    render::Scene scene_; // this frame's, kept for its lists' capacity
     bool showFps_ = true;
 };
 

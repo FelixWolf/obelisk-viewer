@@ -227,6 +227,33 @@ const std::vector<glm::mat4>& AvatarView::posedJoints(const world::Object& avata
     return it != avatars_.end() && !it->second.joints.empty() ? it->second.joints : defaultJoints_;
 }
 
+const AvatarView::SkinBinding&
+AvatarView::binding(const std::shared_ptr<const assets::MeshSkin>& skin) const
+{
+    auto [it, inserted] = bindings_.try_emplace(skin.get());
+    if(inserted)
+    {
+        it->second.first = skin;
+        SkinBinding& b = it->second.second;
+        b.joints.reserve(skin->jointNames.size());
+        b.bind.reserve(skin->jointNames.size());
+        for(size_t j = 0; j < skin->jointNames.size(); j++)
+        {
+            b.joints.push_back(base_.skeleton.find(skin->jointNames[j]));
+            b.bind.push_back(skin->inverseBind[j] * skin->bindShape);
+        }
+    }
+    return it->second.second;
+}
+
+void AvatarView::clear()
+{
+    avatars_.clear();
+    overrides_.clear();
+    bakesInUse_.clear();
+    collectedAt_.reset();
+}
+
 float AvatarView::extent(const world::Object& avatar) const
 {
     const auto it = avatars_.find(avatar.id);
@@ -236,6 +263,12 @@ float AvatarView::extent(const world::Object& avatar) const
 
 void AvatarView::collectAttachments(const world::World& world, MeshManager& meshes)
 {
+    const std::pair revisions(world.objectsRevision(), meshes.revision());
+    if(collectedAt_ == revisions)
+    {
+        return;
+    }
+    collectedAt_ = revisions;
     overrides_.clear();
     bakesInUse_.clear();
     for(const auto& [key, object] : world.objects())
@@ -286,9 +319,10 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
             overrides.pelvisOffsetMesh = mesh;
             overrides.pelvisOffset = skin->pelvisOffset;
         }
+        const SkinBinding& resolved = binding(skin);
         for(size_t j = 0; j < skin->jointNames.size(); j++)
         {
-            const int joint = base_.skeleton.find(skin->jointNames[j]);
+            const int joint = resolved.joints[j];
             if(joint < 0)
             {
                 continue;

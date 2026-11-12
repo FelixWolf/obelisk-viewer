@@ -1,7 +1,21 @@
 // Shared by every shader. SDL GPU's SPIR-V resource layout:
-//   vertex:   uniform buffers in set 1
-//   fragment: samplers in set 2, uniform buffers in set 3
-// Uniform blocks use std140 and must match the C++ structs in Renderer.cpp.
+//   vertex:   storage buffers in set 0, uniform buffers in set 1
+//   fragment: samplers then storage buffers in set 2, uniform buffers in set 3
+// Uniform blocks use std140 and must match the C++ structs in
+// RendererScene.cpp; storage buffers std430.
+
+// One object draw's data (RendererScene.cpp DrawData): every draw's is in
+// one storage buffer, and a draw finds its own through an instance-rate
+// vertex attribute (the draw's index, as its first instance).
+struct DrawData
+{
+    mat4 model;
+    mat4 normalMatrix; // inverse transpose of model (upper 3x3 used)
+    vec4 uvRow0;       // texture transform: u' = dot(uvRow0.xyz, (u, v, 1))
+    vec4 uvRow1;       //                    v' = dot(uvRow1.xyz, (u, v, 1))
+    vec4 material[3];  // the material's values (see the fragment shaders)
+    uvec4 skin;        // x: first joint matrix (skinned draws)
+};
 
 const float PI = 3.14159265359;
 

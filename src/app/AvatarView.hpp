@@ -87,6 +87,17 @@ public:
 
     // Joint transforms (relative to the root) as posed this frame.
     const std::vector<glm::mat4>& posedJoints(const world::Object& avatar) const;
+
+    // A rigged mesh's skin resolved against the skeleton, once per skin:
+    // per skin joint, the skeleton's joint (-1 if it has none) and the
+    // inverse bind matrix times the bind shape matrix. A skin joint's
+    // matrix this frame is then posedJoints()[joint] * bind.
+    struct SkinBinding
+    {
+        std::vector<int> joints;
+        std::vector<glm::mat4> bind;
+    };
+    const SkinBinding& binding(const std::shared_ptr<const assets::MeshSkin>& skin) const;
     // How large the avatar is as posed this frame (the diagonal of its
     // joints' box), for choosing its rigged mesh's level of detail.
     float extent(const world::Object& avatar) const;
@@ -97,6 +108,9 @@ public:
     void addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
                TextureManager& textures, AnimationManager& animations, MeshManager& meshes,
                double now, float drawDistance);
+
+    // Forgets every avatar (a session ended).
+    void clear();
 
     size_t drawn() const { return drawn_; }
     size_t animatedObjects() const { return animatedObjects_; }
@@ -159,8 +173,15 @@ private:
     std::shared_ptr<const Body> defaultBody_; // until an avatar's appearance arrives
     std::vector<glm::mat4> defaultJoints_;    // its rest pose
     std::unordered_map<Uuid, Avatar> avatars_;
-    std::unordered_map<Uuid, Overrides> overrides_; // by avatar; rebuilt every frame
-    std::unordered_map<Uuid, uint64_t> bakesInUse_; // bit per texture entry index; ditto
+    std::unordered_map<Uuid, Overrides> overrides_; // by skeleton owner
+    // What overrides_ and bakesInUse_ were collected from: redone when the
+    // world's objects or the mesh skins change.
+    std::optional<std::pair<uint64_t, uint64_t>> collectedAt_;
+    std::unordered_map<Uuid, uint64_t> bakesInUse_; // bit per texture entry index, by avatar
+    // By skin; holds the skin, so its address isn't reused.
+    mutable std::unordered_map<const assets::MeshSkin*,
+                               std::pair<std::shared_ptr<const assets::MeshSkin>, SkinBinding>>
+        bindings_;
     std::string appearanceUrl_;
     uint64_t frame_ = 0;
     size_t drawn_ = 0;

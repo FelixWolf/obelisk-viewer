@@ -61,6 +61,10 @@ public:
     // Handles finished downloads and decodes.
     void update();
 
+    // Bumped whenever a header or skin finishes loading (what isRigged()
+    // and skin() answer changes).
+    uint64_t revision() const { return revision_; }
+
     struct Stats
     {
         size_t meshes = 0;
@@ -146,6 +150,7 @@ private:
     std::atomic<int> decoding_{0};
     std::atomic<int> jobsRunning_{0};
     uint64_t diskHits_ = 0;
+    uint64_t revision_ = 0;
 
     MessageQueue<Download> downloads_;
     MessageQueue<Decoded> decoded_;

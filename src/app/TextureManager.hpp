@@ -14,10 +14,13 @@
 // which also cancels downloads in flight).
 
 #include "viewer/assets/TextureCache.hpp"
+#include "viewer/core/JobSystem.hpp"
+#include "viewer/core/MessageQueue.hpp"
 #include "viewer/core/Uuid.hpp"
 #include "viewer/net/HttpClient.hpp"
 #include "viewer/render/Renderer.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <deque>
 #include <memory>
@@ -31,7 +34,13 @@ namespace viewer
 class TextureManager
 {
 public:
-    TextureManager(assets::TextureCache& cache, render::Renderer& renderer, net::HttpClient& http);
+    TextureManager(assets::TextureCache& cache, render::Renderer& renderer, net::HttpClient& http,
+                   JobSystem& jobs);
+    // Waits for GPU uploads running on workers.
+    ~TextureManager();
+
+    TextureManager(const TextureManager&) = delete;
+    TextureManager& operator=(const TextureManager&) = delete;
 
     void setViewerAssetUrl(std::string url);
 
@@ -72,7 +81,7 @@ private:
         Queued,        // waiting for a download slot
         Downloading,
         Decoding,  // bytes handed to the cache to decode and store
-        Uploading, // decoded; waiting for the GPU upload budget
+        Uploading, // decoded; waiting for, or in, a GPU upload on a worker
         Resident,
         Missing, // the grid doesn't have it (404, or 503: see AssetResponse.hpp)
         Failed,
@@ -83,7 +92,7 @@ private:
         State state = State::CacheLookup;
         render::GpuTexture texture;
         image::AlphaMode alphaMode = image::AlphaMode::Opaque;
-        image::TextureData pending; // decoded, waiting for upload
+        image::TextureData pending; // decoded, waiting for an upload job
         std::unique_ptr<image::TextureData> cpuCopy;
         bool keepCpuCopy = false;
         std::string url; // explicit download URL, if any
@@ -101,10 +110,20 @@ private:
     void startDownloads();
     void handleDownload(Download& download);
     void handleCacheResult(assets::TextureResult& result);
+    // Hands queued textures to upload jobs (a few batches at a time).
+    void startUploads();
+
+    struct Uploaded
+    {
+        std::vector<Uuid> ids;
+        std::vector<render::GpuTexture> textures;
+        std::vector<image::AlphaMode> alphaModes;
+    };
 
     assets::TextureCache& cache_;
     render::Renderer& renderer_;
     net::HttpClient& http_;
+    JobSystem& jobs_;
     std::string viewerAssetUrl_;
 
     std::unordered_map<Uuid, Entry> entries_;
@@ -112,6 +131,11 @@ private:
     std::deque<Uuid> uploadQueue_;
     size_t downloading_ = 0;
     uint64_t bytesDownloaded_ = 0;
+
+    size_t uploadJobs_ = 0; // batches handed to workers, not yet back
+    std::atomic<int> jobsRunning_{0};
+    MessageQueue<Uploaded> uploaded_;
+    std::vector<Uploaded> drainedUploads_;
 
     std::vector<assets::TextureResult> cacheResults_;
     std::vector<Download> downloads_;

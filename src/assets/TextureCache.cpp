@@ -114,6 +114,11 @@ TextureResult TextureCache::process(const TextureRequest& request) const
     result.id = request.id;
     auto finish = [&](TextureResult::Status status)
     {
+        if(request.flipRows && (status == TextureResult::Status::LoadedFromCache ||
+                                status == TextureResult::Status::Decoded))
+        {
+            image::flipRows(result.texture);
+        }
         result.status = status;
         result.milliseconds =
             std::chrono::duration<double, std::milli>(Clock::now() - start).count();

@@ -9,6 +9,7 @@
 
 #include <SDL3/SDL_error.h>
 
+#include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -32,17 +33,18 @@ struct FrameVS
     glm::mat4 viewProjection;
     glm::vec4 cameraPosition;
 };
-struct ObjectVS
+// An object draw's data, std430 (common.glsl DrawData): one storage buffer
+// holds every draw's, so drawing needs no uniform pushes per draw.
+struct DrawData
 {
     glm::mat4 model;
     glm::mat4 normalMatrix;
     glm::vec4 uvRow0;
     glm::vec4 uvRow1;
-};
-struct SkinVS
-{
+    glm::vec4 material[3];
     glm::uvec4 skin;
 };
+static_assert(sizeof(DrawData) == 224);
 struct TerrainVS
 {
     glm::mat4 model;
@@ -55,18 +57,6 @@ struct FrameFS
     glm::vec4 sunColor;
     glm::vec4 skyAmbient;
     glm::vec4 groundAmbient;
-};
-struct BlinnPhongFS
-{
-    glm::vec4 diffuseTint;
-    glm::vec4 specularTint;
-    glm::vec4 options;
-};
-struct PbrFS
-{
-    glm::vec4 baseColorFactor;
-    glm::vec4 emissiveTint;
-    glm::vec4 factors;
 };
 struct TerrainPbrFS
 {
@@ -135,13 +125,13 @@ bool Renderer::createPipelines()
 
     using namespace shaders;
     SDL_GPUShader* objectVert =
-        createShader(device_, {kObjectVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "object.vert");
+        createShader(device_, {kObjectVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 1}, "object.vert");
     SDL_GPUShader* skinnedVert =
-        createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 3, 1}, "skinned.vert");
+        createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 2}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1, 1}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 2}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 1}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
@@ -155,16 +145,23 @@ bool Renderer::createPipelines()
         createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "tonemap.frag");
 
     // Vertex layouts.
-    const SDL_GPUVertexBufferDescription objectBuffer = {0, sizeof(ObjectVertex),
-                                                         SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+    // Object layouts have a second, per-instance buffer: the draw indices
+    // 0, 1, 2, ..., so a draw drawn as instance N reads draw data N.
+    const SDL_GPUVertexBufferDescription objectBuffers[] = {
+        {0, sizeof(ObjectVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
+        {1, sizeof(uint32_t), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
+    };
     const SDL_GPUVertexAttribute objectAttributes[] = {
         {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(ObjectVertex, position)},
         {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(ObjectVertex, normal)},
         {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(ObjectVertex, tangent)},
         {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(ObjectVertex, uv)},
+        {4, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, 0},
     };
-    const SDL_GPUVertexBufferDescription skinnedBuffer = {0, sizeof(SkinnedVertex),
-                                                          SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+    const SDL_GPUVertexBufferDescription skinnedBuffers[] = {
+        {0, sizeof(SkinnedVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
+        {1, sizeof(uint32_t), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
+    };
     const SDL_GPUVertexAttribute skinnedAttributes[] = {
         {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, position)},
         {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, normal)},
@@ -172,6 +169,7 @@ bool Renderer::createPipelines()
         {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(SkinnedVertex, uv)},
         {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4, offsetof(SkinnedVertex, joints)},
         {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(SkinnedVertex, weights)},
+        {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, 0},
     };
     const SDL_GPUVertexBufferDescription terrainBuffer = {0, sizeof(TerrainVertex),
                                                           SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
@@ -204,17 +202,17 @@ bool Renderer::createPipelines()
         SDL_GPUGraphicsPipelineCreateInfo info = {};
         info.vertex_shader = vert;
         info.fragment_shader = frag;
-        info.vertex_input_state.num_vertex_buffers = 1;
+        info.vertex_input_state.num_vertex_buffers = layout == VertexLayout::Terrain ? 1 : 2;
         switch(layout)
         {
         case VertexLayout::Object:
-            info.vertex_input_state.vertex_buffer_descriptions = &objectBuffer;
+            info.vertex_input_state.vertex_buffer_descriptions = objectBuffers;
             info.vertex_input_state.vertex_attributes = objectAttributes;
             info.vertex_input_state.num_vertex_attributes =
                 static_cast<Uint32>(std::size(objectAttributes));
             break;
         case VertexLayout::Skinned:
-            info.vertex_input_state.vertex_buffer_descriptions = &skinnedBuffer;
+            info.vertex_input_state.vertex_buffer_descriptions = skinnedBuffers;
             info.vertex_input_state.vertex_attributes = skinnedAttributes;
             info.vertex_input_state.num_vertex_attributes =
                 static_cast<Uint32>(std::size(skinnedAttributes));
@@ -415,6 +413,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
     const Pipelines& p = *pipelines_;
     SDL_GPUCommandBuffer* commands = frame.commands;
+    // New meshes' contents first: submitted before this frame's commands.
+    meshPool_->flush();
 
     const Camera& camera = scene.camera;
     const float aspect = static_cast<float>(frame.width) / static_cast<float>(frame.height);
@@ -430,8 +430,9 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         glm::vec4(light.groundAmbient, 1.0f),
     };
 
-    // Joint matrices go up before the render pass (copy passes can't nest).
-    const std::vector<uint32_t> jointBases = uploadJoints(commands, scene);
+    // Draw data and joint matrices go up before the render pass (copy passes
+    // can't nest).
+    const bool drawsReady = uploadDraws(commands, scene);
 
     SDL_GPUColorTargetInfo color = {};
     color.texture = hdrTarget_;
@@ -458,7 +459,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     SDL_GPUGraphicsPipeline* boundPipeline = nullptr;
     std::array<SDL_GPUTextureSamplerBinding, 5> boundSamplers{};
     size_t boundSamplerCount = 0;
-    auto drawMesh = [&](const Mesh& mesh)
+    auto drawMesh = [&](const Mesh& mesh, uint32_t instance = 0)
     {
         if(mesh.vertexBuffer() != boundVertices)
         {
@@ -473,7 +474,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             SDL_BindGPUIndexBuffer(pass, &binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
         }
         SDL_DrawGPUIndexedPrimitives(pass, mesh.indexCount, 1, mesh.firstIndex,
-                                     static_cast<Sint32>(mesh.firstVertex), 0);
+                                     static_cast<Sint32>(mesh.firstVertex), instance);
     };
     auto bindPipeline = [&](SDL_GPUGraphicsPipeline* pipeline)
     {
@@ -562,11 +563,11 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     std::vector<std::pair<float, const ObjectDraw*>> blended;
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain)
+        if(!drawsReady || !draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain)
         {
             continue;
         }
-        if(draw.mesh->layout == VertexLayout::Skinned && (draw.joints.empty() || !jointBuffer_))
+        if(draw.mesh->layout == VertexLayout::Skinned && draw.joints.empty())
         {
             continue;
         }
@@ -582,8 +583,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             opaque.push_back(&draw);
         }
     }
-    // Opaque draws need no order: group them by pipeline, then textures, then
-    // buffers, so state changes between neighbours are rare.
+    // Opaque draws need no order: group them by pipeline, then texture, then
+    // buffer block, so state changes between neighbours are rare. One
+    // packed key: layout (2 bits), material kind (2), texture (44: its
+    // address, which only needs to tell textures apart), block (16).
     auto stateKey = [](const ObjectDraw* draw)
     {
         const void* firstTexture = nullptr;
@@ -595,20 +598,21 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         {
             firstTexture = t->albedo;
         }
-        return std::tuple(draw->mesh->layout, draw->material.index(), firstTexture,
-                          static_cast<const void*>(draw->mesh->block));
+        const uint64_t textureBits =
+            (reinterpret_cast<uintptr_t>(firstTexture) >> 4) & ((1ull << 44) - 1);
+        return static_cast<uint64_t>(draw->mesh->layout) << 62 |
+               static_cast<uint64_t>(draw->material.index()) << 60 | textureBits << 16 |
+               (draw->mesh->block->index & 0xFFFFu);
     };
-    using Keyed = std::pair<decltype(stateKey(nullptr)), const ObjectDraw*>;
-    std::vector<Keyed> keyed;
-    keyed.reserve(opaque.size());
+    keyedDraws_.clear();
     for(const ObjectDraw* draw : opaque)
     {
-        keyed.emplace_back(stateKey(draw), draw);
+        keyedDraws_.emplace_back(stateKey(draw), draw);
     }
-    std::ranges::sort(keyed, {}, &Keyed::first);
-    for(size_t i = 0; i < keyed.size(); i++)
+    std::ranges::sort(keyedDraws_, {}, &std::pair<uint64_t, const ObjectDraw*>::first);
+    for(size_t i = 0; i < keyedDraws_.size(); i++)
     {
-        opaque[i] = keyed[i].second;
+        opaque[i] = keyedDraws_[i].second;
     }
     std::ranges::sort(blended, [](const auto& a, const auto& b) { return a.first > b.first; });
     std::vector<const ObjectDraw*> order = std::move(opaque);
@@ -617,13 +621,13 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         order.push_back(draw);
     }
 
-    bool jointsBound = false;
+    // Every object pipeline reads the same storage buffers and instance
+    // buffer; bound again with each pipeline, to be safe across backends.
+    SDL_GPUGraphicsPipeline* objectResourcesFor = nullptr;
     for(const ObjectDraw* drawPointer : order)
     {
         const ObjectDraw& draw = *drawPointer;
         const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
-        const ObjectVS objectVs{draw.transform, glm::transpose(glm::inverse(draw.transform)),
-                                glm::vec4(draw.uvRow0, 0.0f), glm::vec4(draw.uvRow1, 0.0f)};
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {
             bindPipeline(skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
@@ -634,10 +638,6 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(m->specular, white_), p.repeatSampler},
             };
             bindSamplers(samplers);
-            pushFragmentUniforms(
-                commands, 1,
-                BlinnPhongFS{m->diffuseTint, glm::vec4(m->specularTint, m->maxExponent),
-                             glm::vec4(m->alphaCutoff, m->fullbright ? 1.0f : 0.0f, 0.0f, 0.0f)});
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {
@@ -649,24 +649,22 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->normal, flatNormal_), p.repeatSampler},
             };
             bindSamplers(samplers);
-            pushFragmentUniforms(
-                commands, 1,
-                PbrFS{t->baseColorFactor, glm::vec4(t->emissiveTint, t->emissiveStrength),
-                      glm::vec4(t->roughness, t->metallic, t->occlusionStrength, t->alphaCutoff)});
         }
-        pushVertexUniforms(commands, 1, objectVs);
-        if(skinned)
+        if(objectResourcesFor != boundPipeline)
         {
-            if(!jointsBound)
-            {
-                SDL_GPUBuffer* joints = jointBuffer_.get();
-                SDL_BindGPUVertexStorageBuffers(pass, 0, &joints, 1);
-                jointsBound = true;
-            }
-            const auto index = static_cast<size_t>(drawPointer - scene.objects.data());
-            pushVertexUniforms(commands, 2, SkinVS{glm::uvec4(jointBases[index], 0, 0, 0)});
+            objectResourcesFor = boundPipeline;
+            // Without skinned draws there's no joint buffer: any buffer
+            // fills the slot.
+            SDL_GPUBuffer* vertexStorage[] = {drawBuffer_.buffer.get(),
+                                              jointBuffer_.buffer ? jointBuffer_.buffer.get()
+                                                                  : drawBuffer_.buffer.get()};
+            SDL_BindGPUVertexStorageBuffers(pass, 0, vertexStorage, 2);
+            SDL_GPUBuffer* fragmentStorage = drawBuffer_.buffer.get();
+            SDL_BindGPUFragmentStorageBuffers(pass, 0, &fragmentStorage, 1);
+            const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
+            SDL_BindGPUVertexBuffers(pass, 1, &instances, 1);
         }
-        drawMesh(*draw.mesh);
+        drawMesh(*draw.mesh, static_cast<uint32_t>(drawPointer - scene.objects.data()));
     }
     SDL_EndGPURenderPass(pass);
 
@@ -785,63 +783,138 @@ Mesh Renderer::createMesh(std::span<const SkinnedVertex> vertices,
     return createMesh(vertices.data(), vertices.size_bytes(), indices, VertexLayout::Skinned);
 }
 
-std::vector<uint32_t> Renderer::uploadJoints(SDL_GPUCommandBuffer* commands, const Scene& scene)
+bool Renderer::reserve(FrameBuffer& b, uint32_t bytes, SDL_GPUBufferUsageFlags usage)
 {
-    std::vector<uint32_t> bases(scene.objects.size(), 0);
-    size_t count = 0;
-    for(size_t i = 0; i < scene.objects.size(); i++)
+    if(b.buffer && b.buffer.size() >= bytes)
     {
-        bases[i] = static_cast<uint32_t>(count);
-        count += scene.objects[i].joints.size();
+        return true;
     }
+    // Grow to the next power of two, so it settles quickly.
+    uint32_t size = 64u << 10;
+    while(size < bytes)
+    {
+        size *= 2;
+    }
+    SDL_GPUBufferCreateInfo info = {};
+    info.usage = usage;
+    info.size = size;
+    b.buffer = GpuBuffer(device_, SDL_CreateGPUBuffer(device_, &info), size);
+    if(b.transfer)
+    {
+        SDL_ReleaseGPUTransferBuffer(device_, b.transfer);
+    }
+    SDL_GPUTransferBufferCreateInfo transferInfo = {};
+    transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    transferInfo.size = size;
+    b.transfer = SDL_CreateGPUTransferBuffer(device_, &transferInfo);
+    if(!b.buffer || !b.transfer)
+    {
+        log::error("creating a {} byte frame buffer failed: {}", size, SDL_GetError());
+        b.buffer.reset();
+        return false;
+    }
+    return true;
+}
+
+bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
+{
+    const size_t count = scene.objects.size();
     if(count == 0)
     {
-        return bases;
+        return false;
     }
-    const auto bytes = static_cast<uint32_t>(count * sizeof(glm::mat4));
-    if(jointBuffer_.size() < bytes)
+    size_t jointCount = 0;
+    for(const ObjectDraw& draw : scene.objects)
     {
-        // Grow to the next power of two, so it settles quickly.
-        uint32_t size = 4096;
-        while(size < bytes)
-        {
-            size *= 2;
-        }
-        SDL_GPUBufferCreateInfo info = {};
-        info.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
-        info.size = size;
-        jointBuffer_ = GpuBuffer(device_, SDL_CreateGPUBuffer(device_, &info), size);
-        if(jointTransfer_)
-        {
-            SDL_ReleaseGPUTransferBuffer(device_, jointTransfer_);
-        }
-        SDL_GPUTransferBufferCreateInfo transferInfo = {};
-        transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-        transferInfo.size = size;
-        jointTransfer_ = SDL_CreateGPUTransferBuffer(device_, &transferInfo);
-        jointTransferSize_ = jointTransfer_ ? size : 0;
-        if(!jointBuffer_ || !jointTransfer_)
-        {
-            log::error("creating the joint buffer failed: {}", SDL_GetError());
-            jointBuffer_.reset();
-            return bases;
-        }
+        jointCount += draw.joints.size();
+    }
+    const auto drawBytes = static_cast<uint32_t>(count * sizeof(DrawData));
+    const auto jointBytes = static_cast<uint32_t>(jointCount * sizeof(glm::mat4));
+    const auto instanceBytes = static_cast<uint32_t>(count * sizeof(uint32_t));
+    const bool newInstances =
+        !instanceBuffer_.buffer || instanceBuffer_.buffer.size() < instanceBytes;
+    if(!reserve(drawBuffer_, drawBytes, SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ) ||
+       (jointBytes > 0 &&
+        !reserve(jointBuffer_, jointBytes, SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ)) ||
+       !reserve(instanceBuffer_, instanceBytes, SDL_GPU_BUFFERUSAGE_VERTEX))
+    {
+        return false;
     }
 
-    // Cycling: the previous frame may still be reading the old contents.
-    auto* mapped = static_cast<glm::mat4*>(SDL_MapGPUTransferBuffer(device_, jointTransfer_, true));
-    for(size_t i = 0; i < scene.objects.size(); i++)
+    // Cycled: the previous frame may still be reading the old contents.
+    auto* draws =
+        static_cast<DrawData*>(SDL_MapGPUTransferBuffer(device_, drawBuffer_.transfer, true));
+    uint32_t jointBase = 0;
+    for(size_t i = 0; i < count; i++)
     {
-        const auto& joints = scene.objects[i].joints;
-        std::memcpy(mapped + bases[i], joints.data(), joints.size_bytes());
+        const ObjectDraw& draw = scene.objects[i];
+        DrawData& out = draws[i];
+        out.model = draw.transform;
+        // Only its upper 3x3 is used: cheaper than inverting the 4x4.
+        out.normalMatrix = glm::mat4(glm::inverseTranspose(glm::mat3(draw.transform)));
+        out.uvRow0 = glm::vec4(draw.uvRow0, 0.0f);
+        out.uvRow1 = glm::vec4(draw.uvRow1, 0.0f);
+        if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
+        {
+            out.material[0] = m->diffuseTint;
+            out.material[1] = glm::vec4(m->specularTint, m->maxExponent);
+            out.material[2] = glm::vec4(m->alphaCutoff, m->fullbright ? 1.0f : 0.0f, 0.0f, 0.0f);
+        }
+        else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
+        {
+            out.material[0] = t->baseColorFactor;
+            out.material[1] = glm::vec4(t->emissiveTint, t->emissiveStrength);
+            out.material[2] =
+                glm::vec4(t->roughness, t->metallic, t->occlusionStrength, t->alphaCutoff);
+        }
+        out.skin = glm::uvec4(jointBase, 0, 0, 0);
+        jointBase += static_cast<uint32_t>(draw.joints.size());
     }
-    SDL_UnmapGPUTransferBuffer(device_, jointTransfer_);
+    SDL_UnmapGPUTransferBuffer(device_, drawBuffer_.transfer);
+
+    if(jointBytes > 0)
+    {
+        auto* joints =
+            static_cast<glm::mat4*>(SDL_MapGPUTransferBuffer(device_, jointBuffer_.transfer, true));
+        for(const ObjectDraw& draw : scene.objects)
+        {
+            std::memcpy(joints, draw.joints.data(), draw.joints.size_bytes());
+            joints += draw.joints.size();
+        }
+        SDL_UnmapGPUTransferBuffer(device_, jointBuffer_.transfer);
+    }
+
+    if(newInstances)
+    {
+        // 0, 1, 2, ...: written once per size.
+        auto* ids = static_cast<uint32_t*>(
+            SDL_MapGPUTransferBuffer(device_, instanceBuffer_.transfer, false));
+        const uint32_t capacity = instanceBuffer_.buffer.size() / sizeof(uint32_t);
+        for(uint32_t i = 0; i < capacity; i++)
+        {
+            ids[i] = i;
+        }
+        SDL_UnmapGPUTransferBuffer(device_, instanceBuffer_.transfer);
+    }
+
     SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
-    const SDL_GPUTransferBufferLocation source = {jointTransfer_, 0};
-    const SDL_GPUBufferRegion destination = {jointBuffer_.get(), 0, bytes};
-    SDL_UploadToGPUBuffer(copy, &source, &destination, true);
+    auto upload = [&](const FrameBuffer& b, uint32_t bytes, bool cycle)
+    {
+        const SDL_GPUTransferBufferLocation source = {b.transfer, 0};
+        const SDL_GPUBufferRegion destination = {b.buffer.get(), 0, bytes};
+        SDL_UploadToGPUBuffer(copy, &source, &destination, cycle);
+    };
+    upload(drawBuffer_, drawBytes, true);
+    if(jointBytes > 0)
+    {
+        upload(jointBuffer_, jointBytes, true);
+    }
+    if(newInstances)
+    {
+        upload(instanceBuffer_, instanceBuffer_.buffer.size(), false);
+    }
     SDL_EndGPUCopyPass(copy);
-    return bases;
+    return true;
 }
 
 Mesh Renderer::createMesh(std::span<const TerrainVertex> vertices,

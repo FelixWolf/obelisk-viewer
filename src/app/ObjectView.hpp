@@ -25,9 +25,9 @@
 
 #include <atomic>
 #include <deque>
-#include <map>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace viewer
@@ -71,7 +71,11 @@ private:
     {
         volume::VolumeParams params;
         int detail = 0; // index into volume::kDetailScales
-        auto operator<=>(const Key&) const = default;
+        bool operator==(const Key&) const = default;
+    };
+    struct KeyHash
+    {
+        size_t operator()(const Key& key) const;
     };
     struct Geometry
     {
@@ -104,7 +108,7 @@ private:
 
     JobSystem& jobs_;
     render::Renderer& renderer_;
-    std::map<Key, Geometry> cache_;
+    std::unordered_map<Key, Geometry, KeyHash> cache_;
     MessageQueue<Generated> generated_;
     std::vector<Generated> drained_;
     std::atomic<int> running_{0};
@@ -112,6 +116,7 @@ private:
     // This frame's joint matrices for rigged draws (the scene refers to them
     // until it's drawn; a deque keeps them in place as it grows).
     std::deque<std::vector<glm::mat4>> palettes_;
+    size_t palettesUsed_ = 0; // this frame's
 };
 
 } // namespace viewer

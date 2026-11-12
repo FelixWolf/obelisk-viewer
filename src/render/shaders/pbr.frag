@@ -20,17 +20,26 @@ layout(set = 2, binding = 3) uniform sampler2D normalMap;
 
 FRAME_FS_BLOCK
 
-layout(set = 3, binding = 1) uniform MaterialFS
+layout(location = 4) flat in uint inDraw;
+layout(std430, set = 2, binding = 4) readonly buffer Draws
+{
+    DrawData draws[];
+};
+
+struct Material
 {
     vec4 baseColorFactor;
-    vec4 emissiveTint;  // RGB tint, A strength
-    vec4 factors;       // x roughness, y metallic, z occlusion strength, w alpha cutoff (< 0: none)
-} material;
+    vec4 emissiveTint; // RGB tint, A strength
+    vec4 factors;      // x roughness, y metallic, z occlusion strength, w alpha cutoff (< 0: none)
+};
+Material material;
 
 layout(location = 0) out vec4 outColor;
 
 void main()
 {
+    material = Material(draws[inDraw].material[0], draws[inDraw].material[1],
+                        draws[inDraw].material[2]);
     vec4 baseColor = texture(albedoMap, inUv) * material.baseColorFactor;
     if(baseColor.a < material.factors.w)
     {

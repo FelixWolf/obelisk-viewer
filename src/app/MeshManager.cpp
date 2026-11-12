@@ -299,6 +299,7 @@ void MeshManager::handleBytes(const Request& request, std::vector<uint8_t> bytes
         }
         e.parsed = *header;
         state = State::Ready;
+        revision_++;
         return;
     }
 
@@ -386,6 +387,7 @@ void MeshManager::update()
         {
             it->second.skin = std::move(d.skin);
             it->second.skinState = State::Ready;
+            revision_++;
             continue;
         }
         Lod& slot = it->second.lods[static_cast<size_t>(d.request.lod)];
