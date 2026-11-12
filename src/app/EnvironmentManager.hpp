@@ -37,8 +37,9 @@ public:
     // follow the clock.
     void setDayPosition(std::optional<float> position) { fixedPosition_ = position; }
     std::optional<float> dayPosition() const { return fixedPosition_; }
-    // Exposure for the tonemap. Fixed for now: the official viewer adjusts
-    // it to the scene's brightness.
+    // Exposure for the tonemap (the official viewer's RenderExposure, 1).
+    // Fixed for now: the official viewer also adjusts it to the scene's
+    // brightness (dynamic exposure).
     void setExposure(float exposure) { exposure_ = exposure; }
     float exposure() const { return exposure_; }
 
@@ -70,7 +71,7 @@ private:
     std::string capability_;
     std::optional<environment::DayCycle> cycle_;
     std::optional<float> fixedPosition_;
-    float exposure_ = 0.6f;
+    float exposure_ = 1.0f;
     // Clouds drift by the sky's scroll rate; accumulated here so a change of
     // sky doesn't make them jump (as llenvironment.cpp updateCloudScroll).
     glm::vec2 cloudScroll_{0.0f};

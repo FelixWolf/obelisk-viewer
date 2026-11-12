@@ -110,7 +110,7 @@ private:
     bool ensureTargets(uint32_t width, uint32_t height);
     Mesh createMesh(const void* vertices, size_t vertexBytes, std::span<const uint32_t> indices,
                     VertexLayout layout);
-    void drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, float exposure,
+    void drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, const Lighting& light,
                      bool clear);
     void finishScreenshot();
     // A GPU buffer refilled every frame through its own upload buffer.

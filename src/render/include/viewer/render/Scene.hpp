@@ -77,6 +77,9 @@ struct Lighting
     glm::vec3 groundAmbient{0.15f, 0.13f, 0.1f};
     glm::vec3 skyColor{0.45f, 0.6f, 0.85f}; // background when there's no atmosphere
     float exposure = 1.0f;
+    // How much of the tonemapped color, the rest linear (the official viewer's
+    // RenderTonemapMix).
+    float tonemapMix = 0.7f;
     Atmosphere atmosphere;
 };
 

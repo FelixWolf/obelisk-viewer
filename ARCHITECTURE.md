@@ -317,7 +317,7 @@ layout is checked against pymetaverse in `tests/ProtocolTests.cpp`.
 Each frame the App builds a `render::Scene`: camera, lighting, and lists of
 terrain and object draws referring to meshes, textures and materials it
 owns. `Renderer::drawScene` renders it into an RGBA16F target with a depth
-buffer, then a tonemap pass (exposure, ACES fit, sRGB encoding) writes the
+buffer, then a tonemap pass (exposure, ACES mixed with linear, sRGB encoding) writes the
 swapchain image, and ImGui draws on top.
 
 ### Sky and lighting
@@ -362,9 +362,14 @@ shaders (`render::Atmosphere`, in the frame uniforms):
   (the official calcAtmosphericVars): its color dimmed, scattered light
   added.
 
-Exposure is fixed (0.6, adjustable in the Environment window; the official
-viewer adjusts it to the scene), and the tonemap dithers its output so the
-sky's slow gradients don't band. The Environment window shows the day cycle
+The tonemap is the official viewer's default (tonemapUtilF.glsl,
+RenderTonemapType 1, RenderTonemapMix 0.7): Stephen Hill's ACES fit between
+ACES's input and output matrices, mixed 70/30 with the untouched color, so
+dark interiors keep more of their light than ACES alone leaves them.
+Exposure is fixed at the official RenderExposure, 1 (adjustable in the
+Environment window; the official viewer also scales it to the scene's
+brightness, dynamic exposure, which we don't yet). The tonemap dithers its
+output so the sky's slow gradients don't band. The Environment window shows the day cycle
 and can fix the time of day; `--day-time 0..1` does that from the command
 line. Not drawn yet: sun and moon textures, moon phases, water.
 

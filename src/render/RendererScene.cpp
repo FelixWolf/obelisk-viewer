@@ -976,7 +976,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
     SDL_EndGPURenderPass(pass);
 
-    drawTonemap(commands, frame.target, light.exposure, true);
+    drawTonemap(commands, frame.target, light, true);
 
     if(screenshotRequested_)
     {
@@ -1009,7 +1009,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         }
         if(screenshotTexture_ && screenshotTransfer_)
         {
-            drawTonemap(commands, screenshotTexture_, light.exposure, true);
+            drawTonemap(commands, screenshotTexture_, light, true);
             SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
             SDL_GPUTextureRegion source = {};
             source.texture = screenshotTexture_;
@@ -1025,8 +1025,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
 }
 
-void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, float exposure,
-                           bool clear)
+void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target,
+                           const Lighting& light, bool clear)
 {
     SDL_GPUColorTargetInfo color = {};
     color.texture = target;
@@ -1036,7 +1036,8 @@ void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targe
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->tonemap);
     const SDL_GPUTextureSamplerBinding hdr = {hdrTarget_, pipelines_->clampSampler};
     SDL_BindGPUFragmentSamplers(pass, 0, &hdr, 1);
-    pushFragmentUniforms(commands, 0, TonemapFS{glm::vec4(exposure, 0.0f, 0.0f, 0.0f)});
+    pushFragmentUniforms(commands, 0,
+                         TonemapFS{glm::vec4(light.exposure, light.tonemapMix, 0.0f, 0.0f)});
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
 }
