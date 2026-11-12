@@ -49,6 +49,7 @@ const float PI = 3.14159265359;
         vec4 shadowTexels;      /* each cascade's texel size, meters */                       \
         vec4 shadowInfo;        /* x on (1), y one texel in texture coordinates */            \
         vec4 viewAxis;          /* xyz the camera's forward direction */                      \
+        vec4 lightInfo;         /* x local lights in use (lights.glsl) */                    \
     }                                                                                         \
     frame;
 

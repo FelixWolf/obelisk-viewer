@@ -96,6 +96,9 @@ private:
     };
 
     Geometry& geometry(const Key& key);
+    // A light-giving prim's light (it may light the view while out of it).
+    void addLight(render::Scene& scene, const world::World& world, const world::Object& object,
+                  uint64_t originHandle, const AvatarView* avatars, float drawDistance) const;
     // Fills in `extent` from the faces.
     static Generated withExtent(Generated g);
     // A face's material; for faces worn by `wearer` showing a Bake on Mesh

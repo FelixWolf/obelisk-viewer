@@ -117,6 +117,20 @@ struct Shadows
     float distance = 128.0f; // shadows end this far from the camera
 };
 
+// A local light (a prim set to give light), as the official viewer draws
+// it: it reaches `range` (1.5 times the prim's light radius), fading by
+// (1 - clamp((d + falloff) / (1 + falloff)))^2 * 2 with d the distance over
+// the range. Spotlights (projectors) light a cone along `direction`.
+struct LocalLight
+{
+    glm::vec3 position{0.0f};
+    float range = 0.0f;
+    glm::vec3 color{0.0f}; // linear, times the light's intensity
+    float falloff = 0.0f;
+    glm::vec3 direction{0.0f, 0.0f, -1.0f};
+    float coneCos = -2.0f; // cosine of the cone's half angle; below -1: all around
+};
+
 enum class Visibility : uint8_t
 {
     Hidden,     // not drawn
@@ -138,6 +152,9 @@ struct Scene
     Shadows shadows;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;
+    // Every light that may reach the view; the renderer uses the nearest
+    // (Renderer::kMaxLights).
+    std::vector<LocalLight> lights;
 
     // Whatever is within this sphere: in view, only its shadow in view, or
     // neither (frustum and shadows must be set).

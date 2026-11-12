@@ -377,6 +377,22 @@ across the cascades, frames 3.0 ms without shadows, 5.0-7.3 ms with (most
 of it recording draws). `--no-shadows` and the Environment window turn
 them off.
 
+### Local lights
+
+Any prim can give light: extra parameter 0x20 (linear color, alpha the
+intensity; radius, cutoff, falloff), and 0x40 makes it a projector (a
+texture, field of view, focus, ambiance). `ObjectView` turns each lit prim
+within range into a `render::LocalLight` before culling it (a light out of
+view still lights the view), as the official viewer's deferred lights
+(pipeline.cpp): reach 1.5 times the radius, half the falloff, color times
+intensity; projectors shine a cone along the prim's -Z (their texture
+isn't projected yet). The renderer keeps the lights whose reach touches the
+view frustum, nearest first, at most 64 (`Renderer::kMaxLights`), in a
+storage buffer every surface shader loops over (`lights.glsl`):
+(1 - clamp((d + falloff) / (1 + falloff)))^2 * 2 with d the distance over
+the reach, times N.L, as the official legacy lighting; PBR surfaces take it
+on their diffuse color only for now. Local lights cast no shadows.
+
 ### Materials
 
 Four material families, each its own pipeline:

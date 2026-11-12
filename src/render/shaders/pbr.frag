@@ -23,6 +23,8 @@ FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
 #include "shadow.glsl"
+#define LIGHTS_BINDING 6
+#include "lights.glsl"
 
 layout(location = 4) flat in uint inDraw;
 layout(std430, set = 2, binding = 5) readonly buffer Draws
@@ -66,6 +68,8 @@ void main()
                            frame.sunColor.rgb) * shadow;
     color += occlusion * pbrAmbient(n, v, baseColor.rgb, roughness, metallic,
                                     frame.skyAmbient.rgb, frame.groundAmbient.rgb);
+    // Local lights: diffuse only for now.
+    color += baseColor.rgb * (1.0 - metallic) * localLight(inWorldPosition, n);
     color += texture(emissiveMap, inUv).rgb * material.emissiveTint.rgb * material.emissiveTint.a;
     outColor = vec4(applyAtmosphere(color, inWorldPosition), baseColor.a);
 }

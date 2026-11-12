@@ -24,6 +24,8 @@ FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
 #include "shadow.glsl"
+#define LIGHTS_BINDING 6
+#include "lights.glsl"
 
 layout(set = 3, binding = 1) uniform MaterialFS
 {
@@ -126,6 +128,7 @@ void main()
                  sunShadow(shadowMap, inWorldPosition, normalize(inNormal));
     color += orm.r * pbrAmbient(n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
                                 frame.groundAmbient.rgb);
+    color += baseColor * (1.0 - metallic) * localLight(inWorldPosition, n);
     color += emissive;
     outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);
 }

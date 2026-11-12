@@ -69,6 +69,26 @@ inline constexpr uint8_t Mesh = 5;
 inline constexpr uint8_t Mask = 0x07;
 } // namespace SculptType
 
+// A prim that gives light (extra parameter 0x20, llprimitive.cpp LLLightParams).
+struct LightParams
+{
+    glm::vec3 color{1.0f}; // linear
+    float intensity = 1.0f;
+    float radius = 10.0f; // meters
+    float cutoff = 0.0f;
+    float falloff = 0.75f;
+};
+
+// A light that projects (0x40, LLLightImageParams): a spotlight along the
+// prim's -Z, with an optional texture.
+struct LightImage
+{
+    Uuid texture{};
+    float fov = 0.0f; // radians
+    float focus = 0.0f;
+    float ambiance = 0.0f;
+};
+
 // UpdateFlags bit: the object is temporary (object_flags.h); it's never cached.
 inline constexpr uint32_t kFlagTemporaryOnRez = 1u << 29;
 
@@ -97,6 +117,8 @@ struct Object
     Uuid sculptTexture{};                  // or mesh asset
     bool flexible = false;
     bool animatedMesh = false; // animesh: its rigged mesh follows a skeleton of its own
+    std::optional<LightParams> light;
+    std::optional<LightImage> lightImage;
 
     std::string hoverText{};
     // When the latest update (full or terse) arrived, and the simulator's

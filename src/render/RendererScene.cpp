@@ -78,6 +78,14 @@ struct FrameFS
     glm::vec4 shadowTexels;
     glm::vec4 shadowInfo;
     glm::vec4 viewAxis;
+    glm::vec4 lightInfo;
+};
+// One local light, std430 (lights.glsl LocalLight).
+struct LightData
+{
+    glm::vec4 positionRange;
+    glm::vec4 colorFalloff;
+    glm::vec4 directionCone;
 };
 struct SkyFS
 {
@@ -155,16 +163,16 @@ bool Renderer::createPipelines()
     SDL_GPUShader* skinnedVert =
         createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 1}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 2}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 1, 1}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 1, 2}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1, 1},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 6, 2}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 6, 2, 1}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
@@ -598,11 +606,14 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         cascades.texels,
         glm::vec4(shadows ? 1.0f : 0.0f, 1.0f / static_cast<float>(kShadowMapSize), 0.0f, 0.0f),
         glm::vec4(glm::normalize(camera.target - camera.position), 0.0f),
+        glm::vec4(0.0f),
     };
 
     // Draw data and joint matrices go up before the render pass (copy passes
     // can't nest).
     const bool drawsReady = uploadDraws(commands, scene);
+    lightsUsed_ = uploadLights(commands, scene);
+    frameFs.lightInfo.x = static_cast<float>(lightsUsed_);
     if(shadows)
     {
         drawShadows(commands, scene, cascades, drawsReady);
@@ -676,6 +687,11 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         SDL_BindGPUGraphicsPipeline(pass, pipeline);
         pushVertexUniforms(commands, 0, frameVs);
         pushFragmentUniforms(commands, 0, frameFs);
+        if(pipeline == p.terrainBlinnPhong || pipeline == p.terrainPbr)
+        {
+            SDL_GPUBuffer* lights = lightBuffer_.buffer.get();
+            SDL_BindGPUFragmentStorageBuffers(pass, 0, &lights, 1);
+        }
     };
     auto bindSamplers = [&](std::span<const SDL_GPUTextureSamplerBinding> samplers)
     {
@@ -898,8 +914,9 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                                               jointBuffer_.buffer ? jointBuffer_.buffer.get()
                                                                   : drawBuffer_.buffer.get()};
             SDL_BindGPUVertexStorageBuffers(pass, 0, vertexStorage, 2);
-            SDL_GPUBuffer* fragmentStorage = drawBuffer_.buffer.get();
-            SDL_BindGPUFragmentStorageBuffers(pass, 0, &fragmentStorage, 1);
+            SDL_GPUBuffer* fragmentStorage[] = {drawBuffer_.buffer.get(),
+                                                lightBuffer_.buffer.get()};
+            SDL_BindGPUFragmentStorageBuffers(pass, 0, fragmentStorage, 2);
             const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
             SDL_BindGPUVertexBuffers(pass, 1, &instances, 1);
         }
@@ -1274,6 +1291,55 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
         }
         SDL_EndGPURenderPass(pass);
     }
+}
+
+uint32_t Renderer::uploadLights(SDL_GPUCommandBuffer* commands, const Scene& scene)
+{
+    // The buffer always exists (the shaders bind it), with room for one.
+    if(!reserve(lightBuffer_,
+                static_cast<uint32_t>(
+                    sizeof(LightData) *
+                    std::max<size_t>(1, std::min<size_t>(scene.lights.size(), kMaxLights))),
+                SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ))
+    {
+        return 0;
+    }
+    // Those reaching the view, nearest (to their reach) first.
+    std::vector<std::pair<float, const LocalLight*>> chosen;
+    for(const LocalLight& light : scene.lights)
+    {
+        if(light.range <= 0.0f || glm::dot(light.color, light.color) < 1e-6f ||
+           !scene.frustum.containsSphere(light.position, light.range))
+        {
+            continue;
+        }
+        chosen.emplace_back(
+            std::max(0.0f, glm::length(light.position - scene.camera.position) - light.range),
+            &light);
+    }
+    const size_t count = std::min<size_t>(chosen.size(), kMaxLights);
+    std::partial_sort(chosen.begin(), chosen.begin() + static_cast<ptrdiff_t>(count), chosen.end(),
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
+    if(count == 0)
+    {
+        return 0;
+    }
+    auto* out =
+        static_cast<LightData*>(SDL_MapGPUTransferBuffer(device_, lightBuffer_.transfer, true));
+    for(size_t i = 0; i < count; i++)
+    {
+        const LocalLight& l = *chosen[i].second;
+        out[i] = {glm::vec4(l.position, l.range), glm::vec4(l.color, l.falloff),
+                  glm::vec4(l.direction, l.coneCos)};
+    }
+    SDL_UnmapGPUTransferBuffer(device_, lightBuffer_.transfer);
+    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
+    const SDL_GPUTransferBufferLocation source = {lightBuffer_.transfer, 0};
+    const SDL_GPUBufferRegion destination = {lightBuffer_.buffer.get(), 0,
+                                             static_cast<uint32_t>(count * sizeof(LightData))};
+    SDL_UploadToGPUBuffer(copy, &source, &destination, true);
+    SDL_EndGPUCopyPass(copy);
+    return static_cast<uint32_t>(count);
 }
 
 bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)

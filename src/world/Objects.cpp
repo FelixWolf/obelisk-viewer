@@ -288,6 +288,8 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
     object.sculptTexture = {};
     object.flexible = false;
     object.animatedMesh = false;
+    object.light.reset();
+    object.lightImage.reset();
     if(data.empty())
     {
         return;
@@ -312,6 +314,37 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
         case 0x70: // extended mesh: flags (llprimitive.h ANIMATED_MESH_ENABLED_FLAG)
             object.animatedMesh = (p.u32() & 0x1) != 0;
             break;
+        case 0x20: // light: color (alpha: intensity), radius, cutoff, falloff
+        {
+            LightParams light;
+            const uint8_t r8 = p.u8();
+            const uint8_t g8 = p.u8();
+            const uint8_t b8 = p.u8();
+            const uint8_t a8 = p.u8();
+            light.color = glm::vec3(r8, g8, b8) / 255.0f;
+            light.intensity = static_cast<float>(a8) / 255.0f;
+            light.radius = p.f32();
+            light.cutoff = p.f32();
+            light.falloff = p.f32();
+            if(!p.failed())
+            {
+                object.light = light;
+            }
+            break;
+        }
+        case 0x40: // light image: texture, then fov, focus, ambiance
+        {
+            LightImage image;
+            image.texture = p.uuid();
+            image.fov = p.f32();
+            image.focus = p.f32();
+            image.ambiance = p.f32();
+            if(!p.failed())
+            {
+                object.lightImage = image;
+            }
+            break;
+        }
         default:
             break;
         }

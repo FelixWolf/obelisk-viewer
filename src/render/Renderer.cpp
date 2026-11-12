@@ -77,12 +77,13 @@ Renderer::~Renderer()
         }
     }
     meshPool_.reset();
-    for(FrameBuffer* b : {&drawBuffer_, &jointBuffer_, &instanceBuffer_})
+    for(FrameBuffer* b : {&drawBuffer_, &jointBuffer_, &instanceBuffer_, &lightBuffer_})
     {
         b->buffer.reset();
     }
-    for(SDL_GPUTransferBuffer* t : {screenshotTransfer_, textureStaging_, drawBuffer_.transfer,
-                                    jointBuffer_.transfer, instanceBuffer_.transfer})
+    for(SDL_GPUTransferBuffer* t :
+        {screenshotTransfer_, textureStaging_, drawBuffer_.transfer, jointBuffer_.transfer,
+         instanceBuffer_.transfer, lightBuffer_.transfer})
     {
         if(t)
         {

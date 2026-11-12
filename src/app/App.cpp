@@ -457,6 +457,8 @@ int App::run()
                     const auto& sd = renderer_->shadowDraws();
                     log::info("shadow casters drawn per cascade: {} {} {} {}", sd[0], sd[1], sd[2],
                               sd[3]);
+                    log::info("local lights: {} in range, {} used", scene_.lights.size(),
+                              renderer_->lightsUsed());
                     const auto c = worldThread_->cacheStats();
                     log::info("object cache: {} hits, {} misses, {} objects stored", c.hits,
                               c.misses, c.stored);
@@ -748,6 +750,7 @@ void App::buildScene(render::Scene& scene)
 {
     // Kept from frame to frame, so its lists keep their capacity.
     scene.objects.clear();
+    scene.lights.clear();
     scene.terrain.clear();
     scene.worldOrigin = {};
     scene.camera = camera_.camera();

@@ -209,3 +209,42 @@ TEST_CASE("Motion between updates is predicted from velocity, acceleration and s
     o.velocity = glm::vec3(2.0f, 0.0f, 0.0f);
     CHECK(extrapolate(o, 1.0f).position == o.position);
 }
+
+TEST_CASE("Extra parameters: lights and projectors")
+{
+    auto f32 = [](std::vector<uint8_t>& out, float v)
+    {
+        const auto bits = std::bit_cast<uint32_t>(v);
+        for(int i = 0; i < 4; i++)
+        {
+            out.push_back(static_cast<uint8_t>(bits >> (8 * i)));
+        }
+    };
+    // Two parameters: a light (0x20, 16 bytes) and a light image (0x40, 28).
+    std::vector<uint8_t> data = {0x02, 0x20, 0x00, 0x10, 0x00, 0x00, 0x00, 255, 128, 0, 51};
+    f32(data, 6.0f);  // radius
+    f32(data, 0.0f);  // cutoff
+    f32(data, 0.75f); // falloff
+    data.insert(data.end(), {0x40, 0x00, 0x1C, 0x00, 0x00, 0x00});
+    data.insert(data.end(), 16, 0xCD);
+    f32(data, 1.0f); // fov
+    f32(data, 2.0f); // focus
+    f32(data, 0.5f); // ambiance
+
+    Object o;
+    applyExtraParams(o, data);
+    REQUIRE(o.light.has_value());
+    CHECK(o.light->color.r == doctest::Approx(1.0f));
+    CHECK(o.light->color.g == doctest::Approx(128.0f / 255.0f));
+    CHECK(o.light->intensity == doctest::Approx(0.2f));
+    CHECK(o.light->radius == 6.0f);
+    CHECK(o.light->falloff == 0.75f);
+    REQUIRE(o.lightImage.has_value());
+    CHECK(o.lightImage->texture.bytes[0] == 0xCD);
+    CHECK(o.lightImage->fov == 1.0f);
+    CHECK(o.lightImage->ambiance == 0.5f);
+
+    applyExtraParams(o, {});
+    CHECK_FALSE(o.light.has_value());
+    CHECK_FALSE(o.lightImage.has_value());
+}

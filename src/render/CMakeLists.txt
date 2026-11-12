@@ -36,7 +36,7 @@ foreach(source IN LISTS shader_sources)
     COMMAND ${VIEWER_GLSLANG_EXECUTABLE} -V --target-env vulkan1.0 -I${shader_dir}
             -o ${spirv} ${shader_dir}/${source}
     DEPENDS ${shader_dir}/${source} ${shader_dir}/common.glsl ${shader_dir}/atmosphere.glsl
-            ${shader_dir}/shadow.glsl
+            ${shader_dir}/shadow.glsl ${shader_dir}/lights.glsl
             ${VIEWER_GLSLANG_DEPENDS}
     COMMENT "Compiling shader ${source}"
     VERBATIM

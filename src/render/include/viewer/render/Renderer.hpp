@@ -95,6 +95,8 @@ public:
 
     // Draws into each shadow cascade last frame (for the stats).
     const std::array<uint32_t, 4>& shadowDraws() const { return shadowDrawCounts_; }
+    // Local lights used last frame.
+    uint32_t lightsUsed() const { return lightsUsed_; }
     std::optional<image::MipLevel> takeScreenshot() { return std::exchange(screenshot_, {}); }
 
 private:
@@ -121,6 +123,14 @@ private:
     // skinned draws' joint matrices; false if there's nothing to draw or
     // the buffers couldn't be made.
     bool uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene);
+    // Picks the lights to use (those reaching the view, nearest first, at
+    // most kMaxLights) and uploads them; returns how many.
+    uint32_t uploadLights(SDL_GPUCommandBuffer* commands, const Scene& scene);
+
+public:
+    static constexpr uint32_t kMaxLights = 64;
+
+private:
     // Renders the shadow casters into each cascade's layer of the shadow map.
     void drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene, const Cascades& cascades,
                      bool drawsReady);
@@ -140,6 +150,7 @@ private:
     SDL_GPUTexture* shadowMap_ = nullptr;
     std::vector<glm::vec4> casterSpheres_; // xyz center, w radius, per scene object
     std::array<uint32_t, 4> shadowDrawCounts_{};
+    uint32_t lightsUsed_ = 0;
     uint32_t targetWidth_ = 0;
     uint32_t targetHeight_ = 0;
 
@@ -157,6 +168,7 @@ private:
     FrameBuffer drawBuffer_;     // this frame's DrawData, one per object draw
     FrameBuffer jointBuffer_;    // this frame's joint matrices
     FrameBuffer instanceBuffer_; // 0, 1, 2, ...: each draw's index, per instance
+    FrameBuffer lightBuffer_;    // this frame's local lights (lights.glsl)
     std::mutex uploadMutex_;     // uploadTextures runs on workers too
     SDL_GPUTransferBuffer* textureStaging_ = nullptr; // for uploadTextures batches
 

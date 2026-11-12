@@ -21,6 +21,8 @@ FRAME_FS_BLOCK
 
 #include "atmosphere.glsl"
 #include "shadow.glsl"
+#define LIGHTS_BINDING 5
+#include "lights.glsl"
 
 layout(location = 4) flat in uint inDraw;
 layout(std430, set = 2, binding = 4) readonly buffer Draws
@@ -67,5 +69,6 @@ void main()
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
     vec3 color = blinnPhong(n, v, l, albedo.rgb, specularColor, exponent, frame.sunColor.rgb) * shadow;
     color += albedo.rgb * hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
+    color += albedo.rgb * localLight(inWorldPosition, n);
     outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }
