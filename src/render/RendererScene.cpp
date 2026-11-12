@@ -9,6 +9,7 @@
 #include "viewer/render/ShaderBytecode.hpp"
 
 #include <SDL3/SDL_error.h>
+#include <SDL3/SDL_timer.h>
 
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -27,6 +28,8 @@ namespace
 {
 
 constexpr SDL_GPUTextureFormat kHdrFormat = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+// Dynamic exposure's luminance and exposure maps.
+constexpr SDL_GPUTextureFormat kExposureFormat = SDL_GPU_TEXTUREFORMAT_R16_FLOAT;
 
 // Uniform blocks, std140. Must match the shaders.
 struct FrameVS
@@ -115,6 +118,11 @@ struct TonemapFS
 {
     glm::vec4 settings;
 };
+struct ExposureFS
+{
+    glm::vec4 params;  // luminance taken as bright, least and most exposure, speed error
+    glm::vec4 params2; // seconds since last frame, 1 if last frame's is valid, speed target
+};
 
 struct ShaderDesc
 {
@@ -189,7 +197,11 @@ bool Renderer::createPipelines()
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
-        createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "tonemap.frag");
+        createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1}, "tonemap.frag");
+    SDL_GPUShader* luminanceFrag = createShader(
+        device_, {kLuminanceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0}, "luminance.frag");
+    SDL_GPUShader* exposureFrag =
+        createShader(device_, {kExposureFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1}, "exposure.frag");
     SDL_GPUShader* shadowFrag =
         createShader(device_, {kShadowFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "shadow.frag");
     SDL_GPUShader* shadowMaskedFrag = createShader(
@@ -353,6 +365,31 @@ bool Renderer::createPipelines()
             log::error("creating the tonemap pipeline failed: {}", SDL_GetError());
         }
     }
+    // Dynamic exposure's passes: one value per pixel, half floats.
+    auto exposurePipeline = [&](SDL_GPUShader* frag, const char* name) -> SDL_GPUGraphicsPipeline*
+    {
+        if(!fullscreenVert || !frag)
+        {
+            return nullptr;
+        }
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kExposureFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = frag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!pipeline)
+        {
+            log::error("creating the {} pipeline failed: {}", name, SDL_GetError());
+        }
+        return pipeline;
+    };
+    p.luminance = exposurePipeline(luminanceFrag, "luminance");
+    p.exposure = exposurePipeline(exposureFrag, "exposure");
 
     // Shadow maps: depth only, both sides of every face (prims are often
     // open, and thin), pushed back a little against self-shadowing.
@@ -439,9 +476,9 @@ bool Renderer::createPipelines()
         }
     }
 
-    for(SDL_GPUShader* s :
-        {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert, terrainBlinnPhongFrag,
-         terrainPbrFrag, fullscreenVert, tonemapFrag, skyFrag, shadowFrag, shadowMaskedFrag})
+    for(SDL_GPUShader* s : {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert,
+                            terrainBlinnPhongFrag, terrainPbrFrag, fullscreenVert, tonemapFrag,
+                            luminanceFrag, exposureFrag, skyFrag, shadowFrag, shadowMaskedFrag})
     {
         if(s)
         {
@@ -473,9 +510,9 @@ bool Renderer::createPipelines()
 
     return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.blinnPhongSkinned &&
            p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
-           p.tonemap && p.sky && p.shadowObject && p.shadowObjectMasked && p.shadowSkinned &&
-           p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler && p.clampSampler &&
-           p.shadowSampler;
+           p.tonemap && p.luminance && p.exposure && p.sky && p.shadowObject &&
+           p.shadowObjectMasked && p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain &&
+           p.repeatSampler && p.clampSampler && p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -592,7 +629,8 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
     hdrTarget_ = SDL_CreateGPUTexture(device_, &info);
 
     info.format = depthFormat_;
-    info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+    // Sampled afterwards by dynamic exposure (sky or not).
+    info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     depthTarget_ = SDL_CreateGPUTexture(device_, &info);
 
     if(!hdrTarget_ || !depthTarget_)
@@ -675,7 +713,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     depth.texture = depthTarget_;
     depth.clear_depth = 1.0f;
     depth.load_op = SDL_GPU_LOADOP_CLEAR;
-    depth.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depth.store_op = SDL_GPU_STOREOP_STORE; // dynamic exposure tells the sky by it
     depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     depth.cycle = true;
@@ -976,6 +1014,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
     SDL_EndGPURenderPass(pass);
 
+    updateExposure(commands, light);
     drawTonemap(commands, frame.target, light, true);
 
     if(screenshotRequested_)
@@ -1025,6 +1064,67 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
 }
 
+void Renderer::updateExposure(SDL_GPUCommandBuffer* commands, const Lighting& light)
+{
+    if(!luminance_)
+    {
+        SDL_GPUTextureCreateInfo info = {};
+        info.type = SDL_GPU_TEXTURETYPE_2D;
+        info.format = kExposureFormat;
+        info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        info.width = kLuminanceSize;
+        info.height = kLuminanceSize;
+        info.layer_count_or_depth = 1;
+        info.num_levels = kLuminanceLevels;
+        luminance_ = SDL_CreateGPUTexture(device_, &info);
+        info.width = 1;
+        info.height = 1;
+        info.num_levels = 1;
+        for(SDL_GPUTexture*& t : exposureMaps_)
+        {
+            t = SDL_CreateGPUTexture(device_, &info);
+        }
+        exposureHistory_ = false;
+    }
+    const uint64_t now = SDL_GetTicksNS();
+    const float seconds =
+        std::clamp(static_cast<float>(now - lastExposureTicks_) * 1e-9f, 0.0f, 1.0f);
+    lastExposureTicks_ = now;
+
+    SDL_GPUColorTargetInfo color = {};
+    color.texture = luminance_;
+    color.load_op = SDL_GPU_LOADOP_DONT_CARE;
+    color.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, nullptr);
+    SDL_BindGPUGraphicsPipeline(pass, pipelines_->luminance);
+    const SDL_GPUTextureSamplerBinding scene[] = {{hdrTarget_, pipelines_->clampSampler},
+                                                  {depthTarget_, pipelines_->clampSampler}};
+    SDL_BindGPUFragmentSamplers(pass, 0, scene, 2);
+    SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+    SDL_GenerateMipmapsForGPUTexture(commands, luminance_);
+
+    const uint32_t previous = exposureIndex_;
+    exposureIndex_ ^= 1u;
+    color.texture = exposureMaps_[exposureIndex_];
+    pass = SDL_BeginGPURenderPass(commands, &color, 1, nullptr);
+    SDL_BindGPUGraphicsPipeline(pass, pipelines_->exposure);
+    const SDL_GPUTextureSamplerBinding inputs[] = {
+        {luminance_, pipelines_->clampSampler},
+        {exposureMaps_[previous], pipelines_->clampSampler}};
+    SDL_BindGPUFragmentSamplers(pass, 0, inputs, 2);
+    // The official viewer's RenderDynamicExposureCoefficient, SpeedError and
+    // SpeedTarget: a luminance of 0.175 takes the least exposure, and 90% of
+    // the way to a new exposure takes 2 s.
+    pushFragmentUniforms(
+        commands, 0,
+        ExposureFS{glm::vec4(0.175f, light.exposureMin, light.exposureMax, 0.1f),
+                   glm::vec4(seconds, exposureHistory_ ? 1.0f : 0.0f, 2.0f, 0.0f)});
+    SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+    exposureHistory_ = true;
+}
+
 void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target,
                            const Lighting& light, bool clear)
 {
@@ -1034,8 +1134,10 @@ void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targe
     color.store_op = SDL_GPU_STOREOP_STORE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, nullptr);
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->tonemap);
-    const SDL_GPUTextureSamplerBinding hdr = {hdrTarget_, pipelines_->clampSampler};
-    SDL_BindGPUFragmentSamplers(pass, 0, &hdr, 1);
+    const SDL_GPUTextureSamplerBinding inputs[] = {
+        {hdrTarget_, pipelines_->clampSampler},
+        {exposureMaps_[exposureIndex_], pipelines_->clampSampler}};
+    SDL_BindGPUFragmentSamplers(pass, 0, inputs, 2);
     pushFragmentUniforms(commands, 0,
                          TonemapFS{glm::vec4(light.exposure, light.tonemapMix, 0.0f, 0.0f)});
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);

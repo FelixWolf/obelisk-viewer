@@ -112,6 +112,9 @@ private:
                     VertexLayout layout);
     void drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, const Lighting& light,
                      bool clear);
+    // Measures the frame's luminance and moves the dynamic exposure towards
+    // what it calls for (into exposureMaps_[exposureIndex_]).
+    void updateExposure(SDL_GPUCommandBuffer* commands, const Lighting& light);
     void finishScreenshot();
     // A GPU buffer refilled every frame through its own upload buffer.
     struct FrameBuffer
@@ -145,6 +148,16 @@ private:
     SDL_GPUTextureFormat depthFormat_ = SDL_GPU_TEXTUREFORMAT_INVALID;
     SDL_GPUTexture* hdrTarget_ = nullptr;
     SDL_GPUTexture* depthTarget_ = nullptr;
+    // Dynamic exposure (as the official viewer's): the scene's luminance,
+    // mipmapped down to its average, and the exposure (1x1), last frame's
+    // and this one's.
+    static constexpr uint32_t kLuminanceSize = 256;
+    static constexpr uint32_t kLuminanceLevels = 9; // 256 down to 1
+    SDL_GPUTexture* luminance_ = nullptr;
+    std::array<SDL_GPUTexture*, 2> exposureMaps_{};
+    uint32_t exposureIndex_ = 0;
+    bool exposureHistory_ = false; // exposureMaps_ hold a valid exposure
+    uint64_t lastExposureTicks_ = 0;
     // Sun shadows: one layer per cascade.
     static constexpr uint32_t kShadowCascades = 4;
     static constexpr uint32_t kShadowMapSize = 2048;

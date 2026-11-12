@@ -76,7 +76,11 @@ struct Lighting
     glm::vec3 skyAmbient{0.35f, 0.45f, 0.6f};                             // linear
     glm::vec3 groundAmbient{0.15f, 0.13f, 0.1f};
     glm::vec3 skyColor{0.45f, 0.6f, 0.85f}; // background when there's no atmosphere
+    // Exposure: this setting times the dynamic exposure, which goes from
+    // exposureMax for a dark view to exposureMin for a bright one.
     float exposure = 1.0f;
+    float exposureMin = 1.0f;
+    float exposureMax = 1.0f;
     // How much of the tonemapped color, the rest linear (the official viewer's
     // RenderTonemapMix).
     float tonemapMix = 0.7f;

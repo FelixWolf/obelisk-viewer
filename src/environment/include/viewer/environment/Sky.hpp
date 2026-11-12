@@ -31,6 +31,10 @@ struct SkySettings
     float maxY = 1605.0f;
     glm::vec3 glow{5.0f, 0.001f, -0.4799f};
     float gamma = 1.0f;
+    // Reflection probe ambiance: 0 for skies made before PBR (no
+    // "reflection_probe_ambiance", the official default), which the official
+    // viewer shows without dynamic exposure or tonemapping.
+    float probeAmbiance = 0.0f;
 
     // Sun and moon: rotations of +X (east) to where they are.
     glm::quat sunRotation{1.0f, 0.0f, 0.0f, 0.0f};

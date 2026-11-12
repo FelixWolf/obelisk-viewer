@@ -1,11 +1,13 @@
 #version 450
 
-// HDR scene -> display: exposure, then the official viewer's tonemap (ACES,
-// mixed with the untouched color: RenderTonemapMix), then sRGB encoding (the
-// swapchain is UNORM, so the shader does the encoding).
+// HDR scene -> display: exposure (the setting times the dynamic exposure),
+// then the official viewer's tonemap (ACES, mixed with the untouched color:
+// RenderTonemapMix), then sRGB encoding (the swapchain is UNORM, so the
+// shader does the encoding).
 
 layout(location = 0) in vec2 inUv;
 layout(set = 2, binding = 0) uniform sampler2D hdrScene;
+layout(set = 2, binding = 1) uniform sampler2D exposureMap; // 1x1: the dynamic exposure
 layout(set = 3, binding = 0) uniform TonemapFS
 {
     vec4 settings; // x exposure, y how much of the tonemapped color (the rest linear)
@@ -41,7 +43,8 @@ float dither()
 
 void main()
 {
-    const vec3 exposed = texture(hdrScene, inUv).rgb * settings.x;
+    const vec3 exposed =
+        texture(hdrScene, inUv).rgb * settings.x * texelFetch(exposureMap, ivec2(0), 0).r;
     const vec3 color = clamp(mix(exposed, acesHill(exposed), settings.y), 0.0, 1.0);
     outColor = vec4(linearToSrgb(color) + dither() / 255.0, 1.0);
 }

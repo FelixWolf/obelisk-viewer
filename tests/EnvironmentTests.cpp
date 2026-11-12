@@ -136,3 +136,17 @@ TEST_CASE("Sky lighting: sun direction, dimming low on the horizon, night")
     // Clouds raise the ambient light.
     CHECK(dark.ambient.r > 0.5f);
 }
+
+TEST_CASE("Sky settings: probe ambiance tells skies made for PBR from older ones")
+{
+    const llsd::Value older = skyFrame(1.0f, 0.6);
+    CHECK(SkySettings::fromLlsd(older).probeAmbiance == 0.0f);
+
+    llsd::Value pbr = skyFrame(1.0f, 0.6);
+    pbr["reflection_probe_ambiance"] = 1.0;
+    pbr["gamma"] = 2.0;
+    const SkySettings s = SkySettings::fromLlsd(pbr);
+    CHECK(s.probeAmbiance == doctest::Approx(1.0f));
+    CHECK(s.gamma == doctest::Approx(2.0f));
+    CHECK(blend(SkySettings::fromLlsd(older), s, 0.5f).probeAmbiance == doctest::Approx(0.5f));
+}

@@ -100,8 +100,10 @@ void EnvironmentManager::handle(const Reply& reply)
         cycle_.reset();
         return;
     }
-    log::info("environment: day cycle '{}', {} skies, {} s per day", cycle->name,
-              cycle->skies.size(), cycle->dayLength);
+    const bool pbr = std::any_of(cycle->skies.begin(), cycle->skies.end(),
+                                 [](const auto& sky) { return sky.probeAmbiance > 0.0f; });
+    log::info("environment: day cycle '{}', {} skies ({}), {} s per day", cycle->name,
+              cycle->skies.size(), pbr ? "made for PBR" : "legacy", cycle->dayLength);
     cycle_ = std::move(*cycle);
 }
 
@@ -163,6 +165,23 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
     lighting.groundAmbient = glm::vec3(gray * 0.6f);
 
     lighting.exposure = exposure_;
+    // Skies made for PBR (with a probe ambiance) get the official viewer's
+    // dynamic exposure (pipeline.cpp generateExposure): from 2 sqrt(gamma)
+    // in dark views down to its inverse in bright ones. Older skies get
+    // neither that nor tonemapping there (RenderSkyAutoAdjustLegacy off).
+    lighting.exposureMin = 1.0f;
+    lighting.exposureMax = 1.0f;
+    lighting.tonemapMix = 0.0f;
+    if(sky.probeAmbiance > 0.0f)
+    {
+        lighting.tonemapMix = 0.7f;
+        const float scale = std::sqrt(sky.gamma) * 2.0f;
+        if(scale > 1.0f)
+        {
+            lighting.exposureMin = 1.0f / scale;
+            lighting.exposureMax = scale;
+        }
+    }
 
     render::Atmosphere& a = lighting.atmosphere;
     a.enabled = true;

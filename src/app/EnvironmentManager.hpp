@@ -37,9 +37,8 @@ public:
     // follow the clock.
     void setDayPosition(std::optional<float> position) { fixedPosition_ = position; }
     std::optional<float> dayPosition() const { return fixedPosition_; }
-    // Exposure for the tonemap (the official viewer's RenderExposure, 1).
-    // Fixed for now: the official viewer also adjusts it to the scene's
-    // brightness (dynamic exposure).
+    // Exposure for the tonemap (the official viewer's RenderExposure, 1),
+    // before the dynamic exposure.
     void setExposure(float exposure) { exposure_ = exposure; }
     float exposure() const { return exposure_; }
 

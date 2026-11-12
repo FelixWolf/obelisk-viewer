@@ -12,6 +12,8 @@ set(shader_sources
   shadow.frag
   shadow_masked.frag
   tonemap.frag
+  luminance.frag
+  exposure.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)

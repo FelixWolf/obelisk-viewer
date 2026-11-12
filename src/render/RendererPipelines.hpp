@@ -23,6 +23,9 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* terrainBlinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
     SDL_GPUGraphicsPipeline* tonemap = nullptr;
+    // Dynamic exposure: the scene's luminance, then the exposure from it.
+    SDL_GPUGraphicsPipeline* luminance = nullptr;
+    SDL_GPUGraphicsPipeline* exposure = nullptr;
     SDL_GPUGraphicsPipeline* sky = nullptr;
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
     SDL_GPUGraphicsPipeline* shadowObject = nullptr;
@@ -38,8 +41,8 @@ struct Renderer::Pipelines
     {
         for(SDL_GPUGraphicsPipeline* p :
             {blinnPhong, blinnPhongBlend, pbr, blinnPhongSkinned, blinnPhongSkinnedBlend,
-             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap, sky, shadowObject,
-             shadowObjectMasked, shadowSkinned, shadowSkinnedMasked, shadowTerrain})
+             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap, luminance, exposure, sky,
+             shadowObject, shadowObjectMasked, shadowSkinned, shadowSkinnedMasked, shadowTerrain})
         {
             if(p)
             {

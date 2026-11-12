@@ -366,10 +366,20 @@ The tonemap is the official viewer's default (tonemapUtilF.glsl,
 RenderTonemapType 1, RenderTonemapMix 0.7): Stephen Hill's ACES fit between
 ACES's input and output matrices, mixed 70/30 with the untouched color, so
 dark interiors keep more of their light than ACES alone leaves them.
-Exposure is fixed at the official RenderExposure, 1 (adjustable in the
-Environment window; the official viewer also scales it to the scene's
-brightness, dynamic exposure, which we don't yet). The tonemap dithers its
-output so the sky's slow gradients don't band. The Environment window shows the day cycle
+Exposure is the official RenderExposure, 1 (adjustable in the Environment
+window), times a dynamic exposure, as the official viewer's (pipeline.cpp
+generateExposure, luminanceF.glsl, exposureF.glsl): each frame the lit
+scene's luminance (the middle of the view, nudged towards the ground;
+surfaces at half, RenderDiffuseLuminanceScale, the sky in full, told apart
+by the depth buffer) goes into a 256² map whose mip chain averages it;
+from that average a one-pixel pass picks an exposure between the sky's
+bounds (dark views the most, a luminance of 0.175 and up the least) and
+eases last frame's towards it (90% in 2 s). The tonemap reads it there, so
+it never comes back to the CPU. Skies made for PBR (with
+`reflection_probe_ambiance`) range from 1 / (2 sqrt(gamma)) to
+2 sqrt(gamma); older skies get neither dynamic exposure nor tonemapping,
+as in the official viewer (RenderSkyAutoAdjustLegacy off). The tonemap
+dithers its output so the sky's slow gradients don't band. The Environment window shows the day cycle
 and can fix the time of day; `--day-time 0..1` does that from the command
 line. Not drawn yet: sun and moon textures, moon phases, water.
 
