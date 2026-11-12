@@ -15,6 +15,7 @@ struct DrawData
     vec4 uvRow1;       //                    v' = dot(uvRow1.xyz, (u, v, 1))
     vec4 material[3];  // the material's values (see the fragment shaders)
     uvec4 skin;        // x: first joint matrix (skinned draws)
+    vec4 mapUv[4];     // legacy normal map's texture transform rows, then the specular map's
 };
 
 const float PI = 3.14159265359;
@@ -57,9 +58,15 @@ const float PI = 3.14159265359;
 // (unnormalized) normal and tangent, as the baker computed it.
 vec3 perturbNormal(vec3 vertexNormal, vec4 vertexTangent, vec3 tangentSpaceNormal)
 {
-    vec3 bitangent = vertexTangent.w * cross(vertexNormal, vertexTangent.xyz);
-    return normalize(tangentSpaceNormal.x * vertexTangent.xyz +
-                     tangentSpaceNormal.y * bitangent + tangentSpaceNormal.z * vertexNormal);
+    // Unit length first: the interpolated normal and tangent are scaled by
+    // the object's size (the tangent by the model matrix, the normal by its
+    // inverse transpose), which on big prims would multiply the map's
+    // sideways tilt many times over. The tangent made perpendicular again.
+    const vec3 n = normalize(vertexNormal);
+    const vec3 t = normalize(vertexTangent.xyz - n * dot(n, vertexTangent.xyz));
+    const vec3 bitangent = vertexTangent.w * cross(n, t);
+    return normalize(tangentSpaceNormal.x * t + tangentSpaceNormal.y * bitangent +
+                     tangentSpaceNormal.z * n);
 }
 
 vec3 decodeNormal(vec4 texel)

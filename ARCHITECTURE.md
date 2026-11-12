@@ -490,7 +490,9 @@ Four material families, each its own pipeline:
 | `TerrainPbrMaterial` | terrain.vert + terrain_pbr.frag | 4-layer arrays of albedo, ORM, emissive and normal, with per-layer factors |
 
 Missing textures fall back to neutral defaults (white, flat normal, no
-emission).
+emission). Normal maps tilt a unit normal along a unit tangent made
+perpendicular to it (`perturbNormal`): the interpolated ones are scaled by
+the object's size, which on big prims multiplied the maps' tilt many times.
 
 Meshes don't own buffers: `MeshPool` packs them into large shared vertex and
 index buffers (64 MiB and 32 MiB blocks, one set per vertex layout), and a
