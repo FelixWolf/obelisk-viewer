@@ -438,8 +438,9 @@ int App::run()
                         "levels ready ({} from disk), {} failed; textures: {} resident, {} failed",
                         avatars_ ? avatars_->drawn() : size_t{0}, o.drawn, o.meshObjects, o.faces,
                         m.meshes, m.lodsReady, m.diskHits, m.failed, t.resident, t.failed);
-                    log::info("rigged meshes drawn: {}; skipped objects: {}; animated objects: {}",
-                              o.palettes, o.skipped,
+                    log::info("rigged meshes drawn: {}; skipped objects: {}; out of view: {}; "
+                              "animated objects: {}",
+                              o.palettes, o.skipped, o.culled,
                               avatars_ ? avatars_->animatedObjects() : size_t{0});
                     const auto c = worldThread_->cacheStats();
                     log::info("object cache: {} hits, {} misses, {} objects stored", c.hits,
@@ -720,6 +721,11 @@ void App::buildScene(render::Scene& scene)
     scene.terrain.clear();
     scene.worldOrigin = {};
     scene.camera = camera_.camera();
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
+    scene.frustum = render::Frustum::fromCamera(
+        scene.camera, height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f);
     if(world_ && originHandle_)
     {
         terrainView_.update(*world_, *renderer_);

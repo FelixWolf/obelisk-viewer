@@ -456,7 +456,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         pose(a, body.shape, world, object.id, animations, now);
 
         const glm::mat4 root = rootFrame(object, world, originHandle);
-        if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance)
+        if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
+           !scene.frustum.containsSphere(glm::vec3(root[3]), std::max(extent(object), 1.5f)))
         {
             continue;
         }

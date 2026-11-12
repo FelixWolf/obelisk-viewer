@@ -5,6 +5,7 @@
 //
 // Coordinates follow Second Life: right-handed, X east, Y north, Z up, meters.
 
+#include "viewer/render/Frustum.hpp"
 #include "viewer/render/Material.hpp"
 #include "viewer/render/Mesh.hpp"
 
@@ -64,6 +65,9 @@ struct Scene
     // don't shift when the origin moves.
     glm::dvec2 worldOrigin{0.0};
     Camera camera;
+    // What the camera sees: whoever fills the lists leaves out what's
+    // entirely outside it.
+    Frustum frustum;
     Lighting lighting;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;

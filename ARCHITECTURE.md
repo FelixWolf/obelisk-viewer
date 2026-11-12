@@ -453,7 +453,18 @@ with twist, taper, shear, skew, radius offset and revolutions. Face i is
 texture entry i, so faces line up with in-world face numbers.
 
 `ObjectView` (app) generates geometry on the JobSystem, cached per (shape,
-level of detail), so identical prims share a mesh. The level of detail follows
+level of detail), so identical prims share a mesh. Only what the camera can see
+is drawn: the App puts the view volume in the scene (`render::Frustum`,
+six planes from the view-projection matrix; for VR it will have to hold
+both eyes), and the views test against it. Prims are tested with a sphere
+around their geometry (its largest coordinate per axis, measured when the
+shape is generated, since tori and twisted prims reach past their box),
+mesh objects with their box, avatars and rigged mesh with the skeleton's
+extent (plus a metre for hair and the like), terrain regions with their
+height range. Out of view also means not loaded: textures (and rigged
+mesh levels) are only requested for what is drawn. Measured at Ahern:
+10921 faces drawn and 3.40 ms per frame before, 6535 and 2.52 ms after,
+the same picture. The level of detail follows
 the official viewer's screen-size thresholds. Each frame it draws the prims
 within 128 m: linked children relative to their root, each face with its
 texture (from `TextureManager`), color, texture transform (as llface.cpp's

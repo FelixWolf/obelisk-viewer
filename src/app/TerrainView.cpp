@@ -4,6 +4,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
+
 #include <cmath>
 
 namespace viewer
@@ -198,6 +200,11 @@ void TerrainView::update(const world::World& world, render::Renderer& renderer)
         region.mesh = renderer.createMesh(std::span<const render::TerrainVertex>(data.vertices),
                                           data.indices);
         region.revision = revision;
+        const auto [low, high] = std::minmax_element(data.vertices.begin(), data.vertices.end(),
+                                                     [](const auto& a, const auto& b)
+                                                     { return a.position.z < b.position.z; });
+        region.minHeight = low != data.vertices.end() ? low->position.z : 0.0f;
+        region.maxHeight = high != data.vertices.end() ? high->position.z : 0.0f;
         region.builtAt = now;
     }
 }
@@ -213,6 +220,12 @@ void TerrainView::addTo(render::Scene& scene, uint64_t originHandle,
         }
         const glm::vec3 offset(static_cast<float>(regionX(handle) - regionX(originHandle)),
                                static_cast<float>(regionY(handle) - regionY(originHandle)), 0.0f);
+        constexpr float kWidth = static_cast<float>(world::kRegionWidth);
+        if(!scene.frustum.containsBox(offset + glm::vec3(0.0f, 0.0f, region.minHeight),
+                                      offset + glm::vec3(kWidth, kWidth, region.maxHeight)))
+        {
+            continue;
+        }
         scene.terrain.push_back(
             {&region.mesh, glm::translate(glm::mat4(1.0f), offset), materialFor(handle)});
     }

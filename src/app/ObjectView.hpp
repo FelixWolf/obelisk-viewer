@@ -65,6 +65,7 @@ public:
         size_t meshObjects = 0; // of drawn, how many are mesh
         size_t skipped = 0;     // sculpted/attached prims not drawn
         size_t palettes = 0;    // rigged meshes skinned last frame
+        size_t culled = 0;      // in range but out of view last frame
     };
     Stats stats() const { return stats_; }
 
@@ -83,14 +84,20 @@ private:
     {
         bool ready = false;
         std::vector<render::Mesh> faces; // one per volume face (may be empty)
+        // Largest |coordinate| on each axis, before scaling (prims can reach
+        // past their half-unit box: tori, twists, radius offsets).
+        glm::vec3 extent{0.5f};
     };
     struct Generated
     {
         Key key;
         std::vector<volume::VolumeFace> faces;
+        glm::vec3 extent{0.0f};
     };
 
     Geometry& geometry(const Key& key);
+    // Fills in `extent` from the faces.
+    static Generated withExtent(Generated g);
     // A face's material; for faces worn by `wearer` showing a Bake on Mesh
     // placeholder, its bake instead. Nothing while that bake loads.
     static std::optional<render::BlinnPhongMaterial>

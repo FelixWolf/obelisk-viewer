@@ -9,6 +9,7 @@ add_executable(viewer_tests
   LlsdTests.cpp
   LoginTests.cpp
   Md5Tests.cpp
+  FrustumTests.cpp
   MeshPoolTests.cpp
   MeshTests.cpp
   ObjectTests.cpp

@@ -128,6 +128,19 @@ std::optional<glm::mat4> ObjectView::frameOf(const world::Object& object, const 
     return parentFrame ? std::optional(*parentFrame * local) : std::nullopt;
 }
 
+ObjectView::Generated ObjectView::withExtent(Generated g)
+{
+    g.extent = glm::vec3(0.0f);
+    for(const volume::VolumeFace& face : g.faces)
+    {
+        for(const glm::vec3& p : face.positions)
+        {
+            g.extent = glm::max(g.extent, glm::abs(p));
+        }
+    }
+    return g;
+}
+
 ObjectView::Geometry& ObjectView::geometry(const Key& key)
 {
     auto [it, inserted] = cache_.try_emplace(key);
@@ -137,9 +150,9 @@ ObjectView::Geometry& ObjectView::geometry(const Key& key)
         jobs_.submit(
             [this, key]
             {
-                generated_.push(
-                    {key, volume::generateVolume(
-                              key.params, volume::kDetailScales[static_cast<size_t>(key.detail)])});
+                generated_.push(withExtent(Generated{
+                    key, volume::generateVolume(
+                             key.params, volume::kDetailScales[static_cast<size_t>(key.detail)])}));
                 running_--;
             });
     }
@@ -153,6 +166,7 @@ void ObjectView::update()
     {
         Geometry& geo = cache_[g.key];
         geo.faces = uploadFaces(renderer_, g.faces);
+        geo.extent = g.extent;
         geo.ready = true;
     }
     drained_.clear();
@@ -245,6 +259,12 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     {
         return;
     }
+    // Rigged mesh reaches past the skeleton (hair, tails, skirts): a margin.
+    if(!scene.frustum.containsSphere(glm::vec3(root[3]), radius + 1.0f))
+    {
+        stats_.culled++;
+        return;
+    }
     const auto skin = meshes.skin(object.sculptTexture);
     // Rigged mesh is skeleton sized, whatever the object's scale says: as the
     // official viewer (LLVOVolume::calcLOD), its level of detail comes from
@@ -310,6 +330,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     palettesUsed_ = 0; // last frame's draws are done
     stats_.skipped = 0;
     stats_.meshObjects = 0;
+    stats_.culled = 0;
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
 
@@ -354,6 +375,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
 
         const int detail = detailFor(radius, distance);
         const std::vector<render::Mesh>* faces = nullptr;
+        glm::vec3 extent(0.5f); // mesh assets fit their box
         if(isMesh)
         {
             faces = meshes.get(object.sculptTexture, detail);
@@ -363,9 +385,15 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             Geometry& geo = geometry(Key{object.volume, detail});
             faces = geo.ready ? &geo.faces : nullptr;
+            extent = geo.extent;
         }
         if(!faces)
         {
+            continue;
+        }
+        if(!scene.frustum.containsSphere(position, glm::length(extent * object.scale)))
+        {
+            stats_.culled++;
             continue;
         }
 

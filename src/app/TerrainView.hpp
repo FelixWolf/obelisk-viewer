@@ -50,7 +50,9 @@ private:
     struct Region
     {
         render::Mesh mesh;
-        uint64_t revision = 0; // of this region and the neighbours its edges use
+        uint64_t revision = 0;  // of this region and the neighbours its edges use
+        float minHeight = 0.0f; // of the mesh, for culling
+        float maxHeight = 0.0f;
         std::chrono::steady_clock::time_point builtAt{};
     };
     std::map<uint64_t, Region> regions_;
