@@ -138,6 +138,8 @@ private:
     std::shared_ptr<const world::World> world_;
     TerrainView terrainView_;
     std::vector<session::RegionMessage> regionMessages_;
+    std::vector<world::WorldRequest> worldRequests_;
+    std::vector<std::pair<uint32_t, uint8_t>> objectRequests_;
     std::optional<uint64_t> originHandle_; // world coordinates are relative to this region
     uint64_t seenArrivals_ = 0;
     std::optional<world::ObjectKey> agentKey_; // our avatar's object, when last found

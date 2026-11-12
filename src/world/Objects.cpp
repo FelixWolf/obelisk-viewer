@@ -331,9 +331,9 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
     o.type = r.u8();
     o.state = r.u8();
     o.updateFlags = updateFlags;
-    r.u32(); // CRC
-    r.u8();  // material (physical)
-    r.u8();  // click action
+    update.crc = r.u32();
+    r.u8(); // material (physical)
+    r.u8(); // click action
     o.scale = r.vec3();
     o.position = r.vec3();
     o.rotation = quatFromVector(r.vec3());

@@ -297,6 +297,12 @@ void Session::update()
             region->seedRetryAt.reset();
             requestSeed(*region);
         }
+        if(region->handshakeReplyDue && now - *region->handshakeReplyDue > 3s)
+        {
+            log::warn("{}: no word on its object cache; replying without",
+                      region->endpoint.toString());
+            sendHandshakeReply(*region, false);
+        }
         if(region->eventQueueRetryAt && now >= *region->eventQueueRetryAt)
         {
             region->eventQueueRetryAt.reset();
@@ -996,16 +1002,14 @@ void Session::handleRegionHandshake(Region& region, const protocol::CircuitEvent
     }
     region.name = protocol::toString(handshake->RegionInfo.SimName);
     region.regionId = handshake->RegionInfo2.RegionID;
-
-    msg::RegionHandshakeReply reply;
-    reply.AgentData.AgentID = login_->agentId;
-    reply.AgentData.SessionID = login_->sessionId;
-    // 0x2: our object cache for this region is empty, so the simulator sends
-    // full object updates instead of cache probes. (0x1 would ask for all
-    // cacheable objects as probes; 0x4 means we support self-appearance.
-    // Checked against llviewerregion.cpp.)
-    reply.RegionInfo.Flags = 0x2;
-    send(region, reply, true);
+    if(deferHandshakeReplies_)
+    {
+        region.handshakeReplyDue = Clock::now();
+    }
+    else
+    {
+        sendHandshakeReply(region, false);
+    }
 
     const bool first = !region.handshakeReceived;
     region.handshakeReceived = true;
@@ -1015,6 +1019,60 @@ void Session::handleRegionHandshake(Region& region, const protocol::CircuitEvent
         sendAgentSetup(region);
     }
     checkConnected();
+}
+
+void Session::sendHandshakeReply(Region& region, bool haveObjectCache)
+{
+    region.handshakeReplyDue.reset();
+    msg::RegionHandshakeReply reply;
+    reply.AgentData.AgentID = login_->agentId;
+    reply.AgentData.SessionID = login_->sessionId;
+    // 0x2: our object cache for this region is empty, so the simulator sends
+    // full object updates instead of cache probes; without it, it probes
+    // (ObjectUpdateCached). (0x1 would ask for all cacheable objects as
+    // probes; 0x4 means we support self-appearance. Checked against
+    // llviewerregion.cpp.)
+    reply.RegionInfo.Flags = haveObjectCache ? 0x0 : 0x2;
+    send(region, reply, true);
+}
+
+void Session::replyToHandshake(uint64_t regionHandle, bool haveObjectCache)
+{
+    for(auto& [id, region] : regions_)
+    {
+        if(region->handle == regionHandle && region->handshakeReplyDue)
+        {
+            sendHandshakeReply(*region, haveObjectCache);
+        }
+    }
+}
+
+void Session::requestObjects(uint64_t regionHandle,
+                             std::span<const std::pair<uint32_t, uint8_t>> objects)
+{
+    const Region* target = nullptr;
+    for(const auto& [id, region] : regions_)
+    {
+        target = region->handle == regionHandle ? region.get() : target;
+    }
+    if(!target || objects.empty())
+    {
+        return;
+    }
+    constexpr size_t kPerMessage = 255; // the block's limit
+    for(size_t first = 0; first < objects.size(); first += kPerMessage)
+    {
+        msg::RequestMultipleObjects request;
+        request.AgentData.AgentID = login_->agentId;
+        request.AgentData.SessionID = login_->sessionId;
+        for(size_t i = first; i < objects.size() && i < first + kPerMessage; i++)
+        {
+            auto& block = request.ObjectData.emplace_back();
+            block.CacheMissType = objects[i].second;
+            block.ID = objects[i].first;
+        }
+        send(*target, request, true);
+    }
 }
 
 void Session::sendAgentSetup(const Region& region)

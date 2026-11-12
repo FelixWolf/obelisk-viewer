@@ -22,6 +22,8 @@ const char* directoryFor(CacheKind kind)
         return "meshes";
     case CacheKind::Animation:
         return "animations";
+    case CacheKind::Objects:
+        return "objects";
     }
     return "other";
 }
@@ -50,6 +52,9 @@ fs::path FileCache::pathFor(const CacheKey& key) const
         break;
     case CacheKind::Animation:
         name = id + ".anim";
+        break;
+    case CacheKind::Objects:
+        name = id + ".objects";
         break;
     }
     return root_ / directoryFor(key.kind) / id.substr(0, 2) / name;

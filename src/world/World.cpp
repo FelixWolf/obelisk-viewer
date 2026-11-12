@@ -265,6 +265,10 @@ WorldUpdate::Objects decodeCompressedUpdate(const protocol::CircuitEvent& event)
         out.compressed++;
         if(auto update = decodeCompressedObject(block.Data, block.UpdateFlags))
         {
+            if(!(block.UpdateFlags & kFlagTemporaryOnRez))
+            {
+                update->compressed = block.Data;
+            }
             out.updates.push_back(std::move(*update));
         }
         else

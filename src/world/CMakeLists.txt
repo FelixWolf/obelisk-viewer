@@ -1,4 +1,5 @@
 add_library(viewer_world STATIC
+  ObjectCache.cpp
   Objects.cpp
   TerrainDecoder.cpp
   TerrainLayers.cpp

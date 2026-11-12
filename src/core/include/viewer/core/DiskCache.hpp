@@ -28,6 +28,7 @@ enum class CacheKind : uint8_t
     Texture,   // decoded KTX2
     Mesh,      // a mesh asset's blocks as downloaded
     Animation, // .anim bytes as downloaded
+    Objects,   // a region's cacheable objects (world::RegionObjectCache), by region id
 };
 
 struct CacheKey
@@ -65,6 +66,7 @@ public:
 //   textures/<xx>/<uuid>.ktx2
 //   meshes/<xx>/<uuid>.header, .skin, .lod<N>
 //   animations/<xx>/<uuid>.anim
+//   objects/<xx>/<region uuid>.objects
 // (<xx>: the id's first two hex digits). Writes go to a uniquely named
 // temporary file that is renamed over the entry, so concurrent writers, in
 // this process or another, never mix their bytes.

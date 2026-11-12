@@ -604,4 +604,50 @@ TEST_CASE("Session: a refused teleport keeps us where we are")
     CHECK(session.state() == SessionState::Connected);
 }
 
+TEST_CASE("Session: handshake replies wait for the object cache; misses are requested")
+{
+    FakeSimulator sim;
+    std::atomic<uint16_t> httpPort{0};
+    viewer::test::LoopbackHttpServer server(
+        [&](const LoopbackRequest& request) -> std::optional<LoopbackReply>
+        {
+            if(request.path == "/login")
+            {
+                return LoopbackReply{.body = loginSuccessXml(httpPort, sim.endpoint().port)};
+            }
+            return LoopbackReply{.body = llsd::toXml(llsd::Value(llsd::Map{}))};
+        });
+    httpPort = portOf(server.url(""));
+    auto http = viewer::net::createHttpClient();
+    Session session(*http, testParameters(server));
+    session.deferHandshakeReplies();
+    REQUIRE(pumpUntil(session, [&] { return sim.count<msg::CompleteAgentMovement>() > 0; }));
+    sim.send(handshake("Cached"), true);
+    REQUIRE(pumpUntil(session, [&] { return settled(session); }));
+
+    // Nothing until we say the cache is ready.
+    pumpUntil(session, [] { return false; }, 300ms);
+    CHECK(sim.count<msg::RegionHandshakeReply>() == 0);
+    const uint64_t handle = session.mainRegion()->handle;
+    session.replyToHandshake(handle, true);
+    std::optional<std::pair<FakeSimulator::Received, msg::RegionHandshakeReply>> reply;
+    REQUIRE(pumpUntil(session,
+                      [&] { return (reply = sim.take<msg::RegionHandshakeReply>()).has_value(); }));
+    CHECK(reply->second.RegionInfo.Flags == 0); // we have a cache: probe us
+
+    // 300 misses: two messages (255 blocks at most each).
+    std::vector<std::pair<uint32_t, uint8_t>> misses;
+    for(uint32_t i = 0; i < 300; i++)
+    {
+        misses.emplace_back(i + 1, static_cast<uint8_t>(i % 2));
+    }
+    session.requestObjects(handle, misses);
+    REQUIRE(pumpUntil(session, [&] { return sim.count<msg::RequestMultipleObjects>() == 2; }));
+    const auto first = sim.take<msg::RequestMultipleObjects>();
+    REQUIRE(first.has_value());
+    CHECK(first->second.ObjectData.size() == 255);
+    CHECK(first->second.ObjectData[1].ID == 2);
+    CHECK(first->second.ObjectData[1].CacheMissType == 1);
+}
+
 #endif // _WIN32

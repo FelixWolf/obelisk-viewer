@@ -87,7 +87,8 @@ behind it.
 
 The one implementation, `FileCache`, keeps a file per entry:
 `<cache>/textures/<xx>/<uuid>.ktx2`, `<cache>/meshes/<xx>/<uuid>.header`,
-`.skin` and `.lod<N>`, `<cache>/animations/<xx>/<uuid>.anim` (`<xx>`: the
+`.skin` and `.lod<N>`, `<cache>/animations/<xx>/<uuid>.anim`,
+`<cache>/objects/<xx>/<region uuid>.objects` (`<xx>`: the
 id's first two hex digits). A write goes to a temporary file named uniquely
 per instance (a random token) and per write, then is renamed over the
 entry, so readers see a whole entry and writers in other processes never mix
@@ -415,6 +416,28 @@ updated in the last second) are tracked; still ones cost a comparison.
 Measured on our avatar walking: without prediction it stood still in
 75-90% of frames and jumped up to 0.85 m; with prediction and fading every
 frame moves, with the largest frame-to-frame change in step 2-4 cm.
+
+### Object cache
+
+Simulators mark most objects cacheable and send them as compressed updates
+(ObjectUpdateCompressed). The world thread keeps each region's cacheable
+objects in a `RegionObjectCache`: the block as received and its CRC, by
+local id (as llvocache.cpp; temporary objects, and anything that then gets
+a terse or uncompressed update or is killed, are left out). A cache
+belongs to one instance of a region (the handshake's CacheID); after a
+restart local ids change and the old cache is dropped. It is stored
+through `DiskCache` (`CacheKind::Objects`, by region id) when the region
+goes away or the session ends.
+
+When a region's `RegionHandshake` arrives the world thread loads its cache,
+then asks (`WorldThread::drainRequests`, through the App) for the handshake
+reply: flags 0 if we have objects cached (the simulator then sends
+`ObjectUpdateCached` probes, local id and CRC), 0x2 if not (full updates
+straight away). The session holds the reply until then (3 s at most).
+Probes whose CRC matches are applied from the cache; the rest are asked
+for with `RequestMultipleObjects` (cache miss type 0 = not cached, 1 =
+changed). Mauve, measured: 642 objects in view 8 s after logging in with
+no cache, 1324 once cached (1805 hits, 87 misses).
 
 Simulators only send objects around the camera the viewer reports in
 `AgentUpdate` (and within its far distance), so the session passes the real

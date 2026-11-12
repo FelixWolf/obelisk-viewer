@@ -47,6 +47,8 @@ TEST_CASE("FileCache stores, replaces and clears entries")
     CHECK(cache.pathFor(lod) == dir.path() / "meshes" / "ab" / (kId.toString() + ".lod2"));
     CHECK(cache.pathFor({CacheKind::Animation, kId}) ==
           dir.path() / "animations" / "ab" / (kId.toString() + ".anim"));
+    CHECK(cache.pathFor({CacheKind::Objects, kId}) ==
+          dir.path() / "objects" / "ab" / (kId.toString() + ".objects"));
 
     REQUIRE(cache.write(texture, bytes({9})));
     CHECK(*cache.read(texture) == bytes({9}));

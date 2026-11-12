@@ -307,7 +307,10 @@ void App::handleLoginAction(LoginAction action)
         // the new one starts.
         endSession();
         session_ = std::make_unique<session::Session>(*http_, std::move(action.parameters));
-        worldThread_ = std::make_unique<world::WorldThread>();
+        // The world thread answers handshakes once it has the region's
+        // object cache.
+        session_->deferHandshakeReplies();
+        worldThread_ = std::make_unique<world::WorldThread>(diskCache_.get());
         world_ = worldThread_->snapshot();
         break;
     case LoginAction::Kind::LogOut:
@@ -438,6 +441,9 @@ int App::run()
                     log::info("rigged meshes drawn: {}; skipped objects: {}; animated objects: {}",
                               o.palettes, o.skipped,
                               avatars_ ? avatars_->animatedObjects() : size_t{0});
+                    const auto c = worldThread_->cacheStats();
+                    log::info("object cache: {} hits, {} misses, {} objects stored", c.hits,
+                              c.misses, c.stored);
                     if(animations_)
                     {
                         const auto a = animations_->stats();
@@ -494,6 +500,24 @@ void App::updateSession()
         else
         {
             worldThread_->post(m.regionHandle, std::move(m.event));
+        }
+    }
+    // What the world thread needs the regions told (object caches).
+    worldThread_->drainRequests(worldRequests_);
+    for(const world::WorldRequest& r : worldRequests_)
+    {
+        if(r.kind == world::WorldRequest::Kind::HandshakeReply)
+        {
+            session_->replyToHandshake(r.region, r.haveCache);
+        }
+        else
+        {
+            objectRequests_.clear();
+            for(const auto& o : r.objects)
+            {
+                objectRequests_.emplace_back(o.localId, static_cast<uint8_t>(o.miss));
+            }
+            session_->requestObjects(r.region, objectRequests_);
         }
     }
     if(auto latest = worldThread_->snapshot(); latest != world_)
@@ -916,6 +940,10 @@ void App::drawUi()
             ImGui::Text("Objects: %zu known, %zu prims drawn (%zu faces), %zu not drawable yet",
                         world_->objects().size(), o.drawn, o.faces, o.skipped);
             ImGui::Text("Prim meshes: %zu cached, %zu generating", o.meshes, o.pending);
+            const auto c = worldThread_->cacheStats();
+            ImGui::Text("Object cache: %llu hits, %llu misses",
+                        static_cast<unsigned long long>(c.hits),
+                        static_cast<unsigned long long>(c.misses));
             const auto m = meshes_->stats();
             ImGui::Text("Mesh assets: %zu known, %zu levels ready, %zu downloading, %zu decoding, "
                         "%zu failed (%.1f MB); %zu mesh objects drawn",

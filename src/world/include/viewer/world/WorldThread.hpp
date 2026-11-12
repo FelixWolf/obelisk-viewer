@@ -11,11 +11,23 @@
 // objects. Snapshots the render thread lets go of are released here, on the
 // world thread, so that cost stays off the frame too.
 //
+// It also keeps each region's object cache (RegionObjectCache): loaded
+// when the region's handshake arrives, filled from compressed updates,
+// answering the region's cache probes (ObjectUpdateCached) from disk, and
+// saved when the region goes away or the thread stops. What the regions
+// must be told comes back through drainRequests(): the handshake reply
+// (once the cache is loaded) and the objects to send in full.
+//
 // Nothing else is shared. Destroying it stops the thread (messages not
-// handled yet are dropped).
+// handled yet are dropped) and saves the object caches.
 
+#include "viewer/core/DiskCache.hpp"
+#include "viewer/core/MessageQueue.hpp"
 #include "viewer/protocol/CircuitManager.hpp"
+#include "viewer/world/ObjectCache.hpp"
 #include "viewer/world/World.hpp"
+
+#include <atomic>
 
 #include <condition_variable>
 #include <cstdint>
@@ -28,10 +40,37 @@
 namespace viewer::world
 {
 
+// Something a region must be told, for the session to send.
+struct WorldRequest
+{
+    enum class Kind : uint8_t
+    {
+        HandshakeReply, // the region's object cache is loaded
+        SendObjects,    // cache probes we have no (current) copy of
+    };
+    // RequestMultipleObjects' CacheMissType (llviewerregion.h).
+    enum class Miss : uint8_t
+    {
+        Total = 0, // not in the cache
+        Crc = 1,   // in the cache, but changed
+    };
+    struct Object
+    {
+        uint32_t localId = 0;
+        Miss miss = Miss::Total;
+    };
+
+    Kind kind = Kind::HandshakeReply;
+    uint64_t region = 0;
+    bool haveCache = false; // HandshakeReply: we have objects cached for it
+    std::vector<Object> objects{};
+};
+
 class WorldThread
 {
 public:
-    WorldThread();
+    // `store` (may be null: no object cache on disk) must outlive the thread.
+    explicit WorldThread(DiskCache* store = nullptr);
     ~WorldThread();
 
     WorldThread(const WorldThread&) = delete;
@@ -53,6 +92,17 @@ public:
     // tests and tools).
     void flush();
 
+    // What the regions must be told (cleared first).
+    void drainRequests(std::vector<WorldRequest>& out) { requests_.drain(out); }
+
+    struct CacheStats
+    {
+        uint64_t hits = 0;   // probes answered from the cache
+        uint64_t misses = 0; // probes we had to ask for
+        uint64_t stored = 0; // objects added or changed
+    };
+    CacheStats cacheStats() const { return {hits_.load(), misses_.load(), stored_.load()}; }
+
 private:
     struct Input
     {
@@ -61,7 +111,18 @@ private:
         protocol::CircuitEvent event;
     };
 
+    struct RegionCache
+    {
+        Uuid regionId{};
+        RegionObjectCache objects{};
+    };
+
     void run(std::stop_token stop);
+    void handle(Input& in);
+    void loadCache(uint64_t region, const protocol::CircuitEvent& event);
+    void answerProbes(uint64_t region, const protocol::CircuitEvent& event);
+    void cacheUpdates(uint64_t region, const WorldUpdate& update);
+    void saveCache(const RegionCache& cache);
 
     std::mutex mutex_;
     std::condition_variable_any wake_;
@@ -72,7 +133,13 @@ private:
     bool dirty_ = false; // the world changed since the last snapshot
     std::shared_ptr<const World> published_;
     std::vector<std::shared_ptr<const World>> retired_;
-    World world_;         // the world thread's
+    World world_; // the world thread's
+    DiskCache* store_ = nullptr;
+    std::unordered_map<uint64_t, RegionCache> caches_; // world thread only
+    MessageQueue<WorldRequest> requests_;
+    std::atomic<uint64_t> hits_{0};
+    std::atomic<uint64_t> misses_{0};
+    std::atomic<uint64_t> stored_{0};
     std::jthread thread_; // last: started once everything else exists
 };
 

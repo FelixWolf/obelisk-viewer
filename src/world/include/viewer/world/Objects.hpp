@@ -17,6 +17,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace viewer::world
 {
@@ -68,6 +69,9 @@ inline constexpr uint8_t Mesh = 5;
 inline constexpr uint8_t Mask = 0x07;
 } // namespace SculptType
 
+// UpdateFlags bit: the object is temporary (object_flags.h); it's never cached.
+inline constexpr uint32_t kFlagTemporaryOnRez = 1u << 29;
+
 struct Object
 {
     Uuid id{};
@@ -115,6 +119,10 @@ struct ObjectUpdateData
     Kind kind = Kind::Full;
     uint32_t localId = 0;
     Object full{};
+    // Compressed updates: the object's checksum, and (if it may be cached:
+    // not temporary) the block as received, for the object cache.
+    uint32_t crc = 0;
+    std::vector<uint8_t> compressed{};
     // Terse:
     uint8_t state = 0;
     glm::vec3 position{0.0f};

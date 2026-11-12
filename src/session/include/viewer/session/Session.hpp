@@ -36,6 +36,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -124,6 +125,8 @@ struct Region
 
     // From RegionHandshake.
     bool handshakeReceived = false;
+    // Waiting for replyToHandshake() (see deferHandshakeReplies()) since then.
+    std::optional<std::chrono::steady_clock::time_point> handshakeReplyDue{};
     std::string name{};
     Uuid regionId{};
 
@@ -214,6 +217,16 @@ public:
     // body faces. Sent to the main region at once when they change, and
     // repeated while moving.
     void setControls(uint32_t flags, protocol::Quaternion bodyRotation);
+
+    // Object caches. The handshake reply tells a region whether we have its
+    // objects cached; after deferHandshakeReplies() the session waits for
+    // replyToHandshake() (up to 3 s, then replies "no cache").
+    void deferHandshakeReplies() { deferHandshakeReplies_ = true; }
+    void replyToHandshake(uint64_t regionHandle, bool haveObjectCache);
+    // Asks the region for these objects in full: (local id, CacheMissType)
+    // pairs, as RequestMultipleObjects.
+    void requestObjects(uint64_t regionHandle,
+                        std::span<const std::pair<uint32_t, uint8_t>> objects);
 
     // Where the camera is, in the agent's region's coordinates (agentRegion()). Simulators
     // send objects around the camera (within `farDistance`), so this decides
@@ -308,6 +321,7 @@ private:
 
     void handleCircuitEvent(const protocol::CircuitEvent& event);
     void handleRegionHandshake(Region& region, const protocol::CircuitEvent& event);
+    void sendHandshakeReply(Region& region, bool haveObjectCache);
     void sendAgentSetup(const Region& region);
     void sendAgentUpdate(const Region& region);
     void checkConnected();
@@ -339,6 +353,7 @@ private:
     uint32_t controlFlags_ = 0;
     protocol::Quaternion bodyRotation_{};
     bool controlsChanged_ = false;
+    bool deferHandshakeReplies_ = false;
 
     // Declaration order is destruction order in reverse: the HTTP groups go
     // first (no more callbacks), then the circuits (network thread joined),
