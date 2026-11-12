@@ -1510,7 +1510,7 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
         out.model = draw.transform;
         // Only its upper 3x3 is used: cheaper than inverting the 4x4.
         out.normalMatrix = glm::mat4(glm::inverseTranspose(glm::mat3(draw.transform)));
-        out.uvRow0 = glm::vec4(draw.uvRow0, 0.0f);
+        out.uvRow0 = glm::vec4(draw.uvRow0, draw.planar ? 1.0f : 0.0f);
         out.uvRow1 = glm::vec4(draw.uvRow1, 0.0f);
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {

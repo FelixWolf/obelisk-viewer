@@ -11,7 +11,7 @@ struct DrawData
 {
     mat4 model;
     mat4 normalMatrix; // inverse transpose of model (upper 3x3 used)
-    vec4 uvRow0;       // texture transform: u' = dot(uvRow0.xyz, (u, v, 1))
+    vec4 uvRow0;       // texture transform: u' = dot(uvRow0.xyz, (u, v, 1)); w 1: planar
     vec4 uvRow1;       //                    v' = dot(uvRow1.xyz, (u, v, 1))
     vec4 material[3];  // the material's values (see the fragment shaders)
     uvec4 skin;        // x: first joint matrix (skinned draws)

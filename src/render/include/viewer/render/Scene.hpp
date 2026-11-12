@@ -88,6 +88,10 @@ struct ObjectDraw
     // Texture coordinate transform, rows of a 2x3 matrix applied to (u, v, 1).
     glm::vec3 uvRow0{1.0f, 0.0f, 0.0f};
     glm::vec3 uvRow1{0.0f, 1.0f, 0.0f};
+    // Planar mapping: (u, v) from the vertex's position in meters on the
+    // face's plane (llface.cpp planarProjection), not the mesh's own, before
+    // the transform above. Unskinned draws only.
+    bool planar = false;
     // Skinned meshes: joint matrices (relative to `transform`) the vertices'
     // joint indices refer to. Must stay valid until the frame is drawn.
     std::span<const glm::mat4> joints{};

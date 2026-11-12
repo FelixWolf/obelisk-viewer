@@ -617,6 +617,14 @@ cuts and hollows of any shape) swept along a path (line, circle, circle2),
 with twist, taper, shear, skew, radius offset and revolutions. Face i is
 texture entry i, so faces line up with in-world face numbers.
 
+Faces with planar mapping (texture entry media flags, texgen 2) take their
+texture coordinates from their position in meters on the face's plane,
+twice a meter (llface.cpp planarProjection), instead of the mesh's own:
+geometry is shared at unit size, so the object vertex shader does it with
+the draw's scale (`ObjectDraw::planar`), before the face's legacy or glTF
+transform. Big floors use it to repeat a texture by size. Their textures
+are sized for the repeats that makes (twice the largest side).
+
 `ObjectView` (app) generates geometry on the JobSystem, cached per (shape,
 level of detail), so identical prims share a mesh. Only what the camera can see
 is drawn: the App puts the view volume in the scene (`render::Frustum`,

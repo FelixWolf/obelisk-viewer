@@ -570,7 +570,14 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 continue;
             }
             render::ObjectDraw draw{&mesh, transform, render::BlinnPhongMaterial{}};
-            const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, texels);
+            // Planar mapping repeats the texture twice a meter (before the
+            // face's own repeats).
+            draw.planar = face.planarMapping();
+            const float faceTexels =
+                draw.planar
+                    ? texels * 2.0f * std::max({object.scale.x, object.scale.y, object.scale.z})
+                    : texels;
+            const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, faceTexels);
             stats_.pbrFaces += pbr;
             if(!pbr)
             {
@@ -578,7 +585,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 {
                     continue;
                 }
-                const auto m = material(face, textures, world, wearer, avatars, texels);
+                const auto m = material(face, textures, world, wearer, avatars, faceTexels);
                 if(!m)
                 {
                     continue;

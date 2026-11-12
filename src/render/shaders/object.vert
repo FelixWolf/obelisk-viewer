@@ -27,6 +27,25 @@ layout(location = 2) out vec4 outTangent;
 layout(location = 3) out vec2 outUv;
 layout(location = 4) flat out uint outDraw;
 
+// Planar mapping's texture coordinates, as the official viewer's
+// planarProjection (llface.cpp): the face's plane picked from its normal,
+// two units per meter of the scaled position.
+vec2 planarUv(vec3 normal, vec3 position)
+{
+    vec3 binormal;
+    if(abs(normal.x) >= 0.5)
+    {
+        binormal = vec3(0.0, normal.x < 0.0 ? -1.0 : 1.0, 0.0);
+    }
+    else
+    {
+        binormal = vec3(normal.y > 0.0 ? -1.0 : 1.0, 0.0, 0.0);
+    }
+    const vec3 tangent = cross(binormal, normal);
+    return vec2(1.0 + (dot(binormal, position) * 2.0 - 0.5),
+                -(dot(tangent, position) * 2.0 - 0.5));
+}
+
 void main()
 {
     const DrawData draw = draws[inDraw];
@@ -34,7 +53,15 @@ void main()
     outWorldPosition = world.xyz;
     outNormal = mat3(draw.normalMatrix) * inNormal;
     outTangent = vec4(mat3(draw.model) * inTangent.xyz, inTangent.w);
-    outUv = vec2(dot(draw.uvRow0.xyz, vec3(inUv, 1.0)), dot(draw.uvRow1.xyz, vec3(inUv, 1.0)));
+    vec2 uv = inUv;
+    if(draw.uvRow0.w > 0.5)
+    {
+        // The model matrix is the object's frame times its scale.
+        const vec3 scale =
+            vec3(length(draw.model[0].xyz), length(draw.model[1].xyz), length(draw.model[2].xyz));
+        uv = planarUv(inNormal, inPosition * scale);
+    }
+    outUv = vec2(dot(draw.uvRow0.xyz, vec3(uv, 1.0)), dot(draw.uvRow1.xyz, vec3(uv, 1.0)));
     outDraw = inDraw;
     gl_Position = viewProjection * world;
 }
