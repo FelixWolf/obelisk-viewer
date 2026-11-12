@@ -383,7 +383,17 @@ std::optional<Format> detectFormat(std::string_view data)
     }
     data = trim(data);
 
-    const std::string head = lowercase(data.substr(0, 32));
+    // Headers come with and without spaces ("<? LLSD/Binary ?>" is how the
+    // official viewer writes them).
+    std::string head;
+    for(const char c : data.substr(0, 40))
+    {
+        if(c != ' ')
+        {
+            head.push_back(c);
+        }
+    }
+    head = lowercase(head);
     if(head.starts_with("<?llsd/notation?>"))
     {
         return Format::Notation;
@@ -411,7 +421,7 @@ std::expected<Value, std::string> parse(std::string_view data)
     case Format::Xml:
         return fromXml(data);
     case Format::Notation:
-        return std::unexpected(std::string("LLSD: notation format is not supported yet"));
+        return fromNotation(data);
     case Format::Binary:
     {
         // Skip the "<?llsd/binary?>" line.

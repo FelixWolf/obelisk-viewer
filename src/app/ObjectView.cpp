@@ -38,6 +38,22 @@ int detailFor(float radius, float distance)
 
 // Texture entry transform as the official viewer's llface.cpp xform(): about
 // the face's center, rotate, then scale, then offset.
+// A glTF KHR_texture_transform for Second Life texture coordinates: into
+// glTF's convention (v down), transformed, and back (as the official
+// viewer's texture_transform in textureUtilV.glsl).
+void gltfUvTransform(const assets::TextureTransform& t, glm::vec3& row0, glm::vec3& row1)
+{
+    const glm::mat3 flip(1.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+    const float c = std::cos(t.rotation);
+    const float s = std::sin(t.rotation);
+    const glm::mat3 scale(t.scale.x, 0.0f, 0.0f, 0.0f, t.scale.y, 0.0f, 0.0f, 0.0f, 1.0f);
+    const glm::mat3 rotate(c, -s, 0.0f, s, c, 0.0f, 0.0f, 0.0f, 1.0f);
+    const glm::mat3 offset(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, t.offset.x, t.offset.y, 1.0f);
+    const glm::mat3 m = flip * offset * rotate * scale * flip;
+    row0 = glm::vec3(m[0][0], m[1][0], m[2][0]);
+    row1 = glm::vec3(m[0][1], m[1][1], m[2][1]);
+}
+
 void uvTransform(const world::TextureFace& face, glm::vec3& row0, glm::vec3& row1)
 {
     const float c = std::cos(face.rotation);
@@ -212,6 +228,58 @@ std::optional<render::BlinnPhongMaterial> ObjectView::material(const world::Text
     return m;
 }
 
+bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& object, size_t face,
+                             const world::World& world, TextureManager& textures,
+                             MaterialManager& materials)
+{
+    Uuid id;
+    for(const auto& [f, material] : object.materials)
+    {
+        id = f == face ? material : id;
+    }
+    if(id.isNull())
+    {
+        return false;
+    }
+    const auto base = materials.get(id);
+    if(!base)
+    {
+        return false;
+    }
+    assets::Material m = *base;
+    if(const world::FaceOverrides* overrides =
+           world.materialOverrides(world::ObjectKey{object.region, object.localId}))
+    {
+        for(const auto& [f, change] : *overrides)
+        {
+            if(f == face)
+            {
+                m = assets::applyOverride(std::move(m), change);
+            }
+        }
+    }
+    render::PbrMaterial p;
+    p.albedo = textures.get(m.textures[assets::kBaseColorTexture]);
+    p.normal = textures.getLinear(m.textures[assets::kNormalTexture]);
+    // glTF's metallic-roughness map: G roughness, B metallic (R unused).
+    p.orm = textures.getLinear(m.textures[assets::kMetallicRoughnessTexture]);
+    p.emissive = textures.get(m.textures[assets::kEmissiveTexture]);
+    p.baseColorFactor = m.baseColor;
+    p.emissiveTint = m.emissive;
+    p.emissiveStrength = 1.0f;
+    p.roughness = m.roughness;
+    p.metallic = m.metallic;
+    p.occlusionStrength = 0.0f;
+    p.alphaCutoff = m.alphaMode == assets::MaterialAlpha::Mask ? m.alphaCutoff : -1.0f;
+    p.blend = m.alphaMode == assets::MaterialAlpha::Blend;
+    p.doubleSided = m.doubleSided;
+    draw.material = p;
+    // PBR faces use the material's transforms, not the legacy repeats (the
+    // base color's for every map, for now).
+    gltfUvTransform(m.transforms[assets::kBaseColorTexture], draw.uvRow0, draw.uvRow1);
+    return true;
+}
+
 void ObjectView::addLight(render::Scene& scene, const world::World& world,
                           const world::Object& object, uint64_t originHandle,
                           const AvatarView* avatars, float drawDistance) const
@@ -248,7 +316,8 @@ void ObjectView::addLight(render::Scene& scene, const world::World& world,
 
 void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                            const world::Object& object, uint64_t originHandle,
-                           TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
+                           TextureManager& textures, MeshManager& meshes,
+                           MaterialManager& materials, const AvatarView* avatars,
                            float drawDistance)
 {
     const SkeletonOwner owner = avatars ? skeletonOwner(world, object) : SkeletonOwner{};
@@ -346,20 +415,29 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     {
         const render::Mesh& mesh = (*faces)[f];
         const world::TextureFace& face = object.faces[f];
-        if(!mesh || mesh.layout != render::VertexLayout::Skinned || face.color.a <= 0.0f ||
-           face.texture == kTransparentTexture)
+        if(!mesh || mesh.layout != render::VertexLayout::Skinned)
         {
             continue;
         }
-        // Bake on Mesh shows the wearer's bakes; an animated object has none.
-        const auto m =
-            material(face, textures, world, owner.animated ? nullptr : owner.owner, avatars);
-        if(!m)
+        render::ObjectDraw draw{&mesh, root, render::BlinnPhongMaterial{}};
+        const bool pbr = pbrMaterial(draw, object, f, world, textures, materials);
+        stats_.pbrFaces += pbr;
+        if(!pbr)
         {
-            continue;
+            if(face.color.a <= 0.0f || face.texture == kTransparentTexture)
+            {
+                continue;
+            }
+            // Bake on Mesh shows the wearer's bakes; an animated object has none.
+            const auto m =
+                material(face, textures, world, owner.animated ? nullptr : owner.owner, avatars);
+            if(!m)
+            {
+                continue;
+            }
+            draw.material = *m;
+            uvTransform(face, draw.uvRow0, draw.uvRow1);
         }
-        render::ObjectDraw draw{&mesh, root, *m};
-        uvTransform(face, draw.uvRow0, draw.uvRow1);
         draw.joints = palette;
         draw.wearer = owner.owner;
         draw.layer = layer;
@@ -370,8 +448,8 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
 }
 
 void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-                       TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
-                       float drawDistance)
+                       TextureManager& textures, MeshManager& meshes, MaterialManager& materials,
+                       const AvatarView* avatars, float drawDistance)
 {
     stats_.drawn = 0;
     stats_.faces = 0;
@@ -379,6 +457,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     stats_.skipped = 0;
     stats_.meshObjects = 0;
     stats_.culled = 0;
+    stats_.pbrFaces = 0;
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
 
@@ -404,7 +483,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // its animated object's), wherever the prim itself is.
         if(isMesh && meshes.isRigged(object.sculptTexture).value_or(false))
         {
-            addRigged(scene, world, object, originHandle, textures, meshes, avatars, drawDistance);
+            addRigged(scene, world, object, originHandle, textures, meshes, materials, avatars,
+                      drawDistance);
             continue;
         }
 
@@ -461,17 +541,27 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             const render::Mesh& mesh = (*faces)[f];
             const world::TextureFace& face = object.faces[f];
-            if(!mesh || face.color.a <= 0.0f || face.texture == kTransparentTexture)
+            if(!mesh)
             {
                 continue;
             }
-            const auto m = material(face, textures, world, wearer, avatars);
-            if(!m)
+            render::ObjectDraw draw{&mesh, transform, render::BlinnPhongMaterial{}};
+            const bool pbr = pbrMaterial(draw, object, f, world, textures, materials);
+            stats_.pbrFaces += pbr;
+            if(!pbr)
             {
-                continue;
+                if(face.color.a <= 0.0f || face.texture == kTransparentTexture)
+                {
+                    continue;
+                }
+                const auto m = material(face, textures, world, wearer, avatars);
+                if(!m)
+                {
+                    continue;
+                }
+                draw.material = *m;
+                uvTransform(face, draw.uvRow0, draw.uvRow1);
             }
-            render::ObjectDraw draw{&mesh, transform, *m};
-            uvTransform(face, draw.uvRow0, draw.uvRow1);
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
             scene.objects.push_back(draw);
             stats_.faces++;

@@ -290,6 +290,7 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
     object.animatedMesh = false;
     object.light.reset();
     object.lightImage.reset();
+    object.materials.clear();
     if(data.empty())
     {
         return;
@@ -329,6 +330,20 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
             if(!p.failed())
             {
                 object.light = light;
+            }
+            break;
+        }
+        case 0x80: // render materials: count, then (face, material asset id)
+        {
+            const uint8_t entries = p.u8();
+            for(uint8_t e = 0; e < entries && !p.failed(); e++)
+            {
+                const uint8_t face = p.u8();
+                const Uuid id = p.uuid();
+                if(!p.failed() && face < kMaxFaces && !id.isNull())
+                {
+                    object.materials.emplace_back(face, id);
+                }
             }
             break;
         }

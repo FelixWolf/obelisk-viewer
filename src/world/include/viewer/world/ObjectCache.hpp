@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -46,7 +47,15 @@ public:
     const CachedObject* find(uint32_t localId, uint32_t crc) const;
     bool contains(uint32_t localId) const { return objects_.contains(localId); }
     void store(uint32_t localId, CachedObject object);
+    // Forgets the object and its material overrides.
     void erase(uint32_t localId);
+
+    // An object's PBR material overrides as streamed (LLSD notation): the
+    // simulator streams them after a full update only, so an object read
+    // from the cache needs its overrides from here too (as the official
+    // viewer's generic extras cache).
+    const std::string* overrides(uint32_t localId) const;
+    void storeOverrides(uint32_t localId, std::string notation); // empty: none
 
     std::vector<uint8_t> serialize() const;
     // Nothing if the bytes are damaged or for another CacheID.
@@ -56,6 +65,7 @@ public:
 private:
     Uuid cacheId_;
     std::unordered_map<uint32_t, CachedObject> objects_;
+    std::unordered_map<uint32_t, std::string> overrides_;
     bool dirty_ = false;
 };
 

@@ -393,6 +393,38 @@ storage buffer every surface shader loops over (`lights.glsl`):
 the reach, times N.L, as the official legacy lighting; PBR surfaces take it
 on their diffuse color only for now. Local lights cast no shadows.
 
+### PBR materials
+
+Faces can carry glTF 2.0 metallic-roughness materials, as the official
+viewer's (llgltfmaterial.cpp, llgltfmateriallist.cpp):
+
+- Extra parameter 0x80 lists (face, material asset id) pairs
+  (`Object::materials`). `MaterialManager` (app) fetches the asset through
+  ViewerAsset (`?material_id=`), keeps it in the disk cache
+  (`CacheKind::Material`) and parses it (`assets::parseMaterialAsset`):
+  LLSD {version 1.0/1.1, type "GLTF 2.0", data: glTF JSON}; the first
+  material's textures (texture index -> source image -> URI holding the
+  asset id), factors, alpha mode and cutoff, double-sidedness and
+  KHR_texture_transforms. `llsd::fromJson` reads the JSON into LLSD values.
+- Per-face overrides come separately, after the object update:
+  `GenericStreamingMessage` method 0x4175, LLSD notation
+  (`llsd::fromNotation`) {id: local id, te: [faces], od: [override per
+  face]}. Each override sets only the keys it has (tex, bc, ec, mf, rf, am,
+  ac, ds, ti); a texture id of all f's means "none". The world keeps them
+  by object, also before the object arrives (`World::materialOverrides`);
+  a kill or an empty set clears them.
+- The simulator streams overrides after full updates only, so the region's
+  object cache keeps each object's override text (file version VOC2) and
+  puts it back when the object comes from the cache.
+- `ObjectView` draws a face with its material (override applied) through
+  the PBR pipelines (blended and double-sided variants), ignoring the
+  legacy texture, color and repeats; until the material loads, the legacy
+  texture stands in. Normal and metallic-roughness maps are sampled as
+  data, not sRGB (`TextureManager::getLinear` keeps a second GPU copy). One
+  texture transform (the base color's) applies to every map, converted as
+  the official texture_transform (flip v, transform, flip back). Missing
+  emissive maps mean the factor alone glows, as glTF says.
+
 ### Materials
 
 Four material families, each its own pipeline:

@@ -1,7 +1,7 @@
 #pragma once
 
-// Reading and writing LLSD: XML and binary. Notation is detected (so callers
-// get a clear error) but not parsed yet.
+// Reading and writing LLSD: XML and binary; reading notation. Also JSON,
+// read into the same Values (glTF materials are JSON).
 
 #include "viewer/llsd/Value.hpp"
 
@@ -55,6 +55,14 @@ std::expected<Value, std::string> fromXml(std::string_view xml);
 std::expected<Value, std::string> fromBinary(std::span<const uint8_t> data,
                                              size_t* consumed = nullptr);
 std::vector<uint8_t> toBinary(const Value& value);
+
+// LLSD notation (llsdserialize.cpp's notation parser), with or without the
+// "<?llsd/notation?>" header: {'key':i1,'other':[r0.5,"text"]} and so on.
+std::expected<Value, std::string> fromNotation(std::string_view text);
+
+// JSON: objects become maps, arrays arrays, whole numbers that fit 32 bits
+// integers (other numbers reals), null undefined.
+std::expected<Value, std::string> fromJson(std::string_view text);
 
 // Detects the serialization from the first bytes of the document.
 std::optional<Format> detectFormat(std::string_view data);

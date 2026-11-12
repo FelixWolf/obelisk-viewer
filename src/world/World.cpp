@@ -1,6 +1,7 @@
 #include "viewer/world/World.hpp"
 
 #include "viewer/core/Log.hpp"
+#include "viewer/llsd/Serialization.hpp"
 #include "viewer/protocol/Messages.hpp"
 
 #include <algorithm>
@@ -54,7 +55,41 @@ void World::removeRegion(uint64_t regionHandle)
     std::erase_if(objects_, [&](const auto& entry) { return entry.first.region == regionHandle; });
     std::erase_if(ids_.keys,
                   [&](const auto& entry) { return entry.second.region == regionHandle; });
+    std::erase_if(materialOverrides_,
+                  [&](const auto& entry) { return entry.first.region == regionHandle; });
     objectsRevision_++;
+}
+
+const FaceOverrides* World::materialOverrides(const ObjectKey& key) const
+{
+    const auto it = materialOverrides_.find(key);
+    return it == materialOverrides_.end() ? nullptr : it->second.get();
+}
+
+std::optional<WorldUpdate::MaterialOverrides> decodeMaterialOverrides(std::string_view notation)
+{
+    // {id: local id, te: [faces], od: [override per face]} (llgltfmateriallist.cpp
+    // applyOverrideMessage).
+    const auto data = llsd::fromNotation(notation);
+    if(!data || !(*data)["te"].isArray())
+    {
+        return std::nullopt;
+    }
+    WorldUpdate::MaterialOverrides out;
+    out.localId = static_cast<uint32_t>((*data)["id"].asInteger());
+    const llsd::Value& faces = (*data)["te"];
+    const llsd::Value& overrides = (*data)["od"];
+    for(size_t i = 0; i < faces.size() && i < kMaxFaces; i++)
+    {
+        const int face = faces[i].asInteger();
+        if(face >= 0 && static_cast<size_t>(face) < kMaxFaces)
+        {
+            out.faces.emplace_back(static_cast<uint8_t>(face),
+                                   assets::MaterialOverride::fromLlsd(overrides[i]));
+        }
+    }
+    out.raw = std::string(notation);
+    return out;
 }
 
 const std::vector<World::PlayingAnimation>* World::animations(const Uuid& id) const
@@ -348,6 +383,20 @@ WorldUpdate decodeMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
             out.change = std::move(a);
         }
     }
+    else if(event.is<msg::GenericStreamingMessage>())
+    {
+        constexpr uint16_t kGltfMaterialOverride = 0x4175;
+        if(const auto m = event.decode<msg::GenericStreamingMessage>();
+           m && m->MethodData.Method == kGltfMaterialOverride)
+        {
+            const auto& d = m->DataBlock.Data;
+            if(auto overrides = decodeMaterialOverrides(
+                   std::string_view(reinterpret_cast<const char*>(d.data()), d.size())))
+            {
+                out.change = std::move(*overrides);
+            }
+        }
+    }
     else if(event.is<msg::AvatarAppearance>())
     {
         if(const auto m = event.decode<msg::AvatarAppearance>())
@@ -453,6 +502,21 @@ void World::apply(WorldUpdate update)
                 forgetId(key, *it->second);
                 objects_.erase(it);
             }
+            materialOverrides_.erase(key);
+        }
+        objectsRevision_++;
+    }
+    else if(auto* overrides = std::get_if<WorldUpdate::MaterialOverrides>(&update.change))
+    {
+        const ObjectKey key{regionHandle, overrides->localId};
+        if(overrides->faces.empty())
+        {
+            materialOverrides_.erase(key);
+        }
+        else
+        {
+            materialOverrides_[key] =
+                std::make_shared<const FaceOverrides>(std::move(overrides->faces));
         }
         objectsRevision_++;
     }

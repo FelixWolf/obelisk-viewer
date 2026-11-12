@@ -35,15 +35,17 @@ struct PbrMaterial
 {
     const GpuTexture* albedo = nullptr;   // RGB base color, A opacity
     const GpuTexture* orm = nullptr;      // R occlusion, G roughness, B metallic
-    const GpuTexture* emissive = nullptr; // RGB emission
+    const GpuTexture* emissive = nullptr; // RGB emission; none: the tint alone (as glTF)
     const GpuTexture* normal = nullptr;   // MikkTSpace normal map
     glm::vec4 baseColorFactor{1.0f};
-    glm::vec3 emissiveTint{1.0f};
+    glm::vec3 emissiveTint{0.0f};
     float emissiveStrength = 1.0f;
     float roughness = 1.0f; // multiplies the map's G
     float metallic = 1.0f;  // multiplies the map's B
     float occlusionStrength = 1.0f;
     float alphaCutoff = -1.0f;
+    bool blend = false;       // alpha-blended (drawn after opaque, back to front)
+    bool doubleSided = false; // both sides drawn (else back faces are culled)
 };
 
 // Classic terrain: one 4-layer array of diffuse textures.

@@ -238,3 +238,78 @@ TEST_CASE("LLSD binary: round trip and known bytes")
     CHECK_FALSE(fromBinary(std::vector<uint8_t>{'z'}).has_value());
     CHECK_FALSE(fromBinary(std::vector<uint8_t>{'[', 0xFF, 0xFF, 0xFF, 0xFF}).has_value());
 }
+
+TEST_CASE("LLSD notation")
+{
+    using namespace viewer::llsd;
+    // The shape of a GLTF material override (GenericStreamingMessage 0x4175).
+    const auto v = fromNotation(
+        "{'id':i1234,'te':[i0,i3],'od':[{'bc':[r1,r0.5,r0.25,r1],'am':i2,'ds':1,"
+        "'tex':[u11111111-2222-3333-4444-555555555555,!]},{'mf':r0.75,\"rf\":r0.125e1}]}");
+    REQUIRE(v.has_value());
+    CHECK((*v)["id"].asInteger() == 1234);
+    CHECK((*v)["te"].size() == 2);
+    CHECK((*v)["te"][1].asInteger() == 3);
+    const Value& first = (*v)["od"][0];
+    CHECK(first["bc"][1].asReal() == 0.5);
+    CHECK(first["am"].type() == Value::Type::Integer);
+    CHECK(first["ds"].asBoolean());
+    CHECK(first["tex"][0].asUuid().toString() == "11111111-2222-3333-4444-555555555555");
+    CHECK(first["tex"][1].isUndefined());
+    CHECK((*v)["od"][1]["rf"].asReal() == 1.25);
+
+    // Strings: both quotes, escapes, sized; binary; booleans spelled out.
+    const auto s = fromNotation(
+        R"N([ "a\"b\x41\n", 'c', s(3)"x"y", b64"AQID", b(2)"zz", true, F, l"http://x", ! ])N");
+    REQUIRE(s.has_value());
+    CHECK((*s)[0].asString() == "a\"bA\n");
+    CHECK((*s)[1].asString() == "c");
+    CHECK((*s)[2].asString() == "x\"y");
+    CHECK((*s)[3].asBinary() == Binary{1, 2, 3});
+    CHECK((*s)[4].asBinary() == Binary{'z', 'z'});
+    CHECK((*s)[5].asBoolean());
+    CHECK_FALSE((*s)[6].asBoolean());
+    CHECK((*s)[7].type() == Value::Type::Uri);
+    CHECK((*s)[8].isUndefined());
+
+    // parse() recognizes the header.
+    CHECK(parse("<?llsd/notation?>\n{'a':i1}")->operator[]("a").asInteger() == 1);
+    CHECK_FALSE(fromNotation("{'a':").has_value());
+    CHECK_FALSE(fromNotation("[i1, ").has_value());
+}
+
+TEST_CASE("JSON into LLSD")
+{
+    using namespace viewer::llsd;
+    const auto v = fromJson(R"({"materials":[{"pbrMetallicRoughness":{"baseColorFactor":[1,0.5,0,1],
+        "metallicFactor":0}, "alphaMode":"MASK", "doubleSided":true}],
+        "images":[{"uri":"11111111-2222-3333-4444-555555555555"}], "n":null, "big":3000000000,
+        "esc":"é😀\t"})");
+    REQUIRE(v.has_value());
+    const Value& m = (*v)["materials"][0];
+    CHECK(m["pbrMetallicRoughness"]["baseColorFactor"][1].asReal() == 0.5);
+    CHECK(m["pbrMetallicRoughness"]["metallicFactor"].type() == Value::Type::Integer);
+    CHECK(m["alphaMode"].asString() == "MASK");
+    CHECK(m["doubleSided"].asBoolean());
+    CHECK((*v)["images"][0]["uri"].asString() == "11111111-2222-3333-4444-555555555555");
+    CHECK((*v)["n"].isUndefined());
+    CHECK((*v)["big"].type() == Value::Type::Real);
+    CHECK((*v)["esc"].asString() == "\xc3\xa9\xf0\x9f\x98\x80\t");
+    CHECK_FALSE(fromJson("{\"a\":1,}").has_value());
+    CHECK_FALSE(fromJson("[1 2]").has_value());
+    CHECK_FALSE(fromJson("{} x").has_value());
+}
+
+TEST_CASE("LLSD headers with spaces")
+{
+    using namespace viewer::llsd;
+    Value v;
+    v["a"] = 7;
+    const auto binary = toBinary(v);
+    std::string text = "<? LLSD/Binary ?>\n";
+    text.append(binary.begin(), binary.end());
+    const auto parsed = parse(text);
+    REQUIRE(parsed.has_value());
+    CHECK((*parsed)["a"].asInteger() == 7);
+    CHECK(detectFormat("<? llsd/notation ?>\n{}") == Format::Notation);
+}

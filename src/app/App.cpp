@@ -258,6 +258,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
                                                       *app->http_, *app->jobs_);
     app->meshes_ =
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
+    app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
     {
         const char* base = SDL_GetBasePath();
@@ -459,6 +460,31 @@ int App::run()
                               sd[3]);
                     log::info("local lights: {} in range, {} used", scene_.lights.size(),
                               renderer_->lightsUsed());
+                    {
+                        const auto ms = materials_->stats();
+                        size_t withMaterials = 0;
+                        size_t withOverrides = 0;
+                        for(const auto& [key, object] : world_->objects())
+                        {
+                            if(!object.materials.empty() && withMaterials < 3)
+                            {
+                                log::info("PBR object {} at ({:.1f}, {:.1f}, {:.1f}), {} faces",
+                                          object.id.toString(), object.position.x,
+                                          object.position.y, object.position.z,
+                                          object.materials.size());
+                            }
+                            withMaterials += !object.materials.empty();
+                            withOverrides += world_->materialOverrides(key) != nullptr;
+                        }
+                        const auto& counts = session_->messageCounts();
+                        const auto gsm = counts.find("GenericStreamingMessage");
+                        log::info("GenericStreamingMessage received: {}",
+                                  gsm == counts.end() ? 0 : gsm->second);
+                        log::info("PBR: {} objects with materials, {} with overrides; {} faces "
+                                  "drawn; materials {} ready, {} loading, {} failed",
+                                  withMaterials, withOverrides, o.pbrFaces, ms.ready, ms.loading,
+                                  ms.failed);
+                    }
                     const auto c = worldThread_->cacheStats();
                     log::info("object cache: {} hits, {} misses, {} objects stored", c.hits,
                               c.misses, c.stored);
@@ -629,6 +655,7 @@ void App::updateSession()
             login ? login->reply["agent_appearance_service"].asString() : std::string());
     }
     meshes_->setViewerAssetUrl(viewerAsset);
+    materials_->setViewerAssetUrl(viewerAsset);
     if(animations_)
     {
         animations_->setViewerAssetUrl(viewerAsset);
@@ -725,6 +752,7 @@ void App::endSession()
 {
     textures_->setViewerAssetUrl({});
     meshes_->setViewerAssetUrl({});
+    materials_->setViewerAssetUrl({});
     if(animations_)
     {
         animations_->setViewerAssetUrl({});
@@ -806,6 +834,7 @@ void App::buildScene(render::Scene& scene)
         }
         objects_->update();
         meshes_->update();
+        materials_->update();
         if(animations_)
         {
             animations_->update();
@@ -818,8 +847,8 @@ void App::buildScene(render::Scene& scene)
                             128.0f);
         }
         profile_.mark(FrameProfile::Avatars);
-        objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, avatars_.get(),
-                        128.0f);
+        objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
+                        avatars_.get(), 128.0f);
         profile_.mark(FrameProfile::Objects);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));

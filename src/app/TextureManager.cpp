@@ -101,6 +101,36 @@ const render::GpuTexture* TextureManager::get(const Uuid& id, const std::string&
     return e.state == State::Resident ? &e.texture : nullptr;
 }
 
+const render::GpuTexture* TextureManager::getLinear(const Uuid& id)
+{
+    if(id.isNull())
+    {
+        return nullptr;
+    }
+    Entry& e = entry(id);
+    if(!e.wantLinear)
+    {
+        e.wantLinear = true;
+        if(e.state == State::Resident)
+        {
+            // Uploaded as color already: read it again for the linear copy.
+            cache_.request(assets::TextureRequest{.id = id, .flipRows = true});
+        }
+    }
+    return e.linear ? &e.linear : nullptr;
+}
+
+void TextureManager::queueLinear(const Uuid& id, Entry& e, const image::TextureData& texture)
+{
+    if(!e.wantLinear || e.linear || e.linearQueued)
+    {
+        return;
+    }
+    e.pendingLinear = texture;
+    e.linearQueued = true;
+    linearUploadQueue_.push_back(id);
+}
+
 const image::TextureData* TextureManager::data(const Uuid& id)
 {
     if(id.isNull())
@@ -155,6 +185,15 @@ void TextureManager::update()
         for(size_t i = 0; i < u.ids.size(); i++)
         {
             auto it = entries_.find(u.ids[i]);
+            if(u.linear)
+            {
+                if(it != entries_.end())
+                {
+                    it->second.linear = std::move(u.textures[i]);
+                    it->second.linearQueued = false;
+                }
+                continue;
+            }
             if(it == entries_.end() || it->second.state != State::Uploading)
             {
                 continue;
@@ -175,46 +214,55 @@ void TextureManager::update()
 void TextureManager::startUploads()
 {
     constexpr size_t kUploadJobs = 2; // batches in flight, which bounds memory
-    while(uploadJobs_ < kUploadJobs && !uploadQueue_.empty())
+    while(uploadJobs_ < kUploadJobs && (!uploadQueue_.empty() || !linearUploadQueue_.empty()))
     {
+        // Color textures first; linear copies (normal maps and the like) in
+        // batches of their own.
+        const bool linear = uploadQueue_.empty();
+        std::deque<Uuid>& queue = linear ? linearUploadQueue_ : uploadQueue_;
         auto batch = std::make_shared<std::vector<image::TextureData>>();
         Uploaded result;
+        result.linear = linear;
         uint64_t bytes = 0;
-        while(!uploadQueue_.empty() && batch->size() < kUploadsPerBatch &&
-              bytes < kUploadBytesPerBatch)
+        while(!queue.empty() && batch->size() < kUploadsPerBatch && bytes < kUploadBytesPerBatch)
         {
-            const Uuid id = uploadQueue_.front();
-            uploadQueue_.pop_front();
+            const Uuid id = queue.front();
+            queue.pop_front();
             auto it = entries_.find(id);
-            if(it == entries_.end() || it->second.state != State::Uploading ||
-               it->second.pending.levels.empty())
+            if(it == entries_.end())
             {
                 continue;
             }
-            for(const auto& level : it->second.pending.levels)
+            Entry& e = it->second;
+            image::TextureData& pending = linear ? e.pendingLinear : e.pending;
+            if((!linear && e.state != State::Uploading) || pending.levels.empty())
+            {
+                continue;
+            }
+            for(const auto& level : pending.levels)
             {
                 bytes += level.byteSize();
             }
             result.ids.push_back(id);
-            result.alphaModes.push_back(it->second.pending.alphaMode);
-            batch->push_back(std::move(it->second.pending));
-            it->second.pending = {};
+            result.alphaModes.push_back(pending.alphaMode);
+            batch->push_back(std::move(pending));
+            pending = {};
         }
         if(batch->empty())
         {
-            return;
+            continue;
         }
         uploadJobs_++;
         jobsRunning_++;
         jobs_.submit(
-            [this, batch, result = std::make_shared<Uploaded>(std::move(result))]
+            [this, batch, linear, result = std::make_shared<Uploaded>(std::move(result))]
             {
                 std::vector<const image::TextureData*> pointers;
                 for(const image::TextureData& t : *batch)
                 {
                     pointers.push_back(&t);
                 }
-                result->textures = renderer_.uploadTextures(pointers, true);
+                result->textures = renderer_.uploadTextures(pointers, !linear);
                 uploaded_.push(std::move(*result));
                 jobsRunning_--;
             });
@@ -238,9 +286,10 @@ void TextureManager::handleCacheResult(assets::TextureResult& result)
         {
             e.cpuCopy = std::make_unique<image::TextureData>(result.texture);
         }
+        queueLinear(result.id, e, result.texture);
         if(e.texture)
         {
-            e.state = State::Resident; // was only re-read for the CPU copy
+            e.state = State::Resident; // was only re-read for a copy
             return;
         }
         e.pending = std::move(result.texture);

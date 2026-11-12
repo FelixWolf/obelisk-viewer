@@ -50,6 +50,9 @@ public:
     // The same, downloading from `url` instead of the ViewerAsset capability
     // (avatar bakes come from the appearance service).
     const render::GpuTexture* get(const Uuid& id, const std::string& url);
+    // The texture sampled as plain data, not sRGB color: normal maps,
+    // metallic-roughness maps. A second GPU copy, made only when asked for.
+    const render::GpuTexture* getLinear(const Uuid& id);
 
     // The decoded image, for textures that need CPU-side processing (terrain
     // layers go into an array). Keeps a copy once asked for; nullptr until
@@ -96,6 +99,11 @@ private:
         std::unique_ptr<image::TextureData> cpuCopy;
         bool keepCpuCopy = false;
         std::string url; // explicit download URL, if any
+        // The linear (data) copy, when asked for (getLinear).
+        render::GpuTexture linear;
+        bool wantLinear = false;
+        bool linearQueued = false;
+        image::TextureData pendingLinear;
         int attempts = 0;
         std::chrono::steady_clock::time_point retryAt{};
     };
@@ -118,7 +126,10 @@ private:
         std::vector<Uuid> ids;
         std::vector<render::GpuTexture> textures;
         std::vector<image::AlphaMode> alphaModes;
+        bool linear = false; // a batch of linear copies
     };
+    // Queues the linear copy of a decoded image.
+    void queueLinear(const Uuid& id, Entry& e, const image::TextureData& texture);
 
     assets::TextureCache& cache_;
     render::Renderer& renderer_;
@@ -129,6 +140,7 @@ private:
     std::unordered_map<Uuid, Entry> entries_;
     std::deque<Uuid> downloadQueue_;
     std::deque<Uuid> uploadQueue_;
+    std::deque<Uuid> linearUploadQueue_;
     size_t downloading_ = 0;
     uint64_t bytesDownloaded_ = 0;
 

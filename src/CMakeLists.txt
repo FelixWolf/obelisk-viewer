@@ -6,7 +6,7 @@
 #   core  <-  net  <-  protocol         (generated messages, UDP circuits)
 #   core  <-  llsd, net, protocol  <-  session   (login, regions, caps, event queues)
 #   volume                             (prim geometry from shape parameters)
-#   core  <-  protocol, volume  <-  world   (terrain, objects)
+#   core  <-  protocol, volume, assets  <-  world   (terrain, objects)
 #   core, llsd  <-  environment         (sky settings, day cycles, lighting)
 #   app sees everything
 #

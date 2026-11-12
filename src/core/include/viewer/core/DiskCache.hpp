@@ -29,6 +29,7 @@ enum class CacheKind : uint8_t
     Mesh,      // a mesh asset's blocks as downloaded
     Animation, // .anim bytes as downloaded
     Objects,   // a region's cacheable objects (world::RegionObjectCache), by region id
+    Material,  // PBR material assets as downloaded
 };
 
 struct CacheKey
@@ -67,6 +68,7 @@ public:
 //   meshes/<xx>/<uuid>.header, .skin, .lod<N>
 //   animations/<xx>/<uuid>.anim
 //   objects/<xx>/<region uuid>.objects
+//   materials/<xx>/<uuid>.material
 // (<xx>: the id's first two hex digits). Writes go to a uniquely named
 // temporary file that is renamed over the entry, so concurrent writers, in
 // this process or another, never mix their bytes.

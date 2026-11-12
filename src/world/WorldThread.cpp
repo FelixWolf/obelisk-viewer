@@ -109,9 +109,29 @@ void WorldThread::answerProbes(uint64_t region, const protocol::CircuitEvent& ev
         missing.objects.push_back(
             {probe.ID, known ? WorldRequest::Miss::Crc : WorldRequest::Miss::Total});
     }
+    // Objects from the cache get their material overrides from it too (the
+    // simulator only streams them after full updates).
+    std::vector<WorldUpdate> overrides;
+    for(const ObjectUpdateData& u : found.updates)
+    {
+        const std::string* text =
+            it != caches_.end() ? it->second.objects.overrides(u.localId) : nullptr;
+        if(text && !world_.materialOverrides(ObjectKey{region, u.localId}))
+        {
+            if(auto decoded = decodeMaterialOverrides(*text))
+            {
+                decoded->localId = u.localId;
+                overrides.push_back(WorldUpdate{.region = region, .change = std::move(*decoded)});
+            }
+        }
+    }
     if(!found.updates.empty())
     {
         world_.apply(WorldUpdate{.region = region, .change = std::move(found)});
+    }
+    for(WorldUpdate& o : overrides)
+    {
+        world_.apply(std::move(o));
     }
     if(!missing.objects.empty())
     {
@@ -150,6 +170,11 @@ void WorldThread::cacheUpdates(uint64_t region, const WorldUpdate& update)
         {
             cache.erase(id);
         }
+    }
+    else if(const auto* overrides = std::get_if<WorldUpdate::MaterialOverrides>(&update.change))
+    {
+        cache.storeOverrides(overrides->localId,
+                             overrides->faces.empty() ? std::string() : overrides->raw);
     }
 }
 

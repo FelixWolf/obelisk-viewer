@@ -363,3 +363,67 @@ TEST_CASE("World thread: objects come from the cache on the next visit")
     REQUIRE(requests.size() == 1);
     CHECK_FALSE(requests[0].haveCache);
 }
+
+namespace
+{
+
+msg::GenericStreamingMessage materialOverride(std::string_view notation)
+{
+    msg::GenericStreamingMessage m;
+    m.MethodData.Method = 0x4175;
+    m.DataBlock.Data.assign(notation.begin(), notation.end());
+    return m;
+}
+
+} // namespace
+
+TEST_CASE("World thread: PBR material overrides, streamed and cached")
+{
+    viewer::test::TempDirectory dir("material-overrides");
+    FileCache store(dir.path());
+    const uint64_t region = 1000ull * 256 << 32 | 1000 * 256;
+    const Uuid regionId = *Uuid::parse("bbbbbbbb-0000-0000-0000-000000000002");
+    const Uuid cacheId = *Uuid::parse("cccccccc-0000-0000-0000-000000000003");
+    const std::string notation = "{'id':i10,'te':[i2],'od':[{'mf':r0.25,'am':i1}]}";
+
+    {
+        world::WorldThread thread(&store);
+        thread.post(region, event(regionHandshake(regionId, cacheId)));
+        // The override may come before the object: it's kept.
+        thread.post(region, event(materialOverride(notation)));
+        thread.post(region, event(compressedUpdate({{10, 100}, {11, 110}})));
+        thread.flush();
+        const auto world = thread.snapshot();
+        const world::FaceOverrides* o = world->materialOverrides({region, 10});
+        REQUIRE(o != nullptr);
+        REQUIRE(o->size() == 1);
+        CHECK((*o)[0].first == 2);
+        CHECK((*o)[0].second.metallic == 0.25f);
+        CHECK((*o)[0].second.alphaMode == viewer::assets::MaterialAlpha::Blend);
+        CHECK(world->materialOverrides({region, 11}) == nullptr);
+        thread.postRegionRemoved(region); // saves the cache
+        thread.flush();
+    }
+
+    // Next visit: the object comes from the cache, and so does its override
+    // (the simulator doesn't stream it again).
+    world::WorldThread thread(&store);
+    thread.post(region, event(regionHandshake(regionId, cacheId)));
+    thread.post(region, event(probes({{10, 100}})));
+    thread.flush();
+    auto world = thread.snapshot();
+    REQUIRE(world->object(region, 10) != nullptr);
+    REQUIRE(world->materialOverrides({region, 10}) != nullptr);
+    CHECK((*world->materialOverrides({region, 10}))[0].second.metallic == 0.25f);
+
+    // An empty set clears them; so does a kill.
+    thread.post(region, event(materialOverride("{'id':i10,'te':[],'od':[]}")));
+    thread.flush();
+    CHECK(thread.snapshot()->materialOverrides({region, 10}) == nullptr);
+    thread.post(region, event(materialOverride(notation)));
+    msg::KillObject kill;
+    kill.ObjectData.emplace_back().ID = 10;
+    thread.post(region, event(kill));
+    thread.flush();
+    CHECK(thread.snapshot()->materialOverrides({region, 10}) == nullptr);
+}

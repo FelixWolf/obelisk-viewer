@@ -119,6 +119,9 @@ struct Object
     bool animatedMesh = false; // animesh: its rigged mesh follows a skeleton of its own
     std::optional<LightParams> light;
     std::optional<LightImage> lightImage;
+    // PBR material asset per face (extra parameter 0x80; null: none). Their
+    // overrides come separately (World::materialOverrides).
+    std::vector<std::pair<uint8_t, Uuid>> materials;
 
     std::string hoverText{};
     // When the latest update (full or terse) arrived, and the simulator's

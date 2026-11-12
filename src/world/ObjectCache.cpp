@@ -9,9 +9,11 @@ namespace viewer::world
 namespace
 {
 
-// "VOC1", CacheID (16 bytes), count, then per object: local id, CRC,
-// update flags, size, data. Little-endian.
-constexpr uint8_t kMagic[4] = {'V', 'O', 'C', '1'};
+// "VOC2", CacheID (16 bytes), count, then per object: local id, CRC,
+// update flags, size, data; then a count of material overrides and per
+// one: local id, size, notation text. Little-endian. (VOC1 files, without
+// overrides, are dropped.)
+constexpr uint8_t kMagic[4] = {'V', 'O', 'C', '2'};
 constexpr uint32_t kMaxBlock = 4096; // compressed blocks are well under this
 
 void putU32(std::vector<uint8_t>& out, uint32_t v)
@@ -73,6 +75,28 @@ void RegionObjectCache::store(uint32_t localId, CachedObject object)
 void RegionObjectCache::erase(uint32_t localId)
 {
     dirty_ = objects_.erase(localId) > 0 || dirty_;
+    dirty_ = overrides_.erase(localId) > 0 || dirty_;
+}
+
+const std::string* RegionObjectCache::overrides(uint32_t localId) const
+{
+    const auto it = overrides_.find(localId);
+    return it == overrides_.end() ? nullptr : &it->second;
+}
+
+void RegionObjectCache::storeOverrides(uint32_t localId, std::string notation)
+{
+    if(notation.empty())
+    {
+        dirty_ = overrides_.erase(localId) > 0 || dirty_;
+        return;
+    }
+    auto& slot = overrides_[localId];
+    if(slot != notation)
+    {
+        slot = std::move(notation);
+        dirty_ = true;
+    }
 }
 
 std::vector<uint8_t> RegionObjectCache::serialize() const
@@ -87,6 +111,13 @@ std::vector<uint8_t> RegionObjectCache::serialize() const
         putU32(out, object.updateFlags);
         putU32(out, static_cast<uint32_t>(object.data.size()));
         out.insert(out.end(), object.data.begin(), object.data.end());
+    }
+    putU32(out, static_cast<uint32_t>(overrides_.size()));
+    for(const auto& [id, text] : overrides_)
+    {
+        putU32(out, id);
+        putU32(out, static_cast<uint32_t>(text.size()));
+        out.insert(out.end(), text.begin(), text.end());
     }
     return out;
 }
@@ -121,6 +152,19 @@ std::optional<RegionObjectCache> RegionObjectCache::parse(std::span<const uint8_
         const auto data = r.take(size);
         object.data.assign(data.begin(), data.end());
         cache.objects_.emplace(localId, std::move(object));
+    }
+    const uint32_t overrideCount = r.u32();
+    for(uint32_t i = 0; i < overrideCount && r.ok; i++)
+    {
+        const uint32_t localId = r.u32();
+        const uint32_t size = r.u32();
+        if(size > 65536)
+        {
+            return std::nullopt;
+        }
+        const auto text = r.take(size);
+        cache.overrides_.emplace(
+            localId, std::string(reinterpret_cast<const char*>(text.data()), text.size()));
     }
     if(!r.ok || r.at != bytes.size())
     {

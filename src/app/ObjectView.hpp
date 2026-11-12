@@ -13,6 +13,7 @@
 // Not drawn yet: sculpted prims, rigged mesh, trees and grass.
 
 #include "AvatarView.hpp"
+#include "MaterialManager.hpp"
 #include "MeshManager.hpp"
 #include "ObjectMotion.hpp"
 #include "TextureManager.hpp"
@@ -50,8 +51,8 @@ public:
 
     // Adds the prims within `drawDistance` of the camera.
     void addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
-               TextureManager& textures, MeshManager& meshes, const AvatarView* avatars,
-               float drawDistance);
+               TextureManager& textures, MeshManager& meshes, MaterialManager& materials,
+               const AvatarView* avatars, float drawDistance);
 
     // Drops cached geometry (e.g. on logout).
     void clear();
@@ -66,6 +67,7 @@ public:
         size_t skipped = 0;     // sculpted/attached prims not drawn
         size_t palettes = 0;    // rigged meshes skinned last frame
         size_t culled = 0;      // in range but out of view last frame
+        size_t pbrFaces = 0;    // faces drawn with their PBR material
     };
     Stats stats() const { return stats_; }
 
@@ -110,7 +112,13 @@ private:
     // or its animated object's).
     void addRigged(render::Scene& scene, const world::World& world, const world::Object& object,
                    uint64_t originHandle, TextureManager& textures, MeshManager& meshes,
-                   const AvatarView* avatars, float drawDistance);
+                   MaterialManager& materials, const AvatarView* avatars, float drawDistance);
+    // A face's PBR material, with its override, and its texture transform,
+    // into `draw`. False if the face has none, or it hasn't loaded yet (the
+    // legacy texture stands in).
+    static bool pbrMaterial(render::ObjectDraw& draw, const world::Object& object, size_t face,
+                            const world::World& world, TextureManager& textures,
+                            MaterialManager& materials);
     // An object's frame (position and rotation, no scale) in scene
     // coordinates, through its linkset root and, for attachments, its
     // avatar's attachment point. Nothing if a parent isn't known yet.

@@ -18,6 +18,8 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* blinnPhongSkinned = nullptr;
     SDL_GPUGraphicsPipeline* blinnPhongSkinnedBlend = nullptr;
     SDL_GPUGraphicsPipeline* pbrSkinned = nullptr;
+    // PBR variants: [blend][double sided][skinned], [0][0][x] being the two above.
+    SDL_GPUGraphicsPipeline* pbrVariants[2][2][2] = {};
     SDL_GPUGraphicsPipeline* terrainBlinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
     SDL_GPUGraphicsPipeline* tonemap = nullptr;
@@ -42,6 +44,19 @@ struct Renderer::Pipelines
             if(p)
             {
                 SDL_ReleaseGPUGraphicsPipeline(device, p);
+            }
+        }
+        for(auto& byBlend : pbrVariants)
+        {
+            for(auto& bySides : byBlend)
+            {
+                for(SDL_GPUGraphicsPipeline* v : bySides)
+                {
+                    if(v && v != pbr && v != pbrSkinned)
+                    {
+                        SDL_ReleaseGPUGraphicsPipeline(device, v);
+                    }
+                }
             }
         }
         for(SDL_GPUSampler* s : {repeatSampler, clampSampler, shadowSampler})

@@ -13,6 +13,7 @@
 // hasn't changed since. A World is used by one thread at a time; copies
 // may go to other threads (they share only immutable data).
 
+#include "viewer/assets/Material.hpp"
 #include "viewer/core/Uuid.hpp"
 #include "viewer/protocol/CircuitManager.hpp"
 #include "viewer/world/Objects.hpp"
@@ -134,13 +135,28 @@ struct WorldUpdate
     struct RegionRemoved
     {
     };
+    // An object's PBR material overrides, per face (GenericStreamingMessage
+    // 0x4175): the whole set, replacing the last. `raw` is the message's
+    // LLSD notation, for the object cache.
+    struct MaterialOverrides
+    {
+        uint32_t localId = 0;
+        std::vector<std::pair<uint8_t, assets::MaterialOverride>> faces;
+        std::string raw;
+    };
 
     uint64_t region = 0;
     // monostate: nothing for the world (or a message that didn't decode).
     std::variant<std::monostate, Objects, Kill, Terrain, Handshake, Appearance, Animations,
-                 RegionRemoved>
+                 RegionRemoved, MaterialOverrides>
         change;
 };
+
+// The overrides of one object's faces.
+using FaceOverrides = std::vector<std::pair<uint8_t, assets::MaterialOverride>>;
+
+// Reads an override message's LLSD notation (also from the object cache).
+std::optional<WorldUpdate::MaterialOverrides> decodeMaterialOverrides(std::string_view notation);
 
 // Decodes a message from the region with this handle (see
 // Session::RegionMessage). Uses no world state; safe on any thread.
@@ -176,6 +192,9 @@ public:
     using Appearance = AvatarAppearance;
     using PlayingAnimation = world::PlayingAnimation;
     const Appearance* appearance(const Uuid& avatar) const;
+    // An object's PBR material overrides (kept even before the object
+    // arrives, as the official viewer does); null if none.
+    const FaceOverrides* materialOverrides(const ObjectKey& key) const;
     // The animations an avatar or animated object is playing (from
     // AvatarAnimation or ObjectAnimation: the full list each time).
     const std::vector<PlayingAnimation>* animations(const Uuid& id) const;
@@ -231,6 +250,8 @@ private:
     std::unordered_map<Uuid, std::shared_ptr<const Appearance>> appearances_;
     uint64_t appearanceSerial_ = 0;
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<PlayingAnimation>>> animations_;
+    std::unordered_map<ObjectKey, std::shared_ptr<const FaceOverrides>, ObjectKeyHash>
+        materialOverrides_;
     uint64_t objectsRevision_ = 0;
     Stats stats_;
 };

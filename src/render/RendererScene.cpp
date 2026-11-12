@@ -80,6 +80,16 @@ struct FrameFS
     glm::vec4 viewAxis;
     glm::vec4 lightInfo;
 };
+// Material family and anything else that picks the pipeline (2 bits).
+uint64_t materialKind(const ObjectDraw& draw)
+{
+    if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
+    {
+        return t->doubleSided ? 3 : 1;
+    }
+    return 0;
+}
+
 // One local light, std430 (lights.glsl LocalLight).
 struct LightData
 {
@@ -220,7 +230,8 @@ bool Renderer::createPipelines()
     };
 
     auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, VertexLayout layout,
-                             const char* name, bool blend = false) -> SDL_GPUGraphicsPipeline*
+                             const char* name, bool blend = false,
+                             bool bothSides = false) -> SDL_GPUGraphicsPipeline*
     {
         if(!vert || !frag)
         {
@@ -266,7 +277,7 @@ bool Renderer::createPipelines()
         }
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
-        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+        info.rasterizer_state.cull_mode = bothSides ? SDL_GPU_CULLMODE_NONE : SDL_GPU_CULLMODE_BACK;
         info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
         info.depth_stencil_state.enable_depth_test = true;
         // Blended rigged mesh writes depth, as the official viewer's: it's
@@ -300,6 +311,24 @@ bool Renderer::createPipelines()
     p.blinnPhongSkinnedBlend = scenePipeline(skinnedVert, blinnPhongFrag, kSkinned,
                                              "Blinn-Phong (skinned, blended)", true);
     p.pbrSkinned = scenePipeline(skinnedVert, pbrFrag, kSkinned, "PBR (skinned)");
+    for(int blend = 0; blend < 2; blend++)
+    {
+        for(int sides = 0; sides < 2; sides++)
+        {
+            for(int skinned = 0; skinned < 2; skinned++)
+            {
+                SDL_GPUGraphicsPipeline*& v = p.pbrVariants[blend][sides][skinned];
+                if(!blend && !sides)
+                {
+                    v = skinned ? p.pbrSkinned : p.pbr;
+                    continue;
+                }
+                v = scenePipeline(skinned ? skinnedVert : objectVert, pbrFrag,
+                                  skinned ? kSkinned : kObject, "PBR (variant)", blend != 0,
+                                  sides != 0);
+            }
+        }
+    }
     p.terrainBlinnPhong =
         scenePipeline(terrainVert, terrainBlinnPhongFrag, kTerrain, "terrain Blinn-Phong");
     p.terrainPbr = scenePipeline(terrainVert, terrainPbrFrag, kTerrain, "terrain PBR");
@@ -793,7 +822,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             continue;
         }
         const auto* bp = std::get_if<BlinnPhongMaterial>(&draw.material);
-        if(bp && bp->blend)
+        const auto* pbrBlend = std::get_if<PbrMaterial>(&draw.material);
+        if((bp && bp->blend) || (pbrBlend && pbrBlend->blend))
         {
             const size_t index = static_cast<size_t>(&draw - scene.objects.data());
             if(draw.mesh->layout == VertexLayout::Skinned)
@@ -834,7 +864,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         const uint64_t textureBits =
             (reinterpret_cast<uintptr_t>(firstTexture) >> 4) & ((1ull << 44) - 1);
         return static_cast<uint64_t>(draw->mesh->layout) << 62 |
-               static_cast<uint64_t>(draw->material.index()) << 60 | textureBits << 16 |
+               static_cast<uint64_t>(materialKind(*draw)) << 60 | textureBits << 16 |
                (draw->mesh->block->index & 0xFFFFu);
     };
     keyedDraws_.clear();
@@ -895,11 +925,11 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {
-            bindPipeline(skinned ? p.pbrSkinned : p.pbr);
+            bindPipeline(p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0]);
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(t->albedo, white_), p.repeatSampler},
                 {texture(t->orm, white_), p.repeatSampler},
-                {texture(t->emissive, black_), p.repeatSampler},
+                {texture(t->emissive, white_), p.repeatSampler},
                 {texture(t->normal, flatNormal_), p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
             };
@@ -1144,7 +1174,7 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {
-            masked = t->alphaCutoff >= 0.0f;
+            masked = t->alphaCutoff >= 0.0f || t->blend;
             diffuse = t->albedo;
         }
         if(skinned)
