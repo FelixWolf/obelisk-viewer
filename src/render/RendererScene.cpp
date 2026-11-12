@@ -47,8 +47,9 @@ struct DrawData
     glm::vec4 uvRow1;
     glm::vec4 material[3];
     glm::uvec4 skin;
+    glm::vec4 mapUv[4]; // normal map's rows, then the specular map's
 };
-static_assert(sizeof(DrawData) == 224);
+static_assert(sizeof(DrawData) == 288);
 struct TerrainVS
 {
     glm::mat4 model;
@@ -1619,7 +1620,8 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
         {
             out.material[0] = m->diffuseTint;
             out.material[1] = glm::vec4(m->specularTint, m->maxExponent);
-            out.material[2] = glm::vec4(m->alphaCutoff, m->fullbright ? 1.0f : 0.0f, 0.0f, 0.0f);
+            out.material[2] = glm::vec4(m->alphaCutoff, m->fullbright ? 1.0f : 0.0f,
+                                        m->emissiveMask ? 1.0f : 0.0f, m->opaque ? 1.0f : 0.0f);
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {
@@ -1629,6 +1631,19 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
                 glm::vec4(t->roughness, t->metallic, t->occlusionStrength, t->alphaCutoff);
         }
         out.skin = glm::uvec4(jointBase, 0, 0, 0);
+        const auto* legacy = std::get_if<BlinnPhongMaterial>(&draw.material);
+        if(legacy && legacy->mapTransforms)
+        {
+            out.mapUv[0] = glm::vec4(legacy->normalUv[0], 0.0f);
+            out.mapUv[1] = glm::vec4(legacy->normalUv[1], 0.0f);
+            out.mapUv[2] = glm::vec4(legacy->specularUv[0], 0.0f);
+            out.mapUv[3] = glm::vec4(legacy->specularUv[1], 0.0f);
+        }
+        else
+        {
+            out.mapUv[0] = out.mapUv[2] = glm::vec4(draw.uvRow0, 0.0f);
+            out.mapUv[1] = out.mapUv[3] = glm::vec4(draw.uvRow1, 0.0f);
+        }
         jointBase += static_cast<uint32_t>(draw.joints.size());
     }
     SDL_UnmapGPUTransferBuffer(device_, drawBuffer_.transfer);

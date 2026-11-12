@@ -24,10 +24,18 @@ struct BlinnPhongMaterial
     const GpuTexture* specular = nullptr; // RGB specular color, A environment intensity
     glm::vec4 diffuseTint{1.0f};
     glm::vec3 specularTint{1.0f};
-    float maxExponent = 128.0f; // specular exponent at full glossiness
+    float maxExponent = 128.0f; // specular exponent where the normal map's A is 1 (times A²)
     float alphaCutoff = -1.0f;  // < 0: no alpha test
     bool fullbright = false;    // unlit: the texture's color as is
     bool blend = false;         // alpha-blended (drawn after opaque, back to front)
+    bool emissiveMask = false;  // the diffuse alpha is how much shows unlit (opaque)
+    bool opaque = false;        // the diffuse alpha is ignored
+    // The normal and specular maps' own texture transforms (rows, as
+    // ObjectDraw::uvRow0/1, applied to the mesh's coordinates); without
+    // them they follow the diffuse map's.
+    bool mapTransforms = false;
+    std::array<glm::vec3, 2> normalUv{glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
+    std::array<glm::vec3, 2> specularUv{glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
 };
 
 // PBR objects (glTF metallic-roughness).

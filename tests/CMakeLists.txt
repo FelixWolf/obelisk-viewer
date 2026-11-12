@@ -8,6 +8,7 @@ add_executable(viewer_tests
   Ktx2Tests.cpp
   LlsdTests.cpp
   LoginTests.cpp
+  LegacyMaterialTests.cpp
   MaterialTests.cpp
   Md5Tests.cpp
   EnvironmentTests.cpp

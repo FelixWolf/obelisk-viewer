@@ -1,4 +1,5 @@
 add_library(viewer_assets STATIC
+  LegacyMaterial.cpp
   Material.cpp
   MeshAsset.cpp
   TextureCache.cpp

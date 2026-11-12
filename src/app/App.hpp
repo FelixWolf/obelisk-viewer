@@ -6,6 +6,7 @@
 #include "CameraController.hpp"
 #include "EnvironmentManager.hpp"
 #include "FrameProfile.hpp"
+#include "LegacyMaterialManager.hpp"
 #include "LoginPanel.hpp"
 #include "MaterialManager.hpp"
 #include "ObjectView.hpp"
@@ -140,6 +141,7 @@ private:
     std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;
     std::unique_ptr<MaterialManager> materials_;
+    std::unique_ptr<LegacyMaterialManager> legacyMaterials_;
     ObjectMotion motion_;                          // before the views that read it
     std::unique_ptr<AnimationManager> animations_; // with avatars_
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded

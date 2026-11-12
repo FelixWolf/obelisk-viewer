@@ -26,6 +26,7 @@ layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec4 outTangent;
 layout(location = 3) out vec2 outUv;
 layout(location = 4) flat out uint outDraw;
+layout(location = 5) out vec2 outMeshUv; // before the texture transform (legacy maps have their own)
 
 // Planar mapping's texture coordinates, as the official viewer's
 // planarProjection (llface.cpp): the face's plane picked from its normal,
@@ -62,6 +63,7 @@ void main()
         uv = planarUv(inNormal, inPosition * scale);
     }
     outUv = vec2(dot(draw.uvRow0.xyz, vec3(uv, 1.0)), dot(draw.uvRow1.xyz, vec3(uv, 1.0)));
+    outMeshUv = uv;
     outDraw = inDraw;
     gl_Position = viewProjection * world;
 }

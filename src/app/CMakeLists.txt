@@ -22,6 +22,7 @@ add_executable(viewer
   EnvironmentManager.cpp
   FaceUpload.cpp
   LoginPanel.cpp
+  LegacyMaterialManager.cpp
   MaterialManager.cpp
   MeshManager.cpp
   ObjectMotion.cpp

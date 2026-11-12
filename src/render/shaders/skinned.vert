@@ -34,6 +34,7 @@ layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec4 outTangent;
 layout(location = 3) out vec2 outUv;
 layout(location = 4) flat out uint outDraw;
+layout(location = 5) out vec2 outMeshUv; // before the texture transform (legacy maps have their own)
 
 void main()
 {
@@ -56,6 +57,7 @@ void main()
     outNormal = cofactor * inNormal * sign(determinant(m));
     outTangent = vec4(mat3(world) * inTangent.xyz, inTangent.w);
     outUv = vec2(dot(draw.uvRow0.xyz, vec3(inUv, 1.0)), dot(draw.uvRow1.xyz, vec3(inUv, 1.0)));
+    outMeshUv = inUv;
     outDraw = inDraw;
     gl_Position = viewProjection * position;
 }

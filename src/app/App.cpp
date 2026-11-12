@@ -270,6 +270,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->meshes_ =
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
+    app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
@@ -475,6 +476,9 @@ int App::run()
                               sd[3]);
                     log::info("local lights: {} in range, {} used", scene_.lights.size(),
                               renderer_->lightsUsed());
+                    const auto lm = legacyMaterials_->stats();
+                    log::info("legacy materials: {} ready, {} loading, {} missing", lm.ready,
+                              lm.loading, lm.missing);
                     {
                         const auto ms = materials_->stats();
                         size_t withMaterials = 0;
@@ -673,6 +677,8 @@ void App::updateSession()
     }
     meshes_->setViewerAssetUrl(viewerAsset);
     materials_->setViewerAssetUrl(viewerAsset);
+    legacyMaterials_->setCapabilityUrl(
+        std::string(session_->capability("RenderMaterials").value_or("")));
     if(animations_)
     {
         animations_->setViewerAssetUrl(viewerAsset);
@@ -858,6 +864,7 @@ void App::endSession()
     textures_->setViewerAssetUrl({});
     meshes_->setViewerAssetUrl({});
     materials_->setViewerAssetUrl({});
+    legacyMaterials_->setCapabilityUrl({});
     if(animations_)
     {
         animations_->setViewerAssetUrl({});
@@ -942,6 +949,7 @@ void App::buildScene(render::Scene& scene)
         objects_->update();
         meshes_->update();
         materials_->update();
+        legacyMaterials_->update();
         if(animations_)
         {
             animations_->update();
@@ -955,7 +963,7 @@ void App::buildScene(render::Scene& scene)
         }
         profile_.mark(FrameProfile::Avatars);
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
-                        avatars_.get(), 128.0f);
+                        *legacyMaterials_, avatars_.get(), 128.0f);
         trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
         profile_.mark(FrameProfile::Objects);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),

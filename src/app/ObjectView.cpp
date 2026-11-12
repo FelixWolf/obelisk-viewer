@@ -54,16 +54,29 @@ void gltfUvTransform(const assets::TextureTransform& t, glm::vec3& row0, glm::ve
     row1 = glm::vec3(m[0][1], m[1][1], m[2][1]);
 }
 
+glm::vec3 srgbToLinear(glm::vec3 c)
+{
+    auto channel = [](float v)
+    { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+    return glm::vec3(channel(c.r), channel(c.g), channel(c.b));
+}
+
+void uvTransform(glm::vec2 repeats, glm::vec2 offset, float rotation, glm::vec3& row0,
+                 glm::vec3& row1)
+{
+    const float c = std::cos(rotation);
+    const float s = std::sin(rotation);
+    const float a = c * repeats.x;
+    const float b = s * repeats.x;
+    const float d = -s * repeats.y;
+    const float e = c * repeats.y;
+    row0 = glm::vec3(a, b, -0.5f * a - 0.5f * b + offset.x + 0.5f);
+    row1 = glm::vec3(d, e, -0.5f * d - 0.5f * e + offset.y + 0.5f);
+}
+
 void uvTransform(const world::TextureFace& face, glm::vec3& row0, glm::vec3& row1)
 {
-    const float c = std::cos(face.rotation);
-    const float s = std::sin(face.rotation);
-    const float a = c * face.repeats.x;
-    const float b = s * face.repeats.x;
-    const float d = -s * face.repeats.y;
-    const float e = c * face.repeats.y;
-    row0 = glm::vec3(a, b, -0.5f * a - 0.5f * b + face.offset.x + 0.5f);
-    row1 = glm::vec3(d, e, -0.5f * d - 0.5f * e + face.offset.y + 0.5f);
+    uvTransform(face.repeats, face.offset, face.rotation, row0, row1);
 }
 
 } // namespace
@@ -190,8 +203,8 @@ void ObjectView::update()
 
 std::optional<render::BlinnPhongMaterial>
 ObjectView::material(const world::TextureFace& face, TextureManager& textures,
-                     const world::World& world, const world::Object* wearer,
-                     const AvatarView* avatars, float texels)
+                     LegacyMaterialManager& legacyMaterials, const world::World& world,
+                     const world::Object* wearer, const AvatarView* avatars, float texels)
 {
     render::BlinnPhongMaterial m;
     if(wearer && avatars)
@@ -212,8 +225,9 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
             return m;
         }
     }
-    m.diffuse = textures.get(face.texture,
-                             texels * std::max(std::abs(face.repeats.x), std::abs(face.repeats.y)));
+    auto texelsAt = [&](glm::vec2 repeats)
+    { return texels * std::max(std::abs(repeats.x), std::abs(repeats.y)); };
+    m.diffuse = textures.get(face.texture, texelsAt(face.repeats));
     m.diffuseTint = face.color;
     m.fullbright = face.fullbright();
     // Legacy faces have no highlight, as in the official viewer. "Shiny"
@@ -221,12 +235,67 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
     // environment reflections yet, a soft broad sheen stands in.
     m.specularTint = glm::vec3(0.04f * static_cast<float>(face.shiny()));
     m.maxExponent = 16.0f;
-    const auto alpha = textures.alphaMode(face.texture);
-    if(alpha == image::AlphaMode::Mask)
+    auto alphaMode = assets::DiffuseAlphaMode::Default;
+    float maskCutoff = 0.5f;
+    // A legacy material: normal and specular maps with their own
+    // transforms, specular color and glossiness, and what the diffuse
+    // alpha means (as the official viewer's materialF.glsl).
+    if(const auto legacy = legacyMaterials.get(face.material))
     {
-        m.alphaCutoff = 0.5f;
+        m.mapTransforms = true;
+        uvTransform(legacy->normalTransform.scale, legacy->normalTransform.offset,
+                    legacy->normalTransform.rotation, m.normalUv[0], m.normalUv[1]);
+        uvTransform(legacy->specularTransform.scale, legacy->specularTransform.offset,
+                    legacy->specularTransform.rotation, m.specularUv[0], m.specularUv[1]);
+        if(!legacy->normalMap.isNull())
+        {
+            m.normal =
+                textures.getLinear(legacy->normalMap, texelsAt(legacy->normalTransform.scale));
+        }
+        if(!legacy->specularMap.isNull())
+        {
+            m.specular =
+                textures.get(legacy->specularMap, texelsAt(legacy->specularTransform.scale));
+        }
+        // Exponent: glossiness squared times RenderSpecularExponent (368),
+        // as the official specular table; none without glossiness.
+        m.specularTint = legacy->glossiness > 0.0f ? srgbToLinear(glm::vec3(legacy->specularColor))
+                                                   : glm::vec3(0.0f);
+        m.maxExponent = 368.0f * legacy->glossiness * legacy->glossiness;
+        alphaMode = legacy->alphaMode;
+        maskCutoff = legacy->alphaCutoff;
     }
-    m.blend = face.color.a < 1.0f || alpha == image::AlphaMode::Blend;
+    switch(alphaMode)
+    {
+    case assets::DiffuseAlphaMode::None:
+        m.opaque = true;
+        break;
+    case assets::DiffuseAlphaMode::Blend:
+        m.blend = true;
+        break;
+    case assets::DiffuseAlphaMode::Mask:
+        m.alphaCutoff = maskCutoff;
+        break;
+    case assets::DiffuseAlphaMode::Emissive:
+        m.emissiveMask = true;
+        m.opaque = true;
+        break;
+    case assets::DiffuseAlphaMode::Default:
+    {
+        const auto alpha = textures.alphaMode(face.texture);
+        if(alpha == image::AlphaMode::Mask)
+        {
+            m.alphaCutoff = 0.5f;
+        }
+        m.blend = alpha == image::AlphaMode::Blend;
+        break;
+    }
+    }
+    m.blend = m.blend || face.color.a < 1.0f;
+    if(m.blend)
+    {
+        m.opaque = false;
+    }
     return m;
 }
 
@@ -334,8 +403,8 @@ void ObjectView::addLight(render::Scene& scene, const world::World& world,
 void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                            const world::Object& object, uint64_t originHandle,
                            TextureManager& textures, MeshManager& meshes,
-                           MaterialManager& materials, const AvatarView* avatars,
-                           float drawDistance)
+                           MaterialManager& materials, LegacyMaterialManager& legacyMaterials,
+                           const AvatarView* avatars, float drawDistance)
 {
     const SkeletonOwner owner = avatars ? skeletonOwner(world, object) : SkeletonOwner{};
     if(!owner.owner)
@@ -449,8 +518,8 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                 continue;
             }
             // Bake on Mesh shows the wearer's bakes; an animated object has none.
-            const auto m = material(face, textures, world, owner.animated ? nullptr : owner.owner,
-                                    avatars, texels);
+            const auto m = material(face, textures, legacyMaterials, world,
+                                    owner.animated ? nullptr : owner.owner, avatars, texels);
             if(!m)
             {
                 continue;
@@ -469,7 +538,8 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
 
 void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
                        TextureManager& textures, MeshManager& meshes, MaterialManager& materials,
-                       const AvatarView* avatars, float drawDistance)
+                       LegacyMaterialManager& legacyMaterials, const AvatarView* avatars,
+                       float drawDistance)
 {
     stats_.drawn = 0;
     stats_.faces = 0;
@@ -503,8 +573,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // its animated object's), wherever the prim itself is.
         if(isMesh && meshes.isRigged(object.sculptTexture).value_or(false))
         {
-            addRigged(scene, world, object, originHandle, textures, meshes, materials, avatars,
-                      drawDistance);
+            addRigged(scene, world, object, originHandle, textures, meshes, materials,
+                      legacyMaterials, avatars, drawDistance);
             continue;
         }
 
@@ -585,7 +655,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 {
                     continue;
                 }
-                const auto m = material(face, textures, world, wearer, avatars, faceTexels);
+                const auto m =
+                    material(face, textures, legacyMaterials, world, wearer, avatars, faceTexels);
                 if(!m)
                 {
                     continue;

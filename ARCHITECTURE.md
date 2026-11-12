@@ -484,7 +484,7 @@ Four material families, each its own pipeline:
 
 | Material | Shaders | Textures |
 |---|---|---|
-| `BlinnPhongMaterial` (default objects) | object.vert + blinnphong.frag | diffuse (A: opacity), normal (A: glossiness), specular (RGB color) |
+| `BlinnPhongMaterial` (default objects) | object.vert + blinnphong.frag | diffuse (A: opacity or emissive mask), normal (A: glossiness), specular (RGB color); the normal and specular maps with their own transforms |
 | `PbrMaterial` (PBR objects) | object.vert + pbr.frag | albedo, packed occlusion/roughness/metallic (RGB), emissive with tint, MikkTSpace normal; roughness and metallic factors |
 | `TerrainBlinnPhongMaterial` | terrain.vert + terrain_blinnphong.frag | one 4-layer array of diffuse textures |
 | `TerrainPbrMaterial` | terrain.vert + terrain_pbr.frag | 4-layer arrays of albedo, ORM, emissive and normal, with per-layer factors |
@@ -493,6 +493,25 @@ Missing textures fall back to neutral defaults (white, flat normal, no
 emission). Normal maps tilt a unit normal along a unit tangent made
 perpendicular to it (`perturbNormal`): the interpolated ones are scaled by
 the object's size, which on big prims multiplied the maps' tilt many times.
+
+Legacy materials (the official viewer's LLMaterial, before PBR) give
+`BlinnPhongMaterial` faces their normal and specular maps. A texture entry
+face names one by id; `LegacyMaterialManager` (app) asks the region's
+`RenderMaterials` capability for them (`assets::legacyMaterialRequest`:
+POST {"Zipped": zlib(binary LLSD [16-byte ids])}, answered the same way
+with [{ID, Material}], `parseLegacyMaterials`), 50 to a request and one
+request a second, the official default throttle (a 503 means asked too
+fast: those go back in the queue, at most three times). A material has:
+normal and specular maps, each with its own repeats, offset and rotation
+(fixed point, x 10000; `DrawData::mapUv`, applied to the mesh coordinates
+the vertex shaders pass along, `outMeshUv`); a specular color (sRGB) and
+glossiness (exponent / 255: the highlight's exponent is glossiness² x 368,
+times the normal map's alpha², as the official specular table,
+RenderSpecularExponent); environment intensity (unused, no reflections
+yet); and what the diffuse alpha means: none (opaque), blend, mask (with a
+cutoff), emissive (opaque; alpha is how much shows unlit, the lit color
+mixed towards the texture's, as materialF.glsl) or default (the texture's
+own).
 
 Meshes don't own buffers: `MeshPool` packs them into large shared vertex and
 index buffers (64 MiB and 32 MiB blocks, one set per vertex layout), and a

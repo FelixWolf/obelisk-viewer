@@ -160,6 +160,8 @@ std::vector<std::string> defaultCapabilityNames()
         "ObjectMedia",
         "ProvisionVoiceAccountRequest",
         "ReadOfflineMsgs",
+        // Legacy (normal and specular) materials by id.
+        "RenderMaterials",
         "SimulatorFeatures",
         "UpdateAgentLanguage",
         "ViewerAsset",
