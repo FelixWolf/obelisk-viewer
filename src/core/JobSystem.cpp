@@ -9,8 +9,13 @@ JobSystem::JobSystem(unsigned threadCount)
 {
     if(threadCount == 0)
     {
+        // Half the hardware threads (about one per core where cores run two),
+        // less two: the main thread, the GPU driver's, the network and world
+        // threads each keep a core. With a worker on every hardware thread,
+        // a burst of texture decodes halved the frame rate: the main thread
+        // shared its core with a decoder.
         const unsigned hw = std::thread::hardware_concurrency();
-        threadCount = std::max(1u, hw > 1 ? hw - 1 : 1u);
+        threadCount = hw / 2 > 3 ? hw / 2 - 2 : 1u;
     }
     workers_.reserve(threadCount);
     for(unsigned i = 0; i < threadCount; i++)

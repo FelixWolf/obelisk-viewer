@@ -23,8 +23,8 @@ class JobSystem
 public:
     using Job = std::function<void()>;
 
-    // threadCount == 0 picks hardware_concurrency() - 1 (leaving a core for
-    // the main thread), with a minimum of one.
+    // threadCount == 0 picks hardware_concurrency() / 2 - 2 (leaving cores
+    // for the main thread and the other long-lived threads), at least one.
     explicit JobSystem(unsigned threadCount = 0);
 
     // Discards jobs that have not started, then waits for running jobs.

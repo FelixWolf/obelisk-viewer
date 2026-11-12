@@ -38,7 +38,10 @@ bottom row. We store images top-down; anything sampled with Second Life UVs
    - world: the only writer of world state (`WorldThread`); publishes
      snapshots for rendering
    - network: UDP circuit plus HTTP (capabilities, event queue, asset fetch)
-   - worker pool: J2K decode, KTX encode/write, mesh decode, disk I/O
+   - worker pool: J2K decode, KTX encode/write, mesh decode, disk I/O;
+     half the hardware threads less two, so the threads above keep cores of
+     their own (with one on every hardware thread, decode bursts halved the
+     frame rate)
 4. **Modules are libraries with one-way dependencies.** `src/<module>` builds
    `viewer::<module>`; only `app/` sees everything.
 5. **Textures are cached as KTX2 only.** JPEG 2000 is decoded once and never
