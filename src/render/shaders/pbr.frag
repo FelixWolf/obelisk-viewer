@@ -24,11 +24,15 @@ FRAME_FS_BLOCK
 #include "atmosphere.glsl"
 #include "shadow.glsl"
 #define PROJECTORS_BINDING 5
-#define LIGHTS_BINDING 7
+#define PROBE_RADIANCE_BINDING 6
+#define PROBE_IRRADIANCE_BINDING 7
+#define BRDF_TABLE_BINDING 8
+#define LIGHTS_BINDING 10
 #include "lights.glsl"
+#include "probes.glsl"
 
 layout(location = 4) flat in uint inDraw;
-layout(std430, set = 2, binding = 6) readonly buffer Draws
+layout(std430, set = 2, binding = 9) readonly buffer Draws
 {
     DrawData draws[];
 };
@@ -67,8 +71,8 @@ void main()
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor.rgb, roughness, metallic,
                            frame.sunColor.rgb) * shadow;
-    color += occlusion * pbrAmbient(n, v, baseColor.rgb, roughness, metallic,
-                                    frame.skyAmbient.rgb, frame.groundAmbient.rgb);
+    color += occlusion * pbrProbeLight(n, v, baseColor.rgb, roughness, metallic,
+                                       frame.skyAmbient.rgb, frame.groundAmbient.rgb);
     // Local lights: diffuse only for now.
     color += baseColor.rgb * (1.0 - metallic) * localLight(inWorldPosition, n);
     color += texture(emissiveMap, inUv).rgb * material.emissiveTint.rgb * material.emissiveTint.a;

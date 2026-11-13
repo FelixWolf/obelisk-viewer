@@ -27,10 +27,15 @@ struct BlinnPhongMaterial
     glm::vec3 specularTint{1.0f};
     float maxExponent = 128.0f; // specular exponent where the normal map's A is 1 (times A²)
     float alphaCutoff = -1.0f;  // < 0: no alpha test
-    bool fullbright = false;    // unlit: the texture's color as is
-    bool blend = false;         // alpha-blended (drawn after opaque, back to front)
-    bool emissiveMask = false;  // the diffuse alpha is how much shows unlit (opaque)
-    bool opaque = false;        // the diffuse alpha is ignored
+    // Reflections (probes.glsl): glossiness 0..1 (soft reflection, by the
+    // normal map's alpha), and environment intensity (sharp, "shiny"; by the
+    // specular map's alpha).
+    float glossiness = 0.0f;
+    float environment = 0.0f;
+    bool fullbright = false;   // unlit: the texture's color as is
+    bool blend = false;        // alpha-blended (drawn after opaque, back to front)
+    bool emissiveMask = false; // the diffuse alpha is how much shows unlit (opaque)
+    bool opaque = false;       // the diffuse alpha is ignored
     // The normal and specular maps' own texture transforms (rows, as
     // ObjectDraw::uvRow0/1, applied to the mesh's coordinates); without
     // them they follow the diffuse map's.

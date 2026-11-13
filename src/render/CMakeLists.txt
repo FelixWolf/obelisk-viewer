@@ -14,6 +14,9 @@ set(shader_sources
   tonemap.frag
   luminance.frag
   exposure.frag
+  probe_radiance.frag
+  probe_irradiance.frag
+  brdf_table.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -38,7 +41,8 @@ foreach(source IN LISTS shader_sources)
     COMMAND ${VIEWER_GLSLANG_EXECUTABLE} -V --target-env vulkan1.0 -I${shader_dir}
             -o ${spirv} ${shader_dir}/${source}
     DEPENDS ${shader_dir}/${source} ${shader_dir}/common.glsl ${shader_dir}/atmosphere.glsl
-            ${shader_dir}/shadow.glsl ${shader_dir}/lights.glsl
+            ${shader_dir}/shadow.glsl ${shader_dir}/lights.glsl ${shader_dir}/probes.glsl
+            ${shader_dir}/cubemap.glsl
             ${VIEWER_GLSLANG_DEPENDS}
     COMMENT "Compiling shader ${source}"
     VERBATIM
@@ -60,6 +64,7 @@ add_custom_command(
 add_library(viewer_render STATIC
   Renderer.cpp
   RendererScene.cpp
+  RendererProbes.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp

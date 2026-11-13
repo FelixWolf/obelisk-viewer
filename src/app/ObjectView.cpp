@@ -246,11 +246,15 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
     m.diffuseLoading = !m.diffuse && !face.texture.isNull();
     m.diffuseTint = face.color;
     m.fullbright = face.fullbright();
-    // Legacy faces have no highlight, as in the official viewer. "Shiny"
-    // there reflects the environment (low, medium, high); without
-    // environment reflections yet, a soft broad sheen stands in.
-    m.specularTint = glm::vec3(0.04f * static_cast<float>(face.shiny()));
-    m.maxExponent = 16.0f;
+    // Legacy faces have no highlight, as in the official viewer, unless
+    // they're "shiny" (low, medium, high): then specular color, glossiness
+    // and environment intensity are all 0.25, 0.5 or 0.75 (llvovolume.cpp),
+    // with the exponent glossiness squared times 368 (RenderSpecularExponent).
+    const float shiny = 0.25f * static_cast<float>(face.shiny());
+    m.specularTint = srgbToLinear(glm::vec3(shiny));
+    m.maxExponent = 368.0f * shiny * shiny;
+    m.glossiness = shiny;
+    m.environment = shiny;
     auto alphaMode = assets::DiffuseAlphaMode::Default;
     float maskCutoff = 0.5f;
     // A legacy material: normal and specular maps with their own
@@ -268,16 +272,22 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
             m.normal =
                 textures.getLinear(legacy->normalMap, texelsAt(legacy->normalTransform.scale));
         }
+        // With a specular map, the material's specular color, glossiness
+        // and environment intensity replace the face's shiny ones
+        // (llvovolume.cpp: only then). Exponent: glossiness squared times
+        // RenderSpecularExponent (368), as the official specular table;
+        // none without glossiness.
         if(!legacy->specularMap.isNull())
         {
             m.specular =
                 textures.get(legacy->specularMap, texelsAt(legacy->specularTransform.scale));
+            m.specularTint = legacy->glossiness > 0.0f
+                                 ? srgbToLinear(glm::vec3(legacy->specularColor))
+                                 : glm::vec3(0.0f);
+            m.maxExponent = 368.0f * legacy->glossiness * legacy->glossiness;
+            m.glossiness = legacy->glossiness;
+            m.environment = legacy->environment;
         }
-        // Exponent: glossiness squared times RenderSpecularExponent (368),
-        // as the official specular table; none without glossiness.
-        m.specularTint = legacy->glossiness > 0.0f ? srgbToLinear(glm::vec3(legacy->specularColor))
-                                                   : glm::vec3(0.0f);
-        m.maxExponent = 368.0f * legacy->glossiness * legacy->glossiness;
         alphaMode = legacy->alphaMode;
         maskCutoff = legacy->alphaCutoff;
     }

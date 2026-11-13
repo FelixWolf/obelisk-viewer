@@ -27,6 +27,11 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* luminance = nullptr;
     SDL_GPUGraphicsPipeline* exposure = nullptr;
     SDL_GPUGraphicsPipeline* sky = nullptr;
+    // Reflection probes: filtering a capture into radiance and irradiance,
+    // and making the split-sum table.
+    SDL_GPUGraphicsPipeline* probeRadiance = nullptr;
+    SDL_GPUGraphicsPipeline* probeIrradiance = nullptr;
+    SDL_GPUGraphicsPipeline* brdfTable = nullptr;
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
     SDL_GPUGraphicsPipeline* shadowObject = nullptr;
     SDL_GPUGraphicsPipeline* shadowObjectMasked = nullptr;
@@ -39,10 +44,26 @@ struct Renderer::Pipelines
 
     ~Pipelines()
     {
-        for(SDL_GPUGraphicsPipeline* p :
-            {blinnPhong, blinnPhongBlend, pbr, blinnPhongSkinned, blinnPhongSkinnedBlend,
-             pbrSkinned, terrainBlinnPhong, terrainPbr, tonemap, luminance, exposure, sky,
-             shadowObject, shadowObjectMasked, shadowSkinned, shadowSkinnedMasked, shadowTerrain})
+        for(SDL_GPUGraphicsPipeline* p : {blinnPhong,
+                                          blinnPhongBlend,
+                                          pbr,
+                                          blinnPhongSkinned,
+                                          blinnPhongSkinnedBlend,
+                                          pbrSkinned,
+                                          terrainBlinnPhong,
+                                          terrainPbr,
+                                          tonemap,
+                                          luminance,
+                                          exposure,
+                                          sky,
+                                          probeRadiance,
+                                          probeIrradiance,
+                                          brdfTable,
+                                          shadowObject,
+                                          shadowObjectMasked,
+                                          shadowSkinned,
+                                          shadowSkinnedMasked,
+                                          shadowTerrain})
         {
             if(p)
             {

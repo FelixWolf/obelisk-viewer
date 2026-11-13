@@ -6,7 +6,9 @@
 // official viewer's legacy materials (materialF.glsl).
 //   diffuse:  RGB color, A opacity, or how much shows unlit (emissive mask)
 //   normal:   RGB tangent-space normal, A glossiness (scales the exponent)
-//   specular: RGB specular color, A environment intensity (unused for now)
+//   specular: RGB specular color, A environment intensity
+// Glossy faces reflect the probe softly, shiny ones (environment intensity)
+// sharply (probes.glsl).
 // The normal and specular maps have their own texture transforms.
 
 layout(location = 0) in vec3 inWorldPosition;
@@ -25,11 +27,15 @@ FRAME_FS_BLOCK
 #include "atmosphere.glsl"
 #include "shadow.glsl"
 #define PROJECTORS_BINDING 4
-#define LIGHTS_BINDING 6
+#define PROBE_RADIANCE_BINDING 5
+#define PROBE_IRRADIANCE_BINDING 6
+#define BRDF_TABLE_BINDING 7
+#define LIGHTS_BINDING 9
 #include "lights.glsl"
+#include "probes.glsl"
 
 layout(location = 4) flat in uint inDraw;
-layout(std430, set = 2, binding = 5) readonly buffer Draws
+layout(std430, set = 2, binding = 8) readonly buffer Draws
 {
     DrawData draws[];
 };
@@ -82,14 +88,30 @@ void main()
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
     vec3 l = frame.sunDirection.xyz;
 
-    vec3 specularColor = texture(specularMap, mapUv(2)).rgb * material.specularTint.rgb;
+    const vec4 specularTexel = texture(specularMap, mapUv(2));
+    vec3 specularColor = specularTexel.rgb * material.specularTint.rgb;
     // Glossiness squared, as the official specular table (createLUTBuffers).
     float exponent = max(normalTexel.a * normalTexel.a * material.specularTint.a, 1.0);
+    // The face's glossiness and environment intensity (the draw's mapUv w),
+    // by the normal map's and the specular map's alpha.
+    const float glossiness = draws[inDraw].mapUv[0].w * normalTexel.a;
+    const float envIntensity = draws[inDraw].mapUv[1].w * specularTexel.a;
 
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
     vec3 color = blinnPhong(n, v, l, albedo.rgb, specularColor, exponent, frame.sunColor.rgb) * shadow;
-    color += albedo.rgb * hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
-    color += albedo.rgb * localLight(inWorldPosition, n);
+    color += albedo.rgb *
+             probeAmbient(n, hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb));
+    if(glossiness > 0.0)
+    {
+        applyGlossyReflection(color, n, v, specularColor, glossiness);
+    }
     color = mix(color, albedo.rgb, emissive);
+    if(envIntensity > 0.0)
+    {
+        applyShinyReflection(color, n, v, envIntensity);
+    }
+    // Local lights after (the official viewer adds them in later passes),
+    // not on what shows unlit.
+    color += (1.0 - emissive) * albedo.rgb * localLight(inWorldPosition, n);
     outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }

@@ -43,6 +43,8 @@ struct RendererOptions
 // created the window (the main thread). Other threads may record work on their
 // own command buffers (e.g. texture uploads via copy passes).
 struct Cascades;
+struct FrameFS;
+class ScenePass;
 
 class Renderer
 {
@@ -101,9 +103,10 @@ public:
     uint64_t meshPoolBytes() const;
     std::optional<image::MipLevel> takeScreenshot() { return std::exchange(screenshot_, {}); }
 
-private:
+    // The GPU pipelines and samplers (internal: RendererPipelines.hpp).
     struct Pipelines;
 
+private:
     Renderer(SDL_Window* window, SDL_GPUDevice* device);
     bool createPipelines();
     bool createDefaultTextures();
@@ -136,6 +139,24 @@ public:
     static constexpr uint32_t kMaxLights = 64;
 
 private:
+    // The sky (behind everything) and the terrain, as seen with `view` and
+    // `projection` (the view's, or a reflection probe face's).
+    void drawSky(ScenePass& pass, const Atmosphere& atmo, const glm::mat4& view,
+                 const glm::mat4& projection);
+    void drawTerrain(ScenePass& pass, const Scene& scene);
+
+    // Reflection probes (RendererProbes.cpp), as the official viewer's
+    // default probe: a cube of the sky and terrain around the camera,
+    // captured a face a frame every Reflections::updateSeconds, then
+    // filtered into radiance (blurrier mip levels for rougher surfaces) and
+    // irradiance (ambient light). Cubes are kept mirrored in y (probes.glsl).
+    bool createProbes();
+    // Captures the next face, or filters a finished capture.
+    void updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene, const FrameFS& frameFs);
+    void filterProbe(SDL_GPUCommandBuffer* commands);
+    // The probe textures, as samplers 'radiance, irradiance, BRDF table'.
+    std::array<SDL_GPUTextureSamplerBinding, 3> probeSamplers() const;
+
     // Renders the shadow casters into each cascade's layer of the shadow map.
     void drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene, const Cascades& cascades,
                      bool drawsReady);
@@ -186,6 +207,28 @@ private:
     int projectorLayer(SDL_GPUCommandBuffer* commands, const GpuTexture& texture);
     uint32_t targetWidth_ = 0;
     uint32_t targetHeight_ = 0;
+
+    // Reflection probes: the radiance and irradiance cubes (cube arrays, one
+    // cube per probe, so far just the default one), the cube being captured
+    // (mipmapped, for filtering) with its depth, and the split-sum table.
+    static constexpr uint32_t kProbeSize = 128; // RenderReflectionProbeResolution
+    static constexpr uint32_t kProbeLevels = 7; // 128 down to 2 (max_probe_lod 6)
+    static constexpr uint32_t kIrradianceSize = 16;
+    static constexpr uint32_t kBrdfTableSize = 128;
+    static constexpr uint32_t kProbeCount = 1;
+    SDL_GPUTexture* probeRadiance_ = nullptr;
+    SDL_GPUTexture* probeIrradiance_ = nullptr;
+    SDL_GPUTexture* probeCapture_ = nullptr;
+    SDL_GPUTexture* probeDepth_ = nullptr;
+    SDL_GPUTexture* brdfTable_ = nullptr;
+    struct ProbeUpdate
+    {
+        int face = -1;          // the next face to capture; -1: none under way
+        glm::vec3 origin{0.0f}; // where it's captured from
+        uint64_t startedTicks = 0;
+        bool ready = false; // the cubes hold a filtered capture
+    };
+    ProbeUpdate probe_;
 
     // Neutral stand-ins for missing material textures.
     GpuTexture white_;

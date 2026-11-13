@@ -172,6 +172,7 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
     lighting.exposureMin = 1.0f;
     lighting.exposureMax = 1.0f;
     lighting.tonemapMix = 0.0f;
+    lighting.probeAmbiance = sky.probeAmbiance;
     if(sky.probeAmbiance > 0.0f)
     {
         lighting.tonemapMix = 0.7f;

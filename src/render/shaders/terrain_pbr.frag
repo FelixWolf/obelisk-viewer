@@ -25,8 +25,12 @@ FRAME_FS_BLOCK
 #include "atmosphere.glsl"
 #include "shadow.glsl"
 #define PROJECTORS_BINDING 6
-#define LIGHTS_BINDING 7
+#define PROBE_RADIANCE_BINDING 7
+#define PROBE_IRRADIANCE_BINDING 8
+#define BRDF_TABLE_BINDING 9
+#define LIGHTS_BINDING 10
 #include "lights.glsl"
+#include "probes.glsl"
 
 layout(set = 3, binding = 1) uniform MaterialFS
 {
@@ -127,8 +131,8 @@ void main()
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor, roughness, metallic,
                            frame.sunColor.rgb) *
                  sunShadow(shadowMap, inWorldPosition, normalize(inNormal));
-    color += orm.r * pbrAmbient(n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
-                                frame.groundAmbient.rgb);
+    color += orm.r * pbrProbeLight(n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
+                                   frame.groundAmbient.rgb);
     color += baseColor * (1.0 - metallic) * localLight(inWorldPosition, n);
     color += emissive;
     outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);

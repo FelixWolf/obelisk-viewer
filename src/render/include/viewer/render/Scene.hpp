@@ -84,6 +84,10 @@ struct Lighting
     // How much of the tonemapped color, the rest linear (the official viewer's
     // RenderTonemapMix).
     float tonemapMix = 0.7f;
+    // The sky's reflection probe ambiance: how much of the ambient light
+    // comes from the reflection probes. 0 for skies made before PBR, which
+    // keep `skyAmbient` and `groundAmbient` ("classic mode").
+    float probeAmbiance = 0.0f;
     Atmosphere atmosphere;
 };
 
@@ -128,6 +132,16 @@ struct Shadows
     bool enabled = false;
     glm::vec3 towardLight{0.0f, 0.0f, 1.0f};
     float distance = 128.0f; // shadows end this far from the camera
+};
+
+// Reflections (and, on skies made for PBR, ambient light) from reflection
+// probes: so far the official viewer's default probe, a cube of the sky and
+// terrain captured around the camera now and then.
+struct Reflections
+{
+    bool enabled = true;
+    float updateSeconds = 2.0f; // RenderDefaultProbeUpdatePeriod
+    float nearClip = 1.0f;      // meters; the default probe's (getNearClip)
 };
 
 // A local light (a prim set to give light), as the official viewer draws
@@ -182,6 +196,7 @@ struct Scene
     Frustum frustum;
     Lighting lighting;
     Shadows shadows;
+    Reflections reflections;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;
     // Every light that may reach the view; the renderer uses the nearest

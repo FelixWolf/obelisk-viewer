@@ -1,6 +1,7 @@
 // Scene rendering: pipelines for the four material families, the HDR + depth
 // pass, tonemapping into the swapchain, and screenshots.
 
+#include "RendererPasses.hpp"
 #include "RendererPipelines.hpp"
 #include "viewer/render/Renderer.hpp"
 #include "viewer/render/ShadowCascades.hpp"
@@ -27,16 +28,11 @@ namespace viewer::render
 namespace
 {
 
-constexpr SDL_GPUTextureFormat kHdrFormat = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
 // Dynamic exposure's luminance and exposure maps.
 constexpr SDL_GPUTextureFormat kExposureFormat = SDL_GPU_TEXTUREFORMAT_R16_FLOAT;
 
-// Uniform blocks, std140. Must match the shaders.
-struct FrameVS
-{
-    glm::mat4 viewProjection;
-    glm::vec4 cameraPosition;
-};
+// Data for the shaders (RendererPasses.hpp has the blocks they share); must
+// match them.
 // An object draw's data, std430 (common.glsl DrawData): one storage buffer
 // holds every draw's, so drawing needs no uniform pushes per draw.
 struct DrawData
@@ -50,40 +46,6 @@ struct DrawData
     glm::vec4 mapUv[4]; // normal map's rows, then the specular map's
 };
 static_assert(sizeof(DrawData) == 288);
-struct TerrainVS
-{
-    glm::mat4 model;
-    glm::vec4 textureScale;
-};
-struct FrameFS
-{
-    glm::vec4 cameraPosition;
-    glm::vec4 sunDirection;
-    glm::vec4 sunColor;
-    glm::vec4 skyAmbient;
-    glm::vec4 groundAmbient;
-    // The atmosphere (atmosphere.glsl).
-    glm::vec4 atmoLight;
-    glm::vec4 atmoSunlight;
-    glm::vec4 atmoAmbient;
-    glm::vec4 blueHorizon;
-    glm::vec4 blueDensity;
-    glm::vec4 atmoParams;
-    glm::vec4 glow;
-    glm::vec4 sunDisc;
-    glm::vec4 moonDisc;
-    glm::vec4 moonInfo;
-    glm::vec4 cloudColor;
-    glm::vec4 cloudPos1;
-    glm::vec4 cloudPos2;
-    glm::vec4 cloudDome;
-    glm::mat4 shadowMatrices[4];
-    glm::vec4 shadowSplits;
-    glm::vec4 shadowTexels;
-    glm::vec4 shadowInfo;
-    glm::vec4 viewAxis;
-    glm::vec4 lightInfo;
-};
 // Material family and anything else that picks the pipeline (2 bits).
 uint64_t materialKind(const ObjectDraw& draw)
 {
@@ -104,17 +66,6 @@ struct LightData
     glm::vec4 axisFocus;
     glm::vec4 projectorParams;
 };
-struct SkyFS
-{
-    glm::mat4 inverseViewProjection;
-};
-
-struct TerrainPbrFS
-{
-    glm::vec4 baseColorFactor[4];
-    glm::vec4 emissiveTint[4];
-    glm::vec4 factors[4];
-};
 struct TonemapFS
 {
     glm::vec4 settings;
@@ -124,46 +75,6 @@ struct ExposureFS
     glm::vec4 params;  // luminance taken as bright, least and most exposure, speed error
     glm::vec4 params2; // seconds since last frame, 1 if last frame's is valid, speed target
 };
-
-struct ShaderDesc
-{
-    std::span<const uint8_t> code;
-    SDL_GPUShaderStage stage;
-    uint32_t samplers;
-    uint32_t uniformBuffers;
-    uint32_t storageBuffers = 0;
-};
-
-SDL_GPUShader* createShader(SDL_GPUDevice* device, const ShaderDesc& desc, const char* name)
-{
-    SDL_GPUShaderCreateInfo info = {};
-    info.code_size = desc.code.size();
-    info.code = desc.code.data();
-    info.entrypoint = "main";
-    info.format = SDL_GPU_SHADERFORMAT_SPIRV;
-    info.stage = desc.stage;
-    info.num_samplers = desc.samplers;
-    info.num_uniform_buffers = desc.uniformBuffers;
-    info.num_storage_buffers = desc.storageBuffers;
-    SDL_GPUShader* shader = SDL_CreateGPUShader(device, &info);
-    if(!shader)
-    {
-        log::error("creating shader {} failed: {}", name, SDL_GetError());
-    }
-    return shader;
-}
-
-template <typename T>
-void pushVertexUniforms(SDL_GPUCommandBuffer* commands, uint32_t slot, const T& data)
-{
-    SDL_PushGPUVertexUniformData(commands, slot, &data, sizeof(T));
-}
-
-template <typename T>
-void pushFragmentUniforms(SDL_GPUCommandBuffer* commands, uint32_t slot, const T& data)
-{
-    SDL_PushGPUFragmentUniformData(commands, slot, &data, sizeof(T));
-}
 
 } // namespace
 
@@ -185,16 +96,16 @@ bool Renderer::createPipelines()
     SDL_GPUShader* skinnedVert =
         createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 5, 1, 2}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1, 2}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 6, 1, 2}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 2}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 1},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 1, 1},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 2, 1}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 2, 1}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
@@ -209,6 +120,13 @@ bool Renderer::createPipelines()
         device_, {kShadowMaskedFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "shadow_masked.frag");
     SDL_GPUShader* skyFrag =
         createShader(device_, {kSkyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 2}, "sky.frag");
+    SDL_GPUShader* probeRadianceFrag = createShader(
+        device_, {kProbeRadianceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "probe_radiance.frag");
+    SDL_GPUShader* probeIrradianceFrag =
+        createShader(device_, {kProbeIrradianceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1},
+                     "probe_irradiance.frag");
+    SDL_GPUShader* brdfTableFrag = createShader(
+        device_, {kBrdfTableFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "brdf_table.frag");
 
     // Vertex layouts.
     // Object layouts have a second, per-instance buffer: the draw indices
@@ -391,6 +309,35 @@ bool Renderer::createPipelines()
     };
     p.luminance = exposurePipeline(luminanceFrag, "luminance");
     p.exposure = exposurePipeline(exposureFrag, "exposure");
+    // Reflection probes: full-screen passes into a cube face (HDR), and the
+    // split-sum table (two half floats).
+    auto fullscreenPipeline = [&](SDL_GPUShader* frag, SDL_GPUTextureFormat format,
+                                  const char* name) -> SDL_GPUGraphicsPipeline*
+    {
+        if(!fullscreenVert || !frag)
+        {
+            return nullptr;
+        }
+        SDL_GPUColorTargetDescription color = {};
+        color.format = format;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = frag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!pipeline)
+        {
+            log::error("creating the {} pipeline failed: {}", name, SDL_GetError());
+        }
+        return pipeline;
+    };
+    p.probeRadiance = fullscreenPipeline(probeRadianceFrag, kHdrFormat, "probe radiance");
+    p.probeIrradiance = fullscreenPipeline(probeIrradianceFrag, kHdrFormat, "probe irradiance");
+    p.brdfTable =
+        fullscreenPipeline(brdfTableFrag, SDL_GPU_TEXTUREFORMAT_R16G16_FLOAT, "BRDF table");
 
     // Shadow maps: depth only, both sides of every face (prims are often
     // open, and thin), pushed back a little against self-shadowing.
@@ -477,9 +424,10 @@ bool Renderer::createPipelines()
         }
     }
 
-    for(SDL_GPUShader* s : {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert,
-                            terrainBlinnPhongFrag, terrainPbrFrag, fullscreenVert, tonemapFrag,
-                            luminanceFrag, exposureFrag, skyFrag, shadowFrag, shadowMaskedFrag})
+    for(SDL_GPUShader* s :
+        {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert, terrainBlinnPhongFrag,
+         terrainPbrFrag, fullscreenVert, tonemapFrag, luminanceFrag, exposureFrag, skyFrag,
+         shadowFrag, shadowMaskedFrag, probeRadianceFrag, probeIrradianceFrag, brdfTableFrag})
     {
         if(s)
         {
@@ -511,9 +459,10 @@ bool Renderer::createPipelines()
 
     return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.blinnPhongSkinned &&
            p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
-           p.tonemap && p.luminance && p.exposure && p.sky && p.shadowObject &&
-           p.shadowObjectMasked && p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain &&
-           p.repeatSampler && p.clampSampler && p.shadowSampler;
+           p.tonemap && p.luminance && p.exposure && p.sky && p.probeRadiance &&
+           p.probeIrradiance && p.brdfTable && p.shadowObject && p.shadowObjectMasked &&
+           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler &&
+           p.clampSampler && p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -599,8 +548,8 @@ bool Renderer::createDefaultTextures()
         log::error("creating the projector textures failed: {}", SDL_GetError());
     }
 
-    return white_ && black_ && flatNormal_ && loading_ && whiteLayers_ && blackLayers_ && flatNormalLayers_ &&
-           shadowMap_ && terrainBlendRamp_ && projectors_;
+    return white_ && black_ && flatNormal_ && loading_ && whiteLayers_ && blackLayers_ &&
+           flatNormalLayers_ && shadowMap_ && terrainBlendRamp_ && projectors_;
 }
 
 bool Renderer::ensureTargets(uint32_t width, uint32_t height)
@@ -695,7 +644,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         cascades.texels,
         glm::vec4(shadows ? 1.0f : 0.0f, 1.0f / static_cast<float>(kShadowMapSize), 0.0f, 0.0f),
         glm::vec4(glm::normalize(camera.target - camera.position), 0.0f),
-        glm::vec4(0.0f),
+        glm::vec4(0.0f), // local lights: below
+        glm::vec4(0.0f), // probes: below
     };
 
     // Draw data and joint matrices go up before the render pass (copy passes
@@ -707,6 +657,12 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     {
         drawShadows(commands, scene, cascades, drawsReady);
     }
+    // Probe faces are captured with the probes off (what they'd reflect is
+    // what's being captured).
+    updateProbes(commands, scene, frameFs);
+    frameFs.probeInfo = glm::vec4(light.probeAmbiance, static_cast<float>(kProbeLevels - 1),
+                                  probe_.ready && scene.reflections.enabled ? 1.0f : 0.0f,
+                                  light.probeAmbiance > 0.0f ? 0.0f : 1.0f);
 
     SDL_GPUColorTargetInfo color = {};
     color.texture = hdrTarget_;
@@ -723,143 +679,20 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     depth.cycle = true;
 
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-
-    // The sky first, behind everything (no depth).
+    ScenePass scenePass(commands, pass, p, frameVs, frameFs, lightBuffer_.buffer.get());
     if(atmo.enabled)
     {
-        SDL_BindGPUGraphicsPipeline(pass, pipelines_->sky);
-        const SDL_GPUTextureSamplerBinding clouds = {
-            atmo.clouds && *atmo.clouds ? atmo.clouds->get() : white_.get(),
-            pipelines_->repeatSampler};
-        SDL_BindGPUFragmentSamplers(pass, 0, &clouds, 1);
-        pushFragmentUniforms(commands, 0, frameFs);
-        // Rotation only: the shader wants directions, which don't need the
-        // camera's position (leaving it out keeps them precise).
-        pushFragmentUniforms(commands, 1,
-                             SkyFS{glm::inverse(projection * glm::mat4(glm::mat3(view)))});
-        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        drawSky(scenePass, atmo, view, projection);
     }
+    // Terrain first: it covers the most screen, so it fills depth early.
+    drawTerrain(scenePass, scene);
 
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
     { return t && *t ? t->get() : fallback.get(); };
     // A base color: none is white, one not in yet is gray.
     auto baseColor = [&](const GpuTexture* t, bool loading)
     { return texture(t, loading ? loading_ : white_); };
-    // State is only set when it changes: meshes share buffers (MeshPool) and
-    // draws are sorted so that neighbours share pipelines and textures.
-    SDL_GPUBuffer* boundVertices = nullptr;
-    SDL_GPUBuffer* boundIndices = nullptr;
-    SDL_GPUGraphicsPipeline* boundPipeline = nullptr;
-    std::array<SDL_GPUTextureSamplerBinding, 8> boundSamplers{};
-    size_t boundSamplerCount = 0;
-    auto drawMesh = [&](const Mesh& mesh, uint32_t instance = 0)
-    {
-        if(mesh.vertexBuffer() != boundVertices)
-        {
-            boundVertices = mesh.vertexBuffer();
-            const SDL_GPUBufferBinding binding = {boundVertices, 0};
-            SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
-        }
-        if(mesh.indexBuffer() != boundIndices)
-        {
-            boundIndices = mesh.indexBuffer();
-            const SDL_GPUBufferBinding binding = {boundIndices, 0};
-            SDL_BindGPUIndexBuffer(pass, &binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-        }
-        SDL_DrawGPUIndexedPrimitives(pass, mesh.indexCount, 1, mesh.firstIndex,
-                                     static_cast<Sint32>(mesh.firstVertex), instance);
-    };
-    auto bindPipeline = [&](SDL_GPUGraphicsPipeline* pipeline)
-    {
-        if(pipeline == boundPipeline)
-        {
-            return;
-        }
-        boundPipeline = pipeline;
-        SDL_BindGPUGraphicsPipeline(pass, pipeline);
-        pushVertexUniforms(commands, 0, frameVs);
-        pushFragmentUniforms(commands, 0, frameFs);
-        if(pipeline == p.terrainBlinnPhong || pipeline == p.terrainPbr)
-        {
-            SDL_GPUBuffer* lights = lightBuffer_.buffer.get();
-            SDL_BindGPUFragmentStorageBuffers(pass, 0, &lights, 1);
-        }
-    };
-    auto bindSamplers = [&](std::span<const SDL_GPUTextureSamplerBinding> samplers)
-    {
-        if(samplers.size() == boundSamplerCount &&
-           std::equal(samplers.begin(), samplers.end(), boundSamplers.begin(),
-                      [](const auto& a, const auto& b)
-                      { return a.texture == b.texture && a.sampler == b.sampler; }))
-        {
-            return;
-        }
-        std::ranges::copy(samplers, boundSamplers.begin());
-        boundSamplerCount = samplers.size();
-        SDL_BindGPUFragmentSamplers(pass, 0, samplers.data(), static_cast<Uint32>(samplers.size()));
-    };
-
-    // Texture position of the scene origin, so terrain textures follow
-    // global coordinates. Computed in double precision: global coordinates
-    // are large.
-    auto textureOffset = [&](float repeatsPerMeter)
-    {
-        const double period = 1.0 / static_cast<double>(repeatsPerMeter);
-        return glm::vec2(static_cast<float>(std::fmod(scene.worldOrigin.x, period) / period),
-                         static_cast<float>(std::fmod(scene.worldOrigin.y, period) / period));
-    };
-    auto terrainVs = [&](const glm::mat4& model, float repeatsPerMeter)
-    {
-        const glm::vec2 offset = textureOffset(repeatsPerMeter);
-        return TerrainVS{model, glm::vec4(repeatsPerMeter, 0.0f, offset.x, offset.y)};
-    };
-
-    // Terrain first: it covers the most screen, so it fills depth early.
-    for(const TerrainDraw& draw : scene.terrain)
-    {
-        if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Terrain ||
-           draw.shadowOnly)
-        {
-            continue;
-        }
-        if(const auto* m = std::get_if<TerrainBlinnPhongMaterial>(&draw.material))
-        {
-            bindPipeline(p.terrainBlinnPhong);
-            const SDL_GPUTextureSamplerBinding samplers[] = {
-                {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler},
-                {terrainBlendRamp_.get(), p.clampSampler},
-                {shadowMap_, p.shadowSampler},
-                {projectors_, p.clampSampler}};
-            bindSamplers(samplers);
-            pushVertexUniforms(commands, 1, terrainVs(draw.transform, m->textureRepeatsPerMeter));
-        }
-        else if(const auto* t = std::get_if<TerrainPbrMaterial>(&draw.material))
-        {
-            bindPipeline(p.terrainPbr);
-            const SDL_GPUTextureSamplerBinding samplers[] = {
-                {texture(t->albedoLayers, whiteLayers_), p.repeatSampler},
-                {texture(t->ormLayers, whiteLayers_), p.repeatSampler},
-                {texture(t->emissiveLayers, blackLayers_), p.repeatSampler},
-                {texture(t->normalLayers, flatNormalLayers_), p.repeatSampler},
-                {terrainBlendRamp_.get(), p.clampSampler},
-                {shadowMap_, p.shadowSampler},
-                {projectors_, p.clampSampler},
-            };
-            bindSamplers(samplers);
-            pushVertexUniforms(commands, 1, terrainVs(draw.transform, t->textureRepeatsPerMeter));
-            TerrainPbrFS fs{};
-            for(size_t i = 0; i < 4; i++)
-            {
-                const auto& layer = t->layers[i];
-                fs.baseColorFactor[i] = layer.baseColorFactor;
-                fs.emissiveTint[i] = glm::vec4(layer.emissiveTint, layer.emissiveStrength);
-                fs.factors[i] =
-                    glm::vec4(layer.roughness, layer.metallic, layer.occlusionStrength, 0.0f);
-            }
-            pushFragmentUniforms(commands, 1, fs);
-        }
-        drawMesh(*draw.mesh);
-    }
+    const auto probes = probeSamplers();
 
     // Opaque objects, then blended ones from far to near (as the official
     // viewer: each face by its own center's depth along the view, moved
@@ -978,20 +811,25 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {
-            bindPipeline(skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
-                                 : (m->blend ? p.blinnPhongBlend : p.blinnPhong));
+            scenePass.bindPipeline(skinned
+                                       ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
+                                       : (m->blend ? p.blinnPhongBlend : p.blinnPhong));
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {baseColor(m->diffuse, m->diffuseLoading), p.repeatSampler},
                 {texture(m->normal, flatNormal_), p.repeatSampler},
                 {texture(m->specular, white_), p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
                 {projectors_, p.clampSampler},
+                probes[0],
+                probes[1],
+                probes[2],
             };
-            bindSamplers(samplers);
+            scenePass.bindSamplers(samplers);
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {
-            bindPipeline(p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0]);
+            scenePass.bindPipeline(
+                p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0]);
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {baseColor(t->albedo, t->albedoLoading), p.repeatSampler},
                 {texture(t->orm, white_), p.repeatSampler},
@@ -999,12 +837,15 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
                 {texture(t->normal, flatNormal_), p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
                 {projectors_, p.clampSampler},
+                probes[0],
+                probes[1],
+                probes[2],
             };
-            bindSamplers(samplers);
+            scenePass.bindSamplers(samplers);
         }
-        if(objectResourcesFor != boundPipeline)
+        if(objectResourcesFor != scenePass.boundPipeline())
         {
-            objectResourcesFor = boundPipeline;
+            objectResourcesFor = scenePass.boundPipeline();
             // Without skinned draws there's no joint buffer: any buffer
             // fills the slot.
             SDL_GPUBuffer* vertexStorage[] = {drawBuffer_.buffer.get(),
@@ -1017,7 +858,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
             SDL_BindGPUVertexBuffers(pass, 1, &instances, 1);
         }
-        drawMesh(*draw.mesh, static_cast<uint32_t>(drawPointer - scene.objects.data()));
+        scenePass.drawMesh(*draw.mesh, static_cast<uint32_t>(drawPointer - scene.objects.data()));
     }
     SDL_EndGPURenderPass(pass);
 
@@ -1068,6 +909,102 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             SDL_EndGPUCopyPass(copy);
             screenshotPending_ = true;
         }
+    }
+}
+
+void Renderer::drawSky(ScenePass& pass, const Atmosphere& atmo, const glm::mat4& view,
+                       const glm::mat4& projection)
+{
+    SDL_BindGPUGraphicsPipeline(pass.pass(), pipelines_->sky);
+    pass.forgetPipeline();
+    const SDL_GPUTextureSamplerBinding clouds[] = {
+        {atmo.clouds && *atmo.clouds ? atmo.clouds->get() : white_.get(),
+         pipelines_->repeatSampler}};
+    pass.bindSamplers(clouds);
+    pushFragmentUniforms(pass.commands(), 0, pass.frameFs());
+    // Rotation only: the shader wants directions, which don't need the
+    // camera's position (leaving it out keeps them precise).
+    pushFragmentUniforms(pass.commands(), 1,
+                         SkyFS{glm::inverse(projection * glm::mat4(glm::mat3(view)))});
+    SDL_DrawGPUPrimitives(pass.pass(), 3, 1, 0, 0);
+}
+
+void Renderer::drawTerrain(ScenePass& pass, const Scene& scene)
+{
+    const Pipelines& p = *pipelines_;
+    // Texture position of the scene origin, so terrain textures follow
+    // global coordinates. Computed in double precision: global coordinates
+    // are large.
+    auto textureOffset = [&](float repeatsPerMeter)
+    {
+        const double period = 1.0 / static_cast<double>(repeatsPerMeter);
+        return glm::vec2(static_cast<float>(std::fmod(scene.worldOrigin.x, period) / period),
+                         static_cast<float>(std::fmod(scene.worldOrigin.y, period) / period));
+    };
+    auto terrainVs = [&](const glm::mat4& model, float repeatsPerMeter)
+    {
+        const glm::vec2 offset = textureOffset(repeatsPerMeter);
+        return TerrainVS{model, glm::vec4(repeatsPerMeter, 0.0f, offset.x, offset.y)};
+    };
+    auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
+    { return t && *t ? t->get() : fallback.get(); };
+    const auto probes = probeSamplers();
+    for(const TerrainDraw& draw : scene.terrain)
+    {
+        if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Terrain)
+        {
+            continue;
+        }
+        // Out of the view's frustum: only for passes that see all around.
+        if(draw.shadowOnly && !pass.allAround())
+        {
+            continue;
+        }
+        if(const auto* m = std::get_if<TerrainBlinnPhongMaterial>(&draw.material))
+        {
+            pass.bindPipeline(p.terrainBlinnPhong);
+            const SDL_GPUTextureSamplerBinding samplers[] = {
+                {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler},
+                {terrainBlendRamp_.get(), p.clampSampler},
+                {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler},
+                probes[0],
+                probes[1],
+                probes[2]};
+            pass.bindSamplers(samplers);
+            pushVertexUniforms(pass.commands(), 1,
+                               terrainVs(draw.transform, m->textureRepeatsPerMeter));
+        }
+        else if(const auto* t = std::get_if<TerrainPbrMaterial>(&draw.material))
+        {
+            pass.bindPipeline(p.terrainPbr);
+            const SDL_GPUTextureSamplerBinding samplers[] = {
+                {texture(t->albedoLayers, whiteLayers_), p.repeatSampler},
+                {texture(t->ormLayers, whiteLayers_), p.repeatSampler},
+                {texture(t->emissiveLayers, blackLayers_), p.repeatSampler},
+                {texture(t->normalLayers, flatNormalLayers_), p.repeatSampler},
+                {terrainBlendRamp_.get(), p.clampSampler},
+                {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler},
+                probes[0],
+                probes[1],
+                probes[2],
+            };
+            pass.bindSamplers(samplers);
+            pushVertexUniforms(pass.commands(), 1,
+                               terrainVs(draw.transform, t->textureRepeatsPerMeter));
+            TerrainPbrFS fs{};
+            for(size_t i = 0; i < 4; i++)
+            {
+                const auto& layer = t->layers[i];
+                fs.baseColorFactor[i] = layer.baseColorFactor;
+                fs.emissiveTint[i] = glm::vec4(layer.emissiveTint, layer.emissiveStrength);
+                fs.factors[i] =
+                    glm::vec4(layer.roughness, layer.metallic, layer.occlusionStrength, 0.0f);
+            }
+            pushFragmentUniforms(pass.commands(), 1, fs);
+        }
+        pass.drawMesh(*draw.mesh);
     }
 }
 
@@ -1649,6 +1586,12 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
         {
             out.mapUv[0] = out.mapUv[2] = glm::vec4(draw.uvRow0, 0.0f);
             out.mapUv[1] = out.mapUv[3] = glm::vec4(draw.uvRow1, 0.0f);
+        }
+        // Legacy reflections ride along in the normal map rows' w.
+        if(legacy)
+        {
+            out.mapUv[0].w = legacy->glossiness;
+            out.mapUv[1].w = legacy->environment;
         }
         jointBase += static_cast<uint32_t>(draw.joints.size());
     }

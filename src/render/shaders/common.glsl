@@ -51,6 +51,9 @@ const float PI = 3.14159265359;
         vec4 shadowInfo;        /* x on (1), y one texel in texture coordinates */            \
         vec4 viewAxis;          /* xyz the camera's forward direction */                      \
         vec4 lightInfo;         /* x local lights in use (lights.glsl) */                    \
+        /* Reflection probes (probes.glsl): x the sky's probe ambiance, y the radiance's */   \
+        /* last mip level, z ready (1), w classic mode (1: the sky's ambient, not the probe's) */ \
+        vec4 probeInfo;                                                                       \
     }                                                                                         \
     frame;
 
@@ -136,8 +139,8 @@ vec3 pbrDirect(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float me
     return (diffuse + specular) * lightColor * nDotL;
 }
 
-// Ambient for PBR until there are environment maps: hemisphere light, with
-// metals taking a rough "reflection" from the same hemisphere.
+// Ambient for PBR before the reflection probe is ready (probes.glsl):
+// hemisphere light, with metals taking a rough "reflection" from it.
 vec3 pbrAmbient(vec3 n, vec3 v, vec3 baseColor, float roughness, float metallic, vec3 sky,
                 vec3 ground)
 {

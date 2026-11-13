@@ -45,7 +45,8 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
 
     log::info("GPU device created (driver: {})", SDL_GetGPUDeviceDriver(device));
     std::unique_ptr<Renderer> renderer(new Renderer(window, device));
-    if(!renderer->createPipelines() || !renderer->createDefaultTextures())
+    if(!renderer->createPipelines() || !renderer->createDefaultTextures() ||
+       !renderer->createProbes())
     {
         return nullptr;
     }
@@ -71,7 +72,8 @@ Renderer::~Renderer()
     flatNormalLayers_.reset();
     terrainBlendRamp_.reset();
     for(SDL_GPUTexture* t : {hdrTarget_, depthTarget_, screenshotTexture_, shadowMap_, projectors_,
-                             luminance_, exposureMaps_[0], exposureMaps_[1]})
+                             luminance_, exposureMaps_[0], exposureMaps_[1], probeRadiance_,
+                             probeIrradiance_, probeCapture_, probeDepth_, brdfTable_})
     {
         if(t)
         {

@@ -414,6 +414,37 @@ dithers its output so the sky's slow gradients don't band. The Environment windo
 and can fix the time of day; `--day-time 0..1` does that from the command
 line. Not drawn yet: sun and moon textures, moon phases, water.
 
+### Reflection probes
+
+Reflections, and on skies made for PBR the ambient light, come from a
+reflection probe (`RendererProbes.cpp`, `probes.glsl`), as the official
+viewer's default probe (LLReflectionMapManager): a cube of the sky and the
+terrain (all of it, in view or not) around the camera, 128² per face,
+recaptured every 2 s (`Reflections::updateSeconds`, the official
+RenderDefaultProbeUpdatePeriod) a face a frame, from 1 m out. When the
+sixth face is in, it's mipmapped and filtered: radiance, 7 levels (128 down
+to 2, max_probe_lod 6), each face of level n the capture through a GGX lobe
+of roughness n / 6 (64 importance samples, each reading the capture's level
+that matches its solid angle), and irradiance (16², the cosine-weighted
+average around each direction, 128 samples). Both are cube arrays with
+room for more probes later. A cube face's layout is the mirror image of a
+camera's, so faces are rendered of the world mirrored in y (`faceView`),
+which keeps the scene pipelines' winding; lookups mirror y back.
+
+Shading: PBR surfaces take image-based light, diffuse from the irradiance
+and specular from the radiance at their roughness, scaled and biased by the
+split-sum table (`brdf_table.frag`, made once: 128², GGX with Smith
+visibility). Ambient light is the probe's irradiance times the sky's
+`reflection_probe_ambiance` (mixed with the sky's ambient while that's
+under 1); skies made before PBR keep the sky's ambient ("classic mode").
+Legacy faces with glossiness reflect the probe softly at that glossiness
+(stronger at grazing angles, only on what isn't already bright: the
+official applyGlossEnv), and with environment intensity sharply, mixed in
+by it (applyLegacyEnv). Captures are drawn with the probe off. Not yet:
+objects in probes, local probes (from objects with reflection probe
+settings, and the official automatic ones), so interiors take their
+ambient from the sky and terrain outside.
+
 ### Shadows
 
 The sun (or the moon, while it's the light) casts shadows through four
@@ -541,8 +572,8 @@ normal and specular maps, each with its own repeats, offset and rotation
 the vertex shaders pass along, `outMeshUv`); a specular color (sRGB) and
 glossiness (exponent / 255: the highlight's exponent is glossiness² x 368,
 times the normal map's alpha², as the official specular table,
-RenderSpecularExponent); environment intensity (unused, no reflections
-yet); and what the diffuse alpha means: none (opaque), blend, mask (with a
+RenderSpecularExponent); environment intensity (the sharp reflection, by
+the specular map's alpha); and what the diffuse alpha means: none (opaque), blend, mask (with a
 cutoff), emissive (opaque; alpha is how much shows unlit, the lit color
 mixed towards the texture's, as materialF.glsl) or default (the texture's
 own).
@@ -726,9 +757,11 @@ order does. As in the official viewer, depth tests pass on equal depth
 mesh writes depth. Skinned normals use the inverse transpose of the
 skinning matrix (the official viewer applies the bind shape's to normals):
 bind shapes stretch meshes, and stretched normals light seams wrongly.
-Legacy faces have no specular highlight unless "shiny" (which in the
-official viewer reflects the environment; a soft sheen stands in until we
-have environment reflections).
+Legacy faces have no specular highlight unless "shiny": then specular
+color, glossiness and environment intensity are 0.25, 0.5 or 0.75 (low,
+medium, high, as llvovolume.cpp), so they shine and reflect the probe. A
+legacy material's own specular values replace those only when it has a
+specular map, as in the official viewer.
 
 Mesh objects (sculpt type 5) take their geometry from `MeshManager` (app):
 for each mesh it fetches the header with a Range request for the first 4 KiB
