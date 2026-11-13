@@ -14,7 +14,7 @@ struct DrawData
     vec4 uvRow0;       // texture transform: u' = dot(uvRow0.xyz, (u, v, 1)); w 1: planar
     vec4 uvRow1;       //                    v' = dot(uvRow1.xyz, (u, v, 1))
     vec4 material[3];  // the material's values (see the fragment shaders)
-    uvec4 skin;        // x: first joint matrix (skinned draws)
+    uvec4 skin;        // x: first joint matrix (skinned draws); y, z pick id; w 1: pick only
     vec4 mapUv[4];     // legacy normal map's texture transform rows, then the specular map's
 };
 

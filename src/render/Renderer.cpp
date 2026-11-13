@@ -61,6 +61,10 @@ Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device)
 Renderer::~Renderer()
 {
     SDL_WaitForGPUIdle(device_);
+    if(pickFence_)
+    {
+        SDL_ReleaseGPUFence(device_, pickFence_);
+    }
     // Everything created on the device goes before the device itself.
     pipelines_.reset();
     white_.reset();
@@ -72,9 +76,11 @@ Renderer::~Renderer()
     flatNormalLayers_.reset();
     terrainBlendRamp_.reset();
     for(SDL_GPUTexture* t :
-        {hdrTarget_, depthTarget_, screenshotTexture_, shadowMap_, projectors_, luminance_,
-         exposureMaps_[0], exposureMaps_[1], probeRadiance_, probeIrradiance_, probeCapture_,
-         probeDepth_, brdfTable_, hudImage_, hudDepth_})
+        {hdrTarget_,      depthTarget_,     screenshotTexture_, shadowMap_,      projectors_,
+         luminance_,      exposureMaps_[0], exposureMaps_[1],   probeRadiance_,  probeIrradiance_,
+         probeCapture_,   probeDepth_,      brdfTable_,         hudImage_,       hudDepth_,
+         pickTargets_[0], pickTargets_[1],  pickTargets_[2],    pickTargets_[3], pickDepth_,
+         outlineMask_})
     {
         if(t)
         {
@@ -88,8 +94,9 @@ Renderer::~Renderer()
         b->buffer.reset();
     }
     for(SDL_GPUTransferBuffer* t :
-        {screenshotTransfer_, textureStaging_, drawBuffer_.transfer, jointBuffer_.transfer,
-         instanceBuffer_.transfer, lightBuffer_.transfer, probeBuffer_.transfer})
+        {screenshotTransfer_, pickTransfer_, textureStaging_, drawBuffer_.transfer,
+         jointBuffer_.transfer, instanceBuffer_.transfer, lightBuffer_.transfer,
+         probeBuffer_.transfer})
     {
         if(t)
         {
@@ -284,18 +291,27 @@ void Renderer::endFrame()
     {
         return;
     }
-    if(screenshotPending_)
+    if(screenshotPending_ || pickSubmitted_)
     {
-        // Rare (screenshots only), so simply wait for this frame to finish.
+        // A pick is read once this frame is done (pollPick); a screenshot
+        // (rare) simply waits for it.
         SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(currentCommands_);
         currentCommands_ = nullptr;
-        if(fence)
+        if(fence && screenshotPending_)
         {
             SDL_WaitForGPUFences(device_, true, &fence, 1);
-            SDL_ReleaseGPUFence(device_, fence);
             finishScreenshot();
         }
+        if(fence && pickSubmitted_)
+        {
+            pickFence_ = fence;
+        }
+        else if(fence)
+        {
+            SDL_ReleaseGPUFence(device_, fence);
+        }
         screenshotPending_ = false;
+        pickSubmitted_ = false;
         meshPool_->endFrame();
         return;
     }

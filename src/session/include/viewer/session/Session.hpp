@@ -274,6 +274,32 @@ public:
     void requestObjects(uint64_t regionHandle,
                         std::span<const std::pair<uint32_t, uint8_t>> objects);
 
+    // Touching an object (as the official viewer's ObjectGrab, then
+    // ObjectDeGrab when it's let go): the prim touched and where, which
+    // scripts read with llDetectedTouchUV, llDetectedTouchST,
+    // llDetectedTouchFace, llDetectedTouchPos, llDetectedTouchNormal and
+    // llDetectedTouchBinormal. `grabOffset`: from the prim to its link
+    // set's root, in the root's frame. Positions are in the agent's region's
+    // coordinates.
+    struct TouchSurface
+    {
+        protocol::Vector3 uv{}; // texture coordinates (after the face's repeats)
+        protocol::Vector3 st{}; // the face's own 0..1 coordinates
+        int32_t face = -1;
+        protocol::Vector3 position{};
+        protocol::Vector3 normal{};
+        protocol::Vector3 binormal{};
+    };
+    void touchObject(uint64_t regionHandle, uint32_t localId, protocol::Vector3 grabOffset,
+                     const TouchSurface& surface);
+    void releaseObject(uint64_t regionHandle, uint32_t localId, const TouchSurface& surface);
+
+    // Selecting prims (ObjectSelect) makes their region send their
+    // ObjectProperties (name, description, touch and sit text, ...);
+    // deselect them once those are in.
+    void selectObjects(uint64_t regionHandle, std::span<const uint32_t> localIds);
+    void deselectObjects(uint64_t regionHandle, std::span<const uint32_t> localIds);
+
     // Asks the main region to send an avatar's AvatarAppearance (bakes and
     // visual parameters), as the official viewer does for avatars still
     // drawn with default parameters ("avatartexturesrequest").

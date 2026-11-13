@@ -561,6 +561,77 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     }
 }
 
+const world::Object& ObjectView::linkRoot(const world::Object& object, const world::World& world)
+{
+    const world::Object* o = &object;
+    for(int depth = 0; depth < 16 && o->parentId != 0; depth++)
+    {
+        const world::Object* parent = world.object(o->region, o->parentId);
+        if(!parent || parent->type == world::ObjectType::Avatar)
+        {
+            break;
+        }
+        o = parent;
+    }
+    return *o;
+}
+
+bool ObjectView::touchable(const world::Object& object, const world::Object& root)
+{
+    // A touch script in it or its root, unless clicking it is disabled
+    // (lltoolpie.cpp).
+    return object.clickAction != world::ClickAction::Disabled &&
+           ((object.updateFlags & world::kFlagHandleTouch) ||
+            (root.updateFlags & world::kFlagHandleTouch));
+}
+
+uint8_t ObjectView::clickAction(const world::Object& object, const world::Object& root)
+{
+    // Its own, else its root's; none on attachments (lltoolpie.cpp
+    // useClickAction).
+    if(root.parentId != 0)
+    {
+        return world::ClickAction::Touch; // attached to an avatar
+    }
+    const uint8_t own = object.clickAction;
+    if(own != world::ClickAction::Touch && own != world::ClickAction::Disabled)
+    {
+        return own;
+    }
+    const uint8_t rootAction = root.clickAction;
+    return rootAction != world::ClickAction::Disabled ? rootAction : world::ClickAction::Touch;
+}
+
+uint64_t ObjectView::pickRegion(uint64_t region)
+{
+    const auto it = std::ranges::find(pickRegions_, region);
+    if(it != pickRegions_.end())
+    {
+        return static_cast<uint64_t>(it - pickRegions_.begin()) + 1;
+    }
+    pickRegions_.push_back(region);
+    return pickRegions_.size();
+}
+
+std::optional<ObjectView::PickedFace> ObjectView::resolvePick(uint64_t pickId) const
+{
+    const uint64_t index = (pickId >> 8) & 0xFFFFFFu;
+    if(pickId == 0 || index == 0 || index > pickRegions_.size())
+    {
+        return std::nullopt;
+    }
+    return PickedFace{
+        world::ObjectKey{pickRegions_[index - 1], static_cast<uint32_t>(pickId >> 32)},
+        static_cast<int>(pickId & 0xFFu)};
+}
+
+std::optional<glm::mat4> ObjectView::objectFrame(const world::Object& object,
+                                                 const world::World& world, uint64_t originHandle,
+                                                 const AvatarView* avatars) const
+{
+    return frameOf(object, world, originHandle, avatars);
+}
+
 bool ObjectView::onHud(const world::Object& object, const world::World& world,
                        const AvatarView* avatars) const
 {
@@ -737,6 +808,17 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const world::Object* wearer =
             object.parentId != 0 ? attachedAvatar(world, object) : nullptr;
         stats_.drawn++;
+        // Picking: unless clicks go through it, each face can be picked;
+        // its invisible faces too if clicking it does something (invisible
+        // buttons are common).
+        const bool pickable = object.clickAction != world::ClickAction::Ignore;
+        const world::Object& root = linkRoot(object, world);
+        const bool actionable =
+            pickable &&
+            (touchable(object, root) || clickAction(object, root) != world::ClickAction::Touch);
+        const uint64_t pickBase =
+            pickable ? static_cast<uint64_t>(object.localId) << 32 | pickRegion(object.region) << 8
+                     : 0;
         for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
         {
             const render::Mesh& mesh = (*faces)[f];
@@ -759,6 +841,14 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             {
                 if(face.color.a <= 0.0f || face.texture == kTransparentTexture)
                 {
+                    if(actionable)
+                    {
+                        draw.pickOnly = true;
+                        draw.pickId = pickBase | f;
+                        draw.hud = hud;
+                        uvTransform(face, draw.uvRow0, draw.uvRow1);
+                        scene.objects.push_back(draw);
+                    }
                     continue;
                 }
                 const auto m =
@@ -772,6 +862,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             }
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
             draw.hud = hud;
+            draw.pickId = pickable ? pickBase | f : 0;
             scene.objects.push_back(draw);
             stats_.faces++;
         }

@@ -103,8 +103,27 @@ struct ReflectionProbeParams
     bool box() const { return (flags & kBox) != 0; }
 };
 
-// UpdateFlags bit: the object is temporary (object_flags.h); it's never cached.
+// UpdateFlags bits (object_flags.h).
+inline constexpr uint32_t kFlagUsePhysics = 1u << 0;
+inline constexpr uint32_t kFlagHandleTouch = 1u << 7; // a script listens for touches
+inline constexpr uint32_t kFlagTakesMoney = 1u << 9;
+// The object is temporary; it's never cached.
 inline constexpr uint32_t kFlagTemporaryOnRez = 1u << 29;
+
+// What a left click does (llSetClickAction; indra_constants.h).
+namespace ClickAction
+{
+inline constexpr uint8_t Touch = 0;
+inline constexpr uint8_t Sit = 1;
+inline constexpr uint8_t Buy = 2;
+inline constexpr uint8_t Pay = 3;
+inline constexpr uint8_t Open = 4;
+inline constexpr uint8_t Play = 5;
+inline constexpr uint8_t OpenMedia = 6;
+inline constexpr uint8_t Zoom = 7;
+inline constexpr uint8_t Disabled = 8; // not even a touch
+inline constexpr uint8_t Ignore = 9;   // clicks go through it
+} // namespace ClickAction
 
 struct Object
 {
@@ -116,6 +135,7 @@ struct Object
     uint8_t species = 0;   // trees and grass: which kind
     uint32_t parentId = 0; // local id of the parent, 0 for root objects
     uint32_t updateFlags = 0;
+    uint8_t clickAction = ClickAction::Touch;
 
     // Relative to the parent if there is one, otherwise to the region.
     glm::vec3 position{0.0f};

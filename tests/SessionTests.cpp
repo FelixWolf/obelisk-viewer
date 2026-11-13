@@ -685,6 +685,68 @@ TEST_CASE("Session: avatar appearance requests go to the main region")
     CHECK(request->second.AgentData.AgentID == session.login()->agentId);
 }
 
+TEST_CASE("Session: touching grabs and releases; selecting and deselecting")
+{
+    FakeSimulator sim;
+    std::atomic<uint16_t> httpPort{0};
+    viewer::test::LoopbackHttpServer server(
+        [&](const LoopbackRequest& request) -> std::optional<LoopbackReply>
+        {
+            if(request.path == "/login")
+            {
+                return LoopbackReply{.body = loginSuccessXml(httpPort, sim.endpoint().port)};
+            }
+            return LoopbackReply{.body = llsd::toXml(llsd::Value(llsd::Map{}))};
+        });
+    httpPort = portOf(server.url(""));
+    auto http = viewer::net::createHttpClient();
+    Session session(*http, testParameters(server));
+    REQUIRE(pumpUntil(session, [&] { return sim.count<msg::CompleteAgentMovement>() > 0; }));
+    uint64_t handle = 0;
+    for(const auto& [id, region] : session.regions())
+    {
+        handle = region->isMain ? region->handle : handle;
+    }
+
+    Session::TouchSurface surface;
+    surface.uv = {0.25f, 0.75f, 0.0f};
+    surface.st = {0.5f, 0.5f, 0.0f};
+    surface.face = 2;
+    surface.position = {10.0f, 20.0f, 30.0f};
+    surface.normal = {0.0f, 0.0f, 1.0f};
+    surface.binormal = {0.0f, 1.0f, 0.0f};
+    session.touchObject(handle, 1234, {0.5f, 0.0f, 0.0f}, surface);
+    std::optional<std::pair<FakeSimulator::Received, msg::ObjectGrab>> grab;
+    REQUIRE(pumpUntil(session, [&] { return (grab = sim.take<msg::ObjectGrab>()).has_value(); }));
+    CHECK(grab->second.ObjectData.LocalID == 1234);
+    CHECK(grab->second.ObjectData.GrabOffset.x == 0.5f);
+    REQUIRE(grab->second.SurfaceInfo.size() == 1);
+    CHECK(grab->second.SurfaceInfo[0].FaceIndex == 2);
+    CHECK(grab->second.SurfaceInfo[0].UVCoord.y == 0.75f);
+    CHECK(grab->second.SurfaceInfo[0].Position.z == 30.0f);
+
+    session.releaseObject(handle, 1234, surface);
+    std::optional<std::pair<FakeSimulator::Received, msg::ObjectDeGrab>> release;
+    REQUIRE(
+        pumpUntil(session, [&] { return (release = sim.take<msg::ObjectDeGrab>()).has_value(); }));
+    CHECK(release->second.ObjectData.LocalID == 1234);
+    CHECK(release->second.SurfaceInfo[0].Binormal.y == 1.0f);
+
+    // Selecting (for its properties), then deselecting.
+    const uint32_t ids[] = {1234, 5678};
+    session.selectObjects(handle, ids);
+    std::optional<std::pair<FakeSimulator::Received, msg::ObjectSelect>> select;
+    REQUIRE(
+        pumpUntil(session, [&] { return (select = sim.take<msg::ObjectSelect>()).has_value(); }));
+    REQUIRE(select->second.ObjectData.size() == 2);
+    CHECK(select->second.ObjectData[1].ObjectLocalID == 5678);
+    session.deselectObjects(handle, ids);
+    std::optional<std::pair<FakeSimulator::Received, msg::ObjectDeselect>> deselect;
+    REQUIRE(pumpUntil(session,
+                      [&] { return (deselect = sim.take<msg::ObjectDeselect>()).has_value(); }));
+    CHECK(deselect->second.ObjectData[0].ObjectLocalID == 1234);
+}
+
 #endif // _WIN32
 
 TEST_CASE("Session: throttles split as the official viewer's presets")

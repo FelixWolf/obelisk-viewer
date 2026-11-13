@@ -3,6 +3,7 @@
 #include "viewer/core/Log.hpp"
 #include "viewer/image/Png.hpp"
 #include "viewer/image/TextureProcessing.hpp"
+#include "viewer/protocol/Messages.hpp"
 
 #include "EmbeddedAssets.hpp"
 
@@ -72,7 +73,7 @@ void printUsage()
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
-                 "[--bandwidth KBPS]");
+                 "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS]");
 }
 
 } // namespace
@@ -137,6 +138,33 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.loginFile = args[i];
+        }
+        else if(arg == "--pointer" && hasValue)
+        {
+            i++;
+            std::array<float, 2> p{};
+            if(std::sscanf(args[i], "%f,%f", &p[0], &p[1]) != 2)
+            {
+                printUsage();
+                return std::nullopt;
+            }
+            options.pointer = p;
+        }
+        else if(arg == "--point-at" && hasValue)
+        {
+            i++;
+            const auto id = Uuid::parse(args[i]);
+            if(!id)
+            {
+                printUsage();
+                return std::nullopt;
+            }
+            options.pointAt = *id;
+        }
+        else if(arg == "--click-at" && hasValue)
+        {
+            i++;
+            options.clickAt = std::strtof(args[i], nullptr);
         }
         else if(arg == "--teleport" && hasValue)
         {
@@ -259,6 +287,9 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->fixedCamera_ = options.camera.has_value();
     app->pendingTeleport_ = options.teleport;
     app->walkHeading_ = options.walk;
+    app->pointerOverride_ = options.pointer;
+    app->pointAt_ = options.pointAt;
+    app->clickAt_ = options.clickAt;
     app->screenshotPath_ = options.screenshotPath;
     app->screenshotDelay_ = options.screenshotDelay;
     app->startTicks_ = SDL_GetTicksNS();
@@ -375,6 +406,17 @@ int App::run()
             {
                 agent_.handleEvent(event);
             }
+            // The left button touches what the pointer is on.
+            if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+               event.button.button == SDL_BUTTON_LEFT && !uiConsumed)
+            {
+                pressPointer();
+            }
+            if(event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT &&
+               session_)
+            {
+                pointer_.release(*session_);
+            }
 
             if(event.type == SDL_EVENT_QUIT)
             {
@@ -416,6 +458,16 @@ int App::run()
         frameTimes_.push_back(static_cast<float>(now - lastFrameTicks_) * 1e-6f);
         lastFrameTicks_ = now;
         logMemory(now);
+        // --click-at: press at the given time, let go a moment later.
+        if(clickAt_ && !clickedTicks_ && static_cast<float>(now - startTicks_) * 1e-9f >= *clickAt_)
+        {
+            pressPointer();
+            clickedTicks_ = now;
+        }
+        else if(clickedTicks_ && now - clickedTicks_ > 200'000'000ull && session_)
+        {
+            pointer_.release(*session_);
+        }
         if(!screenshotPath_.empty() && !screenshotRequested_ &&
            static_cast<float>(now - startTicks_) * 1e-9f >= screenshotDelay_)
         {
@@ -575,6 +627,10 @@ void App::updateSession()
         if(m.kind == session::RegionMessage::Kind::RegionRemoved)
         {
             worldThread_->postRegionRemoved(m.regionHandle);
+        }
+        else if(m.event.is<protocol::msg::ObjectProperties>())
+        {
+            objectProperties_.handle(*session_, m.regionHandle, m.event);
         }
         else
         {
@@ -877,6 +933,9 @@ void App::requestMissingAppearances()
 void App::endSession()
 {
     appearanceDue_.clear();
+    objectProperties_ = {};
+    hoverKey_.reset();
+    hoverInfo_ = nullptr;
     textures_->setViewerAssetUrl({});
     meshes_->setViewerAssetUrl({});
     materials_->setViewerAssetUrl({});
@@ -939,6 +998,70 @@ void App::buildScene(render::Scene& scene)
     {
         avatars_->setHudAspect(scene.hud.aspect);
     }
+    // What the pointer was on (the renderer's answer to an earlier frame),
+    // and where it points now.
+    if(world_ && objects_)
+    {
+        const auto before = pointer_.hover();
+        pointer_.update(*renderer_, *world_, *objects_);
+        const auto& after = pointer_.hover();
+        if((pointerOverride_ || !pointAt_.isNull()) &&
+           (before.has_value() != after.has_value() ||
+            (after && (after->key != before->key || after->face != before->face))))
+        {
+            if(const world::Object* o =
+                   after ? world_->object(after->key.region, after->key.localId) : nullptr)
+            {
+                const world::Object& root = ObjectView::linkRoot(*o, *world_);
+                log::info("pointer on {} face {} ({}{}touchable, click action {}; flags {:#x}, "
+                          "root {} flags {:#x}) at {:.2f} {:.2f} {:.2f}",
+                          o->id.toString(), after->face, after->hud ? "HUD, " : "",
+                          after->touchable ? "" : "not ", after->clickAction, o->updateFlags,
+                          root.id.toString(), root.updateFlags, after->hit.position.x,
+                          after->hit.position.y, after->hit.position.z);
+            }
+            else
+            {
+                log::info("pointer on nothing");
+            }
+        }
+    }
+    pointer_.aim(scene, pointerRay(scene));
+    // Resting on something clickable for a moment: its properties (touch
+    // text, name), selecting it to get them. Not physical objects: selecting
+    // stops them.
+    {
+        const auto& hover = pointer_.hover();
+        const bool actionable =
+            hover && (hover->touchable || hover->clickAction != world::ClickAction::Touch);
+        const uint64_t now = SDL_GetTicksNS();
+        if(!actionable || !hoverKey_ || *hoverKey_ != hover->key)
+        {
+            hoverKey_ = actionable ? std::optional(hover->key) : std::nullopt;
+            hoverSinceTicks_ = now;
+            hoverInfo_ = nullptr;
+        }
+        const world::Object* o =
+            actionable && world_ ? world_->object(hover->key.region, hover->key.localId) : nullptr;
+        if(o && session_ && now - hoverSinceTicks_ > 250'000'000ull &&
+           !(o->updateFlags & world::kFlagUsePhysics))
+        {
+            hoverInfo_ = objectProperties_.get(*session_, o->region, o->localId, o->id);
+            if(hoverInfo_ && (pointerOverride_ || !pointAt_.isNull()) && !loggedHoverInfo_)
+            {
+                loggedHoverInfo_ = true;
+                log::info("pointer on '{}': touch text '{}', sit text '{}', description '{}'",
+                          hoverInfo_->name, hoverInfo_->touchName, hoverInfo_->sitName,
+                          hoverInfo_->description);
+            }
+        }
+    }
+    // Outline what a click would do something to.
+    const auto& hover = pointer_.hover();
+    scene.highlight = hover && !hover->hud &&
+                              (hover->touchable || hover->clickAction != world::ClickAction::Touch)
+                          ? hover->hit.pickId
+                          : 0;
     if(world_ && originHandle_)
     {
         terrainView_.update(*world_, *renderer_);
@@ -1019,6 +1142,100 @@ void App::buildScene(render::Scene& scene)
         const glm::vec3 origin =
             originHandle_ ? camera_.target() + glm::vec3(0.0f, 30.0f, 0.0f) : glm::vec3(0.0f);
         sceneAssets_->addTestScene(scene, origin);
+    }
+}
+
+std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene) const
+{
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSize(window_.get(), &width, &height);
+    if(width <= 0 || height <= 0)
+    {
+        return std::nullopt;
+    }
+    // --point-at: from the camera straight at the object.
+    if(!pointAt_.isNull() && world_ && objects_ && originHandle_)
+    {
+        for(const auto& [key, object] : world_->objects())
+        {
+            if(object.id != pointAt_)
+            {
+                continue;
+            }
+            const auto frame =
+                objects_->objectFrame(object, *world_, *originHandle_, avatars_.get());
+            if(!frame)
+            {
+                return std::nullopt;
+            }
+            PointerController::Ray ray;
+            ray.origin = scene.camera.position;
+            ray.direction = glm::normalize(glm::vec3((*frame)[3]) - ray.origin);
+            return ray;
+        }
+        return std::nullopt;
+    }
+    float x = 0.0f;
+    float y = 0.0f;
+    if(pointerOverride_)
+    {
+        x = (*pointerOverride_)[0] * static_cast<float>(width);
+        y = (*pointerOverride_)[1] * static_cast<float>(height);
+    }
+    else
+    {
+        if(ImGui::GetIO().WantCaptureMouse || camera_.dragging() ||
+           SDL_GetMouseFocus() != window_.get())
+        {
+            return std::nullopt;
+        }
+        SDL_GetMouseState(&x, &y);
+    }
+    // Through the view's projection, back from the window position.
+    const glm::vec2 ndc(2.0f * x / static_cast<float>(width) - 1.0f,
+                        1.0f - 2.0f * y / static_cast<float>(height));
+    const render::Camera& camera = scene.camera;
+    const float aspect = static_cast<float>(width) / static_cast<float>(height);
+    const glm::mat4 inverse = glm::inverse(
+        glm::perspective(camera.verticalFov, aspect, camera.nearPlane, camera.farPlane) *
+        glm::lookAt(camera.position, camera.target, camera.up));
+    const glm::vec4 far = inverse * glm::vec4(ndc, 1.0f, 1.0f);
+    PointerController::Ray ray;
+    ray.origin = camera.position;
+    ray.direction = glm::normalize(glm::vec3(far) / far.w - camera.position);
+    // Where it meets the HUD: over the view, straight from the window
+    // position; on a panel, where the ray crosses it.
+    const render::Hud& hud = scene.hud;
+    const float unit = 0.5f / std::max(hud.zoom, 0.01f);
+    if(hud.placement == render::Hud::Placement::Screen)
+    {
+        ray.hudPoint = glm::vec2(-ndc.x * unit * hud.aspect, ndc.y * unit);
+    }
+    else
+    {
+        const glm::mat4 toPanel = glm::inverse(hud.panel);
+        const glm::vec3 o(toPanel * glm::vec4(ray.origin, 1.0f));
+        const glm::vec3 d(toPanel * glm::vec4(ray.direction, 0.0f));
+        if(std::abs(d.x) > 1e-6f)
+        {
+            const glm::vec3 p = o + d * (-o.x / d.x);
+            const float half = 0.5f * hud.panelHeight;
+            if(-o.x / d.x > 0.0f && std::abs(p.y) <= half * hud.aspect && std::abs(p.z) <= half)
+            {
+                ray.hudPoint = glm::vec2(p.y, p.z) / hud.panelHeight * (2.0f * unit);
+            }
+        }
+    }
+    return ray;
+}
+
+void App::pressPointer()
+{
+    if(session_ && world_ && objects_ && originHandle_ && session_->agentRegion())
+    {
+        pointer_.press(*session_, *world_, *objects_, avatars_.get(), *originHandle_,
+                       *session_->agentRegion());
     }
 }
 
@@ -1231,6 +1448,39 @@ void App::drawUi()
 {
     ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 
+    // Over something a click does something to: a hand, and what it does.
+    if(const auto& hover = pointer_.hover();
+       hover && (hover->touchable || hover->clickAction != world::ClickAction::Touch) &&
+       !ImGui::GetIO().WantCaptureMouse)
+    {
+        static constexpr const char* kActions[] = {"Touch", "Sit",  "Buy",        "Pay",
+                                                   "Open",  "Play", "Open media", "Zoom"};
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if(hover->clickAction < std::size(kActions))
+        {
+            // The script's own words for touching or sitting (llSetTouchText,
+            // llSetSitText), once its properties are in; and its name.
+            std::string action = kActions[hover->clickAction];
+            if(hoverInfo_ && hover->clickAction == world::ClickAction::Touch &&
+               !hoverInfo_->touchName.empty())
+            {
+                action = hoverInfo_->touchName;
+            }
+            if(hoverInfo_ && hover->clickAction == world::ClickAction::Sit &&
+               !hoverInfo_->sitName.empty())
+            {
+                action = hoverInfo_->sitName;
+            }
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(action.c_str());
+            if(hoverInfo_ && !hoverInfo_->name.empty())
+            {
+                ImGui::TextDisabled("%s", hoverInfo_->name.c_str());
+            }
+            ImGui::EndTooltip();
+        }
+    }
+
     if(ImGui::Begin("Stats"))
     {
         const ImGuiIO& io = ImGui::GetIO();
@@ -1243,6 +1493,24 @@ void App::drawUi()
         ImGui::Checkbox("Material test scene", &showTestScene_);
         ImGui::Checkbox("PBR terrain shader", &pbrTerrain_);
         ImGui::Checkbox("ImGui demo window", &showDemoWindow_);
+        // What the pointer is on, and why a click would (or wouldn't) touch it.
+        if(const auto& hover = pointer_.hover(); hover && world_)
+        {
+            if(const world::Object* o = world_->object(hover->key.region, hover->key.localId))
+            {
+                const world::Object& root = ObjectView::linkRoot(*o, *world_);
+                ImGui::Text("Pointer: %s face %d%s", o->id.toString().c_str(), hover->face,
+                            hover->hud ? " (HUD)" : "");
+                ImGui::Text("  flags %#x, root %s flags %#x: %s, click action %u", o->updateFlags,
+                            root.id.toString().c_str(), root.updateFlags,
+                            hover->touchable ? "touchable" : "not touchable",
+                            static_cast<unsigned>(hover->clickAction));
+            }
+        }
+        else
+        {
+            ImGui::Text("Pointer: nothing");
+        }
         const glm::vec3 target = camera_.target();
         ImGui::Text("Camera target %.1f, %.1f, %.1f", static_cast<double>(target.x),
                     static_cast<double>(target.y), static_cast<double>(target.z));

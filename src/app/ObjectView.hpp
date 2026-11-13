@@ -78,6 +78,25 @@ public:
     // automatic reflection probes (placeAutomaticProbes).
     std::span<const ProbeObject> probeObjects() const { return probeObjects_; }
 
+    // Picking: the prim and face a draw's pickId stands for.
+    struct PickedFace
+    {
+        world::ObjectKey key;
+        int face = 0;
+    };
+    std::optional<PickedFace> resolvePick(uint64_t pickId) const;
+    // An object's frame (position and rotation) in the scene, or in HUD
+    // space for HUD attachments.
+    std::optional<glm::mat4> objectFrame(const world::Object& object, const world::World& world,
+                                         uint64_t originHandle, const AvatarView* avatars) const;
+    // Its link set's root (itself if it's one; attachments stop below the
+    // avatar).
+    static const world::Object& linkRoot(const world::Object& object, const world::World& world);
+    // Whether a script listens for its touches, and what a click does
+    // (world::ClickAction), as the official viewer decides (lltoolpie.cpp).
+    static bool touchable(const world::Object& object, const world::Object& root);
+    static uint8_t clickAction(const world::Object& object, const world::Object& root);
+
 private:
     struct Key
     {
@@ -159,6 +178,9 @@ private:
     std::atomic<int> running_{0};
     Stats stats_;
     std::vector<ProbeObject> probeObjects_;
+    // Regions by the index pick ids carry (index + 1).
+    std::vector<uint64_t> pickRegions_;
+    uint64_t pickRegion(uint64_t region);
     // This frame's joint matrices for rigged draws (the scene refers to them
     // until it's drawn; a deque keeps them in place as it grows).
     std::deque<std::vector<glm::mat4>> palettes_;

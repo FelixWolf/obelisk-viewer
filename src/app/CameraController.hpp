@@ -14,6 +14,8 @@ class CameraController
 {
 public:
     void handleEvent(const SDL_Event& event);
+    // Turning or panning with the mouse (it isn't pointing at anything then).
+    bool dragging() const { return rotating_ || panning_; }
     // Applies held keys; call once per frame.
     void update(float seconds);
 

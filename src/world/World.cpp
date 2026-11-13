@@ -245,6 +245,7 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
         o.species = b.Data.empty() ? 0 : b.Data[0];
         o.parentId = b.ParentID;
         o.updateFlags = b.UpdateFlags;
+        o.clickAction = b.ClickAction;
         o.scale = glm::vec3(b.Scale.x, b.Scale.y, b.Scale.z);
 
         // Motion: 60 bytes (position, velocity, acceleration, rotation as

@@ -9,7 +9,9 @@
 #include "LegacyMaterialManager.hpp"
 #include "LoginPanel.hpp"
 #include "MaterialManager.hpp"
+#include "ObjectProperties.hpp"
 #include "ObjectView.hpp"
+#include "PointerController.hpp"
 #include "SceneAssets.hpp"
 #include "TerrainTextures.hpp"
 #include "TerrainView.hpp"
@@ -63,6 +65,11 @@ struct AppOptions
     // --bandwidth: downstream bandwidth to ask regions for, kbps (the official
     // viewer's ThrottleBandwidthKBPS)
     float bandwidth = session::kDefaultBandwidthKbps;
+    // For testing: point at this spot (fractions of the window, from the
+    // top left) instead of the mouse, and click there this many seconds in.
+    std::optional<std::array<float, 2>> pointer;
+    std::optional<float> clickAt;
+    Uuid pointAt; // or at this object (its center)
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -149,6 +156,21 @@ private:
     std::unique_ptr<AnimationManager> animations_; // with avatars_
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;
+    // What the mouse points at, and touching it.
+    PointerController pointer_;
+    // Names and touch text of what the pointer rests on.
+    ObjectProperties objectProperties_;
+    std::optional<world::ObjectKey> hoverKey_;
+    uint64_t hoverSinceTicks_ = 0;
+    const ObjectInfo* hoverInfo_ = nullptr;
+    std::optional<std::array<float, 2>> pointerOverride_;
+    Uuid pointAt_;
+    bool loggedHoverInfo_ = false;
+    std::optional<float> clickAt_;
+    uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
+    // The pointer's ray this frame (none over the UI or while dragging).
+    std::optional<PointerController::Ray> pointerRay(const render::Scene& scene) const;
+    void pressPointer();
     std::unique_ptr<TreeView> trees_;
     TerrainTextures terrainTextures_;
     std::unique_ptr<LoginPanel> loginPanel_;

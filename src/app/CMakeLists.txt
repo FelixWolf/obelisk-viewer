@@ -27,7 +27,9 @@ add_executable(viewer
   MaterialManager.cpp
   MeshManager.cpp
   ObjectMotion.cpp
+  ObjectProperties.cpp
   ObjectView.cpp
+  PointerController.cpp
   Procedural.cpp
   SceneAssets.cpp
   TerrainTextures.cpp

@@ -44,6 +44,7 @@ struct RendererOptions
 // own command buffers (e.g. texture uploads via copy passes).
 struct Cascades;
 struct FrameFS;
+struct FrameVS;
 class ScenePass;
 
 class Renderer
@@ -108,6 +109,13 @@ public:
     SDL_GPUTexture* hudImage() const { return hudImage_; }
     // HUD space to the HUD image's clip space (render::Hud).
     static glm::mat4 hudViewProjection(const Hud& hud);
+    // The answer to the latest Scene::pick that has come back from the GPU
+    // (once; nothing while one is on its way).
+    std::optional<PickResult> takePick()
+    {
+        pollPick();
+        return std::exchange(pick_, {});
+    }
     // Local probes surfaces used last frame, and cubes holding a capture.
     uint32_t probesUsed() const { return probesShaded_; }
     uint32_t probesCaptured() const;
@@ -185,6 +193,14 @@ private:
     void compositeHud(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target);
     void drawHudPanel(ScenePass& pass, const Hud& hud, const glm::mat4& viewProjection);
 
+    // Picking (RendererPick.cpp): the pick pixels, read back once the
+    // frame's fence says they're done.
+    void drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool drawsReady);
+    void pollPick();
+    // The outline around Scene::highlight, over `target`.
+    void drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene, SDL_GPUTexture* target,
+                     uint32_t width, uint32_t height, const FrameVS& frameVs);
+
     // Renders the shadow casters into each cascade's layer of the shadow map.
     void drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene, const Cascades& cascades,
                      bool drawsReady);
@@ -235,6 +251,17 @@ private:
     int projectorLayer(SDL_GPUCommandBuffer* commands, const GpuTexture& texture);
     uint32_t targetWidth_ = 0;
     uint32_t targetHeight_ = 0;
+
+    std::array<SDL_GPUTexture*, 4> pickTargets_{};
+    SDL_GPUTexture* pickDepth_ = nullptr;
+    SDL_GPUTransferBuffer* pickTransfer_ = nullptr;
+    SDL_GPUFence* pickFence_ = nullptr; // the frame holding a pick, until it's done
+    bool pickSubmitted_ = false;        // this frame draws a pick
+    uint64_t pickRequest_ = 0;
+    std::optional<PickResult> pick_;
+    SDL_GPUTexture* outlineMask_ = nullptr;
+    uint32_t outlineWidth_ = 0;
+    uint32_t outlineHeight_ = 0;
 
     SDL_GPUTexture* hudImage_ = nullptr;
     SDL_GPUTexture* hudDepth_ = nullptr;

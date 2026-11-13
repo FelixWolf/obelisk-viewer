@@ -125,6 +125,12 @@ bool Renderer::createPipelines()
     SDL_GPUShader* probeIrradianceFrag =
         createShader(device_, {kProbeIrradianceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1},
                      "probe_irradiance.frag");
+    SDL_GPUShader* outlineMaskFrag = createShader(
+        device_, {kOutlineMaskFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "outline_mask.frag");
+    SDL_GPUShader* outlineFrag =
+        createShader(device_, {kOutlineFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "outline.frag");
+    SDL_GPUShader* pickFrag =
+        createShader(device_, {kPickFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "pick.frag");
     SDL_GPUShader* hudLegacyFrag = createShader(
         device_, {kHudLegacyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "hud_legacy.frag");
     SDL_GPUShader* hudPbrFrag =
@@ -398,7 +404,81 @@ bool Renderer::createPipelines()
         info.target_info.depth_stencil_format = depthFormat_;
         p.hudPanel = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
-    if(!p.hudComposite || !p.hudPanel)
+    // Picking: four targets (pick id, then position, normal and binormal
+    // with the texture coordinates in their w), both sides of faces.
+    if(objectVert && pickFrag)
+    {
+        SDL_GPUColorTargetDescription colors[4] = {};
+        colors[0].format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT;
+        for(int i = 1; i < 4; i++)
+        {
+            colors[i].format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+        }
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = objectVert;
+        info.fragment_shader = pickFrag;
+        info.vertex_input_state.num_vertex_buffers = 2;
+        info.vertex_input_state.vertex_buffer_descriptions = objectBuffers;
+        info.vertex_input_state.vertex_attributes = objectAttributes;
+        info.vertex_input_state.num_vertex_attributes =
+            static_cast<Uint32>(std::size(objectAttributes));
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = colors;
+        info.target_info.num_color_targets = 4;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        p.pick = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    // The outline: the prim's mask (depth tested against the view, both
+    // sides), then the outline over the view (blended).
+    if(objectVert && outlineMaskFrag)
+    {
+        SDL_GPUColorTargetDescription color = {};
+        color.format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = objectVert;
+        info.fragment_shader = outlineMaskFrag;
+        info.vertex_input_state.num_vertex_buffers = 2;
+        info.vertex_input_state.vertex_buffer_descriptions = objectBuffers;
+        info.vertex_input_state.vertex_attributes = objectAttributes;
+        info.vertex_input_state.num_vertex_attributes =
+            static_cast<Uint32>(std::size(objectAttributes));
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = false;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        p.outlineMask = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(fullscreenVert && outlineFrag)
+    {
+        SDL_GPUColorTargetDescription color = {};
+        color.format = swapchainFormat();
+        color.blend_state.enable_blend = true;
+        color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+        color.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        color.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+        color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;
+        color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = outlineFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        p.outline = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(!p.hudComposite || !p.hudPanel || !p.pick || !p.outlineMask || !p.outline)
     {
         log::error("creating the HUD pipelines failed: {}", SDL_GetError());
     }
@@ -494,7 +574,8 @@ bool Renderer::createPipelines()
          tonemapFrag,   luminanceFrag,         exposureFrag,      skyFrag,
          shadowFrag,    shadowMaskedFrag,      probeRadianceFrag, probeIrradianceFrag,
          brdfTableFrag, hudLegacyFrag,         hudPbrFrag,        hudCompositeFrag,
-         hudPanelVert,  hudPanelFrag})
+         hudPanelVert,  hudPanelFrag,          pickFrag,          outlineMaskFrag,
+         outlineFrag})
     {
         if(s)
         {
@@ -528,9 +609,9 @@ bool Renderer::createPipelines()
            p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
            p.tonemap && p.luminance && p.exposure && p.sky && p.probeRadiance &&
            p.probeIrradiance && p.brdfTable && p.hudLegacy[0] && p.hudLegacy[1] && p.hudPbr[0] &&
-           p.hudPbr[1] && p.hudComposite && p.hudPanel && p.shadowObject && p.shadowObjectMasked &&
-           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler &&
-           p.clampSampler && p.shadowSampler;
+           p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick && p.outlineMask && p.outline &&
+           p.shadowObject && p.shadowObjectMasked && p.shadowSkinned && p.shadowSkinnedMasked &&
+           p.shadowTerrain && p.repeatSampler && p.clampSampler && p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -728,6 +809,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     // Reflection probes: the ones surfaces use (into frameFs), and the next
     // face of whichever is being captured.
     updateProbes(commands, scene, frameFs, drawsReady);
+    drawPick(commands, scene, drawsReady);
     // HUD attachments into their own image, as big as the view.
     const bool hud = drawHud(commands, scene, frame.width, frame.height, drawsReady);
 
@@ -772,7 +854,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     for(const ObjectDraw& draw : scene.objects)
     {
         if(!drawsReady || !draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain ||
-           draw.shadowOnly || draw.hud)
+           draw.shadowOnly || draw.hud || draw.pickOnly)
         {
             continue;
         }
@@ -872,6 +954,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
 
     updateExposure(commands, light);
     drawTonemap(commands, frame.target, light, true);
+    drawOutline(commands, scene, frame.target, frame.width, frame.height, frameVs);
     if(hud && scene.hud.placement == Hud::Placement::Screen)
     {
         compositeHud(commands, frame.target);
@@ -909,6 +992,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         if(screenshotTexture_ && screenshotTransfer_)
         {
             drawTonemap(commands, screenshotTexture_, light, true);
+            drawOutline(commands, scene, screenshotTexture_, frame.width, frame.height, frameVs);
             if(hud && scene.hud.placement == Hud::Placement::Screen)
             {
                 compositeHud(commands, screenshotTexture_);
@@ -1306,7 +1390,8 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
     for(size_t i = 0; drawsReady && i < scene.objects.size(); i++)
     {
         const ObjectDraw& draw = scene.objects[i];
-        if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain || draw.hud)
+        if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain || draw.hud ||
+           draw.pickOnly)
         {
             continue;
         }
@@ -1658,7 +1743,10 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
             out.material[2] =
                 glm::vec4(t->roughness, t->metallic, t->occlusionStrength, t->alphaCutoff);
         }
-        out.skin = glm::uvec4(jointBase, 0, 0, 0);
+        // The joints' first matrix; the pick id (low, high) and whether the
+        // draw is only for picking (pick.frag).
+        out.skin = glm::uvec4(jointBase, static_cast<uint32_t>(draw.pickId),
+                              static_cast<uint32_t>(draw.pickId >> 32), draw.pickOnly ? 1u : 0u);
         const auto* legacy = std::get_if<BlinnPhongMaterial>(&draw.material);
         if(legacy && legacy->mapTransforms)
         {

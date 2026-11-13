@@ -365,7 +365,8 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
         std::vector<const ObjectDraw*> blended;
         for(const ObjectDraw& draw : scene.objects)
         {
-            if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Object || draw.hud)
+            if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Object || draw.hud ||
+               draw.pickOnly)
             {
                 continue;
             }

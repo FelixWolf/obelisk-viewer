@@ -414,6 +414,55 @@ dithers its output so the sky's slow gradients don't band. The Environment windo
 and can fix the time of day; `--day-time 0..1` does that from the command
 line. Not drawn yet: sun and moon textures, moon phases, water.
 
+### Picking and touching
+
+The pointer is a ray: from the camera through the mouse now, from a VR
+controller later (`PointerController`). Each frame `App` aims it
+(`Scene::pick`) and the renderer finds what it hits by drawing one pixel
+straight down the ray (`RendererPick.cpp`, `pick.frag`): a perspective view
+1 milliradian wide along it, with every pickable draw in it (and, in a
+second pixel, a tiny orthographic view at the HUD point: HUDs come first).
+Four targets carry the nearest face's pick id and what the official pick
+reports: position, normal, binormal, texture coordinates after the face's
+transform, and the face's own. They're copied to a transfer buffer and read
+once that frame's fence says the GPU is done (`Renderer::takePick`), a
+frame or two later, so nothing waits; while one is on its way, new
+requests are skipped. Being the GPU's own drawing, it hits what's drawn:
+sculpts, mesh, alpha masks (see-through texels don't count).
+
+`ObjectView` gives each face a pick id: the prim's local id, an index for
+its region and the face. Objects whose click action is "ignore" get none
+(clicks go through them), nor does rigged mesh (the official left click
+doesn't pick it). Invisible faces (alpha 0, or the transparent texture) of
+objects a click does something to are listed as pick-only draws, which
+nothing else draws: invisible buttons are common.
+
+What a click does is decided as the official viewer does (lltoolpie.cpp):
+touchable if a script in the prim or its root listens for touches
+(UpdateFlags 0x80) and its click action isn't "disabled"; the click action
+(sit, buy, pay, open, play, open media, zoom) is its own or its root's,
+none for attachments. Pressing the left button on something touchable
+sends ObjectGrab (the prim's local id, the offset from it to its root in
+the root's frame, and the surface: llDetectedTouchUV, ST, Face, Pos,
+Normal, Binormal; positions in the agent's region's coordinates, HUD hits
+in HUD space); letting go sends ObjectDeGrab. Click actions other than
+touch aren't done yet (they touch instead). Over something clickable the
+cursor is a hand with a tooltip naming the action, and the prim gets an
+outline: its visible pixels (depth tested against the view) into a mask,
+then a 2-pixel gold outline around the mask over the view, after
+tonemapping. `--pointer X,Y` (fractions of the window) and
+`--click-at SECONDS` stand in for the mouse when testing, and
+`--point-at UUID` points from the camera at an object.
+
+The tooltip uses the script's own words for the action (llSetTouchText,
+llSetSitText) and shows the object's name: those come in ObjectProperties,
+which regions send only for selected prims, so once the pointer has rested
+a quarter second on something clickable `ObjectProperties` selects the prim
+(ObjectSelect) and deselects it as soon as they're in (as the official
+viewer does for its pie menu and inspector). They're kept a minute, then
+asked again; physical objects aren't asked (selecting stops them). Not yet:
+outlines on HUDs, dragging physical objects, avatars.
+
 ### HUDs
 
 HUD attachments (attachment points 31 to 38, on the mScreen joint) are

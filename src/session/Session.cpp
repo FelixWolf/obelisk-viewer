@@ -1076,6 +1076,104 @@ void Session::requestObjects(uint64_t regionHandle,
     }
 }
 
+namespace
+{
+
+template <typename Block>
+Block surfaceBlock(const Session::TouchSurface& s)
+{
+    Block b;
+    b.UVCoord = s.uv;
+    b.STCoord = s.st;
+    b.FaceIndex = s.face;
+    b.Position = s.position;
+    b.Normal = s.normal;
+    b.Binormal = s.binormal;
+    return b;
+}
+
+} // namespace
+
+void Session::touchObject(uint64_t regionHandle, uint32_t localId, protocol::Vector3 grabOffset,
+                          const TouchSurface& surface)
+{
+    const Region* target = nullptr;
+    for(const auto& [id, region] : regions_)
+    {
+        target = region->handle == regionHandle ? region.get() : target;
+    }
+    if(!target || !login_)
+    {
+        return;
+    }
+    msg::ObjectGrab grab;
+    grab.AgentData.AgentID = login_->agentId;
+    grab.AgentData.SessionID = login_->sessionId;
+    grab.ObjectData.LocalID = localId;
+    grab.ObjectData.GrabOffset = grabOffset;
+    grab.SurfaceInfo.push_back(surfaceBlock<msg::ObjectGrab::SurfaceInfoBlock>(surface));
+    send(*target, grab, true);
+}
+
+void Session::releaseObject(uint64_t regionHandle, uint32_t localId, const TouchSurface& surface)
+{
+    const Region* target = nullptr;
+    for(const auto& [id, region] : regions_)
+    {
+        target = region->handle == regionHandle ? region.get() : target;
+    }
+    if(!target || !login_)
+    {
+        return;
+    }
+    msg::ObjectDeGrab release;
+    release.AgentData.AgentID = login_->agentId;
+    release.AgentData.SessionID = login_->sessionId;
+    release.ObjectData.LocalID = localId;
+    release.SurfaceInfo.push_back(surfaceBlock<msg::ObjectDeGrab::SurfaceInfoBlock>(surface));
+    send(*target, release, true);
+}
+
+namespace
+{
+
+template <typename M>
+M selectionMessage(const LoginSuccess& login, std::span<const uint32_t> localIds)
+{
+    M m;
+    m.AgentData.AgentID = login.agentId;
+    m.AgentData.SessionID = login.sessionId;
+    for(uint32_t id : localIds)
+    {
+        m.ObjectData.push_back({id});
+    }
+    return m;
+}
+
+} // namespace
+
+void Session::selectObjects(uint64_t regionHandle, std::span<const uint32_t> localIds)
+{
+    for(const auto& [id, region] : regions_)
+    {
+        if(region->handle == regionHandle && login_ && !localIds.empty())
+        {
+            send(*region, selectionMessage<msg::ObjectSelect>(*login_, localIds), true);
+        }
+    }
+}
+
+void Session::deselectObjects(uint64_t regionHandle, std::span<const uint32_t> localIds)
+{
+    for(const auto& [id, region] : regions_)
+    {
+        if(region->handle == regionHandle && login_ && !localIds.empty())
+        {
+            send(*region, selectionMessage<msg::ObjectDeselect>(*login_, localIds), true);
+        }
+    }
+}
+
 void Session::requestAvatarAppearance(const Uuid& avatar)
 {
     const Region* main = mainRegion();

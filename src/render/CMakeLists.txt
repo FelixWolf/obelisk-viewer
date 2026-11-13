@@ -22,6 +22,9 @@ set(shader_sources
   hud_composite.frag
   hud_panel.vert
   hud_panel.frag
+  pick.frag
+  outline_mask.frag
+  outline.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -71,6 +74,7 @@ add_library(viewer_render STATIC
   RendererScene.cpp
   RendererProbes.cpp
   RendererHud.cpp
+  RendererPick.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp

@@ -38,6 +38,10 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* hudPbr[2] = {};
     SDL_GPUGraphicsPipeline* hudComposite = nullptr;
     SDL_GPUGraphicsPipeline* hudPanel = nullptr;
+    SDL_GPUGraphicsPipeline* pick = nullptr; // pick.frag: what a ray hits
+    // The highlighted prim: its visible pixels, then an outline around them.
+    SDL_GPUGraphicsPipeline* outlineMask = nullptr;
+    SDL_GPUGraphicsPipeline* outline = nullptr;
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
     SDL_GPUGraphicsPipeline* shadowObject = nullptr;
     SDL_GPUGraphicsPipeline* shadowObjectMasked = nullptr;
@@ -71,6 +75,9 @@ struct Renderer::Pipelines
                                           hudPbr[1],
                                           hudComposite,
                                           hudPanel,
+                                          pick,
+                                          outlineMask,
+                                          outline,
                                           shadowObject,
                                           shadowObjectMasked,
                                           shadowSkinned,

@@ -118,6 +118,37 @@ struct ObjectDraw
     bool shadowOnly = false;
     // A HUD attachment: in HUD space (render::Hud), drawn only into the HUD.
     bool hud = false;
+    // Picking (Scene::pick): what the pick reports for this draw; 0: rays
+    // go through it. Pick-only draws are drawn nowhere else: faces that are
+    // invisible but can still be clicked.
+    uint64_t pickId = 0;
+    bool pickOnly = false;
+};
+
+// What's along a ray: the nearest pickable draw (ObjectDraw::pickId) it
+// meets, and where. A HUD point is tried first (HUDs are in front of
+// everything). The answer comes a frame or two later (Renderer::takePick),
+// tagged with the request's id; a request made while one is still on its way
+// is skipped.
+struct PickRequest
+{
+    uint64_t id = 0;
+    glm::vec3 origin{0.0f};
+    glm::vec3 direction{1.0f, 0.0f, 0.0f}; // unit length
+    float maxDistance = 256.0f;
+    std::optional<glm::vec2> hudPoint; // HUD space Y and Z (render::Hud)
+};
+
+struct PickResult
+{
+    uint64_t request = 0;
+    uint64_t pickId = 0; // 0: nothing was hit
+    bool hud = false;    // a HUD draw (positions in HUD space)
+    glm::vec3 position{0.0f};
+    glm::vec3 normal{0.0f};
+    glm::vec3 binormal{0.0f};
+    glm::vec2 uv{0.0f}; // texture coordinates, after the face's transform
+    glm::vec2 st{0.0f}; // the face's own coordinates
 };
 
 struct TerrainDraw
@@ -250,6 +281,10 @@ struct Scene
     Shadows shadows;
     Reflections reflections;
     Hud hud;
+    std::optional<PickRequest> pick;
+    // The prim to outline (any of its draws' pickId; 0: none), such as the
+    // one the pointer is on when clicking it does something.
+    uint64_t highlight = 0;
     std::vector<ReflectionProbe> probes;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;
