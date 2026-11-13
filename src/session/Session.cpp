@@ -762,11 +762,9 @@ void Session::handleAgentMovementComplete(Region& region, const protocol::Circui
               static_cast<double>(m->Data.Position.x), static_cast<double>(m->Data.Position.y),
               static_cast<double>(m->Data.Position.z),
               protocol::toString(m->SimData.ChannelVersion));
-    if(arrivals_ > 1)
-    {
-        // A new main region: it needs our throttles and view too.
-        sendAgentSetup(region);
-    }
+    // Throttles and view, once the region has the agent (as the official
+    // viewer, on every AgentMovementComplete): before that it may drop them.
+    sendAgentSetup(region);
 }
 
 void Session::teleportTo(const Location& location)
@@ -1017,13 +1015,8 @@ void Session::handleRegionHandshake(Region& region, const protocol::CircuitEvent
         sendHandshakeReply(region, false);
     }
 
-    const bool first = !region.handshakeReceived;
     region.handshakeReceived = true;
     log::info("{}: handshake from '{}'", region.endpoint.toString(), region.name);
-    if(first && region.isMain)
-    {
-        sendAgentSetup(region);
-    }
     checkConnected();
 }
 
@@ -1104,23 +1097,59 @@ void Session::requestAvatarAppearance(const Uuid& avatar)
     send(*main, request, true);
 }
 
+std::array<float, 7> throttleBitsPerSecond(float kbps)
+{
+    // Resend, land, wind, cloud, task, texture, asset (kbps), each preset
+    // adding up to its total.
+    constexpr std::array<std::array<float, 7>, 4> kPresets = {{
+        {5, 10, 3, 3, 10, 10, 9},
+        {30, 40, 9, 9, 86, 86, 40},
+        {50, 70, 14, 14, 136, 136, 80},
+        {100, 100, 20, 20, 310, 310, 140},
+    }};
+    auto total = [](const std::array<float, 7>& p)
+    {
+        float sum = 0.0f;
+        for(const float v : p)
+        {
+            sum += v;
+        }
+        return sum;
+    };
+    kbps = std::clamp(kbps, 50.0f, 6000.0f);
+    // The presets either side (the last two beyond the last).
+    size_t upper = 0;
+    while(upper < kPresets.size() && total(kPresets[upper]) <= kbps)
+    {
+        upper++;
+    }
+    std::array<float, 7> out = kPresets[0];
+    if(upper > 0)
+    {
+        const size_t hi = std::min(upper, kPresets.size() - 1);
+        const auto& a = kPresets[hi - 1];
+        const auto& b = kPresets[hi];
+        const auto& base = upper == kPresets.size() ? b : a;
+        const float t = (kbps - total(base)) / (total(b) - total(a));
+        for(size_t i = 0; i < out.size(); i++)
+        {
+            out[i] = base[i] + (b[i] - a[i]) * t;
+        }
+    }
+    for(float& v : out)
+    {
+        v *= 1024.0f; // the simulator takes bits, the presets are kilobits
+    }
+    return out;
+}
+
 void Session::sendAgentSetup(const Region& region)
 {
-    // Bandwidth per category in bits per second (same as pymetaverse).
-    constexpr float kThrottles[] = {
-        150'000, // resend
-        170'000, // land
-        34'000,  // wind
-        34'000,  // cloud
-        446'000, // task (objects)
-        446'000, // texture
-        220'000, // asset
-    };
     msg::AgentThrottle throttle;
     throttle.AgentData.AgentID = login_->agentId;
     throttle.AgentData.SessionID = login_->sessionId;
     throttle.AgentData.CircuitCode = login_->circuitCode;
-    for(const float value : kThrottles)
+    for(const float value : throttleBitsPerSecond(kDefaultThrottleKbps))
     {
         const auto bits = std::bit_cast<uint32_t>(value);
         for(int i = 0; i < 4; i++)

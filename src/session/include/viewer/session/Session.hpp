@@ -32,6 +32,7 @@
 #include "viewer/protocol/CircuitManager.hpp"
 #include "viewer/session/Login.hpp"
 
+#include <array>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -112,6 +113,16 @@ inline constexpr uint32_t kStandUp = 1u << 16;
 
 // Capability names requested from each region's seed. Regions grant a subset.
 std::vector<std::string> defaultCapabilityNames();
+
+// AgentThrottle's bandwidth per category (resend, land, wind, cloud, task,
+// texture, asset), in bits per second, for a total in kilobits per second,
+// as the official viewer splits it (llviewerthrottle.cpp: its presets for
+// 50, 300, 500 and 1000 kbps, interpolated between, extrapolated beyond).
+std::array<float, 7> throttleBitsPerSecond(float kbps);
+
+// The total the official viewer asks for by default: ThrottleBandwidthKBPS
+// (3000) times the 1.5 it allows over the setting.
+inline constexpr float kDefaultThrottleKbps = 4500.0f;
 
 using Capabilities = std::map<std::string, std::string, std::less<>>;
 

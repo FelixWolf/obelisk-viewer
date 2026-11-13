@@ -211,6 +211,9 @@ TEST_CASE("Session: login, circuit, handshake, neighbours and logout")
     CHECK(session.mainRegion()->gridX() == 1000);
     CHECK(session.capability("SimulatorFeatures") == "http://127.0.0.1/features");
     REQUIRE(pumpUntil(session, [&] { return sim.count<msg::RegionHandshakeReply>() > 0; }));
+    // Throttles and view once the region has placed the agent.
+    CHECK(sim.count<msg::AgentThrottle>() == 0);
+    sim.send(movementComplete(128, 128, 30), true);
     REQUIRE(pumpUntil(session, [&] { return sim.count<msg::AgentThrottle>() > 0; }));
     REQUIRE(pumpUntil(session, [&] { return sim.count<msg::AgentUpdate>() > 0; }));
     {
@@ -683,3 +686,24 @@ TEST_CASE("Session: avatar appearance requests go to the main region")
 }
 
 #endif // _WIN32
+
+TEST_CASE("Session: throttles split as the official viewer's presets")
+{
+    using viewer::session::throttleBitsPerSecond;
+    // A preset's own total gives that preset.
+    const auto at1000 = throttleBitsPerSecond(1000.0f);
+    CHECK(at1000[4] == doctest::Approx(310.0f * 1024.0f)); // task
+    // Half way between presets.
+    CHECK(throttleBitsPerSecond(750.0f)[0] == doctest::Approx(75.0f * 1024.0f));
+    // The default, 4500, extrapolated from the last two: 1000 + 7 x (1000 - 500).
+    const auto defaults = throttleBitsPerSecond(viewer::session::kDefaultThrottleKbps);
+    CHECK(defaults[4] == doctest::Approx(1528.0f * 1024.0f));
+    CHECK(defaults[5] == doctest::Approx(1528.0f * 1024.0f));
+    CHECK(defaults[6] == doctest::Approx(560.0f * 1024.0f));
+    float total = 0.0f;
+    for(const float v : defaults)
+    {
+        total += v;
+    }
+    CHECK(total == doctest::Approx(4500.0f * 1024.0f));
+}

@@ -234,9 +234,19 @@ After login the session is in several simulators at once. Each one is a
 
 1. The main region (from the login reply) gets `UseCircuitCode` and
    `CompleteAgentMovement`, plus a seed capability request.
-2. When its `RegionHandshake` arrives we reply, send throttles, FOV, window
-   size and the first `AgentUpdate` (then one per second). Once the main
-   region's capabilities have arrived as well, the session is `Connected`.
+2. When its `RegionHandshake` arrives we reply. When `AgentMovementComplete`
+   says it has placed the agent, it gets throttles, FOV, window size and the
+   first `AgentUpdate` (then one per second); sent earlier, the region may
+   drop them. Once the main region's capabilities have arrived as well, the
+   session is `Connected`.
+
+   Throttles (`AgentThrottle`) are the official viewer's default: its
+   ThrottleBandwidthKBPS, 3000, times the 1.5 it allows over it, split
+   across resend, land, wind, cloud, task, texture and asset as its presets
+   (`throttleBitsPerSecond`; objects and textures get 1528 kbps each).
+   Pymetaverse's split we had before gave objects 446 kbps: the region
+   sent objects a third as fast, and moving objects' updates queued
+   behind them.
 3. The main region's event queue announces neighbours (`EnableSimulator`); each
    gets its own circuit and `UseCircuitCode`. `EstablishAgentCommunication`
    later hands over the neighbour's seed capability. `DisableSimulator` (or a
