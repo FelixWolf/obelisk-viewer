@@ -120,9 +120,37 @@ std::vector<std::string> defaultCapabilityNames();
 // 50, 300, 500 and 1000 kbps, interpolated between, extrapolated beyond).
 std::array<float, 7> throttleBitsPerSecond(float kbps);
 
-// The total the official viewer asks for by default: ThrottleBandwidthKBPS
-// (3000) times the 1.5 it allows over the setting.
-inline constexpr float kDefaultThrottleKbps = 4500.0f;
+// The official viewer's default bandwidth setting (ThrottleBandwidthKBPS).
+inline constexpr float kDefaultBandwidthKbps = 3000.0f;
+
+// How much of the bandwidth setting to ask for, as the official viewer's
+// dynamic throttle (llviewerthrottle.cpp): up to 1.5 times the setting
+// (regions rarely fill every category at once), stepping down by 0.1 (to
+// 0.2 at least) while incoming packets are lost, back up when they aren't.
+class DynamicThrottle
+{
+public:
+    static constexpr float kMaxFraction = 1.5f;
+    static constexpr float kMinFraction = 0.2f;
+    static constexpr float kStep = 0.1f;
+    static constexpr float kTightenLossPercent = 3.0f; // lost of what arrived, per check
+    static constexpr float kEaseLossPercent = 0.5f;
+    static constexpr float kMinKbps = 50.0f;
+    static constexpr float kMaxKbps = 6000.0f;
+
+    // The setting (kilobits per second); back to the most of it.
+    void setBandwidth(float kbps);
+    float bandwidth() const { return bandwidth_; }
+    // What to ask for now, kilobits per second.
+    float current() const { return bandwidth_ * fraction_; }
+    // Packets that arrived and were lost since the last check; true if
+    // current() changed (the region needs new throttles).
+    bool update(uint64_t arrived, uint64_t lost);
+
+private:
+    float bandwidth_ = kDefaultBandwidthKbps;
+    float fraction_ = kMaxFraction;
+};
 
 using Capabilities = std::map<std::string, std::string, std::less<>>;
 
@@ -228,6 +256,13 @@ public:
     // body faces. Sent to the main region at once when they change, and
     // repeated while moving.
     void setControls(uint32_t flags, protocol::Quaternion bodyRotation);
+
+    // Downstream bandwidth to ask the regions for, kilobits per second (the
+    // official viewer's ThrottleBandwidthKBPS); adjusted to packet loss
+    // from there (DynamicThrottle). Takes effect at once.
+    void setBandwidth(float kbps);
+    // What we ask for now, kilobits per second.
+    float currentBandwidth() const { return throttle_.current(); }
 
     // Object caches. The handshake reply tells a region whether we have its
     // objects cached; after deferHandshakeReplies() the session waits for
@@ -339,6 +374,9 @@ private:
     void handleRegionHandshake(Region& region, const protocol::CircuitEvent& event);
     void sendHandshakeReply(Region& region, bool haveObjectCache);
     void sendAgentSetup(const Region& region);
+    void sendThrottle(const Region& region);
+    // Every 5 s: eases or tightens the throttle by the main circuit's loss.
+    void updateThrottle(std::chrono::steady_clock::time_point now);
     void sendAgentUpdate(const Region& region);
     void checkConnected();
 
@@ -368,6 +406,11 @@ private:
 
     uint32_t controlFlags_ = 0;
     protocol::Quaternion bodyRotation_{};
+    DynamicThrottle throttle_;
+    std::chrono::steady_clock::time_point nextThrottleCheck_{};
+    protocol::CircuitId throttleCircuit_ = 0; // the main circuit the counts below are from
+    uint64_t throttlePacketsIn_ = 0;
+    uint64_t throttlePacketsLost_ = 0;
     bool controlsChanged_ = false;
     bool deferHandshakeReplies_ = false;
 

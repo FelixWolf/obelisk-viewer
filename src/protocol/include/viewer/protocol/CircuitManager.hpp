@@ -73,6 +73,9 @@ struct CircuitOptions
     std::chrono::milliseconds minResendTimeout{500};
     std::chrono::milliseconds maxResendTimeout{5'000};
     int maxResends = 4;
+    // An incoming packet skipped over is lost if it isn't in after 16 round
+    // trips, or this long at most (LL_MAX_LOST_TIMEOUT).
+    std::chrono::milliseconds maxPacketLostTimeout{5'000};
 };
 
 struct CircuitStats
@@ -84,6 +87,9 @@ struct CircuitStats
     uint64_t resent = 0;
     uint64_t reliableDropped = 0; // gave up after maxResends
     uint64_t duplicates = 0;
+    // Incoming packets that never came: skipped sequence numbers still
+    // missing after a while (llcircuit.cpp checkPacketInID).
+    uint64_t packetsLost = 0;
     uint64_t malformed = 0;
     size_t unacked = 0;
     std::chrono::steady_clock::time_point lastReceived{}; // the latest packet's arrival
@@ -128,6 +134,9 @@ private:
     void handlePacket(Circuit& circuit, std::span<const uint8_t> data,
                       std::chrono::steady_clock::time_point now);
     void tick(Circuit& circuit, std::chrono::steady_clock::time_point now);
+    // Notes gaps in incoming sequence numbers (for CircuitStats::packetsLost).
+    void trackSequence(Circuit& circuit, uint32_t sequence, bool resent,
+                       std::chrono::steady_clock::time_point now);
     void sendPacket(Circuit& circuit, uint8_t flags, uint32_t sequence,
                     std::span<const uint8_t> message, bool carryAcks);
     void sendNow(Circuit& circuit, std::span<const uint8_t> message, bool zerocoded, bool reliable,

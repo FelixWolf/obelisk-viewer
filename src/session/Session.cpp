@@ -316,6 +316,8 @@ void Session::update()
         }
     }
 
+    updateThrottle(now);
+
     // AgentUpdate: at once when the controls change, often while moving,
     // and once a second otherwise. Not while the simulators move us
     // between regions (as llviewermessage.cpp's send_agent_update).
@@ -1143,13 +1145,91 @@ std::array<float, 7> throttleBitsPerSecond(float kbps)
     return out;
 }
 
-void Session::sendAgentSetup(const Region& region)
+void DynamicThrottle::setBandwidth(float kbps)
 {
+    bandwidth_ = kbps;
+    fraction_ = kMaxFraction;
+}
+
+bool DynamicThrottle::update(uint64_t arrived, uint64_t lost)
+{
+    const uint64_t total = arrived + lost;
+    const float lossPercent =
+        total > 0 ? 100.0f * static_cast<float>(lost) / static_cast<float>(total) : 0.0f;
+    const float before = fraction_;
+    if(lossPercent > kTightenLossPercent)
+    {
+        if(current() > kMinKbps)
+        {
+            fraction_ = std::max(kMinFraction, fraction_ - kStep);
+        }
+    }
+    else if(lossPercent <= kEaseLossPercent)
+    {
+        if(current() < kMaxKbps)
+        {
+            fraction_ = std::min(kMaxFraction, fraction_ + kStep);
+        }
+    }
+    return fraction_ != before;
+}
+
+void Session::setBandwidth(float kbps)
+{
+    throttle_.setBandwidth(kbps);
+    if(const Region* main = mainRegion(); main && state_ == SessionState::Connected)
+    {
+        sendThrottle(*main);
+    }
+}
+
+void Session::updateThrottle(Clock::time_point now)
+{
+    constexpr auto kInterval = std::chrono::seconds(5); // DYNAMIC_UPDATE_DURATION
+    if(now < nextThrottleCheck_)
+    {
+        return;
+    }
+    nextThrottleCheck_ = now + kInterval;
+    const Region* main = mainRegion();
+    if(!main || state_ != SessionState::Connected)
+    {
+        return;
+    }
+    const auto stats = circuits_.stats(main->circuit);
+    if(!stats)
+    {
+        return;
+    }
+    if(throttleCircuit_ != main->circuit)
+    {
+        // A new main region: count from here.
+        throttleCircuit_ = main->circuit;
+        throttlePacketsIn_ = stats->packetsIn;
+        throttlePacketsLost_ = stats->packetsLost;
+        return;
+    }
+    const uint64_t arrived = stats->packetsIn - throttlePacketsIn_;
+    const uint64_t lost = stats->packetsLost - throttlePacketsLost_;
+    throttlePacketsIn_ = stats->packetsIn;
+    throttlePacketsLost_ = stats->packetsLost;
+    if(throttle_.update(arrived, lost))
+    {
+        log::info("throttle: {} of {} packets lost in 5 s", lost, arrived + lost);
+        sendThrottle(*main);
+    }
+}
+
+void Session::sendThrottle(const Region& region)
+{
+    log::info("throttle: asking {} for {:.0f} kbps",
+              region.name.empty() ? region.endpoint.toString() : region.name,
+              static_cast<double>(throttle_.current()));
     msg::AgentThrottle throttle;
     throttle.AgentData.AgentID = login_->agentId;
     throttle.AgentData.SessionID = login_->sessionId;
     throttle.AgentData.CircuitCode = login_->circuitCode;
-    for(const float value : throttleBitsPerSecond(kDefaultThrottleKbps))
+    for(const float value : throttleBitsPerSecond(throttle_.current()))
     {
         const auto bits = std::bit_cast<uint32_t>(value);
         for(int i = 0; i < 4; i++)
@@ -1158,6 +1238,11 @@ void Session::sendAgentSetup(const Region& region)
         }
     }
     send(region, throttle, true);
+}
+
+void Session::sendAgentSetup(const Region& region)
+{
+    sendThrottle(region);
 
     msg::AgentHeightWidth size;
     size.AgentData.AgentID = login_->agentId;

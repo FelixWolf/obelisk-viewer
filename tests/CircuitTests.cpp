@@ -239,3 +239,28 @@ TEST_CASE("Circuit: silence is reported as lost")
     REQUIRE(lost.has_value());
     CHECK(lost->circuit == id);
 }
+
+TEST_CASE("Circuit: incoming packets skipped and not made up for are lost")
+{
+    FakeSimulator sim;
+    CircuitOptions options = fastOptions();
+    options.maxPacketLostTimeout = 200ms;
+    CircuitManager circuits(options);
+    const CircuitId id = circuits.open(sim.endpoint()).value();
+    circuits.send(id, msg::UseCircuitCode{});
+    REQUIRE(sim.waitFor<msg::UseCircuitCode>().has_value());
+
+    sim.send(handshake("A"), false, 1);
+    sim.send(handshake("B"), false, 4);   // 2 and 3 skipped
+    sim.send(handshake("C"), false, 2);   // 2 turns up late
+    sim.send(handshake("D"), false, 100); // too far ahead to count (as the official viewer)
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while(std::chrono::steady_clock::now() < deadline && circuits.stats(id)->packetsLost == 0)
+    {
+        std::vector<CircuitEvent> events;
+        circuits.drain(events);
+        std::this_thread::sleep_for(20ms);
+    }
+    std::this_thread::sleep_for(400ms);          // nothing else turns lost
+    CHECK(circuits.stats(id)->packetsLost == 1); // only 3
+}

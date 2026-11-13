@@ -60,6 +60,9 @@ struct AppOptions
     std::optional<float> dayTime;  // a fixed time of day, 0..1 (0.5 is midday in most cycles)
     bool shadows = true;           // --no-shadows: off (for comparing)
     uint32_t textureMemory = 2048; // --texture-memory: GPU memory for textures, MiB
+    // --bandwidth: downstream bandwidth to ask regions for, kbps (the official
+    // viewer's ThrottleBandwidthKBPS)
+    float bandwidth = session::kDefaultBandwidthKbps;
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -191,6 +194,7 @@ private:
     render::Scene scene_; // this frame's, kept for its lists' capacity
     bool showFps_ = true;
     bool shadows_ = true;
+    float bandwidth_ = session::kDefaultBandwidthKbps; // kbps, for each new session
 };
 
 } // namespace viewer

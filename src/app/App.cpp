@@ -70,7 +70,8 @@ void printUsage()
     std::println(stderr,
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
-                 "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB]");
+                 "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
+                 "[--bandwidth KBPS]");
 }
 
 } // namespace
@@ -155,6 +156,12 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
             i++;
             options.textureMemory =
                 static_cast<uint32_t>(std::clamp(std::strtol(args[i], nullptr, 10), 16L, 65536L));
+        }
+        else if(arg == "--bandwidth" && hasValue)
+        {
+            i++;
+            // The official viewer's range (getMaxBandwidthKbps).
+            options.bandwidth = std::clamp(std::strtof(args[i], nullptr), 100.0f, 10000.0f);
         }
         else if(arg == "--day-time" && hasValue)
         {
@@ -264,6 +271,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
     app->environment_->setDayPosition(options.dayTime);
     app->shadows_ = options.shadows;
+    app->bandwidth_ = options.bandwidth;
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
                                                       *app->http_, *app->jobs_);
     app->textures_->setBudget(uint64_t(options.textureMemory) << 20);
@@ -333,6 +341,7 @@ void App::handleLoginAction(LoginAction action)
         // the new one starts.
         endSession();
         session_ = std::make_unique<session::Session>(*http_, std::move(action.parameters));
+        session_->setBandwidth(bandwidth_);
         // The world thread answers handshakes once it has the region's
         // object cache.
         session_->deferHandshakeReplies();

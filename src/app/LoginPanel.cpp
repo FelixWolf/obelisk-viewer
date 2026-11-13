@@ -154,6 +154,8 @@ void LoginPanel::drawSession(const session::Session& session, LoginAction& actio
     }
     ImGui::EndDisabled();
 
+    ImGui::Text("Bandwidth: asking for %.0f kbps", static_cast<double>(session.currentBandwidth()));
+
     ImGui::SeparatorText("Regions");
     for(const auto& [id, region] : session.regions())
     {
@@ -172,10 +174,11 @@ void LoginPanel::drawSession(const session::Session& session, LoginAction& actio
                         static_cast<long long>(stats->roundTrip.count()),
                         static_cast<unsigned long long>(stats->packetsIn),
                         static_cast<unsigned long long>(stats->packetsOut));
-            ImGui::Text("Resent %llu, unacked %zu, duplicates %llu, dropped %llu",
+            ImGui::Text("Resent %llu, unacked %zu, duplicates %llu, dropped %llu, lost %llu",
                         static_cast<unsigned long long>(stats->resent), stats->unacked,
                         static_cast<unsigned long long>(stats->duplicates),
-                        static_cast<unsigned long long>(stats->reliableDropped));
+                        static_cast<unsigned long long>(stats->reliableDropped),
+                        static_cast<unsigned long long>(stats->packetsLost));
         }
         ImGui::Text("Handshake: %s, event queue: %s", region->handshakeReceived ? "yes" : "no",
                     region->eventQueueRunning ? "running" : "stopped");

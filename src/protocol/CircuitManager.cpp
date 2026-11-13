@@ -20,6 +20,12 @@ namespace
 
 // How many received sequence numbers to remember for duplicate detection.
 constexpr size_t kSeenHistory = 4096;
+// Gaps in incoming sequence numbers: ids skipped (gaps under 16, as the
+// official viewer) are lost unless they turn up within 16 round trips
+// (LL_LOST_TIMEOUT_FACTOR; at most CircuitOptions::maxPacketLostTimeout).
+constexpr uint32_t kMaxGap = 16;
+constexpr int kLostTimeoutRoundTrips = 16;
+constexpr uint32_t kSequenceMask = 0xFFFFFF; // 24-bit packet ids
 constexpr size_t kMaxAcksPerPacketAck = 255;
 
 } // namespace
@@ -45,6 +51,9 @@ struct CircuitManager::Circuit
 
     std::unordered_set<uint32_t> seen;
     std::deque<uint32_t> seenOrder;
+    // The next incoming sequence number in order, and skipped ones (when).
+    std::optional<uint32_t> expectedIn;
+    std::map<uint32_t, Clock::time_point> potentiallyLost;
 
     Clock::time_point lastReceived{};
     Clock::time_point lastPingSent{};
@@ -294,6 +303,7 @@ void CircuitManager::handlePacket(Circuit& circuit, std::span<const uint8_t> dat
         circuit.seen.erase(circuit.seenOrder.front());
         circuit.seenOrder.pop_front();
     }
+    trackSequence(circuit, packet->sequence, (packet->flags & PacketFlags::Resent) != 0, now);
 
     const auto id = readMessageId(packet->message);
     if(!id)
@@ -397,8 +407,59 @@ void CircuitManager::flushAcks(Circuit& circuit)
     }
 }
 
+void CircuitManager::trackSequence(Circuit& circuit, uint32_t sequence, bool resent,
+                                   Clock::time_point now)
+{
+    if(!circuit.expectedIn)
+    {
+        circuit.expectedIn = (sequence + 1) & kSequenceMask;
+        return;
+    }
+    const uint32_t ahead = (sequence - *circuit.expectedIn) & kSequenceMask;
+    if(ahead == 0)
+    {
+        circuit.expectedIn = (sequence + 1) & kSequenceMask;
+    }
+    else if(ahead < kSequenceMask / 2)
+    {
+        // Past a gap. A resend coming out of order says nothing about loss.
+        if(!resent && ahead < kMaxGap)
+        {
+            for(uint32_t i = 0; i < ahead; i++)
+            {
+                circuit.potentiallyLost.emplace((*circuit.expectedIn + i) & kSequenceMask, now);
+            }
+        }
+        circuit.expectedIn = (sequence + 1) & kSequenceMask;
+    }
+    else
+    {
+        // Late: one we skipped turned up after all.
+        circuit.potentiallyLost.erase(sequence);
+    }
+}
+
 void CircuitManager::tick(Circuit& circuit, Clock::time_point now)
 {
+    // Skipped packets that didn't turn up are lost.
+    const auto lostAfter =
+        circuit.roundTrip > 0ms
+            ? std::min<Clock::duration>(circuit.roundTrip * kLostTimeoutRoundTrips,
+                                        options_.maxPacketLostTimeout)
+            : Clock::duration(options_.maxPacketLostTimeout);
+    for(auto it = circuit.potentiallyLost.begin(); it != circuit.potentiallyLost.end();)
+    {
+        if(now - it->second >= lostAfter)
+        {
+            circuit.stats.packetsLost++;
+            it = circuit.potentiallyLost.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
     // Resend reliable packets that weren't acked in time.
     const auto timeout =
         std::clamp(circuit.roundTrip * 3, options_.minResendTimeout, options_.maxResendTimeout);

@@ -695,8 +695,8 @@ TEST_CASE("Session: throttles split as the official viewer's presets")
     CHECK(at1000[4] == doctest::Approx(310.0f * 1024.0f)); // task
     // Half way between presets.
     CHECK(throttleBitsPerSecond(750.0f)[0] == doctest::Approx(75.0f * 1024.0f));
-    // The default, 4500, extrapolated from the last two: 1000 + 7 x (1000 - 500).
-    const auto defaults = throttleBitsPerSecond(viewer::session::kDefaultThrottleKbps);
+    // The default, 3000 x 1.5, extrapolated from the last two: 1000 + 7 x (1000 - 500).
+    const auto defaults = throttleBitsPerSecond(viewer::session::kDefaultBandwidthKbps * 1.5f);
     CHECK(defaults[4] == doctest::Approx(1528.0f * 1024.0f));
     CHECK(defaults[5] == doctest::Approx(1528.0f * 1024.0f));
     CHECK(defaults[6] == doctest::Approx(560.0f * 1024.0f));
@@ -706,4 +706,24 @@ TEST_CASE("Session: throttles split as the official viewer's presets")
         total += v;
     }
     CHECK(total == doctest::Approx(4500.0f * 1024.0f));
+}
+
+TEST_CASE("Session: the throttle backs off while packets are lost, and recovers")
+{
+    viewer::session::DynamicThrottle t;
+    t.setBandwidth(3000.0f);
+    CHECK(t.current() == doctest::Approx(4500.0f));
+    CHECK_FALSE(t.update(1000, 0)); // already at the most
+    CHECK(t.update(950, 50));       // 5% lost: tighten
+    CHECK(t.current() == doctest::Approx(4200.0f));
+    CHECK_FALSE(t.update(990, 10)); // 1%: neither
+    for(int i = 0; i < 20; i++)
+    {
+        t.update(900, 100);
+    }
+    CHECK(t.current() == doctest::Approx(600.0f)); // 0.2 at least
+    CHECK(t.update(1000, 2));                      // 0.2%: ease
+    CHECK(t.current() == doctest::Approx(900.0f));
+    t.setBandwidth(1500.0f); // a new setting starts at the most again
+    CHECK(t.current() == doctest::Approx(2250.0f));
 }

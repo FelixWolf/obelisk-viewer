@@ -153,7 +153,7 @@ ctest --test-dir build/release              # or ./build/release/bin/viewer_test
 ./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
     [--login-file PATH] [--start last|home|Region/x/y/z|secondlife://...] [--test-scene]
     [--pbr-terrain] [--no-vsync] [--screenshot OUT.png [--screenshot-delay S]]
-    [--camera "X Y Z DISTANCE YAW PITCH"] [--texture-memory MIB]
+    [--camera "X Y Z DISTANCE YAW PITCH"] [--texture-memory MIB] [--bandwidth KBPS]
 ./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
@@ -240,13 +240,20 @@ After login the session is in several simulators at once. Each one is a
    drop them. Once the main region's capabilities have arrived as well, the
    session is `Connected`.
 
-   Throttles (`AgentThrottle`) are the official viewer's default: its
-   ThrottleBandwidthKBPS, 3000, times the 1.5 it allows over it, split
-   across resend, land, wind, cloud, task, texture and asset as its presets
-   (`throttleBitsPerSecond`; objects and textures get 1528 kbps each).
-   Pymetaverse's split we had before gave objects 446 kbps: the region
-   sent objects a third as fast, and moving objects' updates queued
-   behind them.
+   Throttles (`AgentThrottle`) work as the official viewer's: a bandwidth
+   setting (`--bandwidth`, `Session::setBandwidth`; its
+   ThrottleBandwidthKBPS, 3000 by default), of which we ask for up to 1.5
+   times (regions rarely fill every category at once), split across
+   resend, land, wind, cloud, task, texture and asset as its presets
+   (`throttleBitsPerSecond`; at 4500, objects and textures get 1528 kbps
+   each). Every 5 s `DynamicThrottle` looks at the main circuit's incoming
+   packet loss: over 3% steps the 1.5 down by 0.1 (to 0.2 at least), 0.5%
+   or less steps it back up, and the region gets the new throttles. A
+   circuit counts as lost the sequence numbers it skipped (gaps under 16)
+   that don't turn up within 16 round trips, 5 s at most
+   (`CircuitStats::packetsLost`, as llcircuit.cpp). Pymetaverse's fixed
+   split we had before gave objects 446 kbps: the region sent objects a
+   third as fast, and moving objects' updates queued behind them.
 3. The main region's event queue announces neighbours (`EnableSimulator`); each
    gets its own circuit and `UseCircuitCode`. `EstablishAgentCommunication`
    later hands over the neighbour's seed capability. `DisableSimulator` (or a
