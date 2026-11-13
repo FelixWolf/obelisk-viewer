@@ -122,7 +122,7 @@ void pushFragmentUniforms(SDL_GPUCommandBuffer* commands, uint32_t slot, const T
 // One render pass's draw state. Sets state only when it changes: meshes
 // share buffers (MeshPool) and draws are sorted so that neighbours share
 // pipelines and textures. Binding a pipeline pushes the frame's uniforms
-// (slot 0 of each stage), and terrain's binds the light buffer. A pass that
+// (slot 0 of each stage), and terrain's binds the light and probe buffers. A pass that
 // sees all around (a probe face) also draws what's outside the view's
 // frustum (the scene's shadow-only draws).
 class ScenePass
@@ -130,9 +130,9 @@ class ScenePass
 public:
     ScenePass(SDL_GPUCommandBuffer* commands, SDL_GPURenderPass* pass, const Renderer::Pipelines& p,
               const FrameVS& frameVs, const FrameFS& frameFs, SDL_GPUBuffer* lights,
-              bool allAround = false)
+              SDL_GPUBuffer* probes, bool allAround = false)
         : commands_(commands), pass_(pass), p_(p), frameVs_(frameVs), frameFs_(frameFs),
-          lights_(lights), allAround_(allAround)
+          lights_(lights), probes_(probes), allAround_(allAround)
     {
     }
 
@@ -156,7 +156,8 @@ public:
         pushFragmentUniforms(commands_, 0, frameFs_);
         if(pipeline == p_.terrainBlinnPhong || pipeline == p_.terrainPbr)
         {
-            SDL_BindGPUFragmentStorageBuffers(pass_, 0, &lights_, 1);
+            SDL_GPUBuffer* storage[] = {lights_, probes_};
+            SDL_BindGPUFragmentStorageBuffers(pass_, 0, storage, 2);
         }
     }
 
@@ -203,6 +204,7 @@ private:
     const FrameVS& frameVs_;
     const FrameFS& frameFs_;
     SDL_GPUBuffer* lights_;
+    SDL_GPUBuffer* probes_;
     bool allAround_;
     SDL_GPUBuffer* boundVertices_ = nullptr;
     SDL_GPUBuffer* boundIndices_ = nullptr;

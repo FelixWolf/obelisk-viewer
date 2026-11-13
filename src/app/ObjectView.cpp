@@ -563,6 +563,34 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     }
 }
 
+void ObjectView::addProbe(render::Scene& scene, const world::Object& object,
+                          const glm::mat4& frame) const
+{
+    // A manual reflection probe: a sphere its X size across, or its box
+    // (LLReflectionMap::autoAdjustOrigin, getBox).
+    const world::ReflectionProbeParams& params = *object.reflectionProbe;
+    render::ReflectionProbe probe;
+    probe.id = world::ObjectKeyHash{}(world::ObjectKey{object.region, object.localId});
+    probe.origin = glm::vec3(frame[3]);
+    probe.manual = true;
+    probe.ambiance = params.ambiance;
+    probe.nearClip = std::max(params.clipDistance, 0.1f); // MINIMUM_NEAR_CLIP
+    if(params.box())
+    {
+        const glm::vec3 half = object.scale * 0.5f;
+        probe.radius = glm::length(half);
+        probe.box = glm::inverse(frame * glm::scale(glm::mat4(1.0f), half));
+    }
+    else
+    {
+        probe.radius = object.scale.x * 0.5f;
+    }
+    if(probe.radius > 0.0f)
+    {
+        scene.probes.push_back(probe);
+    }
+}
+
 void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
                        TextureManager& textures, MeshManager& meshes, MaterialManager& materials,
                        LegacyMaterialManager& legacyMaterials, const AvatarView* avatars,
@@ -575,6 +603,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     stats_.meshObjects = 0;
     stats_.culled = 0;
     stats_.pbrFaces = 0;
+    probeObjects_.clear();
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
 
@@ -621,12 +650,19 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const glm::vec3 position((*frame)[3]);
 
         // Distance and a rough "behind the camera" cull (unless its shadow
-        // may still reach the view).
+        // may still reach the view, or reflection probes see it).
         const float radius = glm::length(object.scale) * 0.5f;
+        probeObjects_.push_back({position, radius});
+        if(object.reflectionProbe)
+        {
+            addProbe(scene, object, *frame);
+        }
         const glm::vec3 toObject = position - camera;
         const float distance = glm::length(toObject);
+        const bool forProbes = scene.reflections.enabled && scene.reflections.probeFace &&
+                               scene.reflections.probeFace->containsSphere(position, radius);
         if(distance - radius > drawDistance ||
-           (!scene.shadows.enabled && glm::dot(toObject, forward) < -radius))
+           (!scene.shadows.enabled && !forProbes && glm::dot(toObject, forward) < -radius))
         {
             continue;
         }

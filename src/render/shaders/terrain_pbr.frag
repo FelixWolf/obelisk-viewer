@@ -29,6 +29,7 @@ FRAME_FS_BLOCK
 #define PROBE_IRRADIANCE_BINDING 8
 #define BRDF_TABLE_BINDING 9
 #define LIGHTS_BINDING 10
+#define PROBES_BINDING 11
 #include "lights.glsl"
 #include "probes.glsl"
 
@@ -131,7 +132,7 @@ void main()
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor, roughness, metallic,
                            frame.sunColor.rgb) *
                  sunShadow(shadowMap, inWorldPosition, normalize(inNormal));
-    color += orm.r * pbrProbeLight(n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
+    color += orm.r * pbrProbeLight(inWorldPosition, n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
                                    frame.groundAmbient.rgb);
     color += baseColor * (1.0 - metallic) * localLight(inWorldPosition, n);
     color += emissive;

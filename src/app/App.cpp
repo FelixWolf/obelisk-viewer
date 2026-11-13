@@ -485,6 +485,9 @@ int App::run()
                               sd[3]);
                     log::info("local lights: {} in range, {} used", scene_.lights.size(),
                               renderer_->lightsUsed());
+                    log::info("reflection probes: {} local, {} captured, {} in use",
+                              scene_.probes.size(), renderer_->probesCaptured(),
+                              renderer_->probesUsed());
                     const auto lm = legacyMaterials_->stats();
                     log::info("legacy materials: {} ready, {} loading, {} missing", lm.ready,
                               lm.loading, lm.missing);
@@ -902,6 +905,7 @@ void App::buildScene(render::Scene& scene)
     scene.objects.clear();
     scene.lights.clear();
     scene.terrain.clear();
+    scene.probes.clear();
     scene.worldOrigin = {};
     scene.camera = camera_.camera();
     const auto wallClock = std::chrono::system_clock::now().time_since_epoch();
@@ -917,6 +921,7 @@ void App::buildScene(render::Scene& scene)
                             scene.lighting.sunColor != glm::vec3(0.0f);
     scene.shadows.towardLight = scene.lighting.sunDirection;
     scene.shadows.distance = 128.0f;
+    scene.reflections.probeFace = renderer_->nextProbeFace();
     int width = 0;
     int height = 0;
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
@@ -974,6 +979,24 @@ void App::buildScene(render::Scene& scene)
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         *legacyMaterials_, avatars_.get(), 128.0f);
         trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
+        // Automatic reflection probes where objects are dense, at least 2 m
+        // over the ground (scene positions are from the origin region's corner).
+        const uint64_t origin = *originHandle_;
+        const auto groundAt = [&](glm::vec2 p)
+        {
+            const double gx = static_cast<double>(origin >> 32) + static_cast<double>(p.x);
+            const double gy = static_cast<double>(origin & 0xFFFFFFFFu) + static_cast<double>(p.y);
+            constexpr double kWidth = world::kRegionWidth;
+            const double rx = std::floor(gx / kWidth) * kWidth;
+            const double ry = std::floor(gy / kWidth) * kWidth;
+            const world::RegionTerrain* terrain =
+                world_->terrain(static_cast<uint64_t>(rx) << 32 | static_cast<uint64_t>(ry));
+            return terrain
+                       ? terrain->heightAt(static_cast<float>(gx - rx), static_cast<float>(gy - ry))
+                       : 0.0f;
+        };
+        auto automatic = placeAutomaticProbes(objects_->probeObjects(), groundAt, origin);
+        scene.probes.insert(scene.probes.end(), automatic.begin(), automatic.end());
         profile_.mark(FrameProfile::Objects);
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));

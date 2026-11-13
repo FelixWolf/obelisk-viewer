@@ -290,6 +290,7 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
     object.animatedMesh = false;
     object.light.reset();
     object.lightImage.reset();
+    object.reflectionProbe.reset();
     object.materials.clear();
     if(data.empty())
     {
@@ -357,6 +358,18 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
             if(!p.failed())
             {
                 object.lightImage = image;
+            }
+            break;
+        }
+        case 0x90: // reflection probe: ambiance, clip distance, flags
+        {
+            ReflectionProbeParams probe;
+            probe.ambiance = p.f32();
+            probe.clipDistance = p.f32();
+            probe.flags = p.u8();
+            if(!p.failed())
+            {
+                object.reflectionProbe = probe;
             }
             break;
         }

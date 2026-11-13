@@ -416,34 +416,64 @@ line. Not drawn yet: sun and moon textures, moon phases, water.
 
 ### Reflection probes
 
-Reflections, and on skies made for PBR the ambient light, come from a
-reflection probe (`RendererProbes.cpp`, `probes.glsl`), as the official
-viewer's default probe (LLReflectionMapManager): a cube of the sky and the
-terrain (all of it, in view or not) around the camera, 128² per face,
-recaptured every 2 s (`Reflections::updateSeconds`, the official
-RenderDefaultProbeUpdatePeriod) a face a frame, from 1 m out. When the
-sixth face is in, it's mipmapped and filtered: radiance, 7 levels (128 down
-to 2, max_probe_lod 6), each face of level n the capture through a GGX lobe
-of roughness n / 6 (64 importance samples, each reading the capture's level
-that matches its solid angle), and irradiance (16², the cosine-weighted
-average around each direction, 128 samples). Both are cube arrays with
-room for more probes later. A cube face's layout is the mirror image of a
+Reflections, and on skies made for PBR the ambient light, come from
+reflection probes (`RendererProbes.cpp`, `probes.glsl`), as the official
+viewer's (LLReflectionMapManager): cubes captured of everything around a
+point, 128² per face, one face a frame. There are three kinds:
+
+- The default probe, 64 m above the camera: the sky and terrain only
+  (all terrain, in view or not), recaptured every 2 s
+  (`Reflections::updateSeconds`, the official RenderDefaultProbeUpdatePeriod).
+  It's what surfaces fall back on where no other probe reaches.
+- Manual probes: prims set to be reflection probes (extra parameter 0x90:
+  ambiance, near clip, box or sphere), a sphere their X size across or their
+  box. They're usually where builders want rooms lit from inside.
+- Automatic probes (`AutomaticProbes.cpp`), where the official octree puts
+  them: in every 32 m node, and those exist only where the 64 m node around
+  them held more than 128 prims. A grid stands in for the octree. A probe
+  sits at the middle of its prims' bounds, its radius reaches their
+  corners (8 m at least), and it's at least 2 m above the ground and high
+  enough that its near clip (half its radius) clears it.
+
+Local probes (manual and automatic, `Scene::probes`) see objects (not
+avatars or worn mesh) out to 64 m (RenderReflectionProbeDrawDistance). The
+63 nearest the camera get cubes (cube arrays, cube 0 the default probe);
+the nearest one without a capture goes next, otherwise the one captured
+longest ago, at most every 10 s (`refreshSeconds`). The face to capture is
+announced a frame ahead (`Renderer::nextProbeFace`, `Reflections::
+probeFace`), so the scene lists the objects in it even when they're out of
+view, and only those. Captures are lit with the sky's ambient, not the
+probes' (as the official irradiance pass): lit by themselves, each would
+come out brighter than the last. When the sixth face is in, the cube is
+mipmapped and filtered: radiance, 7 levels (128 down to 2, max_probe_lod
+6), each face of level n the capture through a GGX lobe of roughness n / 6
+(64 importance samples, each reading the capture's level that matches its
+solid angle), and irradiance (16², the cosine-weighted average around each
+direction, 128 samples). A cube face's layout is the mirror image of a
 camera's, so faces are rendered of the world mirrored in y (`faceView`),
 which keeps the scene pipelines' winding; lookups mirror y back.
 
-Shading: PBR surfaces take image-based light, diffuse from the irradiance
+Shading: the 32 nearest local probes with a capture go to the shaders
+(a storage buffer). For each surface, the probes whose sphere or box holds
+it are blended as the official viewer does: in a sphere, more weight
+nearer the middle (1 / distance, fading out over the outer half; new
+captures fade in over a second); in a box, more weight away from its walls,
+and none for automatic probes at all; manual probes outweigh automatic
+ones as they get closer. Manual probes follow reflected rays to their
+volume's edge (parallax); automatic ones don't, as in the official viewer.
+The default probe gets a tiny weight, so it shows only where nothing else
+reaches. PBR surfaces take image-based light: diffuse from the irradiance
 and specular from the radiance at their roughness, scaled and biased by the
 split-sum table (`brdf_table.frag`, made once: 128², GGX with Smith
-visibility). Ambient light is the probe's irradiance times the sky's
-`reflection_probe_ambiance` (mixed with the sky's ambient while that's
-under 1); skies made before PBR keep the sky's ambient ("classic mode").
-Legacy faces with glossiness reflect the probe softly at that glossiness
-(stronger at grazing angles, only on what isn't already bright: the
-official applyGlossEnv), and with environment intensity sharply, mixed in
-by it (applyLegacyEnv). Captures are drawn with the probe off. Not yet:
-objects in probes, local probes (from objects with reflection probe
-settings, and the official automatic ones), so interiors take their
-ambient from the sky and terrain outside.
+visibility). Ambient light is a probe's irradiance times its ambiance (the
+sky's `reflection_probe_ambiance`, or the probe's own if more), mixed with
+the sky's ambient while that's under 1; skies made before PBR keep the
+sky's ambient ("classic mode"). Legacy faces with glossiness reflect the
+probes softly at that glossiness (stronger at grazing angles, only on what
+isn't already bright: the official applyGlossEnv), and with environment
+intensity sharply, mixed in by it (applyLegacyEnv). Not yet: dynamic
+probes (avatars), mirrors (hero probes), screen-space reflections, the
+official probes' ray-cast nudge towards empty space.
 
 ### Shadows
 

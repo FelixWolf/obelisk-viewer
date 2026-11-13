@@ -24,7 +24,11 @@ add_executable(viewer_tests
   UuidTests.cpp
   VolumeTests.cpp
   WorldThreadTests.cpp
+  ReflectionProbeTests.cpp
+  # App code with no dependencies of its own, tested as is.
+  ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
 )
+target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE
   doctest::doctest
   viewer::core

@@ -16,6 +16,7 @@ add_executable(viewer
   App.cpp
   FrameProfile.cpp
   AnimationManager.cpp
+  AutomaticProbes.cpp
   AvatarView.cpp
   AgentController.cpp
   CameraController.cpp

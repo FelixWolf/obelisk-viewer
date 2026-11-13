@@ -28,6 +28,7 @@ FRAME_FS_BLOCK
 #define PROBE_IRRADIANCE_BINDING 7
 #define BRDF_TABLE_BINDING 8
 #define LIGHTS_BINDING 10
+#define PROBES_BINDING 11
 #include "lights.glsl"
 #include "probes.glsl"
 
@@ -71,7 +72,7 @@ void main()
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor.rgb, roughness, metallic,
                            frame.sunColor.rgb) * shadow;
-    color += occlusion * pbrProbeLight(n, v, baseColor.rgb, roughness, metallic,
+    color += occlusion * pbrProbeLight(inWorldPosition, n, v, baseColor.rgb, roughness, metallic,
                                        frame.skyAmbient.rgb, frame.groundAmbient.rgb);
     // Local lights: diffuse only for now.
     color += baseColor.rgb * (1.0 - metallic) * localLight(inWorldPosition, n);

@@ -24,6 +24,7 @@ FRAME_FS_BLOCK
 #define PROBE_IRRADIANCE_BINDING 5
 #define BRDF_TABLE_BINDING 6
 #define LIGHTS_BINDING 7
+#define PROBES_BINDING 8
 #include "lights.glsl"
 #include "probes.glsl"
 
@@ -42,8 +43,9 @@ void main()
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
     vec3 color = blinnPhong(n, v, frame.sunDirection.xyz, albedo, vec3(0.0), 1.0,
                             frame.sunColor.rgb) * sunShadow(shadowMap, inWorldPosition, n);
-    color += albedo * probeAmbient(n, hemisphereAmbient(n, frame.skyAmbient.rgb,
-                                                        frame.groundAmbient.rgb));
+    color += albedo * probeAmbient(inWorldPosition, n,
+                                   hemisphereAmbient(n, frame.skyAmbient.rgb,
+                                                     frame.groundAmbient.rgb));
     color += albedo * localLight(inWorldPosition, n);
     outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);
 }

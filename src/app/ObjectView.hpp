@@ -12,6 +12,7 @@
 //
 // Not drawn yet: sculpted prims, rigged mesh, trees and grass.
 
+#include "AutomaticProbes.hpp"
 #include "AvatarView.hpp"
 #include "LegacyMaterialManager.hpp"
 #include "MaterialManager.hpp"
@@ -72,6 +73,10 @@ public:
         size_t pbrFaces = 0;    // faces drawn with their PBR material
     };
     Stats stats() const { return stats_; }
+
+    // Every prim placed last frame (its center and half its size), for
+    // automatic reflection probes (placeAutomaticProbes).
+    std::span<const ProbeObject> probeObjects() const { return probeObjects_; }
 
 private:
     struct Key
@@ -136,6 +141,8 @@ private:
     // An object's frame (position and rotation, no scale) in scene
     // coordinates, through its linkset root and, for attachments, its
     // avatar's attachment point. Nothing if a parent isn't known yet.
+    // A prim set to be a reflection probe, at `frame` (its position and rotation).
+    void addProbe(render::Scene& scene, const world::Object& object, const glm::mat4& frame) const;
     std::optional<glm::mat4> frameOf(const world::Object& object, const world::World& world,
                                      uint64_t originHandle, const AvatarView* avatars,
                                      int depth = 0) const;
@@ -148,6 +155,7 @@ private:
     std::vector<Generated> drained_;
     std::atomic<int> running_{0};
     Stats stats_;
+    std::vector<ProbeObject> probeObjects_;
     // This frame's joint matrices for rigged draws (the scene refers to them
     // until it's drawn; a deque keeps them in place as it grows).
     std::deque<std::vector<glm::mat4>> palettes_;

@@ -89,6 +89,20 @@ struct LightImage
     float ambiance = 0.0f;
 };
 
+// A reflection probe (0x90, LLReflectionProbeParams): the prim's volume
+// (a sphere its X size across, or its box) takes its reflections and
+// ambient light from a cube captured at its center.
+struct ReflectionProbeParams
+{
+    float ambiance = 0.0f;     // how much ambient light comes from it (at least the sky's)
+    float clipDistance = 0.0f; // the capture's near clip, meters
+    uint8_t flags = 0;
+    static constexpr uint8_t kBox = 0x01;     // a box, not a sphere
+    static constexpr uint8_t kDynamic = 0x02; // captures avatars too
+    static constexpr uint8_t kMirror = 0x04;  // a mirror's (not drawn yet)
+    bool box() const { return (flags & kBox) != 0; }
+};
+
 // UpdateFlags bit: the object is temporary (object_flags.h); it's never cached.
 inline constexpr uint32_t kFlagTemporaryOnRez = 1u << 29;
 
@@ -120,6 +134,7 @@ struct Object
     bool animatedMesh = false; // animesh: its rigged mesh follows a skeleton of its own
     std::optional<LightParams> light;
     std::optional<LightImage> lightImage;
+    std::optional<ReflectionProbeParams> reflectionProbe;
     // PBR material asset per face (extra parameter 0x80; null: none). Their
     // overrides come separately (World::materialOverrides).
     std::vector<std::pair<uint8_t, Uuid>> materials;

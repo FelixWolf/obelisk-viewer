@@ -99,6 +99,13 @@ public:
     const std::array<uint32_t, 4>& shadowDraws() const { return shadowDrawCounts_; }
     // Local lights used last frame.
     uint32_t lightsUsed() const { return lightsUsed_; }
+    // What the next frame's reflection probe capture sees (its face's
+    // view-projection), if one is under way: objects in it should be in the
+    // scene even out of view (Reflections::probeFace).
+    std::optional<Frustum> nextProbeFace() const;
+    // Local probes surfaces used last frame, and cubes holding a capture.
+    uint32_t probesUsed() const { return probesShaded_; }
+    uint32_t probesCaptured() const;
     // Bytes in the mesh pool's GPU buffers (vertices and indices).
     uint64_t meshPoolBytes() const;
     std::optional<image::MipLevel> takeScreenshot() { return std::exchange(screenshot_, {}); }
@@ -144,16 +151,24 @@ private:
     void drawSky(ScenePass& pass, const Atmosphere& atmo, const glm::mat4& view,
                  const glm::mat4& projection);
     void drawTerrain(ScenePass& pass, const Scene& scene);
+    // Object draws, in this order (indices into scene.objects as instances).
+    void drawObjects(ScenePass& pass, const Scene& scene, std::span<const ObjectDraw* const> order);
 
-    // Reflection probes (RendererProbes.cpp), as the official viewer's
-    // default probe: a cube of the sky and terrain around the camera,
-    // captured a face a frame every Reflections::updateSeconds, then
-    // filtered into radiance (blurrier mip levels for rougher surfaces) and
-    // irradiance (ambient light). Cubes are kept mirrored in y (probes.glsl).
+    // Reflection probes (RendererProbes.cpp), as the official viewer's: the
+    // default probe (a cube of the sky and terrain above the camera, every
+    // Reflections::updateSeconds) in cube 0, and the local probes nearest
+    // the camera (Scene::probes) in the others, captured one face a frame,
+    // then filtered into radiance (blurrier mip levels for rougher
+    // surfaces) and irradiance (ambient light). Cubes are kept mirrored in y
+    // (probes.glsl).
     bool createProbes();
-    // Captures the next face, or filters a finished capture.
-    void updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene, const FrameFS& frameFs);
-    void filterProbe(SDL_GPUCommandBuffer* commands);
+    // Gives the probes cubes, uploads those surfaces use (and says so in
+    // frameFs), and captures the next face of the one being updated.
+    void updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene, FrameFS& frameFs,
+                      bool drawsReady);
+    void captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                          const FrameFS& frameFs, bool drawsReady);
+    void filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube);
     // The probe textures, as samplers 'radiance, irradiance, BRDF table'.
     std::array<SDL_GPUTextureSamplerBinding, 3> probeSamplers() const;
 
@@ -215,20 +230,37 @@ private:
     static constexpr uint32_t kProbeLevels = 7; // 128 down to 2 (max_probe_lod 6)
     static constexpr uint32_t kIrradianceSize = 16;
     static constexpr uint32_t kBrdfTableSize = 128;
-    static constexpr uint32_t kProbeCount = 1;
+    static constexpr uint32_t kProbeCount = 64; // cubes: the default probe and 63 local
+    static constexpr uint32_t kProbesShaded =
+        32; // local probes surfaces look at (REF_SAMPLE_COUNT)
     SDL_GPUTexture* probeRadiance_ = nullptr;
     SDL_GPUTexture* probeIrradiance_ = nullptr;
     SDL_GPUTexture* probeCapture_ = nullptr;
     SDL_GPUTexture* probeDepth_ = nullptr;
     SDL_GPUTexture* brdfTable_ = nullptr;
-    struct ProbeUpdate
+    // What each cube holds.
+    struct ProbeCube
     {
-        int face = -1;          // the next face to capture; -1: none under way
-        glm::vec3 origin{0.0f}; // where it's captured from
-        uint64_t startedTicks = 0;
-        bool ready = false; // the cubes hold a filtered capture
+        uint64_t id = 0; // the local probe's (cube 0: the default probe)
+        bool used = false;
+        bool complete = false;       // holds a filtered capture
+        uint64_t completedTicks = 0; // its first: it fades in from then
+        uint64_t updatedTicks = 0;   // its latest
     };
-    ProbeUpdate probe_;
+    std::array<ProbeCube, kProbeCount> probeCubes_{};
+    // The capture under way: a face a frame into probeCapture_.
+    struct ProbeCapture
+    {
+        int face = -1; // the next one; -1: none under way
+        uint32_t cube = 0;
+        glm::vec3 origin{0.0f};
+        float nearClip = 0.1f;
+        float farClip = 64.0f;
+        bool objects = false; // local probes see objects, the default one doesn't
+    };
+    ProbeCapture capture_;
+    FrameBuffer probeBuffer_; // the local probes surfaces use this frame
+    uint32_t probesShaded_ = 0;
 
     // Neutral stand-ins for missing material textures.
     GpuTexture white_;

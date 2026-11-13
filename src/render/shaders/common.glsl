@@ -50,7 +50,7 @@ const float PI = 3.14159265359;
         vec4 shadowTexels;      /* each cascade's texel size, meters */                       \
         vec4 shadowInfo;        /* x on (1), y one texel in texture coordinates */            \
         vec4 viewAxis;          /* xyz the camera's forward direction */                      \
-        vec4 lightInfo;         /* x local lights in use (lights.glsl) */                    \
+        vec4 lightInfo;         /* x local lights in use (lights.glsl), y local probes (probes.glsl) */ \
         /* Reflection probes (probes.glsl): x the sky's probe ambiance, y the radiance's */   \
         /* last mip level, z ready (1), w classic mode (1: the sky's ambient, not the probe's) */ \
         vec4 probeInfo;                                                                       \

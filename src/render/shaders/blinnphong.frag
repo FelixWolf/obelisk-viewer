@@ -31,6 +31,7 @@ FRAME_FS_BLOCK
 #define PROBE_IRRADIANCE_BINDING 6
 #define BRDF_TABLE_BINDING 7
 #define LIGHTS_BINDING 9
+#define PROBES_BINDING 10
 #include "lights.glsl"
 #include "probes.glsl"
 
@@ -99,16 +100,28 @@ void main()
 
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
     vec3 color = blinnPhong(n, v, l, albedo.rgb, specularColor, exponent, frame.sunColor.rgb) * shadow;
-    color += albedo.rgb *
-             probeAmbient(n, hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb));
-    if(glossiness > 0.0)
+    // Ambient light and reflections from the probes around.
+    vec3 ambient = hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
+    vec3 glossy = vec3(0.0);
+    vec3 sharp = vec3(0.0);
+    const bool reflections = anyProbes();
+    if(reflections)
     {
-        applyGlossyReflection(color, n, v, specularColor, glossiness);
+        const ProbeLight light = sampleProbes(inWorldPosition, n, reflect(-v, n),
+                                              1.0 - glossiness, envIntensity > 0.0, ambient);
+        ambient = light.irradiance;
+        glossy = light.radiance;
+        sharp = light.sharp;
+    }
+    color += albedo.rgb * ambient;
+    if(reflections && glossiness > 0.0)
+    {
+        applyGlossyReflection(color, glossy, n, v, specularColor, glossiness);
     }
     color = mix(color, albedo.rgb, emissive);
-    if(envIntensity > 0.0)
+    if(reflections && envIntensity > 0.0)
     {
-        applyShinyReflection(color, n, v, envIntensity);
+        applyShinyReflection(color, sharp, n, v, envIntensity);
     }
     // Local lights after (the official viewer adds them in later passes),
     // not on what shows unlit.

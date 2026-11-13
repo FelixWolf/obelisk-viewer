@@ -113,7 +113,7 @@ struct ObjectDraw
     // distance can't tell layers of clothing apart.
     const void* wearer = nullptr;
     uint64_t layer = 0;
-    // Out of view but its shadow may reach in: drawn into shadow maps only.
+    // Out of view: drawn only into shadow maps and reflection probes.
     bool shadowOnly = false;
 };
 
@@ -135,13 +135,37 @@ struct Shadows
 };
 
 // Reflections (and, on skies made for PBR, ambient light) from reflection
-// probes: so far the official viewer's default probe, a cube of the sky and
-// terrain captured around the camera now and then.
+// probes, as the official viewer's: a default probe (the sky and terrain,
+// captured above the camera) and local probes (Scene::probes), cubes of
+// everything around them, which surfaces inside take their light from.
 struct Reflections
 {
     bool enabled = true;
-    float updateSeconds = 2.0f; // RenderDefaultProbeUpdatePeriod
-    float nearClip = 1.0f;      // meters; the default probe's (getNearClip)
+    float updateSeconds = 2.0f;   // the default probe's (RenderDefaultProbeUpdatePeriod)
+    float refreshSeconds = 10.0f; // a local probe's, at the soonest
+    float nearClip = 1.0f;        // meters; the default probe's (getNearClip)
+    float aboveCamera = 64.0f;    // the default probe's height over the camera
+    float drawDistance = 64.0f;   // captures reach this far (RenderReflectionProbeDrawDistance)
+    // The probe face captured this frame (Renderer::nextProbeFace), if any:
+    // out of view, what's in it is still listed (as shadowOnly draws).
+    std::optional<Frustum> probeFace;
+};
+
+// A local reflection probe: inside its sphere (or box), surfaces reflect
+// the cube captured at its origin (with parallax: rays are followed to the
+// volume's edge), and on skies made for PBR take ambient light from it.
+// Manual probes are prims set to be probes; automatic ones are placed where
+// objects are dense (as the official viewer's octree).
+struct ReflectionProbe
+{
+    uint64_t id = 0; // stays the same while the probe does
+    glm::vec3 origin{0.0f};
+    float radius = 16.0f; // the sphere's (a box's: its half diagonal)
+    // Box probes: scene -> the box as a cube from -1 to 1.
+    std::optional<glm::mat4> box;
+    float ambiance = 0.0f; // its own (at least the sky's is used)
+    float nearClip = 0.1f; // nothing nearer shows in its cube
+    bool manual = false;
 };
 
 // A local light (a prim set to give light), as the official viewer draws
@@ -180,7 +204,7 @@ LocalLight::Projector projectorFor(const glm::vec3& position, const glm::quat& r
 enum class Visibility : uint8_t
 {
     Hidden,     // not drawn
-    ShadowOnly, // out of view, but its shadow can fall into it
+    ShadowOnly, // out of view, but its shadow can fall into it, or reflection probes see it
     Visible,
 };
 
@@ -197,14 +221,16 @@ struct Scene
     Lighting lighting;
     Shadows shadows;
     Reflections reflections;
+    std::vector<ReflectionProbe> probes;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;
     // Every light that may reach the view; the renderer uses the nearest
     // (Renderer::kMaxLights).
     std::vector<LocalLight> lights;
 
-    // Whatever is within this sphere: in view, only its shadow in view, or
-    // neither (frustum and shadows must be set).
+    // Whatever is within this sphere: in view, only its shadow in view (or
+    // near enough for reflection probes), or neither (frustum, shadows and
+    // reflections must be set).
     Visibility visibility(const glm::vec3& center, float radius) const
     {
         if(frustum.containsSphere(center, radius))
@@ -214,6 +240,11 @@ struct Scene
         if(shadows.enabled &&
            glm::length(center - camera.position) - radius < shadows.distance + 64.0f &&
            frustum.containsShadowOf(center, radius, shadows.towardLight))
+        {
+            return Visibility::ShadowOnly;
+        }
+        if(reflections.enabled && reflections.probeFace &&
+           reflections.probeFace->containsSphere(center, radius))
         {
             return Visibility::ShadowOnly;
         }

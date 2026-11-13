@@ -15,11 +15,23 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
+#include <unordered_map>
+#include <vector>
+
 namespace viewer::render
 {
 
 namespace
 {
+
+// One local probe as the shaders see it (probes.glsl ReflectionProbe, std430).
+struct ProbeData
+{
+    glm::vec4 sphere; // xyz origin, w radius
+    glm::vec4 params; // x ambiance, y fade in, z cube, w kind (0 automatic, 1 manual sphere, 2 box)
+    glm::mat4 box;
+};
 
 struct FilterFS
 {
@@ -134,41 +146,249 @@ std::array<SDL_GPUTextureSamplerBinding, 3> Renderer::probeSamplers() const
     return {{{probeRadiance_, clamp}, {probeIrradiance_, clamp}, {brdfTable_, clamp}}};
 }
 
-void Renderer::updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene,
-                            const FrameFS& frameFs)
+void Renderer::updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene, FrameFS& frameFs,
+                            bool drawsReady)
 {
-    if(!scene.reflections.enabled)
+    const Lighting& light = scene.lighting;
+    const bool enabled = scene.reflections.enabled;
+    frameFs.probeInfo = glm::vec4(light.probeAmbiance, static_cast<float>(kProbeLevels - 1),
+                                  enabled && probeCubes_[0].complete ? 1.0f : 0.0f,
+                                  light.probeAmbiance > 0.0f ? 0.0f : 1.0f);
+    frameFs.lightInfo.y = 0.0f;
+    probesShaded_ = 0;
+    if(!enabled)
     {
-        probe_.face = -1;
+        capture_.face = -1;
         return;
     }
     const uint64_t now = SDL_GetTicksNS();
-    if(probe_.face < 0)
+    const glm::vec3 camera = scene.camera.position;
+
+    // The local probes nearest the camera (by how far outside them it is)
+    // get cubes; the rest wait.
+    std::vector<std::pair<float, const ReflectionProbe*>> nearest;
+    nearest.reserve(scene.probes.size());
+    for(const ReflectionProbe& probe : scene.probes)
     {
-        const auto period = static_cast<uint64_t>(scene.reflections.updateSeconds * 1e9);
-        if(probe_.ready && now - probe_.startedTicks < period)
+        nearest.emplace_back(std::max(glm::length(probe.origin - camera) - probe.radius, 0.0f),
+                             &probe);
+    }
+    const size_t chosen = std::min<size_t>(nearest.size(), kProbeCount - 1);
+    std::partial_sort(nearest.begin(), nearest.begin() + static_cast<ptrdiff_t>(chosen),
+                      nearest.end(),
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
+    nearest.resize(chosen);
+    std::unordered_map<uint64_t, const ReflectionProbe*> wanted;
+    for(const auto& [distance, probe] : nearest)
+    {
+        wanted.emplace(probe->id, probe);
+    }
+    // Cubes of probes no longer wanted are freed (unless being captured).
+    std::unordered_map<uint64_t, uint32_t> cubeOf;
+    for(uint32_t c = 1; c < kProbeCount; c++)
+    {
+        ProbeCube& cube = probeCubes_[c];
+        if(!cube.used)
         {
-            return;
+            continue;
         }
-        probe_.face = 0;
-        probe_.origin = scene.camera.position;
-        probe_.startedTicks = now;
+        if(!wanted.contains(cube.id) && !(capture_.face >= 0 && capture_.cube == c))
+        {
+            cube = ProbeCube{};
+            continue;
+        }
+        cubeOf.emplace(cube.id, c);
+    }
+    uint32_t free = 1;
+    for(const auto& [distance, probe] : nearest)
+    {
+        if(cubeOf.contains(probe->id))
+        {
+            continue;
+        }
+        while(free < kProbeCount && probeCubes_[free].used)
+        {
+            free++;
+        }
+        if(free == kProbeCount)
+        {
+            break;
+        }
+        probeCubes_[free] = ProbeCube{probe->id, true};
+        cubeOf.emplace(probe->id, free);
     }
 
-    // This face: the sky and terrain from the probe's origin, lit as the
-    // view but without probes (they're what's being made).
+    // Those with a capture to show, nearest first, go to the shaders.
+    std::vector<ProbeData> data;
+    data.reserve(kProbesShaded);
+    for(const auto& [distance, probe] : nearest)
+    {
+        const auto c = cubeOf.find(probe->id);
+        if(c == cubeOf.end() || !probeCubes_[c->second].complete)
+        {
+            continue;
+        }
+        const ProbeCube& cube = probeCubes_[c->second];
+        ProbeData d;
+        d.sphere = glm::vec4(probe->origin, probe->radius);
+        const float fade = std::clamp(
+            static_cast<float>(now - std::min(now, cube.completedTicks)) * 1e-9f, 0.0f, 1.0f);
+        const float kind = probe->box ? 2.0f : probe->manual ? 1.0f : 0.0f;
+        d.params = glm::vec4(std::max(light.probeAmbiance, probe->ambiance), fade,
+                             static_cast<float>(c->second), kind);
+        d.box = probe->box.value_or(glm::mat4(1.0f));
+        data.push_back(d);
+        if(data.size() == kProbesShaded)
+        {
+            break;
+        }
+    }
+    if(reserve(probeBuffer_,
+               static_cast<uint32_t>(sizeof(ProbeData) * std::max<size_t>(data.size(), 1)),
+               SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ))
+    {
+        if(!data.empty())
+        {
+            auto* out = static_cast<ProbeData*>(
+                SDL_MapGPUTransferBuffer(device_, probeBuffer_.transfer, true));
+            std::copy(data.begin(), data.end(), out);
+            SDL_UnmapGPUTransferBuffer(device_, probeBuffer_.transfer);
+            SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
+            const SDL_GPUTransferBufferLocation source = {probeBuffer_.transfer, 0};
+            const SDL_GPUBufferRegion destination = {
+                probeBuffer_.buffer.get(), 0,
+                static_cast<uint32_t>(data.size() * sizeof(ProbeData))};
+            SDL_UploadToGPUBuffer(copy, &source, &destination, true);
+            SDL_EndGPUCopyPass(copy);
+            probesShaded_ = static_cast<uint32_t>(data.size());
+        }
+    }
+    frameFs.lightInfo.y = static_cast<float>(probesShaded_);
+
+    // This frame's face (announced last frame, so the scene lists what's in
+    // it: nextProbeFace).
+    if(capture_.face >= 0)
+    {
+        captureProbeFace(commands, scene, frameFs, drawsReady);
+    }
+
+    // What to capture next: the default probe when it's due, else the
+    // nearest local probe without a capture, else the one captured longest
+    // ago (once it's old enough). It starts next frame.
+    const float farClip = scene.reflections.drawDistance;
+    if(capture_.face < 0)
+    {
+        const ProbeCube& sky = probeCubes_[0];
+        const auto period = static_cast<uint64_t>(scene.reflections.updateSeconds * 1e9);
+        const auto refresh = static_cast<uint64_t>(scene.reflections.refreshSeconds * 1e9);
+        // (Captures stamp a time later than `now`.)
+        if(!sky.complete || sky.updatedTicks + period <= now)
+        {
+            capture_ = ProbeCapture{0,
+                                    0,
+                                    camera + glm::vec3(0.0f, 0.0f, scene.reflections.aboveCamera),
+                                    scene.reflections.nearClip,
+                                    farClip,
+                                    false};
+        }
+        else
+        {
+            const ReflectionProbe* next = nullptr;
+            uint64_t oldest = UINT64_MAX;
+            for(const auto& [distance, probe] : nearest)
+            {
+                const auto c = cubeOf.find(probe->id);
+                if(c == cubeOf.end())
+                {
+                    continue;
+                }
+                const ProbeCube& cube = probeCubes_[c->second];
+                if(!cube.complete)
+                {
+                    next = probe;
+                    break;
+                }
+                if(cube.updatedTicks + refresh <= now && cube.updatedTicks < oldest)
+                {
+                    oldest = cube.updatedTicks;
+                    next = probe;
+                }
+            }
+            if(next)
+            {
+                capture_ = ProbeCapture{
+                    0, cubeOf.at(next->id), next->origin, next->nearClip, farClip, true};
+            }
+        }
+    }
+}
+
+std::optional<Frustum> Renderer::nextProbeFace() const
+{
+    if(capture_.face < 0 || !capture_.objects)
+    {
+        return std::nullopt;
+    }
+    return Frustum::fromViewProjection(
+        glm::perspective(glm::half_pi<float>(), 1.0f, capture_.nearClip, capture_.farClip) *
+        faceView(capture_.face, capture_.origin));
+}
+
+uint32_t Renderer::probesCaptured() const
+{
+    return static_cast<uint32_t>(
+        std::ranges::count_if(probeCubes_, [](const ProbeCube& c) { return c.complete; }));
+}
+
+void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                                const FrameFS& frameFs, bool drawsReady)
+{
+    // This face, lit as the view but from the probe's origin, and with the
+    // sky's ambient light, not the probes': lit by what it captures, each
+    // capture would come out brighter than the last (the official viewer's
+    // irradiance pass does the same, ambiance 0).
     FrameFS fs = frameFs;
-    fs.cameraPosition = glm::vec4(probe_.origin, 1.0f);
-    fs.probeInfo = glm::vec4(0.0f);
-    const glm::mat4 view = faceView(probe_.face, probe_.origin);
-    const glm::mat4 projection = glm::perspective(
-        glm::half_pi<float>(), 1.0f, scene.reflections.nearClip, scene.camera.farPlane);
-    const FrameVS vs{projection * view, glm::vec4(probe_.origin, 1.0f)};
+    fs.cameraPosition = glm::vec4(capture_.origin, 1.0f);
+    fs.probeInfo.w = 1.0f;
+    const glm::mat4 view = faceView(capture_.face, capture_.origin);
+    const glm::mat4 projection =
+        glm::perspective(glm::half_pi<float>(), 1.0f, capture_.nearClip, capture_.farClip);
+    const FrameVS vs{projection * view, glm::vec4(capture_.origin, 1.0f)};
+
+    // Objects in the face (local probes): opaque first, then blended. Not
+    // skinned ones: avatars and what they wear move (the official viewer
+    // leaves them out unless a probe is set to be dynamic).
+    std::vector<const ObjectDraw*> order;
+    if(capture_.objects && drawsReady)
+    {
+        const Frustum frustum = Frustum::fromViewProjection(vs.viewProjection);
+        std::vector<const ObjectDraw*> blended;
+        for(const ObjectDraw& draw : scene.objects)
+        {
+            if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Object)
+            {
+                continue;
+            }
+            const glm::vec3 localCenter = (draw.mesh->boundsMin + draw.mesh->boundsMax) * 0.5f;
+            const glm::mat3 m(draw.transform);
+            const glm::mat3 absolute(glm::abs(m[0]), glm::abs(m[1]), glm::abs(m[2]));
+            const glm::vec3 size = absolute * (draw.mesh->boundsMax - draw.mesh->boundsMin);
+            if(!frustum.containsSphere(glm::vec3(draw.transform * glm::vec4(localCenter, 1.0f)),
+                                       0.5f * glm::length(size)))
+            {
+                continue;
+            }
+            const auto* bp = std::get_if<BlinnPhongMaterial>(&draw.material);
+            const auto* pbr = std::get_if<PbrMaterial>(&draw.material);
+            ((bp && bp->blend) || (pbr && pbr->blend) ? blended : order).push_back(&draw);
+        }
+        order.insert(order.end(), blended.begin(), blended.end());
+    }
 
     const Lighting& light = scene.lighting;
     SDL_GPUColorTargetInfo color = {};
     color.texture = probeCapture_;
-    color.layer_or_depth_plane = static_cast<Uint32>(probe_.face);
+    color.layer_or_depth_plane = static_cast<Uint32>(capture_.face);
     color.clear_color = SDL_FColor{light.skyColor.r, light.skyColor.g, light.skyColor.b, 1.0f};
     color.load_op = SDL_GPU_LOADOP_CLEAR;
     color.store_op = SDL_GPU_STOREOP_STORE;
@@ -180,23 +400,36 @@ void Renderer::updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene,
     depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-    ScenePass scenePass(commands, pass, *pipelines_, vs, fs, lightBuffer_.buffer.get(), true);
+    ScenePass scenePass(commands, pass, *pipelines_, vs, fs, lightBuffer_.buffer.get(),
+                        probeBuffer_.buffer.get(), true);
     if(light.atmosphere.enabled)
     {
         drawSky(scenePass, light.atmosphere, view, projection);
     }
     drawTerrain(scenePass, scene);
+    drawObjects(scenePass, scene, order);
     SDL_EndGPURenderPass(pass);
 
-    if(++probe_.face == 6)
+    if(++capture_.face == 6)
     {
-        filterProbe(commands);
-        probe_.face = -1;
-        probe_.ready = true;
+        filterProbe(commands, capture_.cube);
+        ProbeCube& cube = probeCubes_[capture_.cube];
+        const uint64_t now = SDL_GetTicksNS();
+        if(capture_.cube == 0)
+        {
+            cube.used = true;
+        }
+        if(!cube.complete)
+        {
+            cube.completedTicks = now;
+        }
+        cube.complete = true;
+        cube.updatedTicks = now;
+        capture_.face = -1;
     }
 }
 
-void Renderer::filterProbe(SDL_GPUCommandBuffer* commands)
+void Renderer::filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube)
 {
     // Lower levels of the capture: what the filters read for wide lobes.
     SDL_GenerateMipmapsForGPUTexture(commands, probeCapture_);
@@ -204,14 +437,13 @@ void Renderer::filterProbe(SDL_GPUCommandBuffer* commands)
     const Pipelines& p = *pipelines_;
     const SDL_GPUTextureSamplerBinding capture = {probeCapture_, p.clampSampler};
     constexpr float kLastLevel = static_cast<float>(kProbeLevels - 1);
-    constexpr uint32_t kProbe = 0; // the default probe's cube in the arrays
     auto filterFace = [&](SDL_GPUGraphicsPipeline* pipeline, SDL_GPUTexture* target, uint32_t level,
                           int face, float roughness)
     {
         SDL_GPUColorTargetInfo color = {};
         color.texture = target;
         color.mip_level = level;
-        color.layer_or_depth_plane = kProbe * 6 + static_cast<Uint32>(face);
+        color.layer_or_depth_plane = cube * 6 + static_cast<Uint32>(face);
         color.load_op = SDL_GPU_LOADOP_DONT_CARE;
         color.store_op = SDL_GPU_STOREOP_STORE;
         SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, nullptr);

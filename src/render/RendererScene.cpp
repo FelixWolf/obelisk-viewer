@@ -96,16 +96,16 @@ bool Renderer::createPipelines()
     SDL_GPUShader* skinnedVert =
         createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1, 2}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1, 3}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 2}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 3}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 1, 1},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 1, 2},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 2, 1}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 2, 2}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
@@ -657,12 +657,9 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     {
         drawShadows(commands, scene, cascades, drawsReady);
     }
-    // Probe faces are captured with the probes off (what they'd reflect is
-    // what's being captured).
-    updateProbes(commands, scene, frameFs);
-    frameFs.probeInfo = glm::vec4(light.probeAmbiance, static_cast<float>(kProbeLevels - 1),
-                                  probe_.ready && scene.reflections.enabled ? 1.0f : 0.0f,
-                                  light.probeAmbiance > 0.0f ? 0.0f : 1.0f);
+    // Reflection probes: the ones surfaces use (into frameFs), and the next
+    // face of whichever is being captured.
+    updateProbes(commands, scene, frameFs, drawsReady);
 
     SDL_GPUColorTargetInfo color = {};
     color.texture = hdrTarget_;
@@ -679,20 +676,14 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     depth.cycle = true;
 
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-    ScenePass scenePass(commands, pass, p, frameVs, frameFs, lightBuffer_.buffer.get());
+    ScenePass scenePass(commands, pass, p, frameVs, frameFs, lightBuffer_.buffer.get(),
+                        probeBuffer_.buffer.get());
     if(atmo.enabled)
     {
         drawSky(scenePass, atmo, view, projection);
     }
     // Terrain first: it covers the most screen, so it fills depth early.
     drawTerrain(scenePass, scene);
-
-    auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
-    { return t && *t ? t->get() : fallback.get(); };
-    // A base color: none is white, one not in yet is gray.
-    auto baseColor = [&](const GpuTexture* t, bool loading)
-    { return texture(t, loading ? loading_ : white_); };
-    const auto probes = probeSamplers();
 
     // Opaque objects, then blended ones from far to near (as the official
     // viewer: each face by its own center's depth along the view, moved
@@ -802,64 +793,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         order.push_back(b.draw);
     }
 
-    // Every object pipeline reads the same storage buffers and instance
-    // buffer; bound again with each pipeline, to be safe across backends.
-    SDL_GPUGraphicsPipeline* objectResourcesFor = nullptr;
-    for(const ObjectDraw* drawPointer : order)
-    {
-        const ObjectDraw& draw = *drawPointer;
-        const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
-        if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
-        {
-            scenePass.bindPipeline(skinned
-                                       ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
-                                       : (m->blend ? p.blinnPhongBlend : p.blinnPhong));
-            const SDL_GPUTextureSamplerBinding samplers[] = {
-                {baseColor(m->diffuse, m->diffuseLoading), p.repeatSampler},
-                {texture(m->normal, flatNormal_), p.repeatSampler},
-                {texture(m->specular, white_), p.repeatSampler},
-                {shadowMap_, p.shadowSampler},
-                {projectors_, p.clampSampler},
-                probes[0],
-                probes[1],
-                probes[2],
-            };
-            scenePass.bindSamplers(samplers);
-        }
-        else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
-        {
-            scenePass.bindPipeline(
-                p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0]);
-            const SDL_GPUTextureSamplerBinding samplers[] = {
-                {baseColor(t->albedo, t->albedoLoading), p.repeatSampler},
-                {texture(t->orm, white_), p.repeatSampler},
-                {texture(t->emissive, white_), p.repeatSampler},
-                {texture(t->normal, flatNormal_), p.repeatSampler},
-                {shadowMap_, p.shadowSampler},
-                {projectors_, p.clampSampler},
-                probes[0],
-                probes[1],
-                probes[2],
-            };
-            scenePass.bindSamplers(samplers);
-        }
-        if(objectResourcesFor != scenePass.boundPipeline())
-        {
-            objectResourcesFor = scenePass.boundPipeline();
-            // Without skinned draws there's no joint buffer: any buffer
-            // fills the slot.
-            SDL_GPUBuffer* vertexStorage[] = {drawBuffer_.buffer.get(),
-                                              jointBuffer_.buffer ? jointBuffer_.buffer.get()
-                                                                  : drawBuffer_.buffer.get()};
-            SDL_BindGPUVertexStorageBuffers(pass, 0, vertexStorage, 2);
-            SDL_GPUBuffer* fragmentStorage[] = {drawBuffer_.buffer.get(),
-                                                lightBuffer_.buffer.get()};
-            SDL_BindGPUFragmentStorageBuffers(pass, 0, fragmentStorage, 2);
-            const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
-            SDL_BindGPUVertexBuffers(pass, 1, &instances, 1);
-        }
-        scenePass.drawMesh(*draw.mesh, static_cast<uint32_t>(drawPointer - scene.objects.data()));
-    }
+    drawObjects(scenePass, scene, order);
     SDL_EndGPURenderPass(pass);
 
     updateExposure(commands, light);
@@ -909,6 +843,75 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             SDL_EndGPUCopyPass(copy);
             screenshotPending_ = true;
         }
+    }
+}
+
+void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
+                           std::span<const ObjectDraw* const> order)
+{
+    const Pipelines& p = *pipelines_;
+    auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
+    { return t && *t ? t->get() : fallback.get(); };
+    // A base color: none is white, one not in yet is gray.
+    auto baseColor = [&](const GpuTexture* t, bool loading)
+    { return texture(t, loading ? loading_ : white_); };
+    const auto probes = probeSamplers();
+    // Every object pipeline reads the same storage buffers and instance
+    // buffer; bound again with each pipeline, to be safe across backends.
+    SDL_GPUGraphicsPipeline* objectResourcesFor = nullptr;
+    for(const ObjectDraw* drawPointer : order)
+    {
+        const ObjectDraw& draw = *drawPointer;
+        const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
+        if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
+        {
+            pass.bindPipeline(skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
+                                      : (m->blend ? p.blinnPhongBlend : p.blinnPhong));
+            const SDL_GPUTextureSamplerBinding samplers[] = {
+                {baseColor(m->diffuse, m->diffuseLoading), p.repeatSampler},
+                {texture(m->normal, flatNormal_), p.repeatSampler},
+                {texture(m->specular, white_), p.repeatSampler},
+                {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler},
+                probes[0],
+                probes[1],
+                probes[2],
+            };
+            pass.bindSamplers(samplers);
+        }
+        else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
+        {
+            pass.bindPipeline(
+                p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0]);
+            const SDL_GPUTextureSamplerBinding samplers[] = {
+                {baseColor(t->albedo, t->albedoLoading), p.repeatSampler},
+                {texture(t->orm, white_), p.repeatSampler},
+                {texture(t->emissive, white_), p.repeatSampler},
+                {texture(t->normal, flatNormal_), p.repeatSampler},
+                {shadowMap_, p.shadowSampler},
+                {projectors_, p.clampSampler},
+                probes[0],
+                probes[1],
+                probes[2],
+            };
+            pass.bindSamplers(samplers);
+        }
+        if(objectResourcesFor != pass.boundPipeline())
+        {
+            objectResourcesFor = pass.boundPipeline();
+            // Without skinned draws there's no joint buffer: any buffer
+            // fills the slot.
+            SDL_GPUBuffer* vertexStorage[] = {drawBuffer_.buffer.get(),
+                                              jointBuffer_.buffer ? jointBuffer_.buffer.get()
+                                                                  : drawBuffer_.buffer.get()};
+            SDL_BindGPUVertexStorageBuffers(pass.pass(), 0, vertexStorage, 2);
+            SDL_GPUBuffer* fragmentStorage[] = {drawBuffer_.buffer.get(), lightBuffer_.buffer.get(),
+                                                probeBuffer_.buffer.get()};
+            SDL_BindGPUFragmentStorageBuffers(pass.pass(), 0, fragmentStorage, 3);
+            const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
+            SDL_BindGPUVertexBuffers(pass.pass(), 1, &instances, 1);
+        }
+        pass.drawMesh(*draw.mesh, static_cast<uint32_t>(drawPointer - scene.objects.data()));
     }
 }
 

@@ -248,3 +248,30 @@ TEST_CASE("Extra parameters: lights and projectors")
     CHECK_FALSE(o.light.has_value());
     CHECK_FALSE(o.lightImage.has_value());
 }
+
+TEST_CASE("Extra parameters: reflection probes")
+{
+    auto f32 = [](std::vector<uint8_t>& out, float v)
+    {
+        const auto bits = std::bit_cast<uint32_t>(v);
+        for(int i = 0; i < 4; i++)
+        {
+            out.push_back(static_cast<uint8_t>(bits >> (8 * i)));
+        }
+    };
+    // One parameter: a reflection probe (0x90, 9 bytes), a box.
+    std::vector<uint8_t> data = {0x01, 0x90, 0x00, 0x09, 0x00, 0x00, 0x00};
+    f32(data, 2.5f); // ambiance
+    f32(data, 1.5f); // clip distance
+    data.push_back(0x01);
+
+    Object o;
+    applyExtraParams(o, data);
+    REQUIRE(o.reflectionProbe.has_value());
+    CHECK(o.reflectionProbe->ambiance == 2.5f);
+    CHECK(o.reflectionProbe->clipDistance == 1.5f);
+    CHECK(o.reflectionProbe->box());
+
+    applyExtraParams(o, {});
+    CHECK_FALSE(o.reflectionProbe.has_value());
+}
