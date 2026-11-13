@@ -1,5 +1,7 @@
 #include "viewer/volume/Volume.hpp"
 
+#include <cmath>
+
 #include <doctest/doctest.h>
 
 using namespace viewer::volume;
@@ -171,4 +173,89 @@ TEST_CASE("Volume: unpacking quantized parameters")
     CHECK(v.profile.begin == doctest::Approx(0.125f));
     CHECK(v.profile.end == doctest::Approx(1.0f));
     CHECK(v.path.twist == doctest::Approx(-0.5f));
+}
+
+namespace
+{
+
+// A sculpt map of a sphere of radius 0.5: x around (u), y pole to pole (v).
+std::vector<uint8_t> sphereMap(uint32_t size)
+{
+    std::vector<uint8_t> rgba(static_cast<size_t>(size) * size * 4);
+    const float pi = 3.14159265f;
+    for(uint32_t y = 0; y < size; y++)
+    {
+        for(uint32_t x = 0; x < size; x++)
+        {
+            const float u = static_cast<float>(x) / static_cast<float>(size);
+            const float v = static_cast<float>(y) / static_cast<float>(size - 1);
+            const glm::vec3 p =
+                glm::vec3(std::sin(pi * v) * std::cos(2.0f * pi * u),
+                          std::sin(pi * v) * std::sin(2.0f * pi * u), std::cos(pi * v)) *
+                0.5f;
+            const size_t i = (static_cast<size_t>(y) * size + x) * 4;
+            for(int c = 0; c < 3; c++)
+            {
+                rgba[i + static_cast<size_t>(c)] =
+                    static_cast<uint8_t>(std::lround((p[c] + 0.5f) * 255.0f));
+            }
+            rgba[i + 3] = 255;
+        }
+    }
+    return rgba;
+}
+
+// How the normals point relative to the center, on average (+1: out).
+float outwardness(const VolumeFace& face)
+{
+    float sum = 0.0f;
+    for(size_t i = 0; i < face.positions.size(); i++)
+    {
+        if(glm::length(face.positions[i]) > 0.1f)
+        {
+            sum += glm::dot(face.normals[i], glm::normalize(face.positions[i]));
+        }
+    }
+    return sum / static_cast<float>(face.positions.size());
+}
+
+} // namespace
+
+TEST_CASE("Sculpt: a sphere map makes one face on the sphere, sized by detail")
+{
+    const auto rgba = sphereMap(64);
+    const SculptMap map{64, 64, rgba};
+    const VolumeParams params = shape(ProfileCurve::Circle, PathCurve::Circle);
+    const auto high = generateSculpt(params, kDetailScales[3], SculptStitching::Sphere, map);
+    REQUIRE(high.size() == 1);
+    const VolumeFace& face = high[0];
+    for(const glm::vec3& p : face.positions)
+    {
+        CHECK(glm::length(p) == doctest::Approx(0.5f).epsilon(0.03));
+    }
+    // 32 x 32 at the highest detail (one more point each way to close).
+    CHECK(face.positions.size() == 33 * 33);
+    const auto low = generateSculpt(params, kDetailScales[0], SculptStitching::Sphere, map);
+    REQUIRE(low.size() == 1);
+    CHECK(low[0].positions.size() == 7 * 7);
+
+    // Inside out: the normals turn around.
+    const auto inverted = generateSculpt(params, kDetailScales[3],
+                                         SculptStitching::Sphere | SculptStitching::Invert, map);
+    REQUIRE(inverted.size() == 1);
+    CHECK(outwardness(face) * outwardness(inverted[0]) < 0.0f);
+    CHECK(std::abs(outwardness(face)) > 0.9f);
+}
+
+TEST_CASE("Sculpt: a map without shape becomes a small sphere")
+{
+    const std::vector<uint8_t> flat(32 * 32 * 4, 128);
+    const auto faces =
+        generateSculpt(shape(ProfileCurve::Circle, PathCurve::Circle), kDetailScales[2],
+                       SculptStitching::Sphere, SculptMap{32, 32, flat});
+    REQUIRE(faces.size() == 1);
+    for(const glm::vec3& p : faces[0].positions)
+    {
+        CHECK(glm::length(p) == doctest::Approx(0.3f).epsilon(0.01));
+    }
 }

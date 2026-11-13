@@ -78,6 +78,9 @@ private:
     {
         volume::VolumeParams params;
         int detail = 0; // index into volume::kDetailScales
+        // Sculpted prims: the sculpt map and its type (stitching and flags).
+        Uuid sculpt{};
+        uint8_t sculptType = 0;
         bool operator==(const Key&) const = default;
     };
     struct KeyHash
@@ -99,7 +102,9 @@ private:
         glm::vec3 extent{0.0f};
     };
 
-    Geometry& geometry(const Key& key);
+    // A prim's geometry, generated on a worker the first time (a sculpted
+    // prim's from `sculptMap`).
+    Geometry& geometry(const Key& key, const image::TextureData* sculptMap = nullptr);
     // A light-giving prim's light (it may light the view while out of it).
     void addLight(render::Scene& scene, const world::World& world, const world::Object& object,
                   uint64_t originHandle, TextureManager& textures, const AvatarView* avatars,

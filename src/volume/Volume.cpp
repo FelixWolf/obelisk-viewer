@@ -175,7 +175,9 @@ struct Profile
         }
     }
 
-    bool generate(const ProfileParams& params, bool pathOpen, float detail, int split)
+    // sculptSize > 0: a sculpted prim's profile, a circle of that many sides.
+    bool generate(const ProfileParams& params, bool pathOpen, float detail, int split,
+                  int sculptSize = 0)
     {
         detail = std::max(detail, 0.0f);
         points.clear();
@@ -274,7 +276,8 @@ struct Profile
             {
                 circleDetail = std::ceil(circleDetail / 4.0f) * 4.0f;
             }
-            genNGon(params, static_cast<int>(circleDetail), 0.0f, 1.0f, 0);
+            genNGon(params, sculptSize > 0 ? sculptSize : static_cast<int>(circleDetail), 0.0f,
+                    1.0f, 0);
             if(pathOpen)
             {
                 addCap(FaceId::PathBegin);
@@ -465,7 +468,8 @@ struct Path
         pointAt(params.end);
     }
 
-    bool generate(const PathParams& params, float detail, int split)
+    // sculptSize > 0: a sculpted prim's path, a circle of that many sides.
+    bool generate(const PathParams& params, float detail, int split, int sculptSize = 0)
     {
         detail = std::max(detail, 0.0f);
         points.clear();
@@ -501,9 +505,12 @@ struct Path
         case PathCurve::Circle:
         {
             const float twistMag = std::abs(params.twistBegin - params.twist);
-            const int sides = static_cast<int>(std::floor(
-                std::floor(kMinDetailFaces * detail + twistMag * 3.5f * (detail - 0.5f)) *
-                params.revolutions));
+            const int sides =
+                sculptSize > 0
+                    ? sculptSize
+                    : static_cast<int>(std::floor(
+                          std::floor(kMinDetailFaces * detail + twistMag * 3.5f * (detail - 0.5f)) *
+                          params.revolutions));
             if(sides > 0)
             {
                 genNGon(params, sides);
@@ -568,6 +575,10 @@ struct Builder
     Profile profile;
     Path path;
     std::vector<glm::vec3> mesh; // path.points.size() rows of profile.total points
+    // Sculpted prims: how the map's edges join (SculptType; 0 for other
+    // prims) and whether its columns run backwards (invert XOR mirror).
+    uint8_t sculptStitching = 0;
+    bool sculptReversed = false;
 
     void side(const FaceLayout& layout, VolumeFace& face) const
     {
@@ -607,6 +618,10 @@ struct Builder
                         ss = flat ? pts[static_cast<size_t>(index)].z - beginU
                                   : pts[static_cast<size_t>(index)].z;
                     }
+                }
+                if(sculptReversed)
+                {
+                    ss = 1.0f - ss;
                 }
                 const glm::vec3& p = mesh[static_cast<size_t>(meshIndex(s, t))];
                 face.positions.push_back(p);
@@ -662,6 +677,11 @@ struct Builder
         const glm::vec3 top = face.positions[static_cast<size_t>(cols - 1)] -
                               face.positions[static_cast<size_t>(cols * (rows - 2) + cols - 1)];
         const bool topConverges = glm::dot(top, top) < 0.000001f;
+        if(sculptStitching != 0)
+        {
+            sculptSeams(cols, rows, n);
+            return;
+        }
         if(!path.open)
         {
             for(int s = 0; s < cols; s++)
@@ -693,6 +713,49 @@ struct Builder
                 {
                     at(cols - 1, t) = glm::vec3(-1, 0, 0);
                 }
+            }
+        }
+    }
+
+    // Sculpted prims' seams (llvolume.cpp createSide): a sphere's poles
+    // share one normal; sphere, torus and cylinder maps wrap their sides
+    // together, a torus its top and bottom too.
+    void sculptSeams(int cols, int rows, std::vector<glm::vec3>& n) const
+    {
+        auto at = [&](int s, int t) -> glm::vec3& { return n[static_cast<size_t>(s + cols * t)]; };
+        if(sculptStitching == SculptStitching::Sphere)
+        {
+            for(const int t : {0, rows - 1})
+            {
+                glm::vec3 average(0.0f);
+                for(int s = 0; s < cols; s++)
+                {
+                    average += at(s, t);
+                }
+                for(int s = 0; s < cols; s++)
+                {
+                    at(s, t) = average;
+                }
+            }
+        }
+        if(sculptStitching == SculptStitching::Sphere ||
+           sculptStitching == SculptStitching::Torus ||
+           sculptStitching == SculptStitching::Cylinder)
+        {
+            for(int t = 0; t < rows; t++)
+            {
+                const glm::vec3 sum = at(0, t) + at(cols - 1, t);
+                at(0, t) = sum;
+                at(cols - 1, t) = sum;
+            }
+        }
+        if(sculptStitching == SculptStitching::Torus)
+        {
+            for(int s = 0; s < cols; s++)
+            {
+                const glm::vec3 sum = at(s, 0) + at(s, rows - 1);
+                at(s, 0) = sum;
+                at(s, rows - 1) = sum;
             }
         }
     }
@@ -961,51 +1024,9 @@ VolumeParams unpackVolumeParams(const PackedVolumeParams& p)
     return v;
 }
 
-std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail)
+// Each profile face's triangles over the mesh.
+static std::vector<VolumeFace> buildFaces(const Builder& b, const VolumeParams& effective)
 {
-    Builder b{params, {}, {}, {}};
-
-    int split = static_cast<int>(detail * 0.66f);
-    const uint8_t profileCurve = params.profile.curve;
-    if(params.path.curve == PathCurve::Line &&
-       (params.path.scale.x != 1.0f || params.path.scale.y != 1.0f) &&
-       (profileCurve == ProfileCurve::Square || profileCurve == ProfileCurve::IsoTriangle ||
-        profileCurve == ProfileCurve::EqualTriangle || profileCurve == ProfileCurve::RightTriangle))
-    {
-        split = 0;
-    }
-
-    // Flexible prims bend at runtime; until that's simulated, draw them as
-    // straight lines.
-    VolumeParams effective = params;
-    if((effective.path.curve & PathCurve::Flexible) != 0)
-    {
-        effective.path.curve = PathCurve::Line;
-    }
-
-    b.path.generate(effective.path, detail, split);
-    if(b.path.points.size() < 2 ||
-       !b.profile.generate(effective.profile, b.path.open, detail, split))
-    {
-        return {};
-    }
-    if(b.profile.total < 2)
-    {
-        return {};
-    }
-
-    // Sweep: each profile point scaled by the path's taper, rotated and moved
-    // to each path point.
-    b.mesh.reserve(b.path.points.size() * static_cast<size_t>(b.profile.total));
-    for(const PathPoint& pp : b.path.points)
-    {
-        for(const glm::vec3& p : b.profile.points)
-        {
-            b.mesh.push_back(pp.rotation * glm::vec3(p.x * pp.scale.x, p.y * pp.scale.y, 0.0f) +
-                             pp.position);
-        }
-    }
-
     std::vector<VolumeFace> faces(b.profile.faces.size());
     for(size_t i = 0; i < b.profile.faces.size(); i++)
     {
@@ -1073,6 +1094,176 @@ std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail)
         }
     }
     return faces;
+}
+
+std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail)
+{
+    Builder b{params, {}, {}, {}};
+
+    int split = static_cast<int>(detail * 0.66f);
+    const uint8_t profileCurve = params.profile.curve;
+    if(params.path.curve == PathCurve::Line &&
+       (params.path.scale.x != 1.0f || params.path.scale.y != 1.0f) &&
+       (profileCurve == ProfileCurve::Square || profileCurve == ProfileCurve::IsoTriangle ||
+        profileCurve == ProfileCurve::EqualTriangle || profileCurve == ProfileCurve::RightTriangle))
+    {
+        split = 0;
+    }
+
+    // Flexible prims bend at runtime; until that's simulated, draw them as
+    // straight lines.
+    VolumeParams effective = params;
+    if((effective.path.curve & PathCurve::Flexible) != 0)
+    {
+        effective.path.curve = PathCurve::Line;
+    }
+
+    b.path.generate(effective.path, detail, split);
+    if(b.path.points.size() < 2 ||
+       !b.profile.generate(effective.profile, b.path.open, detail, split))
+    {
+        return {};
+    }
+    if(b.profile.total < 2)
+    {
+        return {};
+    }
+
+    // Sweep: each profile point scaled by the path's taper, rotated and moved
+    // to each path point.
+    b.mesh.reserve(b.path.points.size() * static_cast<size_t>(b.profile.total));
+    for(const PathPoint& pp : b.path.points)
+    {
+        for(const glm::vec3& p : b.profile.points)
+        {
+            b.mesh.push_back(pp.rotation * glm::vec3(p.x * pp.scale.x, p.y * pp.scale.y, 0.0f) +
+                             pp.position);
+        }
+    }
+
+    return buildFaces(b, effective);
+}
+
+std::vector<VolumeFace> generateSculpt(const VolumeParams& params, float detail, uint8_t sculptType,
+                                       const SculptMap& map)
+{
+    // Mesh resolution (sculpt_calc_mesh_resolution): as close to the map's
+    // aspect as possible, at most a side of 6, 8, 16 or 32 points squared by
+    // level of detail, and at most a vertex per four pixels.
+    const int lodSides = detail <= 1.0f ? 6 : detail <= 2.0f ? 8 : detail <= 3.0f ? 16 : 32;
+    const int mapVertices = static_cast<int>(map.width * map.height / 4);
+    const int vertices =
+        mapVertices > 0 ? std::min(lodSides * lodSides, mapVertices) : lodSides * lodSides;
+    const float ratio = map.width == 0 || map.height == 0
+                            ? 1.0f
+                            : static_cast<float>(map.width) / static_cast<float>(map.height);
+    int sizeS = std::max(static_cast<int>(std::sqrt(static_cast<float>(vertices) / ratio)), 4);
+    const int sizeT = std::max(vertices / sizeS, 4);
+    sizeS = vertices / sizeT;
+
+    Builder b{params, {}, {}, {}};
+    b.sculptStitching = sculptType & SculptStitching::Mask;
+    const bool invert = sculptType & SculptStitching::Invert;
+    const bool mirror = sculptType & SculptStitching::Mirror;
+    b.sculptReversed = invert != mirror;
+    b.path.generate(params.path, detail, 0, sizeS);
+    if(b.path.points.size() < 2 ||
+       !b.profile.generate(params.profile, b.path.open, detail, 0, sizeT) || b.profile.total < 2)
+    {
+        return {};
+    }
+    const int rows = static_cast<int>(b.path.points.size());
+    const int cols = static_cast<int>(b.profile.points.size());
+    b.mesh.resize(static_cast<size_t>(rows) * static_cast<size_t>(cols));
+
+    const bool usable = map.width > 0 && map.height > 0 &&
+                        map.rgba.size() >= static_cast<size_t>(map.width) * map.height * 4;
+    // A map's pixel to a point: 0..255 to -0.5..0.5 (sculpt_rgb_to_vector).
+    auto pixel = [&](uint32_t x, uint32_t y)
+    {
+        const size_t i = (static_cast<size_t>(x) + static_cast<size_t>(y) * map.width) * 4;
+        return glm::vec3(map.rgba[i], map.rgba[i + 1], map.rgba[i + 2]) / 255.0f - glm::vec3(0.5f);
+    };
+    // Sample along the profile (x) and path (y), joining edges by type
+    // (sculptGenerateMapVertices).
+    for(int s = 0; s < rows && usable; s++)
+    {
+        for(int t = 0; t < cols; t++)
+        {
+            const int column = b.sculptReversed ? cols - t - 1 : t;
+            auto x =
+                static_cast<uint32_t>(static_cast<float>(column) / static_cast<float>(cols - 1) *
+                                      static_cast<float>(map.width));
+            auto y = static_cast<uint32_t>(static_cast<float>(s) / static_cast<float>(rows - 1) *
+                                           static_cast<float>(map.height));
+            if(y == 0 && b.sculptStitching == SculptStitching::Sphere)
+            {
+                x = map.width / 2; // pinched
+            }
+            if(y == map.height)
+            {
+                y = b.sculptStitching == SculptStitching::Torus ? 0 : map.height - 1;
+                if(b.sculptStitching == SculptStitching::Sphere)
+                {
+                    x = map.width / 2;
+                }
+            }
+            if(x == map.width)
+            {
+                const bool wraps = b.sculptStitching == SculptStitching::Sphere ||
+                                   b.sculptStitching == SculptStitching::Torus ||
+                                   b.sculptStitching == SculptStitching::Cylinder;
+                x = wraps ? 0 : map.width - 1;
+            }
+            glm::vec3 p = pixel(x, y);
+            if(mirror)
+            {
+                p.x = -p.x;
+            }
+            b.mesh[static_cast<size_t>(s * cols + t)] = p;
+        }
+    }
+
+    // A map without enough shape (or too much: a broken one) makes a sphere
+    // instead (sculptGetSurfaceArea; not checked at the lowest detail, for
+    // old content).
+    bool placeholder = !usable;
+    if(usable && detail > 1.0f)
+    {
+        float area = 0.0f;
+        for(int s = 0; s + 1 < rows; s++)
+        {
+            for(int t = 0; t + 1 < cols; t++)
+            {
+                const glm::vec3& p1 = b.mesh[static_cast<size_t>(s * cols + t)];
+                const glm::vec3& p2 = b.mesh[static_cast<size_t>((s + 1) * cols + t)];
+                const glm::vec3& p3 = b.mesh[static_cast<size_t>(s * cols + t + 1)];
+                const glm::vec3& p4 = b.mesh[static_cast<size_t>((s + 1) * cols + t + 1)];
+                area += (glm::length(glm::cross(p1 - p2, p1 - p3)) +
+                         glm::length(glm::cross(p4 - p2, p4 - p3))) /
+                        2.0f;
+            }
+        }
+        placeholder = area < 0.002f || area > 384.0f;
+    }
+    if(placeholder)
+    {
+        for(int s = 0; s < rows; s++)
+        {
+            for(int t = 0; t < cols; t++)
+            {
+                const float u = static_cast<float>(s) / static_cast<float>(rows - 1);
+                const float v = static_cast<float>(t) / static_cast<float>(cols - 1);
+                constexpr float kRadius = 0.3f;
+                const float pi = glm::pi<float>();
+                b.mesh[static_cast<size_t>(s * cols + t)] =
+                    glm::vec3(std::sin(pi * v) * std::cos(2.0f * pi * u),
+                              std::sin(pi * v) * std::sin(2.0f * pi * u), std::cos(pi * v)) *
+                    kRadius;
+            }
+        }
+    }
+    return buildFaces(b, params);
 }
 
 } // namespace viewer::volume

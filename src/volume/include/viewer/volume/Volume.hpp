@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace viewer::volume
@@ -56,5 +57,34 @@ struct VolumeFace
 // The faces of a prim at the given detail (one of kDetailScales). Returns no
 // faces for parameters the official viewer can't build either.
 std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail);
+
+// How a sculpt map's edges join: the sculpt type's low bits (llvolume.h
+// LL_SCULPT_TYPE_*), plus flags.
+namespace SculptStitching
+{
+inline constexpr uint8_t Sphere = 1;   // top and bottom rows pinched to points, sides wrap
+inline constexpr uint8_t Torus = 2;    // sides wrap, top and bottom wrap
+inline constexpr uint8_t Plane = 3;    // nothing wraps
+inline constexpr uint8_t Cylinder = 4; // sides wrap
+inline constexpr uint8_t Mask = 0x07;
+inline constexpr uint8_t Invert = 0x40; // inside out
+inline constexpr uint8_t Mirror = 0x80; // mirrored in x
+} // namespace SculptStitching
+
+// A sculpt map: RGBA8 pixels, rows bottom-up (as the official viewer keeps
+// images, and TextureManager hands them out); R, G, B are x, y, z.
+struct SculptMap
+{
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::span<const uint8_t> rgba;
+};
+
+// A sculpted prim's faces, as llvolume.cpp LLVolume::sculpt: the path and
+// profile (circles, normally) get as many points as the map and the level of
+// detail allow, and each mesh point comes from the map's pixel there instead
+// of the sweep. A map too flat or too big to make a shape gives a sphere.
+std::vector<VolumeFace> generateSculpt(const VolumeParams& params, float detail, uint8_t sculptType,
+                                       const SculptMap& map);
 
 } // namespace viewer::volume

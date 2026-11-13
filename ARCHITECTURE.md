@@ -759,8 +759,21 @@ are alpha-masked Blinn-Phong draws: culled, sorted and shadowed like any
 object.
 
 Rigged mesh (a header `skin` block) is drawn skinned to the avatar wearing
-it; see Avatars. Not drawn yet: sculpted prims, flexible prims (drawn straight), planar
-texture mapping.
+it; see Avatars. Not drawn yet: flexible prims (drawn straight).
+
+Sculpted prims (sculpt types 1-4) take their shape from a sculpt map, a
+texture whose pixels' RGB are positions (0..255 to -0.5..0.5), as
+llvolume.cpp LLVolume::sculpt (`volume::generateSculpt`): the path and
+profile (circles) get as many points as the map's aspect and the level of
+detail allow (sides of 6, 8, 16 or 32, at most a point per four pixels),
+each mesh point is the pixel there instead of the sweep, the map's edges
+join by type (sphere: poles pinched, sides wrapped; torus: both wrapped;
+cylinder: sides; plane: none), invert and mirror flip it, and the faces
+are built as any prim's, the seams' normals joined the same way. A map
+with too little or too much surface area (flat, or noise) makes a sphere
+instead. `ObjectView` reads the map through `TextureManager::data` (whole,
+on the CPU) and keys the geometry by map and type too; a sculpted prim is
+drawn once its map has loaded.
 
 ## Avatars
 

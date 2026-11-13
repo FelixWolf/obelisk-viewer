@@ -100,6 +100,11 @@ size_t ObjectView::KeyHash::operator()(const Key& key) const
         mixFloat(f);
     }
     mix(static_cast<uint32_t>(key.detail));
+    for(const uint8_t b : key.sculpt.bytes)
+    {
+        mix(b);
+    }
+    mix(key.sculptType);
     return static_cast<size_t>(h);
 }
 
@@ -170,18 +175,28 @@ ObjectView::Generated ObjectView::withExtent(Generated g)
     return g;
 }
 
-ObjectView::Geometry& ObjectView::geometry(const Key& key)
+ObjectView::Geometry& ObjectView::geometry(const Key& key, const image::TextureData* sculptMap)
 {
     auto [it, inserted] = cache_.try_emplace(key);
     if(inserted)
     {
         running_++;
+        // The sculpt map's pixels go with the job (maps are small).
+        image::MipLevel map;
+        if(sculptMap && !sculptMap->levels.empty())
+        {
+            map = sculptMap->levels.front();
+        }
         jobs_.submit(
-            [this, key]
+            [this, key, map = std::move(map)]
             {
-                generated_.push(withExtent(Generated{
-                    key, volume::generateVolume(
-                             key.params, volume::kDetailScales[static_cast<size_t>(key.detail)])}));
+                const float detail = volume::kDetailScales[static_cast<size_t>(key.detail)];
+                generated_.push(withExtent(
+                    Generated{key, key.sculptType != 0
+                                       ? volume::generateSculpt(
+                                             key.params, detail, key.sculptType,
+                                             volume::SculptMap{map.width, map.height, map.pixels})
+                                       : volume::generateVolume(key.params, detail)}));
                 running_--;
             });
     }
@@ -563,10 +578,17 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         const uint8_t sculpt = object.sculptType & world::SculptType::Mask;
         const bool isMesh = sculpt == world::SculptType::Mesh;
+        // Sculpted prims: shaped by their sculpt map, read on the CPU; not
+        // drawn until it has loaded.
+        const image::TextureData* sculptMap = nullptr;
         if(sculpt != world::SculptType::None && !isMesh)
         {
-            stats_.skipped++;
-            continue;
+            sculptMap = textures.data(object.sculptTexture);
+            if(!sculptMap)
+            {
+                stats_.skipped++;
+                continue;
+            }
         }
 
         // Rigged mesh: skinned to the skeleton it follows (its avatar's or
@@ -607,7 +629,11 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         else
         {
-            Geometry& geo = geometry(Key{object.volume, detail});
+            Geometry& geo =
+                sculptMap
+                    ? geometry(Key{object.volume, detail, object.sculptTexture, object.sculptType},
+                               sculptMap)
+                    : geometry(Key{object.volume, detail});
             faces = geo.ready ? &geo.faces : nullptr;
             extent = geo.extent;
         }
