@@ -414,6 +414,32 @@ dithers its output so the sky's slow gradients don't band. The Environment windo
 and can fix the time of day; `--day-time 0..1` does that from the command
 line. Not drawn yet: sun and moon textures, moon phases, water.
 
+### HUDs
+
+HUD attachments (attachment points 31 to 38, on the mScreen joint) are
+drawn into an image of their own (`RendererHud.cpp`), not onto the view,
+so the image can be shown anywhere: over the view, as the official viewer
+does, or on a panel in the scene (`render::Hud::placement`): on the left
+forearm, or floating in front of the camera, where a VR headset would show
+it. XR can take `Renderer::hudImage()` as it is.
+
+HUD space is the official one (llviewerdisplay.cpp get_hud_matrices): an
+orthographic camera looking along +X, +Y left, +Z up, the image 1 unit
+tall and its aspect wide (zoom divides both). The points sit at their
+avatar_lad.xml positions with Y times the aspect (the official mScreen
+joint is scaled (1, aspect, 1)), so corner HUDs stay in their corners; the
+objects themselves aren't scaled. `ObjectView` marks HUD attachments'
+draws `hud`: they're never culled, always at the most detail, with
+textures as big as they show on the image, and they give no lights or
+reflection probes; the view, shadows and probes leave them out. They're
+drawn as the official viewer draws HUDs: unlit (legacy faces fullbright;
+PBR base color plus emission, as pbropaqueF.glsl IS_HUD), opaque faces
+first, then blended ones from far to near, written in sRGB (they're drawn
+after tonemapping there) into a transparent image, which leaves it
+premultiplied by coverage. Over the view it's blended in sRGB after the
+tonemap; on a panel it's turned back into linear light for the HDR view.
+Not yet: clicking HUDs, HUD zoom controls, rigged mesh on HUDs.
+
 ### Reflection probes
 
 Reflections, and on skies made for PBR the ambient light, come from

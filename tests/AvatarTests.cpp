@@ -19,7 +19,10 @@ TEST_CASE("Base avatar: skeleton, meshes and attachment points load")
     CHECK(avatar->pelvisToFoot < 1.2f);
     CHECK(avatar->bodyHeight > 1.6f);
     CHECK(avatar->bodyHeight < 2.2f);
-    CHECK(avatar->attachmentPoints.size() == 47);       // 55 minus the 8 HUD points
+    CHECK(avatar->attachmentPoints.size() == 55);
+    CHECK(avatar->attachmentPoints.at(32).hud); // Top Right, on the screen
+    CHECK(avatar->attachmentPoints.at(32).position == glm::vec3(0.0f, -0.5f, 0.5f));
+    CHECK_FALSE(avatar->attachmentPoints.at(2).hud);
     CHECK(avatar->attachmentPoints.at(40).joint == -1); // Avatar Center: the root
     CHECK(avatar->attachmentPoints.at(2).name == "Skull");
     REQUIRE(avatar->meshes.size() == std::size(kBodyParts));

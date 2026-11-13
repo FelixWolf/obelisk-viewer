@@ -7,6 +7,7 @@
 #include "EmbeddedAssets.hpp"
 
 #include <SDL3/SDL.h>
+#include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 
 #include <algorithm>
@@ -485,6 +486,9 @@ int App::run()
                               sd[3]);
                     log::info("local lights: {} in range, {} used", scene_.lights.size(),
                               renderer_->lightsUsed());
+                    log::info(
+                        "HUD attachments: {} faces",
+                        std::ranges::count_if(scene_.objects, [](const auto& d) { return d.hud; }));
                     log::info("reflection probes: {} local, {} captured, {} in use",
                               scene_.probes.size(), renderer_->probesCaptured(),
                               renderer_->probesUsed());
@@ -928,6 +932,13 @@ void App::buildScene(render::Scene& scene)
     textures_->setView(static_cast<uint32_t>(std::max(height, 1)), scene.camera.verticalFov);
     scene.frustum = render::Frustum::fromCamera(
         scene.camera, height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f);
+    // The HUD image is as big as the view, so HUDs lay out as on screen.
+    scene.hud.aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
+    scene.hud.pixelHeight = static_cast<float>(std::max(height, 1));
+    if(avatars_)
+    {
+        avatars_->setHudAspect(scene.hud.aspect);
+    }
     if(world_ && originHandle_)
     {
         terrainView_.update(*world_, *renderer_);
@@ -976,6 +987,7 @@ void App::buildScene(render::Scene& scene)
                             128.0f);
         }
         profile_.mark(FrameProfile::Avatars);
+        placeHud(scene);
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         *legacyMaterials_, avatars_.get(), 128.0f);
         trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
@@ -1008,6 +1020,42 @@ void App::buildScene(render::Scene& scene)
             originHandle_ ? camera_.target() + glm::vec3(0.0f, 30.0f, 0.0f) : glm::vec3(0.0f);
         sceneAssets_->addTestScene(scene, origin);
     }
+}
+
+void App::placeHud(render::Scene& scene)
+{
+    render::Hud& hud = scene.hud;
+    hud.placement = render::Hud::Placement::World;
+    // A panel's frame: faced from -X, +Y left, +Z up (as HUD space).
+    if(hudPlacement_ == HudPlacement::Forearm && avatars_ && agentKey_)
+    {
+        const world::Object* self = world_->object(agentKey_->region, agentKey_->localId);
+        constexpr int kLeftForearm = 21; // "L Forearm", on mElbowLeft
+        const auto forearm =
+            self ? avatars_->attachmentFrame(*self, *world_, kLeftForearm, *originHandle_)
+                 : std::nullopt;
+        if(forearm)
+        {
+            // On top of the forearm, facing up, like a watch.
+            hud.panel = *forearm * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.06f, 0.06f)) *
+                        glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), glm::vec3(0, 1, 0));
+            hud.panelHeight = 0.2f;
+            return;
+        }
+    }
+    if(hudPlacement_ != HudPlacement::Screen)
+    {
+        // In front of the camera, facing it (where a headset would show it).
+        const render::Camera& camera = scene.camera;
+        const glm::vec3 forward = glm::normalize(camera.target - camera.position);
+        const glm::vec3 left = glm::normalize(glm::cross(camera.up, forward));
+        const glm::vec3 up = glm::cross(forward, left);
+        hud.panel = glm::mat4(glm::vec4(forward, 0.0f), glm::vec4(left, 0.0f), glm::vec4(up, 0.0f),
+                              glm::vec4(camera.position + forward, 1.0f));
+        hud.panelHeight = 0.5f;
+        return;
+    }
+    hud.placement = render::Hud::Placement::Screen;
 }
 
 void App::logOutBeforeExit()
@@ -1098,6 +1146,12 @@ void App::drawEnvironmentWindow()
                 fixed ? std::optional<float>(static_cast<float>(s.position)) : std::nullopt);
         }
         ImGui::Checkbox("Sun shadows", &shadows_);
+        int placement = static_cast<int>(hudPlacement_);
+        if(ImGui::Combo("HUDs", &placement,
+                        "Over the screen\0On the left forearm\0Floating in front\0"))
+        {
+            hudPlacement_ = static_cast<HudPlacement>(placement);
+        }
         float exposure = environment_->exposure();
         if(ImGui::SliderFloat("Exposure", &exposure, 0.1f, 4.0f, "%.2f",
                               ImGuiSliderFlags_Logarithmic))

@@ -194,6 +194,17 @@ private:
     render::Scene scene_; // this frame's, kept for its lists' capacity
     bool showFps_ = true;
     bool shadows_ = true;
+    // Where HUD attachments show (render::Hud): over the screen, on the
+    // left forearm, or floating in front of the camera.
+    enum class HudPlacement : int
+    {
+        Screen,
+        Forearm,
+        Floating,
+    };
+    HudPlacement hudPlacement_ = HudPlacement::Screen;
+    // The HUD panel's frame for the placements in the scene.
+    void placeHud(render::Scene& scene);
     float bandwidth_ = session::kDefaultBandwidthKbps; // kbps, for each new session
 };
 

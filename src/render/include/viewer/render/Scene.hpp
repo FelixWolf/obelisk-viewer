@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <variant>
@@ -115,6 +116,8 @@ struct ObjectDraw
     uint64_t layer = 0;
     // Out of view: drawn only into shadow maps and reflection probes.
     bool shadowOnly = false;
+    // A HUD attachment: in HUD space (render::Hud), drawn only into the HUD.
+    bool hud = false;
 };
 
 struct TerrainDraw
@@ -149,6 +152,31 @@ struct Reflections
     // The probe face captured this frame (Renderer::nextProbeFace), if any:
     // out of view, what's in it is still listed (as shadowOnly draws).
     std::optional<Frustum> probeFace;
+};
+
+// HUD attachments: drawn into an image of their own (as the official
+// viewer draws them, unlit and alpha blended, through an orthographic
+// camera), which is then shown where `placement` says: over the screen, or
+// on a panel in the world (a wrist, say, or in front of a VR headset).
+//
+// HUD space is the official one: the camera looks along +X (nearer is
+// smaller X), +Y is left and +Z up; the image is 1 unit tall and `aspect`
+// wide at zoom 1, centered on the origin.
+struct Hud
+{
+    float aspect = 1.0f; // width over height of the HUD image
+    float zoom = 1.0f;
+    float pixelHeight = 1080.0f; // the image's height in pixels (for texture sizes)
+    enum class Placement : uint8_t
+    {
+        Screen, // over the view, as the official viewer
+        World,  // on a panel in the scene
+    };
+    Placement placement = Placement::Screen;
+    // Placement::World: the panel's frame (its center; +Y left, +Z up, faced
+    // from -X, as HUD space) and its height in meters.
+    glm::mat4 panel{1.0f};
+    float panelHeight = 0.3f;
 };
 
 // A local reflection probe: inside its sphere (or box), surfaces reflect
@@ -221,6 +249,7 @@ struct Scene
     Lighting lighting;
     Shadows shadows;
     Reflections reflections;
+    Hud hud;
     std::vector<ReflectionProbe> probes;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;

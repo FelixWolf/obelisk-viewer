@@ -103,6 +103,11 @@ public:
     // view-projection), if one is under way: objects in it should be in the
     // scene even out of view (Reflections::probeFace).
     std::optional<Frustum> nextProbeFace() const;
+    // The HUD image last drawn (premultiplied, sRGB-encoded values; null
+    // before any HUD): for showing it elsewhere, such as in a headset.
+    SDL_GPUTexture* hudImage() const { return hudImage_; }
+    // HUD space to the HUD image's clip space (render::Hud).
+    static glm::mat4 hudViewProjection(const Hud& hud);
     // Local probes surfaces used last frame, and cubes holding a capture.
     uint32_t probesUsed() const { return probesShaded_; }
     uint32_t probesCaptured() const;
@@ -172,6 +177,14 @@ private:
     // The probe textures, as samplers 'radiance, irradiance, BRDF table'.
     std::array<SDL_GPUTextureSamplerBinding, 3> probeSamplers() const;
 
+    // HUD attachments (RendererHud.cpp): into the HUD image, `width` x
+    // `height` (false if there are none); that image over `target`, or on a
+    // panel in the scene.
+    bool drawHud(SDL_GPUCommandBuffer* commands, const Scene& scene, uint32_t width,
+                 uint32_t height, bool drawsReady);
+    void compositeHud(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target);
+    void drawHudPanel(ScenePass& pass, const Hud& hud, const glm::mat4& viewProjection);
+
     // Renders the shadow casters into each cascade's layer of the shadow map.
     void drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene, const Cascades& cascades,
                      bool drawsReady);
@@ -222,6 +235,11 @@ private:
     int projectorLayer(SDL_GPUCommandBuffer* commands, const GpuTexture& texture);
     uint32_t targetWidth_ = 0;
     uint32_t targetHeight_ = 0;
+
+    SDL_GPUTexture* hudImage_ = nullptr;
+    SDL_GPUTexture* hudDepth_ = nullptr;
+    uint32_t hudWidth_ = 0;
+    uint32_t hudHeight_ = 0;
 
     // Reflection probes: the radiance and irradiance cubes (cube arrays, one
     // cube per probe, so far just the default one), the cube being captured

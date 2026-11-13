@@ -24,6 +24,9 @@ namespace viewer::render
 
 // The scene's color (HDR, linear), as rendered and in reflection probes.
 inline constexpr SDL_GPUTextureFormat kHdrFormat = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+// The HUD image: sRGB-encoded values (as the official viewer's HUDs, drawn
+// after tonemapping), premultiplied by coverage.
+inline constexpr SDL_GPUTextureFormat kHudFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 
 struct FrameVS
 {

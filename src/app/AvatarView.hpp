@@ -75,9 +75,14 @@ public:
     glm::mat4 rootFrame(const world::Object& avatar, const world::World& world,
                         uint64_t originHandle) const;
     // An attachment point's frame on an avatar (as posed this frame);
-    // nothing for unknown points.
+    // nothing for unknown points. HUD points' frames are in HUD space
+    // (render::Hud), not the scene's.
     std::optional<glm::mat4> attachmentFrame(const world::Object& avatar, const world::World& world,
                                              int point, uint64_t originHandle) const;
+    bool isHudPoint(int point) const;
+    // HUD points spread sideways with the HUD's width over its height, as
+    // the official mScreen joint is scaled (1, aspect, 1).
+    void setHudAspect(float aspect) { hudAspect_ = aspect; }
 
     // Bake on Mesh: if `texture` is one of the placeholders that stand for
     // an avatar's bakes, that bake of this avatar (nullptr while it loads);
@@ -187,6 +192,7 @@ private:
                                std::pair<std::shared_ptr<const assets::MeshSkin>, SkinBinding>>
         bindings_;
     std::string appearanceUrl_;
+    float hudAspect_ = 1.0f;
     uint64_t frame_ = 0;
     size_t drawn_ = 0;
     size_t animatedObjects_ = 0; // skeletons posed for animated objects last frame

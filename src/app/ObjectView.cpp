@@ -561,6 +561,27 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     }
 }
 
+bool ObjectView::onHud(const world::Object& object, const world::World& world,
+                       const AvatarView* avatars) const
+{
+    // Up the link set to the root; attached to an avatar at a HUD point?
+    const world::Object* o = &object;
+    for(int depth = 0; depth < 16 && o->parentId != 0; depth++)
+    {
+        const world::Object* parent = world.object(o->region, o->parentId);
+        if(!parent)
+        {
+            return false;
+        }
+        if(parent->type == world::ObjectType::Avatar)
+        {
+            return avatars && avatars->isHudPoint(avatar::attachmentPointFromState(o->state));
+        }
+        o = parent;
+    }
+    return false;
+}
+
 void ObjectView::addProbe(render::Scene& scene, const world::Object& object,
                           const glm::mat4& frame) const
 {
@@ -611,7 +632,10 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             continue;
         }
-        if(object.light)
+        // HUD attachments: in HUD space, drawn into the HUD only (no lights
+        // or probes from them, no culling, always the most detail).
+        const bool hud = onHud(object, world, avatars);
+        if(object.light && !hud)
         {
             addLight(scene, world, object, originHandle, textures, avatars, drawDistance);
         }
@@ -634,6 +658,10 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // its animated object's), wherever the prim itself is.
         if(isMesh && meshes.isRigged(object.sculptTexture).value_or(false))
         {
+            if(hud)
+            {
+                continue; // rigged mesh on a HUD: not drawn
+            }
             addRigged(scene, world, object, originHandle, textures, meshes, materials,
                       legacyMaterials, avatars, drawDistance);
             continue;
@@ -650,22 +678,25 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // Distance and a rough "behind the camera" cull (unless its shadow
         // may still reach the view, or reflection probes see it).
         const float radius = glm::length(object.scale) * 0.5f;
-        probeObjects_.push_back({position, radius});
-        if(object.reflectionProbe)
+        if(!hud)
         {
-            addProbe(scene, object, *frame);
+            probeObjects_.push_back({position, radius});
+            if(object.reflectionProbe)
+            {
+                addProbe(scene, object, *frame);
+            }
         }
         const glm::vec3 toObject = position - camera;
         const float distance = glm::length(toObject);
         const bool forProbes = scene.reflections.enabled && scene.reflections.probeFace &&
                                scene.reflections.probeFace->containsSphere(position, radius);
-        if(distance - radius > drawDistance ||
-           (!scene.shadows.enabled && !forProbes && glm::dot(toObject, forward) < -radius))
+        if(!hud && (distance - radius > drawDistance || (!scene.shadows.enabled && !forProbes &&
+                                                         glm::dot(toObject, forward) < -radius)))
         {
             continue;
         }
 
-        const int detail = detailFor(radius, distance);
+        const int detail = hud ? 3 : detailFor(radius, distance);
         const std::vector<render::Mesh>* faces = nullptr;
         glm::vec3 extent(0.5f); // mesh assets fit their box
         if(isMesh)
@@ -688,15 +719,18 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
         const render::Visibility seen =
-            scene.visibility(position, glm::length(extent * object.scale));
+            hud ? render::Visibility::Visible
+                : scene.visibility(position, glm::length(extent * object.scale));
         if(seen == render::Visibility::Hidden)
         {
             stats_.culled++;
             continue;
         }
 
-        // Textures as big as the prim shows (the least for shadows only).
-        const float texels = seen == render::Visibility::ShadowOnly
+        // Textures as big as the prim shows (the least for shadows only; on
+        // the HUD, its size on the HUD image).
+        const float texels = hud ? 2.0f * radius * scene.hud.pixelHeight * scene.hud.zoom
+                             : seen == render::Visibility::ShadowOnly
                                  ? 0.0f
                                  : textures.texelsFor(2.0f * radius, distance);
         const glm::mat4 transform = *frame * glm::scale(glm::mat4(1.0f), object.scale);
@@ -737,6 +771,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 uvTransform(face, draw.uvRow0, draw.uvRow1);
             }
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
+            draw.hud = hud;
             scene.objects.push_back(draw);
             stats_.faces++;
         }

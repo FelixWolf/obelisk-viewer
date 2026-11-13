@@ -157,6 +157,12 @@ glm::mat4 AvatarView::rootFrame(const world::Object& avatar, const world::World&
     return glm::translate(glm::mat4(1.0f), root) * glm::mat4_cast(pose.rotation);
 }
 
+bool AvatarView::isHudPoint(int point) const
+{
+    const auto it = base_.attachmentPoints.find(point);
+    return it != base_.attachmentPoints.end() && it->second.hud;
+}
+
 std::optional<glm::mat4> AvatarView::attachmentFrame(const world::Object& avatar,
                                                      const world::World& world, int point,
                                                      uint64_t originHandle) const
@@ -167,6 +173,11 @@ std::optional<glm::mat4> AvatarView::attachmentFrame(const world::Object& avatar
         return std::nullopt;
     }
     const avatar::AttachmentPoint& a = it->second;
+    if(a.hud)
+    {
+        return glm::translate(glm::mat4(1.0f), a.position * glm::vec3(1.0f, hudAspect_, 1.0f)) *
+               glm::mat4_cast(a.rotation);
+    }
     glm::mat4 joint(1.0f);
     if(a.joint >= 0)
     {

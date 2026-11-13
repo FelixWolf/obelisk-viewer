@@ -32,6 +32,12 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* probeRadiance = nullptr;
     SDL_GPUGraphicsPipeline* probeIrradiance = nullptr;
     SDL_GPUGraphicsPipeline* brdfTable = nullptr;
+    // HUD attachments into the HUD image (legacy and PBR, opaque and
+    // blended), the HUD image over the view, and on a panel in the scene.
+    SDL_GPUGraphicsPipeline* hudLegacy[2] = {};
+    SDL_GPUGraphicsPipeline* hudPbr[2] = {};
+    SDL_GPUGraphicsPipeline* hudComposite = nullptr;
+    SDL_GPUGraphicsPipeline* hudPanel = nullptr;
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
     SDL_GPUGraphicsPipeline* shadowObject = nullptr;
     SDL_GPUGraphicsPipeline* shadowObjectMasked = nullptr;
@@ -59,6 +65,12 @@ struct Renderer::Pipelines
                                           probeRadiance,
                                           probeIrradiance,
                                           brdfTable,
+                                          hudLegacy[0],
+                                          hudLegacy[1],
+                                          hudPbr[0],
+                                          hudPbr[1],
+                                          hudComposite,
+                                          hudPanel,
                                           shadowObject,
                                           shadowObjectMasked,
                                           shadowSkinned,

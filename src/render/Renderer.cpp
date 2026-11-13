@@ -71,9 +71,10 @@ Renderer::~Renderer()
     blackLayers_.reset();
     flatNormalLayers_.reset();
     terrainBlendRamp_.reset();
-    for(SDL_GPUTexture* t : {hdrTarget_, depthTarget_, screenshotTexture_, shadowMap_, projectors_,
-                             luminance_, exposureMaps_[0], exposureMaps_[1], probeRadiance_,
-                             probeIrradiance_, probeCapture_, probeDepth_, brdfTable_})
+    for(SDL_GPUTexture* t :
+        {hdrTarget_, depthTarget_, screenshotTexture_, shadowMap_, projectors_, luminance_,
+         exposureMaps_[0], exposureMaps_[1], probeRadiance_, probeIrradiance_, probeCapture_,
+         probeDepth_, brdfTable_, hudImage_, hudDepth_})
     {
         if(t)
         {

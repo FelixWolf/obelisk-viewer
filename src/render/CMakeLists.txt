@@ -17,6 +17,11 @@ set(shader_sources
   probe_radiance.frag
   probe_irradiance.frag
   brdf_table.frag
+  hud_legacy.frag
+  hud_pbr.frag
+  hud_composite.frag
+  hud_panel.vert
+  hud_panel.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -65,6 +70,7 @@ add_library(viewer_render STATIC
   Renderer.cpp
   RendererScene.cpp
   RendererProbes.cpp
+  RendererHud.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp

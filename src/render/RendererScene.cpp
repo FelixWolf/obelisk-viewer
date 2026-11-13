@@ -125,6 +125,16 @@ bool Renderer::createPipelines()
     SDL_GPUShader* probeIrradianceFrag =
         createShader(device_, {kProbeIrradianceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1},
                      "probe_irradiance.frag");
+    SDL_GPUShader* hudLegacyFrag = createShader(
+        device_, {kHudLegacyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "hud_legacy.frag");
+    SDL_GPUShader* hudPbrFrag =
+        createShader(device_, {kHudPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0, 1}, "hud_pbr.frag");
+    SDL_GPUShader* hudCompositeFrag = createShader(
+        device_, {kHudCompositeFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "hud_composite.frag");
+    SDL_GPUShader* hudPanelVert =
+        createShader(device_, {kHudPanelVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "hud_panel.vert");
+    SDL_GPUShader* hudPanelFrag = createShader(
+        device_, {kHudPanelFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "hud_panel.frag");
     SDL_GPUShader* brdfTableFrag = createShader(
         device_, {kBrdfTableFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "brdf_table.frag");
 
@@ -164,15 +174,15 @@ bool Renderer::createPipelines()
     };
 
     auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, VertexLayout layout,
-                             const char* name, bool blend = false,
-                             bool bothSides = false) -> SDL_GPUGraphicsPipeline*
+                             const char* name, bool blend = false, bool bothSides = false,
+                             SDL_GPUTextureFormat format = kHdrFormat) -> SDL_GPUGraphicsPipeline*
     {
         if(!vert || !frag)
         {
             return nullptr;
         }
         SDL_GPUColorTargetDescription color = {};
-        color.format = kHdrFormat;
+        color.format = format;
         if(blend)
         {
             color.blend_state.enable_blend = true;
@@ -266,6 +276,14 @@ bool Renderer::createPipelines()
     p.terrainBlinnPhong =
         scenePipeline(terrainVert, terrainBlinnPhongFrag, kTerrain, "terrain Blinn-Phong");
     p.terrainPbr = scenePipeline(terrainVert, terrainPbrFrag, kTerrain, "terrain PBR");
+    // HUD attachments: opaque [0] and blended [1], into the HUD image.
+    for(int blend = 0; blend < 2; blend++)
+    {
+        p.hudLegacy[blend] = scenePipeline(objectVert, hudLegacyFrag, kObject, "HUD (legacy)",
+                                           blend != 0, false, kHudFormat);
+        p.hudPbr[blend] = scenePipeline(objectVert, hudPbrFrag, kObject, "HUD (PBR)", blend != 0,
+                                        false, kHudFormat);
+    }
 
     if(fullscreenVert && tonemapFrag)
     {
@@ -338,6 +356,52 @@ bool Renderer::createPipelines()
     p.probeIrradiance = fullscreenPipeline(probeIrradianceFrag, kHdrFormat, "probe irradiance");
     p.brdfTable =
         fullscreenPipeline(brdfTableFrag, SDL_GPU_TEXTUREFORMAT_R16G16_FLOAT, "BRDF table");
+
+    // The HUD image, premultiplied: over the view (the swapchain) and on a
+    // panel in the scene (HDR, depth tested, both sides).
+    SDL_GPUColorTargetDescription premultiplied = {};
+    premultiplied.blend_state.enable_blend = true;
+    premultiplied.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    premultiplied.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    premultiplied.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+    premultiplied.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    premultiplied.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    premultiplied.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+    if(fullscreenVert && hudCompositeFrag)
+    {
+        SDL_GPUColorTargetDescription color = premultiplied;
+        color.format = swapchainFormat();
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = hudCompositeFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        p.hudComposite = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(hudPanelVert && hudPanelFrag)
+    {
+        SDL_GPUColorTargetDescription color = premultiplied;
+        color.format = kHdrFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = hudPanelVert;
+        info.fragment_shader = hudPanelFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = false;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        p.hudPanel = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(!p.hudComposite || !p.hudPanel)
+    {
+        log::error("creating the HUD pipelines failed: {}", SDL_GetError());
+    }
 
     // Shadow maps: depth only, both sides of every face (prims are often
     // open, and thin), pushed back a little against self-shadowing.
@@ -425,9 +489,12 @@ bool Renderer::createPipelines()
     }
 
     for(SDL_GPUShader* s :
-        {objectVert, skinnedVert, blinnPhongFrag, pbrFrag, terrainVert, terrainBlinnPhongFrag,
-         terrainPbrFrag, fullscreenVert, tonemapFrag, luminanceFrag, exposureFrag, skyFrag,
-         shadowFrag, shadowMaskedFrag, probeRadianceFrag, probeIrradianceFrag, brdfTableFrag})
+        {objectVert,    skinnedVert,           blinnPhongFrag,    pbrFrag,
+         terrainVert,   terrainBlinnPhongFrag, terrainPbrFrag,    fullscreenVert,
+         tonemapFrag,   luminanceFrag,         exposureFrag,      skyFrag,
+         shadowFrag,    shadowMaskedFrag,      probeRadianceFrag, probeIrradianceFrag,
+         brdfTableFrag, hudLegacyFrag,         hudPbrFrag,        hudCompositeFrag,
+         hudPanelVert,  hudPanelFrag})
     {
         if(s)
         {
@@ -460,7 +527,8 @@ bool Renderer::createPipelines()
     return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.blinnPhongSkinned &&
            p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
            p.tonemap && p.luminance && p.exposure && p.sky && p.probeRadiance &&
-           p.probeIrradiance && p.brdfTable && p.shadowObject && p.shadowObjectMasked &&
+           p.probeIrradiance && p.brdfTable && p.hudLegacy[0] && p.hudLegacy[1] && p.hudPbr[0] &&
+           p.hudPbr[1] && p.hudComposite && p.hudPanel && p.shadowObject && p.shadowObjectMasked &&
            p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler &&
            p.clampSampler && p.shadowSampler;
 }
@@ -660,6 +728,8 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     // Reflection probes: the ones surfaces use (into frameFs), and the next
     // face of whichever is being captured.
     updateProbes(commands, scene, frameFs, drawsReady);
+    // HUD attachments into their own image, as big as the view.
+    const bool hud = drawHud(commands, scene, frame.width, frame.height, drawsReady);
 
     SDL_GPUColorTargetInfo color = {};
     color.texture = hdrTarget_;
@@ -702,7 +772,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     for(const ObjectDraw& draw : scene.objects)
     {
         if(!drawsReady || !draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain ||
-           draw.shadowOnly)
+           draw.shadowOnly || draw.hud)
         {
             continue;
         }
@@ -794,10 +864,18 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
 
     drawObjects(scenePass, scene, order);
+    if(hud && scene.hud.placement == Hud::Placement::World)
+    {
+        drawHudPanel(scenePass, scene.hud, projection * view);
+    }
     SDL_EndGPURenderPass(pass);
 
     updateExposure(commands, light);
     drawTonemap(commands, frame.target, light, true);
+    if(hud && scene.hud.placement == Hud::Placement::Screen)
+    {
+        compositeHud(commands, frame.target);
+    }
 
     if(screenshotRequested_)
     {
@@ -831,6 +909,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         if(screenshotTexture_ && screenshotTransfer_)
         {
             drawTonemap(commands, screenshotTexture_, light, true);
+            if(hud && scene.hud.placement == Hud::Placement::Screen)
+            {
+                compositeHud(commands, screenshotTexture_);
+            }
             SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
             SDL_GPUTextureRegion source = {};
             source.texture = screenshotTexture_;
@@ -1224,7 +1306,7 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
     for(size_t i = 0; drawsReady && i < scene.objects.size(); i++)
     {
         const ObjectDraw& draw = scene.objects[i];
-        if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain)
+        if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain || draw.hud)
         {
             continue;
         }

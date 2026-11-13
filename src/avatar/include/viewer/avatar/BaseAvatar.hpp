@@ -75,6 +75,9 @@ struct AttachmentPoint
     int joint = -1; // -1: the avatar root
     glm::vec3 position{0.0f};
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    // A HUD point (31 to 38, on the mScreen joint): in HUD space, not on the
+    // body (see AvatarView::attachmentFrame).
+    bool hud = false;
 };
 
 // The meshes the body is drawn with, and the baked texture each uses

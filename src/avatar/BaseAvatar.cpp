@@ -424,10 +424,11 @@ std::expected<BaseAvatar, std::string> BaseAvatar::load(const std::filesystem::p
         a.joint = avatar.skeleton.find(point->Attribute("joint") ? point->Attribute("joint") : "");
         a.position = parseVec3(point->Attribute("position"));
         a.rotation = attachmentRotation(parseVec3(point->Attribute("rotation")));
-        // mRoot is the avatar root itself (joint -1); mScreen is for HUD
-        // attachments, which aren't part of the world.
+        // mRoot is the avatar root itself (joint -1); mScreen holds the HUD
+        // points, which aren't part of the world.
         const std::string_view joint = point->Attribute("joint") ? point->Attribute("joint") : "";
-        if(a.joint >= 0 || joint == "mRoot")
+        a.hud = joint == "mScreen";
+        if(a.joint >= 0 || joint == "mRoot" || a.hud)
         {
             avatar.attachmentPoints[a.id] = a;
         }
