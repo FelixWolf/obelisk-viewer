@@ -25,11 +25,11 @@ struct BlinnPhongMaterial
     const GpuTexture* specular = nullptr; // RGB specular color, A environment intensity
     glm::vec4 diffuseTint{1.0f};
     glm::vec3 specularTint{1.0f};
-    float maxExponent = 128.0f; // specular exponent where the normal map's A is 1 (times A²)
-    float alphaCutoff = -1.0f;  // < 0: no alpha test
-    // Reflections (probes.glsl): glossiness 0..1 (soft reflection, by the
-    // normal map's alpha), and environment intensity (sharp, "shiny"; by the
-    // specular map's alpha).
+    float alphaCutoff = -1.0f; // < 0: no alpha test
+    // Glossiness 0..1, by the normal map's alpha: highlights (exponent
+    // glossiness² x 368, RenderSpecularExponent; none at 0) and a soft
+    // reflection (probes.glsl). Environment intensity, by the specular map's
+    // alpha: a sharp reflection ("shiny").
     float glossiness = 0.0f;
     float environment = 0.0f;
     bool fullbright = false;   // unlit: the texture's color as is

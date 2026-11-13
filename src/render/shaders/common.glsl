@@ -85,14 +85,40 @@ vec3 hemisphereAmbient(vec3 n, vec3 sky, vec3 ground)
 
 // --- Blinn-Phong ---------------------------------------------------------------
 
-// Energy-normalized so glossy highlights don't get brighter than matte ones.
-vec3 blinnPhong(vec3 n, vec3 v, vec3 l, vec3 albedo, vec3 specularColor, float exponent,
+// The official viewer's legacy highlight from one light, per unit of its
+// light (times the specular color): its specular table (createLUTBuffers'
+// lightFunc: normalized Blinn-Phong of exponent glossiness² x 368,
+// RenderSpecularExponent) with the Fresnel and geometry terms around it, as
+// softenLightF.glsl and the point and spot light shaders apply it.
+float legacySpecular(vec3 n, vec3 v, vec3 l, float glossiness)
+{
+    const float nDotL = dot(n, l);
+    if(glossiness <= 0.0 || nDotL <= 0.0)
+    {
+        return 0.0;
+    }
+    const vec3 h = normalize(l + v);
+    const float nh = clamp(dot(n, h), 1e-6, 1.0);
+    const float nl = clamp(nDotL, 1e-6, 1.0);
+    const float nv = clamp(dot(n, v), 1e-6, 1.0);
+    const float vh = clamp(dot(v, h), 1e-6, 1.0);
+    const float e = glossiness * glossiness * 368.0;
+    const float lobe =
+        pow(nh, e) * ((e + 2.0) * (e + 4.0)) / (8.0 * PI * (exp2(-e * 0.5) + e));
+    const float fresnel = pow(1.0 - vh, 5.0) * 0.4 + 0.5;
+    const float geometry = max(0.0, min(2.0 * nh * nv / vh, 2.0 * nh * nl / vh));
+    return min(nl * 6.0, 1.0) * fresnel * lobe * geometry / (nh * nl);
+}
+
+// Legacy faces lit by the sun: Lambert diffuse (over pi: `lightColor` is
+// pi times the official sunlight, see EnvironmentManager), and the legacy
+// highlight at `glossiness`.
+vec3 blinnPhong(vec3 n, vec3 v, vec3 l, vec3 albedo, vec3 specularColor, float glossiness,
                 vec3 lightColor)
 {
-    float nDotL = max(dot(n, l), 0.0);
-    vec3 h = normalize(l + v);
-    float spec = pow(max(dot(n, h), 0.0), exponent) * (exponent + 8.0) / (8.0 * PI);
-    return (albedo / PI + specularColor * spec) * lightColor * nDotL;
+    const float nDotL = max(dot(n, l), 0.0);
+    return (albedo * nDotL + specularColor * legacySpecular(n, v, l, glossiness)) * lightColor /
+           PI;
 }
 
 // --- PBR (glTF metallic-roughness: GGX, Smith, Schlick) -------------------------
@@ -116,6 +142,20 @@ float visibilitySmithGgx(float nDotL, float nDotV, float alpha)
 vec3 fresnelSchlick(float vDotH, vec3 f0)
 {
     return f0 + (1.0 - f0) * pow(1.0 - vDotH, 5.0);
+}
+
+// GGX specular (Fresnel x distribution x visibility, not times N.L) for
+// reflectance `f0`.
+vec3 ggxSpecular(vec3 n, vec3 v, vec3 l, vec3 f0, float roughness)
+{
+    const float nDotL = max(dot(n, l), 0.0);
+    const vec3 h = normalize(l + v);
+    const float nDotV = max(dot(n, v), 1e-4);
+    const float nDotH = max(dot(n, h), 0.0);
+    const float vDotH = max(dot(v, h), 0.0);
+    const float alpha = max(roughness * roughness, 0.002);
+    return fresnelSchlick(vDotH, f0) * distributionGgx(nDotH, alpha) *
+           visibilitySmithGgx(nDotL, nDotV, alpha);
 }
 
 vec3 pbrDirect(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float metallic,

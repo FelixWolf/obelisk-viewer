@@ -44,7 +44,7 @@ layout(std430, set = 2, binding = 8) readonly buffer Draws
 struct Material
 {
     vec4 diffuseTint;  // RGB color, A opacity
-    vec4 specularTint; // RGB color, A exponent where the normal map's A is 1
+    vec4 specularTint; // RGB color, A glossiness (where the normal map's A is 1)
     vec4 options;      // x alpha cutoff (< 0: none), y fullbright (unlit) if > 0,
                        // z emissive mask if > 0, w opaque (alpha ignored) if > 0
 };
@@ -91,15 +91,14 @@ void main()
 
     const vec4 specularTexel = texture(specularMap, mapUv(2));
     vec3 specularColor = specularTexel.rgb * material.specularTint.rgb;
-    // Glossiness squared, as the official specular table (createLUTBuffers).
-    float exponent = max(normalTexel.a * normalTexel.a * material.specularTint.a, 1.0);
-    // The face's glossiness and environment intensity (the draw's mapUv w),
-    // by the normal map's and the specular map's alpha.
-    const float glossiness = draws[inDraw].mapUv[0].w * normalTexel.a;
+    // The face's glossiness and environment intensity, by the normal map's
+    // and the specular map's alpha (as materialF.glsl).
+    const float glossiness = material.specularTint.a * normalTexel.a;
     const float envIntensity = draws[inDraw].mapUv[1].w * specularTexel.a;
 
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
-    vec3 color = blinnPhong(n, v, l, albedo.rgb, specularColor, exponent, frame.sunColor.rgb) * shadow;
+    vec3 color =
+        blinnPhong(n, v, l, albedo.rgb, specularColor, glossiness, frame.sunColor.rgb) * shadow;
     // Ambient light and reflections from the probes around.
     vec3 ambient = hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
     vec3 glossy = vec3(0.0);
@@ -125,6 +124,8 @@ void main()
     }
     // Local lights after (the official viewer adds them in later passes),
     // not on what shows unlit.
-    color += (1.0 - emissive) * albedo.rgb * localLight(inWorldPosition, n);
+    const LocalLighting local =
+        localLights(inWorldPosition, n, v, false, glossiness, vec3(0.0), 1.0);
+    color += (1.0 - emissive) * (albedo.rgb * local.diffuse + specularColor * local.specular);
     outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }

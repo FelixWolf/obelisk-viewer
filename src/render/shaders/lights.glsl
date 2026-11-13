@@ -42,22 +42,33 @@ vec4 projectorTexel(float layer, vec2 uv, float lod)
     return textureLod(projectorMaps, vec3(uv, layer), lod);
 }
 
-// A projector's light, as the official viewer's legacy (non-PBR) deferred
-// spot light (spotLightF.glsl): the texture through the frustum, blurring
-// (higher mip levels) past the focus distance and fading at its edges, plus
-// ambiance, a fill from the blurred texture that reaches what the direct
-// light leaves dark.
-vec3 projectorLight(LocalLight light, vec3 position, vec3 normal, float attenuation)
+// What one light gives a surface: its diffuse light (times N.L and
+// attenuation already: multiply by the surface color), the light arriving
+// (attenuated, not times N.L: for highlights) and where from.
+struct LightSample
 {
+    vec3 diffuse;
+    vec3 incoming;
+    vec3 toLight; // unit length
+};
+
+// A projector's light, as the official viewer's deferred spot light
+// (spotLightF.glsl): the texture through the frustum, blurring (higher mip
+// levels) past the focus distance and fading at its edges, plus ambiance, a
+// fill from the blurred texture that reaches what the direct light leaves
+// dark (diffuse only).
+LightSample projectorLight(LocalLight light, vec3 position, vec3 normal, float attenuation)
+{
+    LightSample result = LightSample(vec3(0.0), vec3(0.0), vec3(0.0, 0.0, 1.0));
     vec4 tc = light.projector * vec4(position, 1.0);
     if(tc.z < 0.0)
     {
-        return vec3(0.0); // behind the near plane
+        return result; // behind the near plane
     }
     tc.xyz /= tc.w;
     if(tc.x <= 0.0 || tc.x >= 1.0 || tc.y <= 0.0 || tc.y >= 1.0 || tc.z <= 0.0)
     {
-        return vec3(0.0);
+        return result;
     }
     const float layer = light.originLayer.w;
     const float depth = light.projectorParams.x;
@@ -66,7 +77,8 @@ vec3 projectorLight(LocalLight light, vec3 position, vec3 normal, float attenuat
     const float lodBias = light.projectorParams.w;
 
     const vec3 toApex = light.originLayer.xyz - position;
-    const float facingNl = dot(normal, normalize(toApex));
+    result.toLight = normalize(toApex);
+    const float facingNl = dot(normal, result.toLight);
     const float nl = clamp(facingNl, 1e-6, 1.0);
     const float along = dot(position - light.positionRange.xyz, light.axisFocus.xyz);
 
@@ -78,7 +90,8 @@ vec3 projectorLight(LocalLight light, vec3 position, vec3 normal, float attenuat
     const float edge = max(0.25 * min(lod / max(maxLod * 0.5, 1e-4), 1.0), 1e-4);
     direct *= clamp(min(edges.x, edges.y) / edge, 0.0, 1.0);
     const float lit = nl * attenuation;
-    vec3 sum = light.colorFalloff.rgb * direct.rgb * direct.a * lit;
+    result.incoming = light.colorFalloff.rgb * direct.rgb * direct.a * attenuation;
+    result.diffuse = result.incoming * nl;
 
     // Ambiance: the most blurred texture, faded towards a circle's edge.
     // Lights what faces away from the projector (as the official viewer).
@@ -91,16 +104,30 @@ vec3 projectorLight(LocalLight light, vec3 position, vec3 normal, float attenuat
         amount += (facingNl * 0.5 + 0.5) * ambiance;
     }
     amount = min(amount * attenuation, 1.0 - lit);
-    const float facing = max(dot(-normalize(toApex), normal), 0.0);
-    sum += amount * light.colorFalloff.rgb * fill.rgb * fill.a * facing;
-    return sum;
+    const float facing = max(dot(-result.toLight, normal), 0.0);
+    result.diffuse += amount * light.colorFalloff.rgb * fill.rgb * fill.a * facing;
+    return result;
 }
 
-// The light reaching a surface from every local light, times N.L (as the
-// official viewer's legacy lighting: color x attenuation x N.L).
-vec3 localLight(vec3 position, vec3 normal)
+// Light from every local light: diffuse (color x attenuation x N.L, as the
+// official viewer's legacy lighting; multiply by the surface color) and
+// highlights, as the official point and spot light shaders:
+// - legacy faces (pbr false): the legacy highlight at `glossiness`
+//   (legacySpecular; multiply by the specular color), a projector's at
+//   most 1;
+// - PBR (pbr true): GGX with Fresnel reflectance `f0` at `roughness`, times
+//   3.25 (the official "balance with legacy" factor), at most 10.
+struct LocalLighting
 {
-    vec3 sum = vec3(0.0);
+    vec3 diffuse;
+    vec3 specular;
+};
+
+LocalLighting localLights(vec3 position, vec3 normal, vec3 v, bool pbr, float glossiness, vec3 f0,
+                          float roughness)
+{
+    LocalLighting sum = LocalLighting(vec3(0.0), vec3(0.0));
+    const bool highlights = pbr || glossiness > 0.0;
     const int count = int(frame.lightInfo.x);
     for(int i = 0; i < count; i++)
     {
@@ -113,16 +140,40 @@ vec3 localLight(vec3 position, vec3 normal)
             continue;
         }
         const float attenuation = legacyAttenuation(distance, range, light.colorFalloff.a);
-        if(light.originLayer.w >= -1.5)
+        const bool projector = light.originLayer.w >= -1.5;
+        LightSample s;
+        if(projector)
         {
-            sum += projectorLight(light, position, normal, attenuation);
+            s = projectorLight(light, position, normal, attenuation);
+        }
+        else
+        {
+            s.toLight = toLight / max(distance, 1e-4);
+            s.incoming = light.colorFalloff.rgb * attenuation;
+            s.diffuse = s.incoming * max(dot(normal, s.toLight), 0.0);
+        }
+        sum.diffuse += s.diffuse;
+        if(!highlights || dot(normal, s.toLight) <= 0.0)
+        {
             continue;
         }
-        const float nl = dot(normal, toLight / max(distance, 1e-4));
-        if(nl > 0.0)
+        if(pbr)
         {
-            sum += light.colorFalloff.rgb * attenuation * nl;
+            const float nl = dot(normal, s.toLight);
+            sum.specular += min(s.incoming * 3.25 * nl * ggxSpecular(normal, v, s.toLight, f0, roughness),
+                                vec3(10.0));
+        }
+        else
+        {
+            const vec3 highlight = s.incoming * legacySpecular(normal, v, s.toLight, glossiness);
+            sum.specular += projector ? min(highlight, vec3(1.0)) : highlight;
         }
     }
     return sum;
+}
+
+// Diffuse light only (multiply by the surface color).
+vec3 localLight(vec3 position, vec3 normal)
+{
+    return localLights(position, normal, normal, false, 0.0, vec3(0.0), 1.0).diffuse;
 }

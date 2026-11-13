@@ -41,7 +41,7 @@ void main()
 
     vec3 n = normalize(inNormal);
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
-    vec3 color = blinnPhong(n, v, frame.sunDirection.xyz, albedo, vec3(0.0), 1.0,
+    vec3 color = blinnPhong(n, v, frame.sunDirection.xyz, albedo, vec3(0.0), 0.0,
                             frame.sunColor.rgb) * sunShadow(shadowMap, inWorldPosition, n);
     color += albedo * probeAmbient(inWorldPosition, n,
                                    hemisphereAmbient(n, frame.skyAmbient.rgb,

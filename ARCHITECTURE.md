@@ -516,8 +516,11 @@ intensity. The renderer keeps the lights whose reach touches the
 view frustum, nearest first, at most 64 (`Renderer::kMaxLights`), in a
 storage buffer every surface shader loops over (`lights.glsl`):
 (1 - clamp((d + falloff) / (1 + falloff)))^2 * 2 with d the distance over
-the reach, times N.L, as the official legacy lighting; PBR surfaces take it
-on their diffuse color only for now. Local lights cast no shadows.
+the reach, times N.L, as the official legacy lighting. Highlights too, as
+the official point and spot light shaders: legacy faces with glossiness get
+the legacy highlight (below; a projector's at most 1), PBR surfaces GGX
+times 3.25 (the official balance with legacy lights, at most 10). Local
+lights cast no shadows.
 
 Projectors: a light with a texture (llprimitive.h isLightSpotlight; the
 field of view alone doesn't make one) shines it through a frustum
@@ -600,9 +603,7 @@ fast: those go back in the queue, at most three times). A material has:
 normal and specular maps, each with its own repeats, offset and rotation
 (fixed point, x 10000; `DrawData::mapUv`, applied to the mesh coordinates
 the vertex shaders pass along, `outMeshUv`); a specular color (sRGB) and
-glossiness (exponent / 255: the highlight's exponent is glossiness² x 368,
-times the normal map's alpha², as the official specular table,
-RenderSpecularExponent); environment intensity (the sharp reflection, by
+glossiness (exponent / 255, times the normal map's alpha); environment intensity (the sharp reflection, by
 the specular map's alpha); and what the diffuse alpha means: none (opaque), blend, mask (with a
 cutoff), emissive (opaque; alpha is how much shows unlit, the lit color
 mixed towards the texture's, as materialF.glsl) or default (the texture's
@@ -787,7 +788,12 @@ order does. As in the official viewer, depth tests pass on equal depth
 mesh writes depth. Skinned normals use the inverse transpose of the
 skinning matrix (the official viewer applies the bind shape's to normals):
 bind shapes stretch meshes, and stretched normals light seams wrongly.
-Legacy faces have no specular highlight unless "shiny": then specular
+The legacy highlight (`legacySpecular`, for the sun and local lights) is
+the official specular table worked out in the shader: normalized
+Blinn-Phong of exponent glossiness² x 368 (RenderSpecularExponent), with
+the official Fresnel ((1 - V.H)^5 x 0.4 + 0.5) and geometry terms, over
+N.H x N.L, times min(6 N.L, 1). Legacy faces have no specular highlight
+unless "shiny": then specular
 color, glossiness and environment intensity are 0.25, 0.5 or 0.75 (low,
 medium, high, as llvovolume.cpp), so they shine and reflect the probe. A
 legacy material's own specular values replace those only when it has a

@@ -122,7 +122,7 @@ void SceneAssets::addWater(render::Scene& scene, glm::vec2 corner, float height,
     m.normal = &waterNormal_;
     m.diffuseTint = glm::vec4(0.06f, 0.16f, 0.22f, 0.8f);
     m.specularTint = glm::vec3(1.0f);
-    m.maxExponent = 512.0f;
+    m.glossiness = 1.0f;
     m.blend = true;
     render::ObjectDraw draw{&waterQuad_,
                             glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(corner, height)),
@@ -152,7 +152,7 @@ void SceneAssets::addTestScene(render::Scene& scene, glm::vec3 origin) const
     scene.objects.push_back({&cube_, at(-1.5f, 6.0f, 2.0f), textured});
     render::BlinnPhongMaterial plain;
     plain.diffuseTint = glm::vec4(0.8f, 0.1f, 0.1f, 1.0f);
-    plain.maxExponent = 256.0f;
+    plain.glossiness = 0.83f; // exponent about 256
     scene.objects.push_back({&sphere_, at(3.0f, 6.0f, 2.0f, 1.5f), plain});
     render::BlinnPhongMaterial matte = plain;
     matte.diffuseTint = glm::vec4(0.2f, 0.6f, 0.2f, 1.0f);

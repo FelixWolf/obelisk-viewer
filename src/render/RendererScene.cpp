@@ -1565,7 +1565,7 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {
             out.material[0] = m->diffuseTint;
-            out.material[1] = glm::vec4(m->specularTint, m->maxExponent);
+            out.material[1] = glm::vec4(m->specularTint, m->glossiness);
             out.material[2] = glm::vec4(m->alphaCutoff, m->fullbright ? 1.0f : 0.0f,
                                         m->emissiveMask ? 1.0f : 0.0f, m->opaque ? 1.0f : 0.0f);
         }
@@ -1590,10 +1590,9 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
             out.mapUv[0] = out.mapUv[2] = glm::vec4(draw.uvRow0, 0.0f);
             out.mapUv[1] = out.mapUv[3] = glm::vec4(draw.uvRow1, 0.0f);
         }
-        // Legacy reflections ride along in the normal map rows' w.
+        // Environment intensity rides along in a normal map row's w.
         if(legacy)
         {
-            out.mapUv[0].w = legacy->glossiness;
             out.mapUv[1].w = legacy->environment;
         }
         jointBase += static_cast<uint32_t>(draw.joints.size());

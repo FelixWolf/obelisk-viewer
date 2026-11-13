@@ -74,8 +74,10 @@ void main()
                            frame.sunColor.rgb) * shadow;
     color += occlusion * pbrProbeLight(inWorldPosition, n, v, baseColor.rgb, roughness, metallic,
                                        frame.skyAmbient.rgb, frame.groundAmbient.rgb);
-    // Local lights: diffuse only for now.
-    color += baseColor.rgb * (1.0 - metallic) * localLight(inWorldPosition, n);
+    // Local lights: diffuse, and GGX highlights.
+    const LocalLighting local = localLights(inWorldPosition, n, v, true, 0.0,
+                                            mix(vec3(0.04), baseColor.rgb, metallic), roughness);
+    color += baseColor.rgb * (1.0 - metallic) * local.diffuse + local.specular;
     color += texture(emissiveMap, inUv).rgb * material.emissiveTint.rgb * material.emissiveTint.a;
     outColor = vec4(applyAtmosphere(color, inWorldPosition), baseColor.a);
 }

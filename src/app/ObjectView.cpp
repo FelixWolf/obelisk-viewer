@@ -252,7 +252,6 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
     // with the exponent glossiness squared times 368 (RenderSpecularExponent).
     const float shiny = 0.25f * static_cast<float>(face.shiny());
     m.specularTint = srgbToLinear(glm::vec3(shiny));
-    m.maxExponent = 368.0f * shiny * shiny;
     m.glossiness = shiny;
     m.environment = shiny;
     auto alphaMode = assets::DiffuseAlphaMode::Default;
@@ -284,7 +283,6 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
             m.specularTint = legacy->glossiness > 0.0f
                                  ? srgbToLinear(glm::vec3(legacy->specularColor))
                                  : glm::vec3(0.0f);
-            m.maxExponent = 368.0f * legacy->glossiness * legacy->glossiness;
             m.glossiness = legacy->glossiness;
             m.environment = legacy->environment;
         }
