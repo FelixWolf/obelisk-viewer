@@ -150,7 +150,7 @@ struct LocalLight
         float focus = 0.0f;    // sharp this far along the axis (from the light), blurrier beyond
         float depth = 1.0f;    // near to far plane: blurring reaches its most over this
         float ambiance = 0.0f; // diffuse fill, from the blurred texture
-        const GpuTexture* texture = nullptr; // nothing yet: white
+        const GpuTexture* texture = nullptr; // nothing yet: gray (lights.glsl)
     };
     std::optional<Projector> projector;
 };

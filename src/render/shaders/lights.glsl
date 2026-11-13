@@ -8,7 +8,7 @@ struct LocalLight
     vec4 positionRange;   // xyz position, w range
     vec4 colorFalloff;    // rgb linear color, a falloff
     mat4 projector;       // scene -> projector texture (projectors only)
-    vec4 originLayer;     // xyz the projection's apex; w texture layer (-1: white, < -1.5: point light)
+    vec4 originLayer;     // xyz the projection's apex; w texture layer (-1: not in yet, < -1.5: point light)
     vec4 axisFocus;       // xyz the way it shines, w focus distance
     vec4 projectorParams; // x near to far plane, y the texture's mip levels (log2 width), z ambiance,
                           // w how many more its own has than the array's
@@ -28,11 +28,16 @@ float legacyAttenuation(float distance, float range, float falloff)
     return a * a * 2.0;
 }
 
+// A projector whose texture isn't in yet shines the official viewer's
+// default image (llviewertexture.cpp: flat 0x7f gray; this is it linear),
+// not white: much dimmer, as it should be until the real one arrives.
+const float kProjectorPlaceholder = 0.2122;
+
 vec4 projectorTexel(float layer, vec2 uv, float lod)
 {
     if(layer < 0.0)
     {
-        return vec4(1.0);
+        return vec4(vec3(kProjectorPlaceholder), 1.0);
     }
     return textureLod(projectorMaps, vec3(uv, layer), lod);
 }
@@ -61,7 +66,8 @@ vec3 projectorLight(LocalLight light, vec3 position, vec3 normal, float attenuat
     const float lodBias = light.projectorParams.w;
 
     const vec3 toApex = light.originLayer.xyz - position;
-    const float nl = clamp(dot(normal, normalize(toApex)), 1e-6, 1.0);
+    const float facingNl = dot(normal, normalize(toApex));
+    const float nl = clamp(facingNl, 1e-6, 1.0);
     const float along = dot(position - light.positionRange.xyz, light.axisFocus.xyz);
 
     // Direct: sharp at the focus, blurrier beyond; its edges fade over a
@@ -79,7 +85,11 @@ vec3 projectorLight(LocalLight light, vec3 position, vec3 normal, float attenuat
     vec4 fill = projectorTexel(layer, tc.xy, maxLod - lodBias);
     const vec2 fromCenter = tc.xy - vec2(0.5);
     fill *= clamp((0.25 - dot(fromCenter, fromCenter)) / 0.25, 0.0, 1.0);
-    float amount = (nl * 0.5 + 0.5) * ambiance + ambiance + (nl * nl * 0.5 + 0.5) * ambiance;
+    float amount = ambiance + (facingNl * facingNl * 0.5 + 0.5) * ambiance;
+    if(facingNl > 0.0)
+    {
+        amount += (facingNl * 0.5 + 0.5) * ambiance;
+    }
     amount = min(amount * attenuation, 1.0 - lit);
     const float facing = max(dot(-normalize(toApex), normal), 0.0);
     sum += amount * light.colorFalloff.rgb * fill.rgb * fill.a * facing;

@@ -20,6 +20,7 @@ namespace viewer::render
 struct BlinnPhongMaterial
 {
     const GpuTexture* diffuse = nullptr;  // RGB color, A opacity
+    bool diffuseLoading = false;          // no diffuse yet, but one is coming: gray till then
     const GpuTexture* normal = nullptr;   // RGB normal, A glossiness
     const GpuTexture* specular = nullptr; // RGB specular color, A environment intensity
     glm::vec4 diffuseTint{1.0f};
@@ -42,6 +43,7 @@ struct BlinnPhongMaterial
 struct PbrMaterial
 {
     const GpuTexture* albedo = nullptr;   // RGB base color, A opacity
+    bool albedoLoading = false;           // no albedo yet, but one is coming: gray till then
     const GpuTexture* orm = nullptr;      // R occlusion, G roughness, B metallic
     const GpuTexture* emissive = nullptr; // RGB emission; none: the tint alone (as glTF)
     const GpuTexture* normal = nullptr;   // MikkTSpace normal map

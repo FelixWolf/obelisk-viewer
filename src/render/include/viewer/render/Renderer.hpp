@@ -191,6 +191,9 @@ private:
     GpuTexture white_;
     GpuTexture black_;
     GpuTexture flatNormal_;
+    // A base color still loading: the official viewer's default image
+    // (llviewertexture.cpp, flat 0x7f gray), not white, which lights wash out.
+    GpuTexture loading_;
     GpuTexture whiteLayers_;
     GpuTexture blackLayers_;
     GpuTexture flatNormalLayers_;

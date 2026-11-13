@@ -533,6 +533,9 @@ bool Renderer::createDefaultTextures()
     white_ = std::move(textures[0]);
     black_ = std::move(textures[1]);
     flatNormal_ = std::move(textures[2]);
+    const image::TextureData gray = solid(0x7f, 0x7f, 0x7f, 255);
+    const image::TextureData* grayPointer = &gray;
+    loading_ = std::move(uploadTextures({&grayPointer, 1}, true)[0]); // sRGB, as the textures
 
     const image::TextureData* whites[] = {&white, &white, &white, &white};
     const image::TextureData* blacks[] = {&black, &black, &black, &black};
@@ -596,7 +599,7 @@ bool Renderer::createDefaultTextures()
         log::error("creating the projector textures failed: {}", SDL_GetError());
     }
 
-    return white_ && black_ && flatNormal_ && whiteLayers_ && blackLayers_ && flatNormalLayers_ &&
+    return white_ && black_ && flatNormal_ && loading_ && whiteLayers_ && blackLayers_ && flatNormalLayers_ &&
            shadowMap_ && terrainBlendRamp_ && projectors_;
 }
 
@@ -739,6 +742,9 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
 
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
     { return t && *t ? t->get() : fallback.get(); };
+    // A base color: none is white, one not in yet is gray.
+    auto baseColor = [&](const GpuTexture* t, bool loading)
+    { return texture(t, loading ? loading_ : white_); };
     // State is only set when it changes: meshes share buffers (MeshPool) and
     // draws are sorted so that neighbours share pipelines and textures.
     SDL_GPUBuffer* boundVertices = nullptr;
@@ -975,7 +981,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
             bindPipeline(skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
                                  : (m->blend ? p.blinnPhongBlend : p.blinnPhong));
             const SDL_GPUTextureSamplerBinding samplers[] = {
-                {texture(m->diffuse, white_), p.repeatSampler},
+                {baseColor(m->diffuse, m->diffuseLoading), p.repeatSampler},
                 {texture(m->normal, flatNormal_), p.repeatSampler},
                 {texture(m->specular, white_), p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
@@ -987,7 +993,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         {
             bindPipeline(p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0]);
             const SDL_GPUTextureSamplerBinding samplers[] = {
-                {texture(t->albedo, white_), p.repeatSampler},
+                {baseColor(t->albedo, t->albedoLoading), p.repeatSampler},
                 {texture(t->orm, white_), p.repeatSampler},
                 {texture(t->emissive, white_), p.repeatSampler},
                 {texture(t->normal, flatNormal_), p.repeatSampler},
@@ -1495,7 +1501,7 @@ uint32_t Renderer::uploadLights(SDL_GPUCommandBuffer* commands, const Scene& sce
             continue;
         }
         const LocalLight::Projector& pr = *l.projector;
-        int layer = -1; // white, until its texture is in
+        int layer = -1; // gray, until its texture is in
         float maxLod = 0.0f;
         float lodBias = 0.0f;
         if(pr.texture && *pr.texture && projectors_)

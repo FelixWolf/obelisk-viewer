@@ -243,6 +243,7 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
     auto texelsAt = [&](glm::vec2 repeats)
     { return texels * std::max(std::abs(repeats.x), std::abs(repeats.y)); };
     m.diffuse = textures.get(face.texture, texelsAt(face.repeats));
+    m.diffuseLoading = !m.diffuse && !face.texture.isNull();
     m.diffuseTint = face.color;
     m.fullbright = face.fullbright();
     // Legacy faces have no highlight, as in the official viewer. "Shiny"
@@ -353,6 +354,7 @@ bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& obje
     };
     p.albedo =
         textures.get(m.textures[assets::kBaseColorTexture], texelsOf(assets::kBaseColorTexture));
+    p.albedoLoading = !p.albedo && !m.textures[assets::kBaseColorTexture].isNull();
     p.normal =
         textures.getLinear(m.textures[assets::kNormalTexture], texelsOf(assets::kNormalTexture));
     // glTF's metallic-roughness map: G roughness, B metallic (R unused).

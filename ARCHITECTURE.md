@@ -471,7 +471,8 @@ are copied (blits, scaled) into the layers of one 512² mipmapped array,
 eight at most at a time, so every surface shader samples them through one
 binding; a level of the array stands for the texture's own level of the
 same size, so the blur matches the official viewer's whatever the
-texture's size. Until its texture loads a projector shines white.
+texture's size. Until its texture loads a projector shines the official
+viewer's default image, a flat 0x7f gray (white would flood its whole cone).
 
 ### PBR materials
 
@@ -521,7 +522,9 @@ Four material families, each its own pipeline:
 | `TerrainPbrMaterial` | terrain.vert + terrain_pbr.frag | 4-layer arrays of albedo, ORM, emissive and normal, with per-layer factors |
 
 Missing textures fall back to neutral defaults (white, flat normal, no
-emission). Normal maps tilt a unit normal along a unit tangent made
+emission). A base color texture that is coming but not in yet shows as the
+official viewer's default image, flat 0x7f gray (`diffuseLoading`,
+`albedoLoading`), not white, which colored lights would wash out. Normal maps tilt a unit normal along a unit tangent made
 perpendicular to it (`perturbNormal`): the interpolated ones are scaled by
 the object's size, which on big prims multiplied the maps' tilt many times.
 

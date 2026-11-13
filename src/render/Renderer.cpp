@@ -65,6 +65,7 @@ Renderer::~Renderer()
     white_.reset();
     black_.reset();
     flatNormal_.reset();
+    loading_.reset();
     whiteLayers_.reset();
     blackLayers_.reset();
     flatNormalLayers_.reset();
