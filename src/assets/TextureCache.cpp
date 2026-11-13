@@ -95,45 +95,76 @@ TextureResult TextureCache::process(const TextureRequest& request) const
         return std::move(result);
     };
 
-    // 1. Cache hit: read the KTX2 (only the levels the caller wants).
+    // 1. The KTX2, if it's big enough (or whole).
     const CacheKey key{CacheKind::Texture, request.id};
+    const CacheKey sourceKey{CacheKind::TextureSource, request.id};
+    std::optional<image::TextureData> cached;
     if(auto file = store_.read(key))
     {
-        if(auto texture = image::readKtx2(*file, {.maxDimension = request.maxDimension}))
-        {
-            // An entry decoded at a coarser level than requested is a miss
-            // if we can fetch better data.
-            if(texture->discardLevel <= request.discardLevel || !request.source)
-            {
-                result.texture = std::move(*texture);
-                return finish(TextureResult::Status::LoadedFromCache);
-            }
-        }
-        else
+        cached = image::readKtx2(*file, {.maxDimension = request.maxDimension});
+        if(!cached)
         {
             log::warn("texture cache: corrupt entry {}, re-decoding", request.id.toString());
         }
     }
-
-    // 2. Miss: fetch J2K, decode, write the cache entry.
-    if(!request.source)
+    if(cached)
     {
-        return finish(TextureResult::Status::NotFound);
+        const uint32_t stored =
+            std::max(cached->fullWidth, cached->fullHeight) >> cached->discardLevel;
+        if(cached->discardLevel == 0 ||
+           (request.maxDimension != 0 && stored >= request.maxDimension))
+        {
+            result.texture = std::move(*cached);
+            return finish(TextureResult::Status::LoadedFromCache);
+        }
     }
-    const auto j2k = request.source();
+
+    // 2. Decode a bigger one: from the J2K kept beside it, else the source.
+    std::optional<std::vector<uint8_t>> j2k = store_.read(sourceKey);
+    const bool kept = j2k.has_value();
+    if(!j2k && request.source)
+    {
+        j2k = request.source();
+    }
     if(!j2k)
     {
+        if(cached)
+        {
+            // The best there is without downloading.
+            result.texture = std::move(*cached);
+            result.needsSource = true;
+            return finish(TextureResult::Status::LoadedFromCache);
+        }
         return finish(TextureResult::Status::NotFound);
     }
-    auto texture = image::textureFromJ2k(decoder_, *j2k, request.discardLevel);
+    const auto info = image::readJ2kInfo(*j2k);
+    const uint32_t discard = info ? image::discardLevelFor(*info, request.maxDimension) : 0;
+    auto texture = image::textureFromJ2k(decoder_, *j2k, discard);
+    if(!texture && discard > 0)
+    {
+        texture = image::textureFromJ2k(decoder_, *j2k, 0); // whole, then
+    }
     if(!texture)
     {
+        if(kept)
+        {
+            store_.remove(sourceKey); // bad bytes: download them again next time
+        }
         return finish(TextureResult::Status::Failed);
     }
     const std::vector<uint8_t> ktx = image::writeKtx2(*texture);
     if(ktx.empty() || !store_.write(key, ktx))
     {
         log::warn("texture cache: failed to store {}", request.id.toString());
+    }
+    // Keep the J2K while the KTX2 is partial; whole, it's no longer needed.
+    if(texture->discardLevel > 0 && !kept)
+    {
+        store_.write(sourceKey, *j2k);
+    }
+    else if(texture->discardLevel == 0 && kept)
+    {
+        store_.remove(sourceKey);
     }
 
     trimToMaxDimension(*texture, request.maxDimension);

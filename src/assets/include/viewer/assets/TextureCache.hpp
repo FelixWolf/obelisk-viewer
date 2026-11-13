@@ -1,7 +1,11 @@
 #pragma once
 
 // Disk cache of decoded textures, stored as KTX2. JPEG 2000 is decoded at
-// most once per asset; the J2K bytes themselves are never written to disk.
+// the resolution asked for (the coarsest J2K resolution level at least that
+// big), not beyond: most textures are shown far smaller than they are. A
+// KTX2 below full resolution keeps its J2K beside it (TextureSource), so a
+// bigger one is decoded from that rather than downloaded again; a full
+// resolution decode removes it. Each size is decoded once.
 //
 // All work runs on the JobSystem. Callers submit requests and later drain
 // completed results on their own thread (normally the main thread, which
@@ -36,10 +40,12 @@ using J2kSource = std::function<std::optional<std::vector<uint8_t>>()>;
 struct TextureRequest
 {
     Uuid id;
-    J2kSource source{};        // may be empty: then only the cache is consulted
-    uint32_t discardLevel = 0; // J2K resolution level to decode on a miss
-    uint32_t maxDimension = 0; // drop larger mips from the *result* (the cache keeps all)
-    bool flipRows = false;     // the result bottom row first (image::flipRows), on the worker
+    J2kSource source{}; // may be empty: then only the cache is consulted
+    // The size wanted: the result's larger side at most this (0: whole). A
+    // cache entry this big (or whole) serves it; otherwise the J2K is
+    // decoded at the coarsest level at least this big.
+    uint32_t maxDimension = 0;
+    bool flipRows = false; // the result bottom row first (image::flipRows), on the worker
 };
 
 struct TextureResult
@@ -47,7 +53,7 @@ struct TextureResult
     enum class Status : uint8_t
     {
         LoadedFromCache, // read the KTX2; no decode
-        Decoded,         // decoded J2K and wrote a new cache entry
+        Decoded,         // decoded J2K and wrote a new cache entry (replacing a smaller one)
         NotFound,        // not cached, and no source (or the source had no data)
         Failed,          // corrupt cache entry or undecodable J2K
     };
@@ -55,7 +61,11 @@ struct TextureResult
     Uuid id;
     Status status = Status::Failed;
     image::TextureData texture{}; // empty unless LoadedFromCache or Decoded
-    double milliseconds = 0;      // worker time spent on this request
+    // LoadedFromCache smaller than asked for: the cache has no J2K to decode
+    // a bigger one from (the caller may download it and ask again with a
+    // source).
+    bool needsSource = false;
+    double milliseconds = 0; // worker time spent on this request
 };
 
 class TextureCache

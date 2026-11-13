@@ -125,6 +125,69 @@ std::vector<MipLevel> buildMipChain(MipLevel base)
     return levels;
 }
 
+std::optional<J2kInfo> readJ2kInfo(std::span<const uint8_t> j2k)
+{
+    auto u16 = [&](size_t at) { return static_cast<uint32_t>(j2k[at]) << 8 | j2k[at + 1]; };
+    auto u32 = [&](size_t at) { return u16(at) << 16 | u16(at + 2); };
+    // The codestream starts with SOC (FF4F) then SIZ (FF51); a JP2 file
+    // wraps it in boxes, so look for that pair.
+    size_t start = 0;
+    while(start + 4 <= j2k.size() && !(j2k[start] == 0xFF && j2k[start + 1] == 0x4F &&
+                                       j2k[start + 2] == 0xFF && j2k[start + 3] == 0x51))
+    {
+        start++;
+    }
+    const size_t siz = start + 2;
+    if(siz + 22 > j2k.size())
+    {
+        return std::nullopt;
+    }
+    J2kInfo info;
+    info.width = u32(siz + 6) - u32(siz + 14);   // Xsiz - XOsiz
+    info.height = u32(siz + 10) - u32(siz + 18); // Ysiz - YOsiz
+    // Main header markers after SIZ, up to the first tile (SOT, FF90): COD
+    // has the decomposition levels.
+    for(size_t at = siz + 2 + u16(siz + 2); at + 4 <= j2k.size();)
+    {
+        if(j2k[at] != 0xFF)
+        {
+            break;
+        }
+        const uint8_t marker = j2k[at + 1];
+        if(marker == 0x90)
+        {
+            break;
+        }
+        const uint32_t length = u16(at + 2);
+        if(marker == 0x52 && at + 10 <= j2k.size()) // COD
+        {
+            info.levels = j2k[at + 9];
+            break;
+        }
+        at += 2 + length;
+    }
+    if(info.width == 0 || info.height == 0)
+    {
+        return std::nullopt;
+    }
+    return info;
+}
+
+uint32_t discardLevelFor(const J2kInfo& info, uint32_t wanted)
+{
+    if(wanted == 0)
+    {
+        return 0;
+    }
+    const uint32_t side = std::max(info.width, info.height);
+    uint32_t discard = 0;
+    while(discard < info.levels && (side >> (discard + 1)) >= wanted)
+    {
+        discard++;
+    }
+    return discard;
+}
+
 std::optional<TextureData> textureFromJ2k(const J2kDecoder& decoder, std::span<const uint8_t> j2k,
                                           uint32_t discardLevel)
 {
@@ -142,6 +205,8 @@ std::optional<TextureData> textureFromJ2k(const J2kDecoder& decoder, std::span<c
     TextureData texture;
     texture.alphaMode = classifyAlpha(base);
     texture.discardLevel = discardLevel;
+    texture.fullWidth = base.width << discardLevel;
+    texture.fullHeight = base.height << discardLevel;
     texture.levels = buildMipChain(std::move(base));
     return texture;
 }

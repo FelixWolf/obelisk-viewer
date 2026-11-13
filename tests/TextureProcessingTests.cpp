@@ -67,3 +67,28 @@ TEST_CASE("textureFromJ2k rejects garbage")
     const std::vector<uint8_t> garbage(64, 0x5A);
     CHECK_FALSE(textureFromJ2k(*decoder, garbage).has_value());
 }
+
+TEST_CASE("J2K header: size and resolution levels; the discard level for a size")
+{
+    const auto j2k = viewer::test::readTestFile("rgba_64x48.j2c");
+    const auto info = readJ2kInfo(j2k);
+    REQUIRE(info.has_value());
+    CHECK(info->width == 64);
+    CHECK(info->height == 48);
+    CHECK(info->levels == 5);
+    CHECK(discardLevelFor(*info, 0) == 0); // whole
+    CHECK(discardLevelFor(*info, 64) == 0);
+    CHECK(discardLevelFor(*info, 32) == 1);
+    CHECK(discardLevelFor(*info, 20) == 1); // 32 is the smallest at least 20
+    CHECK(discardLevelFor(*info, 1) == 5);  // no further than the levels go
+    const std::vector<uint8_t> garbage(64, 0x5A);
+    CHECK_FALSE(readJ2kInfo(garbage).has_value());
+
+    // The decode knows the whole image's size.
+    const auto decoder = createJ2kDecoder();
+    const auto reduced = textureFromJ2k(*decoder, j2k, 2);
+    REQUIRE(reduced.has_value());
+    CHECK(reduced->width() == 16);
+    CHECK(reduced->fullWidth == 64);
+    CHECK(reduced->fullHeight == 48);
+}

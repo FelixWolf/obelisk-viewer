@@ -102,9 +102,22 @@ later.
 ## Texture pipeline
 
 1. `TextureCache::request()` queues a job on the `JobSystem`.
-2. The worker reads the texture's KTX2 from the disk cache if it's there.
-   Otherwise it calls the request's `J2kSource` for the bytes, decodes them,
-   expands to RGBA8, classifies alpha, builds mips, and stores the KTX2.
+2. The worker reads the texture's KTX2 from the disk cache if it's big
+   enough for the size asked for (`maxDimension`), or whole. Otherwise it
+   takes the J2K kept beside it, or calls the request's `J2kSource` for the
+   bytes, and decodes them at the coarsest resolution level still that big
+   (`readJ2kInfo` reads the size and levels from the codestream header,
+   `discardLevelFor` picks the level), expands to RGBA8, classifies alpha,
+   builds mips, and stores the KTX2, replacing a smaller one. Most textures
+   are shown far smaller than they are, so this decodes a fraction of the
+   pixels: in a busy scene, 320 megapixels instead of 2296 (decoding and
+   storing went from 343 s of CPU time to 59). A KTX2 below full
+   resolution keeps the J2K beside it (`CacheKind::TextureSource`,
+   `<uuid>.j2c`), so growing it is a decode, not a download; a whole one
+   removes it. Without it (a cache from before, or one trimmed), a result
+   too small says `needsSource` and `TextureManager` downloads the J2K
+   again. That scene's cache took 1.6 GB (0.7 GB of KTX2, 0.9 GB of J2K)
+   instead of 4.2 GB of whole-image KTX2.
 3. The result goes into a `MessageQueue`. The main thread drains it and hands
    it to upload jobs.
 
@@ -141,7 +154,8 @@ Each `TextureCache` instance has one results queue, so the texture browser
 and the world use separate instances on the same disk cache.
 
 KTX2 entries are RGBA8 with zstd supercompression, plus `viewer.alphaMode` and
-`viewer.discardLevel` metadata. The cache root defaults to
+`viewer.discardLevel` metadata (the J2K level they were decoded at: the
+whole image is that many times twice the size). The cache root defaults to
 `$XDG_CACHE_HOME/viewer` (or `~/.cache/viewer`); override it with `--cache-dir`.
 
 ## Building

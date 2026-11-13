@@ -30,6 +30,10 @@ enum class CacheKind : uint8_t
     Animation, // .anim bytes as downloaded
     Objects,   // a region's cacheable objects (world::RegionObjectCache), by region id
     Material,  // PBR material assets as downloaded
+    // A texture's J2K as downloaded, kept while its KTX2 is below full
+    // resolution (for decoding a bigger one). Stored with the textures:
+    // clearing either kind clears both.
+    TextureSource,
 };
 
 struct CacheKey
@@ -56,6 +60,8 @@ public:
     // stored; the cache is still consistent then.
     virtual bool write(const CacheKey& key, std::span<const uint8_t> bytes) = 0;
     virtual bool contains(const CacheKey& key) = 0;
+    // Removes one entry (nothing if there's none).
+    virtual void remove(const CacheKey& key) = 0;
     // Removes every entry of one kind.
     virtual void clear(CacheKind kind) = 0;
 
@@ -64,7 +70,7 @@ public:
 };
 
 // One file per entry under a root directory:
-//   textures/<xx>/<uuid>.ktx2
+//   textures/<xx>/<uuid>.ktx2, .j2c (TextureSource)
 //   meshes/<xx>/<uuid>.header, .skin, .lod<N>
 //   animations/<xx>/<uuid>.anim
 //   objects/<xx>/<region uuid>.objects
@@ -80,6 +86,7 @@ public:
     std::optional<std::vector<uint8_t>> read(const CacheKey& key) override;
     bool write(const CacheKey& key, std::span<const uint8_t> bytes) override;
     bool contains(const CacheKey& key) override;
+    void remove(const CacheKey& key) override;
     void clear(CacheKind kind) override;
     std::string describe() const override;
 

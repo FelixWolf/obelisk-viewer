@@ -285,6 +285,9 @@ std::optional<TextureData> readKtx2(std::span<const uint8_t> file, const Ktx2Rea
         at = (at + 3) & ~size_t{3};
     }
 
+    texture.fullWidth = width << texture.discardLevel;
+    texture.fullHeight = height << texture.discardLevel;
+
     // Choose the first level that fits within maxDimension (always keep the last).
     uint32_t firstLevel = 0;
     if(options.maxDimension > 0)

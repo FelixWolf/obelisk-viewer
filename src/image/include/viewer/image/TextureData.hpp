@@ -40,6 +40,10 @@ struct TextureData
     // A cache entry with discardLevel > 0 can later be replaced by a
     // higher-resolution decode.
     uint32_t discardLevel = 0;
+    // The source image's size at full resolution (these levels times
+    // 2^discardLevel, as J2K resolution levels halve it). 0: unknown.
+    uint32_t fullWidth = 0;
+    uint32_t fullHeight = 0;
 
     uint32_t width() const { return levels.empty() ? 0 : levels.front().width; }
     uint32_t height() const { return levels.empty() ? 0 : levels.front().height; }

@@ -95,3 +95,74 @@ TEST_CASE("TextureCache can be destroyed with requests still queued")
     } // must not hang or crash
     jobs.waitIdle();
 }
+
+TEST_CASE("TextureCache decodes the size asked for, keeping the J2K to decode bigger later")
+{
+    test::TempDirectory dir("texture-cache-partial");
+    JobSystem jobs(2);
+    const auto decoder = image::createJ2kDecoder();
+    FileCache store(dir.path());
+    assets::TextureCache cache(store, jobs, *decoder);
+    const CacheKey source{CacheKind::TextureSource, kId};
+
+    int sourceCalls = 0;
+    auto download = [&sourceCalls]() -> std::optional<std::vector<uint8_t>>
+    {
+        sourceCalls++;
+        return test::readTestFile("rgba_64x48.j2c");
+    };
+
+    // 16 wanted: decoded at a quarter (discard 2), the J2K kept.
+    REQUIRE(cache.request({.id = kId, .source = download, .maxDimension = 16}));
+    auto small = runToCompletion(jobs, cache);
+    REQUIRE(small.size() == 1);
+    CHECK(small[0].status == Status::Decoded);
+    CHECK(small[0].texture.width() == 16);
+    CHECK(small[0].texture.fullWidth == 64);
+    CHECK(store.contains(source));
+
+    // As small or smaller: from the KTX2.
+    REQUIRE(cache.request({.id = kId, .maxDimension = 8}));
+    auto smaller = runToCompletion(jobs, cache);
+    REQUIRE(smaller.size() == 1);
+    CHECK(smaller[0].status == Status::LoadedFromCache);
+    CHECK(smaller[0].texture.width() == 8);
+
+    // Bigger: decoded from the kept J2K, no download; whole, it goes.
+    REQUIRE(cache.request({.id = kId, .source = download}));
+    auto whole = runToCompletion(jobs, cache);
+    REQUIRE(whole.size() == 1);
+    CHECK(whole[0].status == Status::Decoded);
+    CHECK(whole[0].texture.width() == 64);
+    CHECK(sourceCalls == 1);
+    CHECK_FALSE(store.contains(source));
+
+    // Whole now: served from the KTX2 at any size.
+    REQUIRE(cache.request({.id = kId}));
+    auto again = runToCompletion(jobs, cache);
+    REQUIRE(again.size() == 1);
+    CHECK(again[0].status == Status::LoadedFromCache);
+    CHECK(again[0].texture.width() == 64);
+}
+
+TEST_CASE("TextureCache says when a bigger decode needs the J2K downloaded again")
+{
+    test::TempDirectory dir("texture-cache-needs-source");
+    JobSystem jobs(2);
+    const auto decoder = image::createJ2kDecoder();
+    FileCache store(dir.path());
+    assets::TextureCache cache(store, jobs, *decoder);
+    auto download = []() -> std::optional<std::vector<uint8_t>>
+    { return test::readTestFile("rgba_64x48.j2c"); };
+
+    REQUIRE(cache.request({.id = kId, .source = download, .maxDimension = 16}));
+    runToCompletion(jobs, cache);
+    store.remove({CacheKind::TextureSource, kId}); // lost (or the cache was trimmed)
+
+    REQUIRE(cache.request({.id = kId, .maxDimension = 32}));
+    auto result = runToCompletion(jobs, cache);
+    REQUIRE(result.size() == 1);
+    CHECK(result[0].status == Status::LoadedFromCache);
+    CHECK(result[0].texture.width() == 16); // the best there is
+    CHECK(result[0].needsSource);
+}

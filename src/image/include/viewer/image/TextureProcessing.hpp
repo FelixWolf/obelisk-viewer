@@ -32,6 +32,21 @@ MipLevel resizeRgba8(const MipLevel& source, uint32_t width, uint32_t height);
 // as the official viewer stores them); decoded images are top-down.
 void flipRows(TextureData& texture);
 
+// A J2K codestream's size and how many times its resolution halves
+// (decomposition levels), from its main header (SIZ, COD). Raw codestreams
+// or JP2 files; nothing if there's no readable header.
+struct J2kInfo
+{
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t levels = 0; // discard levels 0..levels are decodable
+};
+std::optional<J2kInfo> readJ2kInfo(std::span<const uint8_t> j2k);
+
+// The coarsest discard level whose larger side is still at least `wanted`
+// (0: full resolution).
+uint32_t discardLevelFor(const J2kInfo& info, uint32_t wanted);
+
 // Decode + RGBA expansion + alpha classification + mips.
 std::optional<TextureData> textureFromJ2k(const J2kDecoder& decoder, std::span<const uint8_t> j2k,
                                           uint32_t discardLevel = 0);

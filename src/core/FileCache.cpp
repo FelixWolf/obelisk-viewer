@@ -17,6 +17,7 @@ const char* directoryFor(CacheKind kind)
     switch(kind)
     {
     case CacheKind::Texture:
+    case CacheKind::TextureSource:
         return "textures";
     case CacheKind::Mesh:
         return "meshes";
@@ -46,6 +47,9 @@ fs::path FileCache::pathFor(const CacheKey& key) const
     {
     case CacheKind::Texture:
         name = id + ".ktx2";
+        break;
+    case CacheKind::TextureSource:
+        name = id + ".j2c";
         break;
     case CacheKind::Mesh:
         name = key.part == CacheKey::kMeshHeader ? id + ".header"
@@ -119,6 +123,12 @@ bool FileCache::contains(const CacheKey& key)
 {
     std::error_code ec;
     return fs::is_regular_file(pathFor(key), ec);
+}
+
+void FileCache::remove(const CacheKey& key)
+{
+    std::error_code ec;
+    fs::remove(pathFor(key), ec);
 }
 
 void FileCache::clear(CacheKind kind)

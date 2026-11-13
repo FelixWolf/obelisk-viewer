@@ -485,9 +485,20 @@ void TextureManager::handleCacheResult(assets::TextureResult& result)
         e.state = State::Cached;
         image::TextureData& texture = result.texture;
         const uint32_t side = dataSide(texture);
-        if(e.readSize == 0 || side < e.readSize)
+        if(const uint32_t full = std::max(texture.fullWidth, texture.fullHeight); full != 0)
+        {
+            e.fullSize = full; // the whole image's, whatever was decoded
+        }
+        else if(e.readSize == 0 || side < e.readSize)
         {
             e.fullSize = side; // all of it
+        }
+        // Smaller than wanted, and the cache has nothing to decode a bigger
+        // one from: download it (this one shows meanwhile).
+        if(result.needsSource && !viewerAssetUrl_.empty())
+        {
+            e.state = State::Queued;
+            downloadQueue_.push_back(result.id);
         }
         if(e.keepCpuCopy && e.readSize == 0)
         {
@@ -586,8 +597,8 @@ void TextureManager::handleDownload(Download& download)
 
     bytesDownloaded_ += response.body.size();
     e.state = State::Decoding;
-    // The cache decodes on a worker, writes the KTX2 (every level) and
-    // reports back with the size wanted now.
+    // The cache decodes on a worker, at the size wanted now (keeping the
+    // J2K if that's below full resolution), writes the KTX2 and reports back.
     e.readSize = e.keepCpuCopy ? 0 : targetSize(e);
     auto bytes = std::make_shared<std::vector<uint8_t>>(std::move(download.response.body));
     cache_.request(assets::TextureRequest{.id = download.id,
