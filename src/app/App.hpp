@@ -76,6 +76,7 @@ struct AppOptions
     // for 3 seconds before).
     std::string say;
     float sayAt = 20.0f;
+    bool occlusion = true; // --no-occlusion: draw what's hidden too
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -176,7 +177,8 @@ private:
     std::optional<float> clickAt_;
     std::string say_; // --say, and when
     float sayAt_ = 0.0f;
-    int said_ = 0; // 1: typing, 2: said
+    int said_ = 0;          // 1: typing, 2: said
+    bool occlusion_ = true; // occlusion culling
     LocalChat localChat_;
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
     // The pointer's ray this frame (none over the UI or while dragging).

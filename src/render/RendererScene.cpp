@@ -114,6 +114,9 @@ bool Renderer::createPipelines()
         device_, {kGlowMaskFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0, 1}, "glow_mask.frag");
     SDL_GPUShader* glowExtractFrag = createShader(
         device_, {kGlowExtractFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1}, "glow_extract.frag");
+    SDL_GPUShader* occlusionReduceFrag =
+        createShader(device_, {kOcclusionReduceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1},
+                     "occlusion_reduce.frag");
     SDL_GPUShader* glowBlurFrag = createShader(
         device_, {kGlowBlurFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "glow_blur.frag");
     SDL_GPUShader* luminanceFrag = createShader(
@@ -524,6 +527,23 @@ bool Renderer::createPipelines()
         (frag == glowExtractFrag ? p.glowExtract : p.glowBlur) =
             SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
+    if(fullscreenVert && occlusionReduceFrag)
+    {
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kOcclusionFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = occlusionReduceFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        p.occlusionReduce = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!p.occlusionReduce)
+        {
+            log::error("creating the occlusion pipeline failed: {}", SDL_GetError());
+        }
+    }
     if(!p.glowMask || !p.glowMaskSkinned || !p.glowExtract || !p.glowBlur)
     {
         log::error("creating the glow pipelines failed: {}", SDL_GetError());
@@ -679,20 +699,22 @@ bool Renderer::createPipelines()
         }
     }
 
-    for(SDL_GPUShader* s : {objectVert,        skinnedVert,
-                            blinnPhongFrag,    pbrFrag,
-                            terrainVert,       terrainBlinnPhongFrag,
-                            terrainPbrFrag,    fullscreenVert,
-                            tonemapFrag,       luminanceFrag,
-                            exposureFrag,      skyFrag,
-                            shadowFrag,        shadowMaskedFrag,
-                            probeRadianceFrag, probeIrradianceFrag,
-                            brdfTableFrag,     hudLegacyFrag,
-                            hudPbrFrag,        hudCompositeFrag,
-                            hudPanelVert,      hudPanelFrag,
-                            pickFrag,          outlineMaskFrag,
-                            outlineFrag,       labelVert,
-                            labelFrag})
+    for(SDL_GPUShader* s : {objectVert,         skinnedVert,
+                            blinnPhongFrag,     pbrFrag,
+                            terrainVert,        terrainBlinnPhongFrag,
+                            terrainPbrFrag,     fullscreenVert,
+                            tonemapFrag,        luminanceFrag,
+                            exposureFrag,       skyFrag,
+                            shadowFrag,         shadowMaskedFrag,
+                            probeRadianceFrag,  probeIrradianceFrag,
+                            brdfTableFrag,      hudLegacyFrag,
+                            hudPbrFrag,         hudCompositeFrag,
+                            hudPanelVert,       hudPanelFrag,
+                            pickFrag,           outlineMaskFrag,
+                            outlineFrag,        labelVert,
+                            labelFrag,          glowMaskFrag,
+                            glowExtractFrag,    glowBlurFrag,
+                            occlusionReduceFrag})
     {
         if(s)
         {
@@ -728,9 +750,9 @@ bool Renderer::createPipelines()
            p.probeIrradiance && p.brdfTable && p.hudLegacy[0] && p.hudLegacy[1] && p.hudPbr[0] &&
            p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick && p.outlineMask && p.outline &&
            p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
-           p.glowBlur && p.shadowObject && p.shadowObjectMasked && p.shadowSkinned &&
-           p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler && p.clampSampler &&
-           p.shadowSampler;
+           p.glowBlur && p.occlusionReduce && p.shadowObject && p.shadowObjectMasked &&
+           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler &&
+           p.clampSampler && p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -1077,6 +1099,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
     SDL_EndGPURenderPass(pass);
 
+    drawOcclusion(commands, scene, projection * view);
     updateExposure(commands, light);
     drawGlow(commands, scene, light, frame.width, frame.height, frameVs, drawsReady);
     drawTonemap(commands, frame.target, light, true);

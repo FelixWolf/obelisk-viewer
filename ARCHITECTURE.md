@@ -419,6 +419,31 @@ dithers its output so the sky's slow gradients don't band. The Environment windo
 and can fix the time of day; `--day-time 0..1` does that from the command
 line. Not drawn yet: sun and moon textures, moon phases, water.
 
+### Occlusion culling
+
+What's hidden behind something isn't drawn, and costs next to nothing:
+the official viewer does this with occlusion queries, which SDL GPU
+hasn't, so after the scene pass `occlusion_reduce.frag` makes the view's
+depth small (256 wide, each texel the farthest depth in its block) and it
+is downloaded into one of three buffers (`RendererOcclusion.cpp`). Once
+that frame's fence says the GPU is done (`Renderer::pollFrames`, which
+also reads picks back), it becomes the `OcclusionMap` the next scenes are
+culled with, with the view-projection and scene origin it was drawn at;
+nothing waits for the GPU. `OcclusionMap::hidden` projects a box's corners
+with that view-projection and calls it hidden only if it's wholly inside
+that view, in front of its camera, and its nearest point is behind the
+farthest depth everywhere it covers (tested at a level of a max pyramid
+where it's a few texels across). What it can't be sure of counts as seen,
+so the map being a frame or two old shows at most as something newly in
+view appearing a frame late.
+
+`Scene::visibility` uses it: in view but hidden counts as out of view, so
+objects, rigged attachments, avatars and trees behind walls are skipped
+before any work (`ObjectView` asks first, with a generous radius). Hidden
+things still go into reflection probes that see them, and into shadow maps
+only if they're big (8 m radius): smaller ones behind a wall rarely cast a
+shadow into view. `--no-occlusion` turns it off.
+
 ### Picking and touching
 
 The pointer is a ray: from the camera through the mouse now, from a VR

@@ -5,6 +5,7 @@
 #include "viewer/render/GpuTexture.hpp"
 #include "viewer/render/Mesh.hpp"
 #include "viewer/render/MeshPool.hpp"
+#include "viewer/render/OcclusionMap.hpp"
 #include "viewer/render/Scene.hpp"
 #include "viewer/text/Font.hpp"
 #include "viewer/text/GlyphAtlas.hpp"
@@ -13,6 +14,7 @@
 #include <SDL3/SDL_video.h>
 
 #include <array>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -115,8 +117,15 @@ public:
     // (once; nothing while one is on its way).
     std::optional<PickResult> takePick()
     {
-        pollPick();
+        pollFrames();
         return std::exchange(pick_, {});
+    }
+    // What a recent frame hid (occlusion culling: Scene::occlusion); null
+    // until one has come back from the GPU.
+    std::shared_ptr<const OcclusionMap> occlusion()
+    {
+        pollFrames();
+        return occlusion_;
     }
     // Local probes surfaces used last frame, and cubes holding a capture.
     uint32_t probesUsed() const { return probesShaded_; }
@@ -198,7 +207,22 @@ private:
     // Picking (RendererPick.cpp): the pick pixels, read back once the
     // frame's fence says they're done.
     void drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool drawsReady);
-    void pollPick();
+    void readPick();
+    // Frames whose results come back once the GPU is done with them (a
+    // pick, the occlusion map), oldest first; pollFrames reads those done.
+    struct InFlight
+    {
+        SDL_GPUFence* fence = nullptr;
+        bool pick = false;
+        int occlusionSlot = -1;
+    };
+    std::deque<InFlight> inFlight_;
+    void pollFrames();
+    // Occlusion culling (RendererOcclusion.cpp): the view's depth made small
+    // and read back into one of a few buffers, a frame or two later.
+    void drawOcclusion(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                       const glm::mat4& viewProjection);
+    void readOcclusion(int slot);
     // The outline around Scene::highlight, over `target`.
     void drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene, SDL_GPUTexture* target,
                      uint32_t width, uint32_t height, const FrameVS& frameVs);
@@ -271,8 +295,26 @@ private:
     std::array<SDL_GPUTexture*, 4> pickTargets_{};
     SDL_GPUTexture* pickDepth_ = nullptr;
     SDL_GPUTransferBuffer* pickTransfer_ = nullptr;
-    SDL_GPUFence* pickFence_ = nullptr; // the frame holding a pick, until it's done
-    bool pickSubmitted_ = false;        // this frame draws a pick
+    bool pickInFlight_ = false;  // a submitted frame holds a pick, until it's done
+    bool pickSubmitted_ = false; // this frame draws a pick
+    static constexpr uint32_t kOcclusionWidth = 256;
+    static constexpr int kOcclusionSlots = 3;
+    struct OcclusionSlot
+    {
+        SDL_GPUTransferBuffer* transfer = nullptr;
+        uint32_t capacity = 0; // bytes
+        uint32_t width = 0;
+        uint32_t height = 0;
+        glm::mat4 viewProjection{1.0f};
+        glm::dvec2 origin{0.0};
+        bool busy = false;
+    };
+    std::array<OcclusionSlot, kOcclusionSlots> occlusionSlots_{};
+    SDL_GPUTexture* occlusionTexture_ = nullptr;
+    uint32_t occlusionWidth_ = 0;
+    uint32_t occlusionHeight_ = 0;
+    int occlusionSlot_ = -1; // this frame's
+    std::shared_ptr<const OcclusionMap> occlusion_;
     uint64_t pickRequest_ = 0;
     std::optional<PickResult> pick_;
     SDL_GPUTexture* glowMask_ = nullptr;

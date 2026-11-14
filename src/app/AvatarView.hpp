@@ -36,6 +36,7 @@
 #include "viewer/world/World.hpp"
 
 #include <array>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -186,6 +187,8 @@ private:
     // What overrides_ and bakesInUse_ were collected from: redone when the
     // world's objects or the mesh skins change.
     std::optional<std::pair<uint64_t, uint64_t>> collectedAt_;
+    std::chrono::steady_clock::time_point collectedTime_{};
+    static constexpr auto kCollectInterval = std::chrono::milliseconds(250);
     std::unordered_map<Uuid, uint64_t> bakesInUse_; // bit per texture entry index, by avatar
     // By skin; holds the skin, so its address isn't reused.
     mutable std::unordered_map<const assets::MeshSkin*,

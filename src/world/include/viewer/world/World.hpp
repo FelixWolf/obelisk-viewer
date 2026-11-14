@@ -208,6 +208,9 @@ public:
     const std::vector<PlayingAnimation>* animations(const Uuid& id) const;
     // Bumped whenever any object is added, changed or removed.
     uint64_t objectsRevision() const { return objectsRevision_; }
+    // The same, but not bumped by motion alone (terse updates without a
+    // texture entry): for what depends on what objects are, not where.
+    uint64_t objectContentsRevision() const { return contentsRevision_; }
 
     struct Stats
     {
@@ -262,6 +265,7 @@ private:
     std::unordered_map<ObjectKey, std::shared_ptr<const FaceOverrides>, ObjectKeyHash>
         materialOverrides_;
     uint64_t objectsRevision_ = 0;
+    uint64_t contentsRevision_ = 0;
     Stats stats_;
 };
 

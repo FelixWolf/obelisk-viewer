@@ -61,9 +61,16 @@ Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device)
 Renderer::~Renderer()
 {
     SDL_WaitForGPUIdle(device_);
-    if(pickFence_)
+    for(const InFlight& f : inFlight_)
     {
-        SDL_ReleaseGPUFence(device_, pickFence_);
+        SDL_ReleaseGPUFence(device_, f.fence);
+    }
+    for(const OcclusionSlot& slot : occlusionSlots_)
+    {
+        if(slot.transfer)
+        {
+            SDL_ReleaseGPUTransferBuffer(device_, slot.transfer);
+        }
     }
     // Everything created on the device goes before the device itself.
     pipelines_.reset();
@@ -81,7 +88,7 @@ Renderer::~Renderer()
          probeCapture_,   probeDepth_,      brdfTable_,         hudImage_,       hudDepth_,
          pickTargets_[0], pickTargets_[1],  pickTargets_[2],    pickTargets_[3], pickDepth_,
          outlineMask_,    glyphTexture_,    glowMask_,          glowImages_[0],  glowImages_[1],
-         glowImages_[2]})
+         glowImages_[2],  occlusionTexture_})
     {
         if(t)
         {
@@ -292,10 +299,10 @@ void Renderer::endFrame()
     {
         return;
     }
-    if(screenshotPending_ || pickSubmitted_)
+    if(screenshotPending_ || pickSubmitted_ || occlusionSlot_ >= 0)
     {
-        // A pick is read once this frame is done (pollPick); a screenshot
-        // (rare) simply waits for it.
+        // A pick and the occlusion map are read once this frame is done
+        // (pollFrames); a screenshot (rare) simply waits for it.
         SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(currentCommands_);
         currentCommands_ = nullptr;
         if(fence && screenshotPending_)
@@ -303,16 +310,25 @@ void Renderer::endFrame()
             SDL_WaitForGPUFences(device_, true, &fence, 1);
             finishScreenshot();
         }
-        if(fence && pickSubmitted_)
+        if(fence && (pickSubmitted_ || occlusionSlot_ >= 0))
         {
-            pickFence_ = fence;
+            inFlight_.push_back({fence, pickSubmitted_, occlusionSlot_});
+            pickInFlight_ = pickInFlight_ || pickSubmitted_;
         }
-        else if(fence)
+        else
         {
-            SDL_ReleaseGPUFence(device_, fence);
+            if(fence)
+            {
+                SDL_ReleaseGPUFence(device_, fence);
+            }
+            if(occlusionSlot_ >= 0)
+            {
+                occlusionSlots_[static_cast<size_t>(occlusionSlot_)].busy = false;
+            }
         }
         screenshotPending_ = false;
         pickSubmitted_ = false;
+        occlusionSlot_ = -1;
         meshPool_->endFrame();
         return;
     }

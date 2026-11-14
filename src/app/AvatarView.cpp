@@ -277,12 +277,18 @@ float AvatarView::extent(const world::Object& avatar) const
 
 void AvatarView::collectAttachments(const world::World& world, MeshManager& meshes)
 {
-    const std::pair revisions(world.objectsRevision(), meshes.revision());
-    if(collectedAt_ == revisions)
+    // Busy regions change some object nearly every frame: rescanning them
+    // all then is wasted. At once when meshes arrive, otherwise at most a
+    // few times a second.
+    const std::pair revisions(world.objectContentsRevision(), meshes.revision());
+    const auto now = std::chrono::steady_clock::now();
+    if(collectedAt_ == revisions || (collectedAt_ && collectedAt_->second == revisions.second &&
+                                     now - collectedTime_ < kCollectInterval))
     {
         return;
     }
     collectedAt_ = revisions;
+    collectedTime_ = now;
     overrides_.clear();
     bakesInUse_.clear();
     for(const auto& [key, object] : world.objects())

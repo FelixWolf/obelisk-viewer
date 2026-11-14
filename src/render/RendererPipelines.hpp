@@ -49,6 +49,7 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* glowMaskSkinned = nullptr;
     SDL_GPUGraphicsPipeline* glowExtract = nullptr;
     SDL_GPUGraphicsPipeline* glowBlur = nullptr;
+    SDL_GPUGraphicsPipeline* occlusionReduce = nullptr; // the depth made small
     SDL_GPUGraphicsPipeline* label = nullptr;
     SDL_GPUGraphicsPipeline* hudLabel = nullptr;
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
@@ -88,6 +89,7 @@ struct Renderer::Pipelines
                                           outlineMask,
                                           outline,
                                           label,
+                                          occlusionReduce,
                                           glowMask,
                                           glowMaskSkinned,
                                           glowExtract,

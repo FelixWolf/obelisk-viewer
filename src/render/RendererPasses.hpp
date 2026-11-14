@@ -28,6 +28,8 @@ inline constexpr SDL_GPUTextureFormat kHdrFormat = SDL_GPU_TEXTUREFORMAT_R16G16B
 // (8 bits, as the official viewer's when RenderGlowHDR is off).
 inline constexpr SDL_GPUTextureFormat kGlowMaskFormat = SDL_GPU_TEXTUREFORMAT_R16_FLOAT;
 inline constexpr SDL_GPUTextureFormat kGlowFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+// Occlusion culling: the depth made small (OcclusionMap).
+inline constexpr SDL_GPUTextureFormat kOcclusionFormat = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
 // The HUD image: sRGB-encoded values (as the official viewer's HUDs, drawn
 // after tonemapping), premultiplied by coverage.
 inline constexpr SDL_GPUTextureFormat kHudFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -168,19 +170,33 @@ public:
         }
     }
 
+    // Binds only the slots that changed (the span from the first to the
+    // last): SDL tracks each texture bound in a list it searches on every
+    // bind, so the slots every draw shares (shadows, probes) shouldn't go
+    // again with each material.
     void bindSamplers(std::span<const SDL_GPUTextureSamplerBinding> samplers)
     {
-        if(samplers.size() == boundSamplerCount_ &&
-           std::equal(samplers.begin(), samplers.end(), boundSamplers_.begin(),
-                      [](const auto& a, const auto& b)
-                      { return a.texture == b.texture && a.sampler == b.sampler; }))
+        size_t first = samplers.size();
+        size_t last = 0;
+        for(size_t i = 0; i < samplers.size(); i++)
+        {
+            const bool same = i < boundSamplerCount_ &&
+                              boundSamplers_[i].texture == samplers[i].texture &&
+                              boundSamplers_[i].sampler == samplers[i].sampler;
+            if(!same)
+            {
+                first = std::min(first, i);
+                last = i;
+            }
+        }
+        if(first == samplers.size())
         {
             return;
         }
         std::ranges::copy(samplers, boundSamplers_.begin());
-        boundSamplerCount_ = samplers.size();
-        SDL_BindGPUFragmentSamplers(pass_, 0, samplers.data(),
-                                    static_cast<Uint32>(samplers.size()));
+        boundSamplerCount_ = std::max(boundSamplerCount_, samplers.size());
+        SDL_BindGPUFragmentSamplers(pass_, static_cast<Uint32>(first), samplers.data() + first,
+                                    static_cast<Uint32>(last - first + 1));
     }
 
     void drawMesh(const Mesh& mesh, uint32_t instance = 0)
@@ -202,7 +218,11 @@ public:
     }
 
     // Something else was bound behind this pass's back (the sky's pipeline).
-    void forgetPipeline() { boundPipeline_ = nullptr; }
+    void forgetPipeline()
+    {
+        boundPipeline_ = nullptr;
+        boundSamplerCount_ = 0;
+    }
 
 private:
     SDL_GPUCommandBuffer* commands_;

@@ -65,6 +65,7 @@ void World::removeRegion(uint64_t regionHandle)
     std::erase_if(materialOverrides_,
                   [&](const auto& entry) { return entry.first.region == regionHandle; });
     objectsRevision_++;
+    contentsRevision_++;
 }
 
 float RegionTerrain::heightAt(float x, float y) const
@@ -236,6 +237,7 @@ void World::removeWithChildren(const ObjectKey& key)
         }
     }
     objectsRevision_++;
+    contentsRevision_++;
 }
 
 namespace
@@ -558,6 +560,12 @@ void World::apply(WorldUpdate update)
             applyObject(regionHandle, u, objects->received, objects->timeDilation);
         }
         objectsRevision_ += !objects->updates.empty();
+        // Motion alone (terse updates without a texture entry) leaves what
+        // objects are and look like as it was.
+        const bool contents = std::ranges::any_of(
+            objects->updates, [](const ObjectUpdateData& u)
+            { return u.kind != ObjectUpdateData::Kind::Terse || u.faces.has_value(); });
+        contentsRevision_ += contents;
     }
     else if(auto* kill = std::get_if<WorldUpdate::Kill>(&update.change))
     {
@@ -572,6 +580,7 @@ void World::apply(WorldUpdate update)
             materialOverrides_.erase(key);
         }
         objectsRevision_++;
+        contentsRevision_++;
     }
     else if(auto* overrides = std::get_if<WorldUpdate::MaterialOverrides>(&update.change))
     {
@@ -586,6 +595,7 @@ void World::apply(WorldUpdate update)
                 std::make_shared<const FaceOverrides>(std::move(overrides->faces));
         }
         objectsRevision_++;
+        contentsRevision_++;
     }
     else if(auto* animations = std::get_if<WorldUpdate::Animations>(&update.change))
     {
@@ -598,6 +608,7 @@ void World::apply(WorldUpdate update)
         a.serial = ++appearanceSerial_;
         appearances_[appearance->avatar] = std::make_shared<const Appearance>(std::move(a));
         objectsRevision_++;
+        contentsRevision_++;
     }
     else if(auto* terrainUpdate = std::get_if<WorldUpdate::Terrain>(&update.change))
     {

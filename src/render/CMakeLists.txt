@@ -30,6 +30,7 @@ set(shader_sources
   glow_mask.frag
   glow_extract.frag
   glow_blur.frag
+  occlusion_reduce.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -82,6 +83,8 @@ add_library(viewer_render STATIC
   RendererPick.cpp
   RendererText.cpp
   RendererGlow.cpp
+  RendererOcclusion.cpp
+  OcclusionMap.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp

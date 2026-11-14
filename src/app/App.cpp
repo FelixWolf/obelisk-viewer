@@ -76,7 +76,7 @@ void printUsage()
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
-                 "[--say TEXT] [--say-at SECONDS]");
+                 "[--say TEXT] [--say-at SECONDS] [--no-occlusion]");
 }
 
 } // namespace
@@ -163,6 +163,10 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
                 return std::nullopt;
             }
             options.pointAt = *id;
+        }
+        else if(arg == "--no-occlusion")
+        {
+            options.occlusion = false;
         }
         else if(arg == "--say" && hasValue)
         {
@@ -304,6 +308,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->pointAt_ = options.pointAt;
     app->clickAt_ = options.clickAt;
     app->say_ = options.say;
+    app->occlusion_ = options.occlusion;
     app->sayAt_ = options.sayAt;
     app->screenshotPath_ = options.screenshotPath;
     app->screenshotDelay_ = options.screenshotDelay;
@@ -1008,6 +1013,8 @@ void App::buildScene(render::Scene& scene)
     scene.objects.clear();
     scene.lights.clear();
     scene.labels.clear();
+    // What a recent frame hid behind what (occlusion culling).
+    scene.occlusion = occlusion_ ? renderer_->occlusion() : nullptr;
     scene.terrain.clear();
     scene.probes.clear();
     scene.worldOrigin = {};
@@ -1145,6 +1152,10 @@ void App::buildScene(render::Scene& scene)
             animations_->update();
         }
         profile_.mark(FrameProfile::Loading);
+        // Before anything is culled: the occlusion map is only used at the
+        // origin it was drawn at.
+        scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
+                                       static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
         if(avatars_)
         {
             const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
@@ -1182,8 +1193,6 @@ void App::buildScene(render::Scene& scene)
         auto automatic = placeAutomaticProbes(objects_->probeObjects(), groundAt, origin);
         scene.probes.insert(scene.probes.end(), automatic.begin(), automatic.end());
         profile_.mark(FrameProfile::Objects);
-        scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
-                                       static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
     }
     if(showTestScene_ || !originHandle_)
     {

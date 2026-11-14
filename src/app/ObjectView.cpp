@@ -1,6 +1,7 @@
 #include "ObjectView.hpp"
 
 #include "FaceUpload.hpp"
+#include "viewer/core/Log.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -859,6 +860,16 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         if(!hud && (distance - radius > drawDistance || (!scene.shadows.enabled && !forProbes &&
                                                          glm::dot(toObject, forward) < -radius)))
         {
+            continue;
+        }
+
+        // Hidden (behind something, as a recent frame saw it, or out of
+        // view with nothing to cast or reflect): skipped before any work.
+        // The radius is generous: prims reach past their box.
+        if(!hud &&
+           scene.visibility(position, glm::length(object.scale)) == render::Visibility::Hidden)
+        {
+            stats_.culled++;
             continue;
         }
 

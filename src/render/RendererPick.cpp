@@ -37,7 +37,7 @@ constexpr uint32_t kPickTargetBytes = kPickPixels * kPickTexelBytes;
 
 void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool drawsReady)
 {
-    if(!scene.pick || pickFence_ || pickSubmitted_ || !drawsReady)
+    if(!scene.pick || pickInFlight_ || pickSubmitted_ || !drawsReady)
     {
         return;
     }
@@ -189,14 +189,9 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
     pickRequest_ = request.id;
 }
 
-void Renderer::pollPick()
+void Renderer::readPick()
 {
-    if(!pickFence_ || !SDL_QueryGPUFence(device_, pickFence_))
-    {
-        return;
-    }
-    SDL_ReleaseGPUFence(device_, pickFence_);
-    pickFence_ = nullptr;
+    pickInFlight_ = false;
     const auto* bytes =
         static_cast<const uint8_t*>(SDL_MapGPUTransferBuffer(device_, pickTransfer_, false));
     if(!bytes)

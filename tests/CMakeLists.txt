@@ -19,6 +19,7 @@ add_executable(viewer_tests
   MeshPoolTests.cpp
   MeshTests.cpp
   ObjectTests.cpp
+  OcclusionTests.cpp
   ProtocolTests.cpp
   SessionTests.cpp
   TerrainTests.cpp

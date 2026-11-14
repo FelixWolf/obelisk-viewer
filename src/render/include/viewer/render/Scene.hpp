@@ -8,11 +8,13 @@
 #include "viewer/render/Frustum.hpp"
 #include "viewer/render/Material.hpp"
 #include "viewer/render/Mesh.hpp"
+#include "viewer/render/OcclusionMap.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -332,16 +334,32 @@ struct Scene
     std::vector<LocalLight> lights;
     std::vector<Label> labels;
 
+    // What a recent frame hid (Renderer::occlusion); null: nothing known.
+    // Only used if drawn at this scene's origin.
+    std::shared_ptr<const OcclusionMap> occlusion;
+    // Hidden things this big (radius, meters) still cast shadows: smaller
+    // ones behind a wall rarely cast one into view.
+    static constexpr float kHiddenShadowRadius = 8.0f;
+
+    // Whether a recent frame hid this sphere.
+    bool occluded(const glm::vec3& center, float radius) const
+    {
+        return occlusion && occlusion->origin() == worldOrigin && occlusion->hidden(center, radius);
+    }
+
     // Whatever is within this sphere: in view, only its shadow in view (or
     // near enough for reflection probes), or neither (frustum, shadows and
-    // reflections must be set).
+    // reflections must be set). In view but hidden behind something counts
+    // as out of view, its shadow only if it's big.
     Visibility visibility(const glm::vec3& center, float radius) const
     {
-        if(frustum.containsSphere(center, radius))
+        const bool inView = frustum.containsSphere(center, radius);
+        const bool hidden = inView && occluded(center, radius);
+        if(inView && !hidden)
         {
             return Visibility::Visible;
         }
-        if(shadows.enabled &&
+        if(shadows.enabled && (!hidden || radius >= kHiddenShadowRadius) &&
            glm::length(center - camera.position) - radius < shadows.distance + 64.0f &&
            frustum.containsShadowOf(center, radius, shadows.towardLight))
         {
