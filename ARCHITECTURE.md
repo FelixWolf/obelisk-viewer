@@ -992,6 +992,22 @@ material's transform. An update carrying an animation restarts it, unless
 the running one is smooth (that carries on, as LLVOVolume has it). An
 animated face's textures are sized for the repeats it shows.
 
+Per-frame cost: `ObjectView` keeps a record per prim. It holds what the
+prim is (on a HUD, rigged mesh; redone when its content revision changes,
+which movement alone doesn't) and its face draws once everything in them
+has loaded. Those are reused while nothing they depend on has changed: its
+content, its link root's (click actions), its level of detail, the mesh
+and material managers' revisions, its material override, and, if it's
+worn, avatars' appearances (Bake on Mesh). Each frame a kept prim only
+gets its transform and shadow-only flag, and its textures are asked for
+again through handles recorded when the draws were built
+(`TextureManager::record`, `touch`), scaled to this frame's size; prims
+whose draws change every frame (texture animation, flexible) aren't kept.
+`TextureManager` chooses sizes only for the textures used last frame and
+checks its budget and retries now and then; `AvatarView` works out each
+avatar's root and attachment point frames once a frame, and rigged mesh
+its owner's frame and visibility once per owner.
+
 `ObjectView` (app) generates geometry on the JobSystem, cached per (shape,
 level of detail), so identical prims share a mesh. Only what the camera can see
 is drawn: the App puts the view volume in the scene (`render::Frustum`,

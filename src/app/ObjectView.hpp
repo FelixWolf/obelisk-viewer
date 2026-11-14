@@ -72,6 +72,7 @@ public:
         size_t palettes = 0;    // rigged meshes skinned last frame
         size_t culled = 0;      // in range but out of view last frame
         size_t pbrFaces = 0;    // faces drawn with their PBR material
+        size_t reused = 0;      // prims drawn from their kept draws last frame
     };
     Stats stats() const { return stats_; }
 
@@ -151,6 +152,21 @@ private:
              LegacyMaterialManager& legacyMaterials, const world::World& world,
              const world::Object* wearer, const AvatarView* avatars, float texels,
              const world::AnimatedTransform* animation = nullptr);
+    // What a skeleton's owner is to this frame, for its rigged meshes:
+    // where its skeleton stands, how big it is, how far, whether it's seen.
+    struct RiggedOwner
+    {
+        bool known = false; // its frame is (its parents are known)
+        glm::mat4 root{1.0f};
+        float radius = 0.0f;
+        float distance = 0.0f;
+        render::Visibility seen = render::Visibility::Hidden;
+    };
+    RiggedOwner riggedOwner(const render::Scene& scene, const world::World& world,
+                            const SkeletonOwner& owner, uint64_t originHandle, MeshManager& meshes,
+                            const AvatarView* avatars, float drawDistance) const;
+    // This frame's, by owner.
+    std::unordered_map<const world::Object*, RiggedOwner> riggedOwners_;
     // A rigged mesh, skinned to the posed skeleton it follows (its avatar's
     // or its animated object's).
     void addRigged(render::Scene& scene, const world::World& world, const world::Object& object,
@@ -183,6 +199,45 @@ private:
     Stats stats_;
     std::vector<ProbeObject> probeObjects_;
     FlexibleView flexible_; // flexible prims' bent geometry
+    // A prim's face draws as last built, reused while nothing they depend on
+    // has changed and everything in them had loaded: each frame only their
+    // transform, whether they only cast shadows, and their textures' use
+    // (the size wanted at this distance) are redone. Prims whose draws change
+    // every frame (texture animation, flexible) aren't kept.
+    struct CachedDraws
+    {
+        // What it is, until it changes: whether it's on a HUD, whether it's
+        // rigged mesh (asked of the mesh once it's known).
+        bool known = false;
+        uint32_t infoRevision = 0;
+        uint64_t infoMeshRevision = 0;
+        bool onHud = false;
+        bool rigged = false;
+        // Its draws, if kept (drawsValid), and what they depend on.
+        bool drawsValid = false;
+        uint32_t contentRevision = 0;
+        world::ObjectKey root;
+        uint32_t rootRevision = 0;
+        int detail = -1;
+        bool hud = false;
+        bool worn = false; // on an avatar: Bake on Mesh follows its appearance
+        uint64_t meshRevision = 0;
+        uint64_t materialRevision = 0;
+        uint64_t legacyRevision = 0;
+        uint64_t appearanceRevision = 0;
+        const void* overrides = nullptr;
+        float radius = 0.0f; // of its geometry, for culling
+        float texels = 0.0f; // the object's, when its textures were asked for
+        std::vector<render::ObjectDraw> draws;
+        std::vector<TextureManager::TextureUse> uses;
+        size_t faces = 0;
+        size_t pbrFaces = 0;
+        bool mesh = false;
+        uint64_t usedFrame = 0;
+    };
+    std::unordered_map<world::ObjectKey, CachedDraws, world::ObjectKeyHash> drawCache_;
+    std::vector<TextureManager::TextureUse> recordedUses_;
+    uint64_t frame_ = 0;
     // Regions by the index pick ids carry (index + 1).
     std::vector<uint64_t> pickRegions_;
     uint64_t pickRegion(uint64_t region);

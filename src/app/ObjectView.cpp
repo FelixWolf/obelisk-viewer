@@ -1,7 +1,6 @@
 #include "ObjectView.hpp"
 
 #include "FaceUpload.hpp"
-#include "viewer/core/Log.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -178,6 +177,7 @@ ObjectView::~ObjectView()
 
 void ObjectView::clear()
 {
+    drawCache_.clear();
     cache_.clear();
     flexible_.clear();
 }
@@ -487,6 +487,50 @@ void ObjectView::addLight(render::Scene& scene, const world::World& world,
     scene.lights.push_back(out);
 }
 
+ObjectView::RiggedOwner ObjectView::riggedOwner(const render::Scene& scene,
+                                                const world::World& world,
+                                                const SkeletonOwner& owner, uint64_t originHandle,
+                                                MeshManager& meshes, const AvatarView* avatars,
+                                                float drawDistance) const
+{
+    RiggedOwner o;
+    if(owner.animated)
+    {
+        // An animated object's skeleton stands where its root prim is
+        // (llcontrolavatar.cpp matchVolumeTransform): turned by the root's
+        // bind shape rotation too unless worn.
+        const auto frame = frameOf(*owner.root, world, originHandle, avatars);
+        if(!frame)
+        {
+            return o;
+        }
+        o.root = *frame;
+        if(owner.root->parentId == 0 &&
+           (owner.root->sculptType & world::SculptType::Mask) == world::SculptType::Mesh)
+        {
+            if(const auto rootSkin = meshes.skin(owner.root->sculptTexture))
+            {
+                const glm::mat3 bind(rootSkin->bindShape);
+                o.root *= glm::mat4(glm::mat3_cast(glm::quat_cast(glm::mat3(
+                    glm::normalize(bind[0]), glm::normalize(bind[1]), glm::normalize(bind[2])))));
+            }
+        }
+        // Its extent is used as a radius, unlike an avatar's (LLVOVolume::calcLOD).
+        o.radius = 0.5f * avatars->extent(*owner.owner);
+    }
+    else
+    {
+        o.root = avatars->rootFrame(*owner.owner, world, originHandle);
+        o.radius = avatars->extent(*owner.owner);
+    }
+    o.known = true;
+    o.distance = glm::length(glm::vec3(o.root[3]) - scene.camera.position);
+    // Rigged mesh reaches past the skeleton (hair, tails, skirts): a margin.
+    o.seen = o.distance > drawDistance ? render::Visibility::Hidden
+                                       : scene.visibility(glm::vec3(o.root[3]), o.radius + 1.0f);
+    return o;
+}
+
 void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                            const world::Object& object, uint64_t originHandle,
                            TextureManager& textures, MeshManager& meshes,
@@ -499,50 +543,29 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         stats_.skipped++; // not worn, and not part of an animated object
         return;
     }
-    glm::mat4 root(1.0f);
-    float radius = 0.0f;
-    if(owner.animated)
+    // What the skeleton's owner is to this frame (where, how big, whether
+    // it's seen): the same for all of its rigged attachments, so worked out
+    // once.
+    const auto [ownerIt, firstOfOwner] = riggedOwners_.try_emplace(owner.owner);
+    RiggedOwner& o = ownerIt->second;
+    if(firstOfOwner)
     {
-        // An animated object's skeleton stands where its root prim is
-        // (llcontrolavatar.cpp matchVolumeTransform): turned by the root's
-        // bind shape rotation too unless worn.
-        const auto frame = frameOf(*owner.root, world, originHandle, avatars);
-        if(!frame)
-        {
-            stats_.skipped++;
-            return;
-        }
-        root = *frame;
-        if(owner.root->parentId == 0 &&
-           (owner.root->sculptType & world::SculptType::Mask) == world::SculptType::Mesh)
-        {
-            if(const auto rootSkin = meshes.skin(owner.root->sculptTexture))
-            {
-                const glm::mat3 bind(rootSkin->bindShape);
-                root *= glm::mat4(glm::mat3_cast(glm::quat_cast(glm::mat3(
-                    glm::normalize(bind[0]), glm::normalize(bind[1]), glm::normalize(bind[2])))));
-            }
-        }
-        // Its extent is used as a radius, unlike an avatar's (LLVOVolume::calcLOD).
-        radius = 0.5f * avatars->extent(*owner.owner);
+        o = riggedOwner(scene, world, owner, originHandle, meshes, avatars, drawDistance);
     }
-    else
+    if(!o.known)
     {
-        root = avatars->rootFrame(*owner.owner, world, originHandle);
-        radius = avatars->extent(*owner.owner);
-    }
-    const float distance = glm::length(glm::vec3(root[3]) - scene.camera.position);
-    if(distance > drawDistance)
-    {
+        stats_.skipped++;
         return;
     }
-    // Rigged mesh reaches past the skeleton (hair, tails, skirts): a margin.
-    const render::Visibility seen = scene.visibility(glm::vec3(root[3]), radius + 1.0f);
-    if(seen == render::Visibility::Hidden)
+    if(o.seen == render::Visibility::Hidden)
     {
         stats_.culled++;
         return;
     }
+    const glm::mat4& root = o.root;
+    const float radius = o.radius;
+    const float distance = o.distance;
+    const render::Visibility seen = o.seen;
     // Textures as big as the skeleton shows (the least for shadows only).
     const float texels =
         seen == render::Visibility::ShadowOnly ? 0.0f : textures.texelsFor(2.0f * radius, distance);
@@ -770,7 +793,9 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     stats_.meshObjects = 0;
     stats_.culled = 0;
     stats_.pbrFaces = 0;
+    stats_.reused = 0;
     probeObjects_.clear();
+    riggedOwners_.clear();
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
     const auto now = std::chrono::steady_clock::now(); // texture animations, flexible prims
@@ -801,7 +826,21 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         // HUD attachments: in HUD space, drawn into the HUD only (no lights
         // or probes from them, no culling, always the most detail).
-        const bool hud = onHud(object, world, avatars);
+        // Its record: what it is (until it changes) and its kept draws.
+        CachedDraws& record = drawCache_[key];
+        record.usedFrame = frame_;
+        const uint8_t sculptBits = object.sculptType & world::SculptType::Mask;
+        if(!record.known || record.infoRevision != object.contentRevision ||
+           (sculptBits == world::SculptType::Mesh && record.infoMeshRevision != meshes.revision()))
+        {
+            record.known = true;
+            record.infoRevision = object.contentRevision;
+            record.infoMeshRevision = meshes.revision();
+            record.onHud = onHud(object, world, avatars);
+            record.rigged = sculptBits == world::SculptType::Mesh &&
+                            meshes.isRigged(object.sculptTexture).value_or(false);
+        }
+        const bool hud = record.onHud;
         if(object.light && !hud)
         {
             addLight(scene, world, object, originHandle, textures, avatars, drawDistance);
@@ -823,7 +862,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
 
         // Rigged mesh: skinned to the skeleton it follows (its avatar's or
         // its animated object's), wherever the prim itself is.
-        if(isMesh && meshes.isRigged(object.sculptTexture).value_or(false))
+        if(record.rigged)
         {
             if(hud)
             {
@@ -874,11 +913,68 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
 
         const int detail = hud ? 3 : detailFor(radius, distance);
+        // Kept draws, if nothing they depend on has changed.
+        const bool flexibleNow = object.flexible && sculpt == world::SculptType::None;
+        const bool keepable = !flexibleNow && !object.textureAnimation;
+        const void* overrides = world.materialOverrides(key);
+        auto valid = [&](const CachedDraws& c)
+        {
+            if(c.contentRevision != object.contentRevision || c.detail != detail || c.hud != hud ||
+               c.overrides != overrides || c.materialRevision != materials.revision() ||
+               c.legacyRevision != legacyMaterials.revision() ||
+               (c.mesh && c.meshRevision != meshes.revision()) ||
+               (c.worn && c.appearanceRevision != world.appearanceRevision()))
+            {
+                return false;
+            }
+            if(c.root == key)
+            {
+                return true;
+            }
+            const world::Object* root = world.object(c.root.region, c.root.localId);
+            return root && root->contentRevision == c.rootRevision;
+        };
+        if(keepable)
+        {
+            if(record.drawsValid && valid(record))
+            {
+                CachedDraws& c = record;
+                const render::Visibility seen =
+                    hud ? render::Visibility::Visible : scene.visibility(position, c.radius);
+                if(seen == render::Visibility::Hidden)
+                {
+                    stats_.culled++;
+                    continue;
+                }
+                const float texels = hud ? 2.0f * radius * scene.hud.pixelHeight * scene.hud.zoom
+                                     : seen == render::Visibility::ShadowOnly
+                                         ? 0.0f
+                                         : textures.texelsFor(2.0f * radius, distance);
+                for(const TextureManager::TextureUse& u : c.uses)
+                {
+                    textures.touch(u, u.texels / c.texels * texels);
+                }
+                const glm::mat4 transform = *frame * glm::scale(glm::mat4(1.0f), object.scale);
+                const bool shadowOnly = seen == render::Visibility::ShadowOnly;
+                for(render::ObjectDraw draw : c.draws)
+                {
+                    draw.transform = transform;
+                    draw.shadowOnly = !draw.pickOnly && shadowOnly;
+                    scene.objects.push_back(draw);
+                }
+                stats_.drawn++;
+                stats_.reused++;
+                stats_.faces += c.faces;
+                stats_.pbrFaces += c.pbrFaces;
+                stats_.meshObjects += c.mesh;
+                continue;
+            }
+        }
         const std::vector<render::Mesh>* faces = nullptr;
         glm::vec3 extent(0.5f); // mesh assets fit their box
         // Flexible prims (not sculpted or mesh): bent each frame, their
         // geometry in meters in the prim's frame.
-        const bool flexible = object.flexible && sculpt == world::SculptType::None;
+        const bool flexible = flexibleNow;
         if(flexible)
         {
             faces = flexible_.faces(key, object, *frame, distance, detail, now,
@@ -917,7 +1013,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // the HUD, its size on the HUD image).
         const float texels = hud ? 2.0f * radius * scene.hud.pixelHeight * scene.hud.zoom
                              : seen == render::Visibility::ShadowOnly
-                                 ? 0.0f
+                                 ? 1.0f // the least (and a scale for kept draws)
                                  : textures.texelsFor(2.0f * radius, distance);
         const glm::mat4 transform =
             flexible ? *frame : *frame * glm::scale(glm::mat4(1.0f), object.scale);
@@ -936,6 +1032,18 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             pickable ? static_cast<uint64_t>(object.localId) << 32 | pickRegion(object.region) << 8
                      : 0;
         const auto animation = textureAnimation(object, now);
+        // Kept for next frames if everything in them has loaded (their
+        // textures' sizes then scale from this one).
+        const bool keep = keepable && texels > 0.0f; // (0 only on the HUD at zoom 0)
+        bool complete = true;
+        const size_t firstDraw = scene.objects.size();
+        const size_t facesBefore = stats_.faces;
+        const size_t pbrBefore = stats_.pbrFaces;
+        if(keep)
+        {
+            recordedUses_.clear();
+            textures.record(&recordedUses_);
+        }
         for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
         {
             const render::Mesh& mesh = (*faces)[f];
@@ -981,6 +1089,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                                         faceTexels, faceAnimation);
                 if(!m)
                 {
+                    complete = false; // a bake still loading
                     continue;
                 }
                 draw.material = *m;
@@ -999,7 +1108,52 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             scene.objects.push_back(draw);
             stats_.faces++;
         }
+        if(keep)
+        {
+            textures.record(nullptr);
+            complete = complete &&
+                       std::ranges::all_of(recordedUses_, [](const auto& u) { return u.resident; });
+            if(complete)
+            {
+                CachedDraws& c = record;
+                c.drawsValid = true;
+                c.contentRevision = object.contentRevision;
+                c.root = world::ObjectKey{root.region, root.localId};
+                c.rootRevision = root.contentRevision;
+                c.detail = detail;
+                c.hud = hud;
+                c.worn = wearer != nullptr;
+                c.mesh = isMesh;
+                c.meshRevision = meshes.revision();
+                c.materialRevision = materials.revision();
+                c.legacyRevision = legacyMaterials.revision();
+                c.appearanceRevision = world.appearanceRevision();
+                c.overrides = overrides;
+                c.radius = glm::length(extent * object.scale);
+                c.texels = texels;
+                c.draws.assign(scene.objects.begin() + static_cast<ptrdiff_t>(firstDraw),
+                               scene.objects.end());
+                c.uses = recordedUses_;
+                c.faces = stats_.faces - facesBefore;
+                c.pbrFaces = stats_.pbrFaces - pbrBefore;
+                c.usedFrame = frame_;
+            }
+            else
+            {
+                record.drawsValid = false;
+                record.draws.clear();
+                record.uses.clear();
+            }
+        }
     }
+
+    // Kept draws of prims not drawn for a while (gone, or far) go.
+    if(frame_ % 600 == 0)
+    {
+        std::erase_if(drawCache_,
+                      [&](const auto& entry) { return frame_ - entry.second.usedFrame > 600; });
+    }
+    frame_++;
 
     stats_.meshes = cache_.size();
     stats_.palettes = palettesUsed_;

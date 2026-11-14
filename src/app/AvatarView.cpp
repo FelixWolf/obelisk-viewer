@@ -141,6 +141,18 @@ const AvatarView::Body& AvatarView::bodyOf(const world::Object& avatar) const
 glm::mat4 AvatarView::rootFrame(const world::Object& avatar, const world::World& world,
                                 uint64_t originHandle) const
 {
+    // Once a frame per avatar: all its attachments ask.
+    const auto [it, inserted] = rootFrames_.try_emplace(avatar.id);
+    if(inserted)
+    {
+        it->second = computeRootFrame(avatar, world, originHandle);
+    }
+    return it->second;
+}
+
+glm::mat4 AvatarView::computeRootFrame(const world::Object& avatar, const world::World& world,
+                                       uint64_t originHandle) const
+{
     const avatar::Shape& shape = bodyOf(avatar).shape;
     const world::World::Appearance* appearance = world.appearance(avatar.id);
     const glm::vec3 hover =
@@ -166,6 +178,19 @@ bool AvatarView::isHudPoint(int point) const
 std::optional<glm::mat4> AvatarView::attachmentFrame(const world::Object& avatar,
                                                      const world::World& world, int point,
                                                      uint64_t originHandle) const
+{
+    // Once a frame per avatar and point: every prim attached there asks.
+    const auto [it, inserted] = attachmentFrames_.try_emplace(PointKey{avatar.id, point});
+    if(inserted)
+    {
+        it->second = computeAttachmentFrame(avatar, world, point, originHandle);
+    }
+    return it->second;
+}
+
+std::optional<glm::mat4> AvatarView::computeAttachmentFrame(const world::Object& avatar,
+                                                            const world::World& world, int point,
+                                                            uint64_t originHandle) const
 {
     const auto it = base_.attachmentPoints.find(point);
     if(it == base_.attachmentPoints.end())
@@ -447,6 +472,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
     frame_++;
     drawn_ = 0;
     animatedObjects_ = 0;
+    rootFrames_.clear(); // poses change below
+    attachmentFrames_.clear();
     collectAttachments(world, meshes);
     for(const auto& [key, object] : world.objects())
     {
@@ -533,6 +560,9 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
 
     // Forget avatars and animated objects that are gone.
     std::erase_if(avatars_, [&](const auto& entry) { return entry.second.seen != frame_; });
+    // Frames asked for while posing were of the old poses.
+    rootFrames_.clear();
+    attachmentFrames_.clear();
 }
 
 } // namespace viewer

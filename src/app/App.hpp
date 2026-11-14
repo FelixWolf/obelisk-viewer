@@ -184,6 +184,10 @@ private:
     bool occlusion_ = true;          // occlusion culling
     uint32_t stereoSize_ = 0;        // --stereo-benchmark: eye size, 0 off
     uint64_t stereoLoggedTicks_ = 0; // its last timing log
+    // The stats window's texture and mesh counts, refreshed now and then.
+    TextureManager::Stats uiTextureStats_{};
+    MeshManager::Stats uiMeshStats_{};
+    uint64_t uiStatsTicks_ = 0;
     LocalChat localChat_;
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
     // The pointer's ray this frame (none over the UI or while dragging).

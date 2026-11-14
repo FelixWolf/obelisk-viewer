@@ -112,6 +112,7 @@ void LegacyMaterialManager::update()
                 it->second.material =
                     std::make_shared<const assets::LegacyMaterial>(std::move(material));
                 it->second.state = State::Ready;
+                revision_++;
             }
         }
         // Whatever the answer left out isn't there.
@@ -121,6 +122,7 @@ void LegacyMaterialManager::update()
             if(it != entries_.end() && it->second.state == State::Requested)
             {
                 it->second.state = State::Missing;
+                revision_++;
             }
         }
     }

@@ -211,6 +211,8 @@ public:
     // The same, but not bumped by motion alone (terse updates without a
     // texture entry): for what depends on what objects are, not where.
     uint64_t objectContentsRevision() const { return contentsRevision_; }
+    // Bumped whenever any avatar's appearance changes.
+    uint64_t appearanceRevision() const { return appearanceSerial_; }
 
     struct Stats
     {

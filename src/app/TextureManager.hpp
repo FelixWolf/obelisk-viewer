@@ -76,6 +76,22 @@ public:
     // across, `distance` meters away (once over it: repeatedTexels).
     float texelsFor(float size, float distance) const;
 
+    // A texture a use asked for (record): kept to ask for it again without
+    // looking it up (touch). Entries are never removed, so it stays valid
+    // for the manager's life.
+    struct TextureUse
+    {
+        void* entry = nullptr;
+        float texels = 0.0f;
+        bool linear = false;
+        bool resident = false; // it was ready when asked for
+    };
+    // While recording, every get() and getLinear() is noted in `uses`
+    // (null: stop).
+    void record(std::vector<TextureUse>* uses) { recording_ = uses; }
+    // Asks for a recorded texture again, at `texels`.
+    void touch(const TextureUse& use, float texels);
+
     // The GPU texture if it's ready; otherwise starts loading it (once) and
     // returns nullptr. Color textures are sampled as sRGB. `texels`: how
     // many across this use needs (texelsFor).
@@ -150,6 +166,8 @@ private:
         float kept = 0.0f;
         std::chrono::steady_clock::time_point keptSince{};
         uint64_t usedFrame = 0;
+        uint64_t listedFrame = 0; // when last put in used_
+        Uuid id{};
         std::string url; // explicit download URL, if any
         int attempts = 0;
         std::chrono::steady_clock::time_point retryAt{};
@@ -171,6 +189,9 @@ private:
 
     Entry& entry(const Uuid& id);
     void use(Entry& e, float texels);
+    // The entries used this frame, for chooseSizes (rather than all of them).
+    std::vector<Entry*> used_;
+    std::vector<TextureUse>* recording_ = nullptr;
     void startDownloads();
     void handleDownload(Download& download);
     void handleCacheResult(assets::TextureResult& result);

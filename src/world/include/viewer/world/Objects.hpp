@@ -201,6 +201,8 @@ struct Object
     float timeDilation = 1.0f;
     uint32_t revision = 0;      // bumped on every change
     uint32_t shapeRevision = 0; // bumped when the geometry changes
+    // Bumped when what it is or looks like changes (not when it only moves).
+    uint32_t contentRevision = 0;
 };
 
 // The pieces of one update, applied to an Object by applyUpdate().

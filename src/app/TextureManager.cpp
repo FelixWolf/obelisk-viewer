@@ -125,11 +125,21 @@ TextureManager::Entry& TextureManager::entry(const Uuid& id)
 {
     // New entries are looked up in the disk cache by chooseSizes, once
     // their first use says what size they need.
-    return entries_.try_emplace(id).first->second;
+    auto [it, inserted] = entries_.try_emplace(id);
+    if(inserted)
+    {
+        it->second.id = id;
+    }
+    return it->second;
 }
 
 void TextureManager::use(Entry& e, float texels)
 {
+    if(e.listedFrame != frame_)
+    {
+        e.listedFrame = frame_;
+        used_.push_back(&e);
+    }
     e.usedFrame = frame_;
     e.wanted = std::max(e.wanted, texels >= 0.0f ? texels : 0.0f); // NaN: the least
 }
@@ -143,7 +153,18 @@ const render::GpuTexture* TextureManager::get(const Uuid& id, float texels)
     Entry& e = entry(id);
     e.wantColor = true;
     use(e, texels);
+    if(recording_)
+    {
+        recording_->push_back({&e, texels, false, static_cast<bool>(e.color)});
+    }
     return e.color ? &e.color : nullptr;
+}
+
+void TextureManager::touch(const TextureUse& u, float texels)
+{
+    Entry& e = *static_cast<Entry*>(u.entry);
+    (u.linear ? e.wantLinear : e.wantColor) = true;
+    use(e, texels);
 }
 
 const render::GpuTexture* TextureManager::get(const Uuid& id, const std::string& url, float texels)
@@ -169,6 +190,10 @@ const render::GpuTexture* TextureManager::getLinear(const Uuid& id, float texels
     Entry& e = entry(id);
     e.wantLinear = true;
     use(e, texels);
+    if(recording_)
+    {
+        recording_->push_back({&e, texels, true, static_cast<bool>(e.linear)});
+    }
     return e.linear ? &e.linear : nullptr;
 }
 
@@ -180,6 +205,11 @@ const image::TextureData* TextureManager::data(const Uuid& id)
     }
     Entry& e = entry(id);
     e.keepCpuCopy = true;
+    if(e.listedFrame != frame_)
+    {
+        e.listedFrame = frame_;
+        used_.push_back(&e);
+    }
     e.usedFrame = frame_;
     return e.cpuCopy.get();
 }
@@ -245,10 +275,15 @@ void TextureManager::update()
         handleDownload(download);
     }
 
-    // Failed downloads come back after a pause.
+    // Failed downloads come back after a pause (looked for now and then:
+    // there are thousands of textures).
     const auto now = std::chrono::steady_clock::now();
     for(auto& [id, e] : entries_)
     {
+        if(frame_ % 60 != 0)
+        {
+            break;
+        }
         if(e.state == State::Failed && e.attempts < kMaxAttempts && now >= e.retryAt &&
            !viewerAssetUrl_.empty())
         {
@@ -298,9 +333,12 @@ void TextureManager::update()
 
 void TextureManager::chooseSizes()
 {
+    // Only what was asked for last frame: the rest keeps its size.
     const auto now = std::chrono::steady_clock::now();
-    for(auto& [id, e] : entries_)
+    for(Entry* entry : used_)
     {
+        Entry& e = *entry;
+        const Uuid& id = e.id;
         if(e.usedFrame == frame_)
         {
             // Grow at once; shrink once the smaller size has done for a while.
@@ -334,10 +372,16 @@ void TextureManager::chooseSizes()
             readQueue_.emplace_back(id, e.readSize);
         }
     }
+    used_.clear();
 }
 
 void TextureManager::keepToBudget()
 {
+    // Every so many frames: adding up thousands of textures isn't free.
+    if(frame_ % 16 != 0)
+    {
+        return;
+    }
     uint64_t total = 0;
     for(const auto& [id, e] : entries_)
     {

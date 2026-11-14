@@ -152,6 +152,7 @@ void MaterialManager::update()
                               : std::format("HTTP {}", d.response.status));
             }
             it->second.state = State::Failed; // missing or failed: not asked again
+            revision_++;
             continue;
         }
         it->second.state = State::Loading;
@@ -177,11 +178,13 @@ void MaterialManager::update()
         {
             it->second.material = std::move(r.material);
             it->second.state = State::Ready;
+            revision_++;
         }
         else
         {
             log::warn("material {}: {}", r.id.toString(), r.error);
             it->second.state = State::Failed;
+            revision_++;
         }
     }
     drainedResults_.clear();

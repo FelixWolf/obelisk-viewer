@@ -586,6 +586,10 @@ std::optional<ObjectUpdateData> decodeTerseObject(std::span<const uint8_t> data,
 bool applyUpdate(Object& object, const ObjectUpdateData& update)
 {
     object.revision++;
+    if(update.kind != ObjectUpdateData::Kind::Terse || update.faces)
+    {
+        object.contentRevision++;
+    }
     if(update.kind == ObjectUpdateData::Kind::Terse)
     {
         object.state = update.state;
@@ -606,8 +610,10 @@ bool applyUpdate(Object& object, const ObjectUpdateData& update)
         object.sculptTexture != next.sculptTexture || object.type != next.type;
     const uint32_t revision = object.revision;
     const uint32_t shapeRevision = object.shapeRevision;
+    const uint32_t contentRevision = object.contentRevision;
     object = next;
     object.revision = revision;
+    object.contentRevision = contentRevision;
     object.shapeRevision = shapeRevision + (shapeChanged ? 1 : 0);
     return shapeChanged;
 }

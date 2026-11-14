@@ -196,6 +196,29 @@ private:
         bindings_;
     std::string appearanceUrl_;
     float hudAspect_ = 1.0f;
+    // This frame's avatar root and attachment point frames (once posed),
+    // kept: every attachment asks for its avatar's.
+    struct PointKey
+    {
+        Uuid avatar;
+        int point = 0;
+        bool operator==(const PointKey&) const = default;
+    };
+    struct PointKeyHash
+    {
+        size_t operator()(const PointKey& k) const
+        {
+            return std::hash<Uuid>()(k.avatar) ^
+                   (static_cast<size_t>(k.point) * 0x9E3779B97F4A7C15ull);
+        }
+    };
+    mutable std::unordered_map<Uuid, glm::mat4> rootFrames_;
+    mutable std::unordered_map<PointKey, std::optional<glm::mat4>, PointKeyHash> attachmentFrames_;
+    glm::mat4 computeRootFrame(const world::Object& avatar, const world::World& world,
+                               uint64_t originHandle) const;
+    std::optional<glm::mat4> computeAttachmentFrame(const world::Object& avatar,
+                                                    const world::World& world, int point,
+                                                    uint64_t originHandle) const;
     uint64_t frame_ = 0;
     size_t drawn_ = 0;
     size_t animatedObjects_ = 0; // skeletons posed for animated objects last frame

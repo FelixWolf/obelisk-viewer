@@ -41,6 +41,8 @@ public:
 
     // Handles finished reads, downloads and parses.
     void update();
+    // Bumped whenever a material arrives (or turns out missing).
+    uint64_t revision() const { return revision_; }
 
     struct Stats
     {
@@ -87,6 +89,7 @@ private:
     DiskCache& store_;
     std::string viewerAssetUrl_;
     std::unordered_map<Uuid, Entry> entries_;
+    uint64_t revision_ = 0;
     std::deque<Uuid> queue_;
     size_t downloading_ = 0;
     std::atomic<int> jobsRunning_{0};

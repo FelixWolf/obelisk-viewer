@@ -505,10 +505,13 @@ int App::run()
             {
                 cpu += i == FrameProfile::Acquire ? 0.0f : stages[i];
             }
+            const auto o = objects_->stats();
             log::info("stereo {}x{} per eye: {:.1f} FPS, {:.2f} ms a frame, {:.2f} ms CPU, "
-                      "{:.2f} ms waiting for the GPU; {}",
+                      "{:.2f} ms waiting for the GPU; {}; prims drawn {} ({} kept), {} culled, "
+                      "{} faces",
                       stereoSize_, stereoSize_, 1000.0f / average, average, cpu,
-                      stages[FrameProfile::Acquire], FrameProfile::describe(stages));
+                      stages[FrameProfile::Acquire], FrameProfile::describe(stages), o.drawn,
+                      o.reused, o.culled, o.faces);
         }
         // --click-at: press at the given time, let go a moment later.
         if(clickAt_ && !clickedTicks_ && static_cast<float>(now - startTicks_) * 1e-9f >= *clickAt_)
@@ -1623,7 +1626,15 @@ void App::drawUi()
             ImGui::Text("Terrain regions: %zu (%zu texture sets ready)", world_->terrain().size(),
                         terrainTextures_.readyCount());
         }
-        const auto t = textures_->stats();
+        // Counting thousands of textures and meshes isn't free: twice a
+        // second is plenty for reading.
+        if(const uint64_t ticks = SDL_GetTicksNS(); ticks - uiStatsTicks_ > 500'000'000ull)
+        {
+            uiStatsTicks_ = ticks;
+            uiTextureStats_ = textures_->stats();
+            uiMeshStats_ = meshes_->stats();
+        }
+        const auto& t = uiTextureStats_;
         ImGui::Text("Textures: %zu resident, %zu loading, %zu downloading, %zu queued, %zu failed",
                     t.resident, t.loading, t.downloading, t.queued, t.failed);
         ImGui::Text("Downloaded: %.1f MB", static_cast<double>(t.bytesDownloaded) / 1e6);
@@ -1637,7 +1648,7 @@ void App::drawUi()
             ImGui::Text("Object cache: %llu hits, %llu misses",
                         static_cast<unsigned long long>(c.hits),
                         static_cast<unsigned long long>(c.misses));
-            const auto m = meshes_->stats();
+            const auto& m = uiMeshStats_;
             ImGui::Text("Mesh assets: %zu known, %zu levels ready, %zu downloading, %zu decoding, "
                         "%zu failed (%.1f MB); %zu mesh objects drawn",
                         m.meshes, m.lodsReady, m.downloading, m.decoding, m.failed,

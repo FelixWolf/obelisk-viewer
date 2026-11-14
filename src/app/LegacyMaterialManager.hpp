@@ -37,6 +37,8 @@ public:
 
     // Handles answers and sends what's queued.
     void update();
+    // Bumped whenever a material arrives (or turns out missing).
+    uint64_t revision() const { return revision_; }
 
     struct Stats
     {
@@ -69,6 +71,7 @@ private:
     net::HttpClient& http_;
     std::string url_;
     std::unordered_map<Uuid, Entry> entries_;
+    uint64_t revision_ = 0;
     std::vector<Uuid> queue_;
     size_t requests_ = 0;
     std::chrono::steady_clock::time_point nextRequest_{};
