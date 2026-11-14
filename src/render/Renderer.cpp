@@ -97,14 +97,14 @@ Renderer::~Renderer()
     }
     meshPool_.reset();
     for(FrameBuffer* b : {&drawBuffer_, &jointBuffer_, &instanceBuffer_, &lightBuffer_,
-                          &probeBuffer_, &labelBuffer_})
+                          &probeBuffer_, &labelBuffer_, &instanceStream_})
     {
         b->buffer.reset();
     }
     for(SDL_GPUTransferBuffer* t :
         {screenshotTransfer_, pickTransfer_, textureStaging_, drawBuffer_.transfer,
          jointBuffer_.transfer, instanceBuffer_.transfer, lightBuffer_.transfer,
-         probeBuffer_.transfer, labelBuffer_.transfer, glyphTransfer_})
+         probeBuffer_.transfer, labelBuffer_.transfer, glyphTransfer_, instanceStream_.transfer})
     {
         if(t)
         {

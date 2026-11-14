@@ -199,7 +199,7 @@ public:
                                     static_cast<Uint32>(last - first + 1));
     }
 
-    void drawMesh(const Mesh& mesh, uint32_t instance = 0)
+    void drawMesh(const Mesh& mesh, uint32_t instance = 0, uint32_t instances = 1)
     {
         if(mesh.vertexBuffer() != boundVertices_)
         {
@@ -213,7 +213,7 @@ public:
             const SDL_GPUBufferBinding binding = {boundIndices_, 0};
             SDL_BindGPUIndexBuffer(pass_, &binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
         }
-        SDL_DrawGPUIndexedPrimitives(pass_, mesh.indexCount, 1, mesh.firstIndex,
+        SDL_DrawGPUIndexedPrimitives(pass_, mesh.indexCount, instances, mesh.firstIndex,
                                      static_cast<Sint32>(mesh.firstVertex), instance);
     }
 

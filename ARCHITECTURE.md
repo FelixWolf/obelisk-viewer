@@ -444,6 +444,19 @@ things still go into reflection probes that see them, and into shadow maps
 only if they're big (8 m radius): smaller ones behind a wall rarely cast a
 shadow into view. `--no-occlusion` turns it off.
 
+### Instanced draws
+
+Object vertex shaders read their draw's index per instance (the draw data
+buffer holds one entry per scene draw). Each frame an instance stream
+(`Renderer::pushInstances`) gets every pass's draw indices in its draw
+order, at its own offset: the view passes', the shadow cascades' and the
+probe face's (pushed before each pass begins: copy passes don't nest). Then
+neighbours that need the same pipeline, textures and mesh are one instanced
+draw. Opaque draws are sorted by pipeline, texture and buffer block, then
+by mesh, so prims of the same shape and textures end up side by side;
+shadow casters by kind and (for see-through ones) texture, then mesh. That
+takes about a third off the draw calls.
+
 ### Stereo
 
 `Renderer::drawStereo` draws the scene once per eye, each into its own

@@ -202,7 +202,22 @@ private:
                  const glm::mat4& projection);
     void drawTerrain(ScenePass& pass, const Scene& scene);
     // Object draws, in this order (indices into scene.objects as instances).
-    void drawObjects(ScenePass& pass, const Scene& scene, std::span<const ObjectDraw* const> order);
+    // `instanceBase`: where `order`'s draw indices are in the instance
+    // stream (pushInstances), so neighbours with the same state and mesh
+    // are drawn as one; none: one by one.
+    void drawObjects(ScenePass& pass, const Scene& scene, std::span<const ObjectDraw* const> order,
+                     std::optional<uint32_t> instanceBase = std::nullopt);
+    // Puts draw indices into this frame's instance stream (outside render
+    // passes); where they start, or nothing if there's no room.
+    std::optional<uint32_t> pushInstances(SDL_GPUCommandBuffer* commands,
+                                          std::span<const uint32_t> indices);
+    // The instance stream: each pass's draw indices, in its draw order, at
+    // its own offset, for instanced draws (the vertex shaders read their
+    // draw's index per instance). Sized at the start of a frame.
+    FrameBuffer instanceStream_;
+    uint32_t instanceStreamUsed_ = 0;
+    bool instanceStreamCycled_ = false;
+    std::vector<uint32_t> instanceOrder_; // kept, with its capacity
 
     // Reflection probes (RendererProbes.cpp), as the official viewer's: the
     // default probe (a cube of the sky and terrain above the camera, every

@@ -386,6 +386,13 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
         order.insert(order.end(), blended.begin(), blended.end());
     }
 
+    instanceOrder_.clear();
+    for(const ObjectDraw* draw : order)
+    {
+        instanceOrder_.push_back(static_cast<uint32_t>(draw - scene.objects.data()));
+    }
+    const auto instanceBase = pushInstances(commands, instanceOrder_);
+
     const Lighting& light = scene.lighting;
     SDL_GPUColorTargetInfo color = {};
     color.texture = probeCapture_;
@@ -408,7 +415,7 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
         drawSky(scenePass, light.atmosphere, view, projection);
     }
     drawTerrain(scenePass, scene);
-    drawObjects(scenePass, scene, order);
+    drawObjects(scenePass, scene, order, instanceBase);
     SDL_EndGPURenderPass(pass);
 
     if(++capture_.face == 6)

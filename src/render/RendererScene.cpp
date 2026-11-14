@@ -943,6 +943,17 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
     // Draw data and joint matrices go up before the render pass (copy passes
     // can't nest).
     const bool drawsReady = uploadDraws(commands, scene);
+    // Room in the instance stream for every pass's draws: each view's, each
+    // shadow cascade's and a probe face's.
+    instanceStreamUsed_ = 0;
+    instanceStreamCycled_ = false;
+    if(drawsReady)
+    {
+        const auto perPass = static_cast<uint32_t>(scene.objects.size() * sizeof(uint32_t));
+        reserve(instanceStream_,
+                perPass * static_cast<uint32_t>(views.size() + kShadowCascades + 1),
+                SDL_GPU_BUFFERUSAGE_VERTEX);
+    }
     lightsUsed_ = uploadLights(commands, scene);
     frameFs.lightInfo.x = static_cast<float>(lightsUsed_);
     if(shadows)
@@ -992,16 +1003,6 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
         depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
         depth.cycle = true;
-
-        SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-        ScenePass scenePass(commands, pass, p, frameVs, viewFs, lightBuffer_.buffer.get(),
-                            probeBuffer_.buffer.get());
-        if(atmo.enabled)
-        {
-            drawSky(scenePass, atmo, view, projection);
-        }
-        // Terrain first: it covers the most screen, so it fills depth early.
-        drawTerrain(scenePass, scene);
 
         // Opaque objects, then blended ones from far to near (as the official
         // viewer: each face by its own center's depth along the view, moved
@@ -1080,7 +1081,11 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         {
             keyedDraws_.emplace_back(stateKey(draw), draw);
         }
-        std::ranges::sort(keyedDraws_, {}, &std::pair<uint64_t, const ObjectDraw*>::first);
+        // Then by mesh, so the same mesh with the same textures ends up
+        // side by side (drawn as one).
+        std::ranges::sort(
+            keyedDraws_, [](const auto& a, const auto& b)
+            { return a.first != b.first ? a.first < b.first : a.second->mesh < b.second->mesh; });
         for(size_t i = 0; i < keyedDraws_.size(); i++)
         {
             opaque[i] = keyedDraws_[i].second;
@@ -1112,7 +1117,26 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             order.push_back(b.draw);
         }
 
-        drawObjects(scenePass, scene, order);
+        // Their draw indices in draw order, for instanced draws of neighbours
+        // that are the same.
+        instanceOrder_.clear();
+        for(const ObjectDraw* draw : order)
+        {
+            instanceOrder_.push_back(static_cast<uint32_t>(draw - scene.objects.data()));
+        }
+        const auto instanceBase = pushInstances(commands, instanceOrder_);
+
+        SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+        ScenePass scenePass(commands, pass, p, frameVs, viewFs, lightBuffer_.buffer.get(),
+                            probeBuffer_.buffer.get());
+        if(atmo.enabled)
+        {
+            drawSky(scenePass, atmo, view, projection);
+        }
+        // Terrain first: it covers the most screen, so it fills depth early.
+        drawTerrain(scenePass, scene);
+
+        drawObjects(scenePass, scene, order, instanceBase);
         if(hud && scene.hud.placement == Hud::Placement::World)
         {
             drawHudPanel(scenePass, scene.hud, projection * view);
@@ -1189,7 +1213,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
 }
 
 void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
-                           std::span<const ObjectDraw* const> order)
+                           std::span<const ObjectDraw* const> order,
+                           std::optional<uint32_t> instanceBase)
 {
     const Pipelines& p = *pipelines_;
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
@@ -1198,21 +1223,66 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
     auto baseColor = [&](const GpuTexture* t, bool loading)
     { return texture(t, loading ? loading_ : white_); };
     const auto probes = probeSamplers();
-    // Every object pipeline reads the same storage buffers and instance
-    // buffer; bound again with each pipeline, to be safe across backends.
-    SDL_GPUGraphicsPipeline* objectResourcesFor = nullptr;
-    for(const ObjectDraw* drawPointer : order)
+
+    // Each draw's state: its pipeline and textures.
+    struct State
     {
-        const ObjectDraw& draw = *drawPointer;
+        SDL_GPUGraphicsPipeline* pipeline = nullptr;
+        std::array<SDL_GPUTexture*, 4> textures{};
+        bool operator==(const State&) const = default;
+    };
+    auto stateOf = [&](const ObjectDraw& draw)
+    {
+        State st;
         const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {
-            pass.bindPipeline(skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
-                                      : (m->blend ? p.blinnPhongBlend : p.blinnPhong));
+            st.pipeline = skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
+                                  : (m->blend ? p.blinnPhongBlend : p.blinnPhong);
+            st.textures = {baseColor(m->diffuse, m->diffuseLoading),
+                           texture(m->normal, flatNormal_), texture(m->specular, white_), nullptr};
+        }
+        else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
+        {
+            st.pipeline = p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0];
+            st.textures = {baseColor(t->albedo, t->albedoLoading), texture(t->orm, white_),
+                           texture(t->emissive, white_), texture(t->normal, flatNormal_)};
+        }
+        return st;
+    };
+    auto sameMesh = [](const Mesh& a, const Mesh& b)
+    {
+        return a.vertexBuffer() == b.vertexBuffer() && a.indexBuffer() == b.indexBuffer() &&
+               a.firstIndex == b.firstIndex && a.indexCount == b.indexCount &&
+               a.firstVertex == b.firstVertex;
+    };
+
+    // Every object pipeline reads the same storage buffers and instance
+    // buffer; bound again with each pipeline, to be safe across backends.
+    SDL_GPUGraphicsPipeline* objectResourcesFor = nullptr;
+    // Runs of neighbours with the same state and mesh are one instanced
+    // draw (their draw indices are in the instance stream, in this order).
+    size_t i = 0;
+    while(i < order.size())
+    {
+        const ObjectDraw& draw = *order[i];
+        const State st = stateOf(draw);
+        size_t end = i + 1;
+        if(instanceBase)
+        {
+            while(end < order.size() && sameMesh(*order[end]->mesh, *draw.mesh) &&
+                  stateOf(*order[end]) == st)
+            {
+                end++;
+            }
+        }
+        pass.bindPipeline(st.pipeline);
+        if(std::holds_alternative<BlinnPhongMaterial>(draw.material))
+        {
             const SDL_GPUTextureSamplerBinding samplers[] = {
-                {baseColor(m->diffuse, m->diffuseLoading), p.repeatSampler},
-                {texture(m->normal, flatNormal_), p.repeatSampler},
-                {texture(m->specular, white_), p.repeatSampler},
+                {st.textures[0], p.repeatSampler},
+                {st.textures[1], p.repeatSampler},
+                {st.textures[2], p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
                 {projectors_, p.clampSampler},
                 probes[0],
@@ -1221,15 +1291,13 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
             };
             pass.bindSamplers(samplers);
         }
-        else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
+        else
         {
-            pass.bindPipeline(
-                p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0]);
             const SDL_GPUTextureSamplerBinding samplers[] = {
-                {baseColor(t->albedo, t->albedoLoading), p.repeatSampler},
-                {texture(t->orm, white_), p.repeatSampler},
-                {texture(t->emissive, white_), p.repeatSampler},
-                {texture(t->normal, flatNormal_), p.repeatSampler},
+                {st.textures[0], p.repeatSampler},
+                {st.textures[1], p.repeatSampler},
+                {st.textures[2], p.repeatSampler},
+                {st.textures[3], p.repeatSampler},
                 {shadowMap_, p.shadowSampler},
                 {projectors_, p.clampSampler},
                 probes[0],
@@ -1250,11 +1318,57 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
             SDL_GPUBuffer* fragmentStorage[] = {drawBuffer_.buffer.get(), lightBuffer_.buffer.get(),
                                                 probeBuffer_.buffer.get()};
             SDL_BindGPUFragmentStorageBuffers(pass.pass(), 0, fragmentStorage, 3);
-            const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
+            const SDL_GPUBufferBinding instances = {
+                instanceBase ? instanceStream_.buffer.get() : instanceBuffer_.buffer.get(), 0};
             SDL_BindGPUVertexBuffers(pass.pass(), 1, &instances, 1);
         }
-        pass.drawMesh(*draw.mesh, static_cast<uint32_t>(drawPointer - scene.objects.data()));
+        if(instanceBase)
+        {
+            pass.drawMesh(*draw.mesh, *instanceBase + static_cast<uint32_t>(i),
+                          static_cast<uint32_t>(end - i));
+        }
+        else
+        {
+            pass.drawMesh(*draw.mesh, static_cast<uint32_t>(order[i] - scene.objects.data()));
+        }
+        i = end;
     }
+}
+
+std::optional<uint32_t> Renderer::pushInstances(SDL_GPUCommandBuffer* commands,
+                                                std::span<const uint32_t> indices)
+{
+    if(indices.empty() || !instanceStream_.buffer || !instanceStream_.transfer)
+    {
+        return std::nullopt;
+    }
+    const uint32_t capacity = instanceStream_.buffer.size() / sizeof(uint32_t);
+    if(instanceStreamUsed_ + indices.size() > capacity)
+    {
+        return std::nullopt; // no room left this frame: drawn one by one
+    }
+    const uint32_t first = instanceStreamUsed_;
+    const uint32_t offset = first * static_cast<uint32_t>(sizeof(uint32_t));
+    const auto bytes = static_cast<uint32_t>(indices.size_bytes());
+    // The first push of a frame starts fresh buffers (the last frame may
+    // still be reading its own); later ones fill in beside it.
+    const bool fresh = !instanceStreamCycled_;
+    auto* mapped =
+        static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device_, instanceStream_.transfer, fresh));
+    if(!mapped)
+    {
+        return std::nullopt;
+    }
+    std::memcpy(mapped + offset, indices.data(), bytes);
+    SDL_UnmapGPUTransferBuffer(device_, instanceStream_.transfer);
+    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
+    const SDL_GPUTransferBufferLocation source = {instanceStream_.transfer, offset};
+    const SDL_GPUBufferRegion destination = {instanceStream_.buffer.get(), offset, bytes};
+    SDL_UploadToGPUBuffer(copy, &source, &destination, fresh);
+    SDL_EndGPUCopyPass(copy);
+    instanceStreamCycled_ = true;
+    instanceStreamUsed_ += static_cast<uint32_t>(indices.size());
+    return first;
 }
 
 void Renderer::drawSky(ScenePass& pass, const Atmosphere& atmo, const glm::mat4& view,
@@ -1614,7 +1728,15 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
             masked ? (reinterpret_cast<uintptr_t>(diffuse) >> 4) & ((1ull << 48) - 1) : 0;
         casters.push_back({kind << 56 | textureBits, static_cast<uint32_t>(i)});
     }
-    std::ranges::sort(casters, {}, &Caster::key);
+    // By kind and texture, then by mesh: the same mesh side by side is one
+    // instanced draw.
+    std::ranges::sort(casters,
+                      [&](const Caster& a, const Caster& b)
+                      {
+                          return a.key != b.key
+                                     ? a.key < b.key
+                                     : scene.objects[a.index].mesh < scene.objects[b.index].mesh;
+                      });
     // In light view coordinates, for the per-cascade tests.
     std::vector<glm::vec4> inLight(casters.size());
     for(size_t c = 0; c < casters.size(); c++)
@@ -1623,6 +1745,30 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
         inLight[c] = glm::vec4(
             glm::vec3(cascades.lightRotation * glm::vec4(glm::vec3(sphere), 1.0f)), sphere.w);
     }
+
+    // Each cascade's casters (positions in `casters`): not too small to
+    // matter at its resolution (a shadow of a texel or two), and reaching
+    // it. Their draw indices go into the instance stream, cascade after
+    // cascade.
+    std::array<std::vector<uint32_t>, kShadowCascades> culled;
+    instanceOrder_.clear();
+    std::array<uint32_t, kShadowCascades> firstOf{};
+    for(uint32_t cascade = 0; cascade < kShadowCascades; cascade++)
+    {
+        firstOf[cascade] = static_cast<uint32_t>(instanceOrder_.size());
+        for(size_t c = 0; c < casters.size(); c++)
+        {
+            if(inLight[c].w <
+                   kMinCasterTexels * cascades.texels[static_cast<glm::length_t>(cascade)] ||
+               !castsInto(glm::vec3(inLight[c]), inLight[c].w, cascades.bounds[cascade]))
+            {
+                continue;
+            }
+            culled[cascade].push_back(static_cast<uint32_t>(c));
+            instanceOrder_.push_back(casters[c].index);
+        }
+    }
+    const auto instanceBase = pushInstances(commands, instanceOrder_);
 
     for(uint32_t cascade = 0; cascade < kShadowCascades; cascade++)
     {
@@ -1638,13 +1784,12 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
         SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, nullptr, 0, &depth);
         const FrameVS frameVs{cascades.matrices[cascade], glm::vec4(0.0f)};
         shadowDrawCounts_[cascade] = 0;
-        const glm::vec4& bounds = cascades.bounds[cascade];
 
         SDL_GPUBuffer* boundVertices = nullptr;
         SDL_GPUBuffer* boundIndices = nullptr;
         SDL_GPUGraphicsPipeline* boundPipeline = nullptr;
         SDL_GPUTexture* boundTexture = nullptr;
-        auto drawMesh = [&](const Mesh& mesh, uint32_t instance)
+        auto bindMesh = [&](const Mesh& mesh)
         {
             if(mesh.vertexBuffer() != boundVertices)
             {
@@ -1658,6 +1803,10 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
                 const SDL_GPUBufferBinding binding = {boundIndices, 0};
                 SDL_BindGPUIndexBuffer(pass, &binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
             }
+        };
+        auto drawMesh = [&](const Mesh& mesh, uint32_t instance)
+        {
+            bindMesh(mesh);
             SDL_DrawGPUIndexedPrimitives(pass, mesh.indexCount, 1, mesh.firstIndex,
                                          static_cast<Sint32>(mesh.firstVertex), instance);
         };
@@ -1679,18 +1828,31 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
             drawMesh(*draw.mesh, 0);
         }
 
-        for(size_t c = 0; c < casters.size(); c++)
+        const std::vector<uint32_t>& list = culled[cascade];
+        size_t at = 0;
+        while(at < list.size())
         {
-            // Too small to matter at this cascade's resolution (a shadow of a
-            // texel or two), or not reaching it.
-            if(inLight[c].w <
-                   kMinCasterTexels * cascades.texels[static_cast<glm::length_t>(cascade)] ||
-               !castsInto(glm::vec3(inLight[c]), inLight[c].w, bounds))
-            {
-                continue;
-            }
+            const size_t c = list[at];
             const ObjectDraw& draw = scene.objects[casters[c].index];
             const auto kind = static_cast<Kind>(casters[c].key >> 56);
+            // Neighbours of the same kind and texture (key) and mesh: one draw.
+            size_t end = at + 1;
+            if(instanceBase)
+            {
+                const Mesh& mesh = *draw.mesh;
+                while(end < list.size())
+                {
+                    const Caster& next = casters[list[end]];
+                    const Mesh& m = *scene.objects[next.index].mesh;
+                    if(next.key != casters[c].key || m.vertexBuffer() != mesh.vertexBuffer() ||
+                       m.indexBuffer() != mesh.indexBuffer() || m.firstIndex != mesh.firstIndex ||
+                       m.indexCount != mesh.indexCount || m.firstVertex != mesh.firstVertex)
+                    {
+                        break;
+                    }
+                    end++;
+                }
+            }
             SDL_GPUGraphicsPipeline* pipeline = kind == Opaque          ? p.shadowObject
                                                 : kind == Masked        ? p.shadowObjectMasked
                                                 : kind == SkinnedOpaque ? p.shadowSkinned
@@ -1704,7 +1866,8 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
                                                   jointBuffer_.buffer ? jointBuffer_.buffer.get()
                                                                       : drawBuffer_.buffer.get()};
                 SDL_BindGPUVertexStorageBuffers(pass, 0, vertexStorage, 2);
-                const SDL_GPUBufferBinding instances = {instanceBuffer_.buffer.get(), 0};
+                const SDL_GPUBufferBinding instances = {
+                    instanceBase ? instanceStream_.buffer.get() : instanceBuffer_.buffer.get(), 0};
                 SDL_BindGPUVertexBuffers(pass, 1, &instances, 1);
                 if(kind == Masked || kind == SkinnedMasked)
                 {
@@ -1732,8 +1895,21 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
                     SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
                 }
             }
-            drawMesh(*draw.mesh, casters[c].index);
+            if(instanceBase)
+            {
+                const Mesh& mesh = *draw.mesh;
+                bindMesh(mesh);
+                SDL_DrawGPUIndexedPrimitives(pass, mesh.indexCount, static_cast<Uint32>(end - at),
+                                             mesh.firstIndex, static_cast<Sint32>(mesh.firstVertex),
+                                             *instanceBase + firstOf[cascade] +
+                                                 static_cast<uint32_t>(at));
+            }
+            else
+            {
+                drawMesh(*draw.mesh, casters[c].index);
+            }
             shadowDrawCounts_[cascade]++;
+            at = end;
         }
         SDL_EndGPURenderPass(pass);
     }
