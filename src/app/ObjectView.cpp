@@ -630,6 +630,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         draw.wearer = owner.owner;
         draw.layer = layer;
         draw.shadowOnly = seen == render::Visibility::ShadowOnly;
+        draw.glow = face.glow;
         scene.objects.push_back(draw);
         stats_.faces++;
     }
@@ -953,6 +954,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             }
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
             draw.hud = hud;
+            draw.glow = face.glow;
             draw.pickId = pickable ? pickBase | f : 0;
             scene.objects.push_back(draw);
             stats_.faces++;

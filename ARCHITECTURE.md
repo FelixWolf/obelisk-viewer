@@ -468,6 +468,22 @@ viewer does for its pie menu and inspector). They're kept a minute, then
 asked again; physical objects aren't asked (selecting stops them). Not yet:
 outlines on HUDs, dragging physical objects, avatars.
 
+### Glow
+
+As the official viewer's (LLPipeline::generateGlow, combineGlow, at its
+default settings). After the scene pass, glowing faces (the texture
+entry's glow) draw again into an R16F mask, depth tested against the view,
+adding up how much each pixel glows: a legacy face its glow times its
+texture's alpha (emissiveF.glsl), a PBR face its glow times its brightest
+emissive channel (pbrglowF.glsl), rigged mesh too. `glow_extract.frag`
+then takes the view as the display will show it (the tonemap maths are
+shared: `tonemap.glsl`) times that glow (at most 1) into a 512x512 image
+(RenderGlowResolutionPow 9), which `glow_blur.frag` blurs with the
+official eight-tap kernel across, down, across and down (RenderGlowWidth
+1.3, RenderGlowStrength 0.325 a pass). The tonemap pass adds the result
+over the view, after sRGB encoding, as glowcombineF.glsl does. Nothing is
+drawn when nothing glows. Not yet: glow on HUDs.
+
 ### Floating text
 
 Text is our own, not ImGui's, so the same code can serve the UI to come.

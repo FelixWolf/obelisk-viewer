@@ -27,6 +27,9 @@ set(shader_sources
   outline.frag
   label.vert
   label.frag
+  glow_mask.frag
+  glow_extract.frag
+  glow_blur.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -52,7 +55,7 @@ foreach(source IN LISTS shader_sources)
             -o ${spirv} ${shader_dir}/${source}
     DEPENDS ${shader_dir}/${source} ${shader_dir}/common.glsl ${shader_dir}/atmosphere.glsl
             ${shader_dir}/shadow.glsl ${shader_dir}/lights.glsl ${shader_dir}/probes.glsl
-            ${shader_dir}/cubemap.glsl
+            ${shader_dir}/cubemap.glsl ${shader_dir}/tonemap.glsl
             ${VIEWER_GLSLANG_DEPENDS}
     COMMENT "Compiling shader ${source}"
     VERBATIM
@@ -78,6 +81,7 @@ add_library(viewer_render STATIC
   RendererHud.cpp
   RendererPick.cpp
   RendererText.cpp
+  RendererGlow.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp

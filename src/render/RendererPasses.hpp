@@ -24,6 +24,10 @@ namespace viewer::render
 
 // The scene's color (HDR, linear), as rendered and in reflection probes.
 inline constexpr SDL_GPUTextureFormat kHdrFormat = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+// Glow: how much each pixel glows (added up), and the small glow images
+// (8 bits, as the official viewer's when RenderGlowHDR is off).
+inline constexpr SDL_GPUTextureFormat kGlowMaskFormat = SDL_GPU_TEXTUREFORMAT_R16_FLOAT;
+inline constexpr SDL_GPUTextureFormat kGlowFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 // The HUD image: sRGB-encoded values (as the official viewer's HUDs, drawn
 // after tonemapping), premultiplied by coverage.
 inline constexpr SDL_GPUTextureFormat kHudFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;

@@ -124,6 +124,9 @@ struct ObjectDraw
     // invisible but can still be clicked.
     uint64_t pickId = 0;
     bool pickOnly = false;
+    // Glow (the texture entry's): how much the face glows, a blurred halo
+    // added over the view (RendererGlow.cpp).
+    float glow = 0.0f;
 };
 
 // What's along a ray: the nearest pickable draw (ObjectDraw::pickId) it

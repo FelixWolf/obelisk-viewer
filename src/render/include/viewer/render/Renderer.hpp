@@ -210,6 +210,13 @@ private:
                       const glm::mat4& viewProjection, uint32_t width, uint32_t height);
     void drawLabels(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, bool hud);
 
+    // Glow (RendererGlow.cpp), as the official viewer's: how much each pixel
+    // glows (the glowing faces, depth tested against the view), the view as
+    // displayed times that into a small image, blurred; the tonemap pass
+    // adds the result (glowResult_, null if nothing glows).
+    void drawGlow(SDL_GPUCommandBuffer* commands, const Scene& scene, const Lighting& light,
+                  uint32_t width, uint32_t height, const FrameVS& frameVs, bool drawsReady);
+
     // Renders the shadow casters into each cascade's layer of the shadow map.
     void drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene, const Cascades& cascades,
                      bool drawsReady);
@@ -268,6 +275,11 @@ private:
     bool pickSubmitted_ = false;        // this frame draws a pick
     uint64_t pickRequest_ = 0;
     std::optional<PickResult> pick_;
+    SDL_GPUTexture* glowMask_ = nullptr;
+    uint32_t glowMaskWidth_ = 0;
+    uint32_t glowMaskHeight_ = 0;
+    std::array<SDL_GPUTexture*, 3> glowImages_{};
+    SDL_GPUTexture* glowResult_ = nullptr; // this frame's, if anything glows
     SDL_GPUTexture* outlineMask_ = nullptr;
     uint32_t outlineWidth_ = 0;
     uint32_t outlineHeight_ = 0;

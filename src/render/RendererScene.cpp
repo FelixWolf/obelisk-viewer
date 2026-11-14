@@ -109,7 +109,13 @@ bool Renderer::createPipelines()
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
-        createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 1}, "tonemap.frag");
+        createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1}, "tonemap.frag");
+    SDL_GPUShader* glowMaskFrag = createShader(
+        device_, {kGlowMaskFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0, 1}, "glow_mask.frag");
+    SDL_GPUShader* glowExtractFrag = createShader(
+        device_, {kGlowExtractFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1}, "glow_extract.frag");
+    SDL_GPUShader* glowBlurFrag = createShader(
+        device_, {kGlowBlurFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "glow_blur.frag");
     SDL_GPUShader* luminanceFrag = createShader(
         device_, {kLuminanceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0}, "luminance.frag");
     SDL_GPUShader* exposureFrag =
@@ -462,6 +468,67 @@ bool Renderer::createPipelines()
         info.target_info.depth_stencil_format = depthFormat_;
         p.outlineMask = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
+    // Glow: the mask adds up (depth tested against the view, both sides of
+    // faces); the glow image and its blurring overwrite.
+    for(const bool skinned : {false, true})
+    {
+        SDL_GPUShader* vert = skinned ? skinnedVert : objectVert;
+        if(!vert || !glowMaskFrag)
+        {
+            break;
+        }
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kGlowMaskFormat;
+        color.blend_state.enable_blend = true;
+        color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+        color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = vert;
+        info.fragment_shader = glowMaskFrag;
+        info.vertex_input_state.num_vertex_buffers = 2;
+        info.vertex_input_state.vertex_buffer_descriptions =
+            skinned ? skinnedBuffers : objectBuffers;
+        info.vertex_input_state.vertex_attributes = skinned ? skinnedAttributes : objectAttributes;
+        info.vertex_input_state.num_vertex_attributes = static_cast<Uint32>(
+            skinned ? std::size(skinnedAttributes) : std::size(objectAttributes));
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = false;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        (skinned ? p.glowMaskSkinned : p.glowMask) = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    for(SDL_GPUShader* frag : {glowExtractFrag, glowBlurFrag})
+    {
+        if(!fullscreenVert || !frag)
+        {
+            break;
+        }
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kGlowFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = frag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        (frag == glowExtractFrag ? p.glowExtract : p.glowBlur) =
+            SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(!p.glowMask || !p.glowMaskSkinned || !p.glowExtract || !p.glowBlur)
+    {
+        log::error("creating the glow pipelines failed: {}", SDL_GetError());
+    }
+
     // Labels: glyph quads (clip space position and depth, atlas coordinates,
     // color), premultiplied.
     if(labelVert && labelFrag)
@@ -660,7 +727,8 @@ bool Renderer::createPipelines()
            p.tonemap && p.luminance && p.exposure && p.sky && p.probeRadiance &&
            p.probeIrradiance && p.brdfTable && p.hudLegacy[0] && p.hudLegacy[1] && p.hudPbr[0] &&
            p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick && p.outlineMask && p.outline &&
-           p.label && p.hudLabel && p.shadowObject && p.shadowObjectMasked && p.shadowSkinned &&
+           p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
+           p.glowBlur && p.shadowObject && p.shadowObjectMasked && p.shadowSkinned &&
            p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler && p.clampSampler &&
            p.shadowSampler;
 }
@@ -1010,6 +1078,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     SDL_EndGPURenderPass(pass);
 
     updateExposure(commands, light);
+    drawGlow(commands, scene, light, frame.width, frame.height, frameVs, drawsReady);
     drawTonemap(commands, frame.target, light, true);
     drawOutline(commands, scene, frame.target, frame.width, frame.height, frameVs);
     drawLabels(commands, frame.target, false);
@@ -1308,8 +1377,9 @@ void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targe
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->tonemap);
     const SDL_GPUTextureSamplerBinding inputs[] = {
         {hdrTarget_, pipelines_->clampSampler},
-        {exposureMaps_[exposureIndex_], pipelines_->clampSampler}};
-    SDL_BindGPUFragmentSamplers(pass, 0, inputs, 2);
+        {exposureMaps_[exposureIndex_], pipelines_->clampSampler},
+        {glowResult_ ? glowResult_ : black_.get(), pipelines_->clampSampler}};
+    SDL_BindGPUFragmentSamplers(pass, 0, inputs, 3);
     pushFragmentUniforms(commands, 0,
                          TonemapFS{glm::vec4(light.exposure, light.tonemapMix, 0.0f, 0.0f)});
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
@@ -1824,6 +1894,9 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
         {
             out.mapUv[1].w = legacy->environment;
         }
+        // Glow (glow_mask.frag): how much, and whether the material is PBR.
+        out.uvRow1.w = draw.glow;
+        out.mapUv[0].w = legacy ? 0.0f : 1.0f;
         jointBase += static_cast<uint32_t>(draw.joints.size());
     }
     SDL_UnmapGPUTransferBuffer(device_, drawBuffer_.transfer);

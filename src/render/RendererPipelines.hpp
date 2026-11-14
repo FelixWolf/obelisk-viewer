@@ -43,6 +43,12 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* outlineMask = nullptr;
     SDL_GPUGraphicsPipeline* outline = nullptr;
     // Labels: over the view (depth tested), and into the HUD image.
+    // Glow: the glowing faces into the mask (unskinned and skinned), the view
+    // times it into the glow image, and blurring that.
+    SDL_GPUGraphicsPipeline* glowMask = nullptr;
+    SDL_GPUGraphicsPipeline* glowMaskSkinned = nullptr;
+    SDL_GPUGraphicsPipeline* glowExtract = nullptr;
+    SDL_GPUGraphicsPipeline* glowBlur = nullptr;
     SDL_GPUGraphicsPipeline* label = nullptr;
     SDL_GPUGraphicsPipeline* hudLabel = nullptr;
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
@@ -82,6 +88,10 @@ struct Renderer::Pipelines
                                           outlineMask,
                                           outline,
                                           label,
+                                          glowMask,
+                                          glowMaskSkinned,
+                                          glowExtract,
+                                          glowBlur,
                                           hudLabel,
                                           shadowObject,
                                           shadowObjectMasked,
