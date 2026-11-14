@@ -42,6 +42,9 @@ struct Renderer::Pipelines
     // The highlighted prim: its visible pixels, then an outline around them.
     SDL_GPUGraphicsPipeline* outlineMask = nullptr;
     SDL_GPUGraphicsPipeline* outline = nullptr;
+    // Labels: over the view (depth tested), and into the HUD image.
+    SDL_GPUGraphicsPipeline* label = nullptr;
+    SDL_GPUGraphicsPipeline* hudLabel = nullptr;
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
     SDL_GPUGraphicsPipeline* shadowObject = nullptr;
     SDL_GPUGraphicsPipeline* shadowObjectMasked = nullptr;
@@ -78,6 +81,8 @@ struct Renderer::Pipelines
                                           pick,
                                           outlineMask,
                                           outline,
+                                          label,
+                                          hudLabel,
                                           shadowObject,
                                           shadowObjectMasked,
                                           shadowSkinned,

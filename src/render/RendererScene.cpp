@@ -129,6 +129,10 @@ bool Renderer::createPipelines()
         device_, {kOutlineMaskFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "outline_mask.frag");
     SDL_GPUShader* outlineFrag =
         createShader(device_, {kOutlineFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "outline.frag");
+    SDL_GPUShader* labelVert =
+        createShader(device_, {kLabelVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "label.vert");
+    SDL_GPUShader* labelFrag =
+        createShader(device_, {kLabelFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "label.frag");
     SDL_GPUShader* pickFrag =
         createShader(device_, {kPickFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "pick.frag");
     SDL_GPUShader* hudLegacyFrag = createShader(
@@ -458,6 +462,45 @@ bool Renderer::createPipelines()
         info.target_info.depth_stencil_format = depthFormat_;
         p.outlineMask = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
+    // Labels: glyph quads (clip space position and depth, atlas coordinates,
+    // color), premultiplied.
+    if(labelVert && labelFrag)
+    {
+        const SDL_GPUVertexBufferDescription buffer = {0, 24, SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+        const SDL_GPUVertexAttribute attributes[] = {
+            {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0},
+            {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 12},
+            {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, 20},
+        };
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = labelVert;
+        info.fragment_shader = labelFrag;
+        info.vertex_input_state.num_vertex_buffers = 1;
+        info.vertex_input_state.vertex_buffer_descriptions = &buffer;
+        info.vertex_input_state.vertex_attributes = attributes;
+        info.vertex_input_state.num_vertex_attributes = static_cast<Uint32>(std::size(attributes));
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.num_color_targets = 1;
+
+        SDL_GPUColorTargetDescription color = premultiplied;
+        color.format = swapchainFormat();
+        info.target_info.color_target_descriptions = &color;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = false;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        p.label = SDL_CreateGPUGraphicsPipeline(device_, &info);
+
+        SDL_GPUColorTargetDescription hudColor = premultiplied;
+        hudColor.format = kHudFormat;
+        info.target_info.color_target_descriptions = &hudColor;
+        info.depth_stencil_state = {};
+        info.target_info.has_depth_stencil_target = false;
+        info.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_INVALID;
+        p.hudLabel = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
     if(fullscreenVert && outlineFrag)
     {
         SDL_GPUColorTargetDescription color = {};
@@ -478,7 +521,8 @@ bool Renderer::createPipelines()
         info.target_info.num_color_targets = 1;
         p.outline = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
-    if(!p.hudComposite || !p.hudPanel || !p.pick || !p.outlineMask || !p.outline)
+    if(!p.hudComposite || !p.hudPanel || !p.pick || !p.outlineMask || !p.outline || !p.label ||
+       !p.hudLabel)
     {
         log::error("creating the HUD pipelines failed: {}", SDL_GetError());
     }
@@ -568,14 +612,20 @@ bool Renderer::createPipelines()
         }
     }
 
-    for(SDL_GPUShader* s :
-        {objectVert,    skinnedVert,           blinnPhongFrag,    pbrFrag,
-         terrainVert,   terrainBlinnPhongFrag, terrainPbrFrag,    fullscreenVert,
-         tonemapFrag,   luminanceFrag,         exposureFrag,      skyFrag,
-         shadowFrag,    shadowMaskedFrag,      probeRadianceFrag, probeIrradianceFrag,
-         brdfTableFrag, hudLegacyFrag,         hudPbrFrag,        hudCompositeFrag,
-         hudPanelVert,  hudPanelFrag,          pickFrag,          outlineMaskFrag,
-         outlineFrag})
+    for(SDL_GPUShader* s : {objectVert,        skinnedVert,
+                            blinnPhongFrag,    pbrFrag,
+                            terrainVert,       terrainBlinnPhongFrag,
+                            terrainPbrFrag,    fullscreenVert,
+                            tonemapFrag,       luminanceFrag,
+                            exposureFrag,      skyFrag,
+                            shadowFrag,        shadowMaskedFrag,
+                            probeRadianceFrag, probeIrradianceFrag,
+                            brdfTableFrag,     hudLegacyFrag,
+                            hudPbrFrag,        hudCompositeFrag,
+                            hudPanelVert,      hudPanelFrag,
+                            pickFrag,          outlineMaskFrag,
+                            outlineFrag,       labelVert,
+                            labelFrag})
     {
         if(s)
         {
@@ -610,8 +660,9 @@ bool Renderer::createPipelines()
            p.tonemap && p.luminance && p.exposure && p.sky && p.probeRadiance &&
            p.probeIrradiance && p.brdfTable && p.hudLegacy[0] && p.hudLegacy[1] && p.hudPbr[0] &&
            p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick && p.outlineMask && p.outline &&
-           p.shadowObject && p.shadowObjectMasked && p.shadowSkinned && p.shadowSkinnedMasked &&
-           p.shadowTerrain && p.repeatSampler && p.clampSampler && p.shadowSampler;
+           p.label && p.hudLabel && p.shadowObject && p.shadowObjectMasked && p.shadowSkinned &&
+           p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler && p.clampSampler &&
+           p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -810,8 +861,14 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     // face of whichever is being captured.
     updateProbes(commands, scene, frameFs, drawsReady);
     drawPick(commands, scene, drawsReady);
-    // HUD attachments into their own image, as big as the view.
+    uploadLabels(commands, scene, projection * view, frame.width, frame.height);
+    // HUD attachments into their own image, as big as the view, with their
+    // labels.
     const bool hud = drawHud(commands, scene, frame.width, frame.height, drawsReady);
+    if(hud)
+    {
+        drawLabels(commands, hudImage_, true);
+    }
 
     SDL_GPUColorTargetInfo color = {};
     color.texture = hdrTarget_;
@@ -955,6 +1012,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     updateExposure(commands, light);
     drawTonemap(commands, frame.target, light, true);
     drawOutline(commands, scene, frame.target, frame.width, frame.height, frameVs);
+    drawLabels(commands, frame.target, false);
     if(hud && scene.hud.placement == Hud::Placement::Screen)
     {
         compositeHud(commands, frame.target);
@@ -993,6 +1051,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
         {
             drawTonemap(commands, screenshotTexture_, light, true);
             drawOutline(commands, scene, screenshotTexture_, frame.width, frame.height, frameVs);
+            drawLabels(commands, screenshotTexture_, false);
             if(hud && scene.hud.placement == Hud::Placement::Screen)
             {
                 compositeHud(commands, screenshotTexture_);

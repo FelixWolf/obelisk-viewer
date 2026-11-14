@@ -10,8 +10,9 @@ teleports and region crossings, avatars (appearance, animation, attachments,
 rigged mesh), prims, sculpts and mesh, legacy and PBR materials, local
 lights and projectors, sun shadows, reflection probes, the windlight sky
 and clouds, terrain, trees and grass, and HUDs (over the screen or on a
-panel). It has no chat, IM, touch/click, sitting, sound, particles, texture
-animation, floating text or water yet.
+panel), picking and touching with a hover outline and touch text, and
+floating text. It has no chat, IM, sitting, sound, particles, texture
+animation or water yet.
 
 ## Rendering
 
@@ -20,9 +21,7 @@ animation, floating text or water yet.
 - Water: the surface with reflections and refraction, underwater fog
 - Particles (`llParticleSystem`)
 - Texture animation (`llSetTextureAnim`)
-- Floating text (`llSetText`)
 - Sun and moon textures, moon phases
-- Selection and hover outline (for the hover item under Interaction)
 - Anti-aliasing (FXAA or SMAA)
 
 ## Avatars and animation
@@ -40,10 +39,8 @@ animation, floating text or water yet.
 
 ## Interaction
 
-- Touch and click objects, and click actions: sit, pay, open, play media
-- ★ Hover outline with the touch text (`llSetTouchText`), from the cursor
-  or a VR pointer
-- Clicking HUDs: a ray into HUD space, which also works for HUDs on panels
+- Click actions besides touch: sit, pay, buy, open, play media (touch,
+  the hover outline with touch text, and clicking HUDs are done)
 - Script dialogs: `llDialog`, `llTextBox`, permission requests,
   `llLoadURL`, `llMapDestination`
 - ★ Radial menu, the same on desktop and in VR

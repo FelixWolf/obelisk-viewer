@@ -269,6 +269,8 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
         }
         applyExtraParams(o, b.ExtraParams);
         o.hoverText = protocol::toString(b.Text);
+        o.hoverTextColor = b.TextColor;
+        o.hoverTextColor[3] = static_cast<uint8_t>(255 - o.hoverTextColor[3]); // sent flipped
         if(o.type == ObjectType::Prim)
         {
             volume::PackedVolumeParams p;

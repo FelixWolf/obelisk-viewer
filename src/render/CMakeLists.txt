@@ -25,6 +25,8 @@ set(shader_sources
   pick.frag
   outline_mask.frag
   outline.frag
+  label.vert
+  label.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -75,6 +77,7 @@ add_library(viewer_render STATIC
   RendererProbes.cpp
   RendererHud.cpp
   RendererPick.cpp
+  RendererText.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp
@@ -88,6 +91,6 @@ target_include_directories(viewer_render
   PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 target_link_libraries(viewer_render
-  PUBLIC SDL3::SDL3 glm::glm viewer::core viewer::image
+  PUBLIC SDL3::SDL3 glm::glm viewer::core viewer::image viewer::text
   PRIVATE viewer_warnings
 )

@@ -3,6 +3,7 @@
 #
 #   core, image, llsd, volume  <-  assets   (texture cache, mesh assets)
 #   core  <-  image  <-  render  <-  ui
+#   text  <-  render                    (fonts, glyph atlas, text layout)
 #   core  <-  net  <-  protocol         (generated messages, UDP circuits)
 #   core  <-  llsd, net, protocol  <-  session   (login, regions, caps, event queues)
 #   volume                             (prim geometry from shape parameters)
@@ -23,6 +24,7 @@ add_subdirectory(assets)
 add_subdirectory(world)
 add_subdirectory(environment)
 add_subdirectory(avatar)
+add_subdirectory(text)
 add_subdirectory(render)
 add_subdirectory(ui)
 add_subdirectory(app)

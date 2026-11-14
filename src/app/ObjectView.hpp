@@ -89,6 +89,9 @@ public:
     // space for HUD attachments.
     std::optional<glm::mat4> objectFrame(const world::Object& object, const world::World& world,
                                          uint64_t originHandle, const AvatarView* avatars) const;
+    // Whether the object is attached at a HUD point (its link set's root is).
+    bool onHud(const world::Object& object, const world::World& world,
+               const AvatarView* avatars) const;
     // Its link set's root (itself if it's one; attachments stop below the
     // avatar).
     static const world::Object& linkRoot(const world::Object& object, const world::World& world);
@@ -160,9 +163,6 @@ private:
     // An object's frame (position and rotation, no scale) in scene
     // coordinates, through its linkset root and, for attachments, its
     // avatar's attachment point. Nothing if a parent isn't known yet.
-    // Whether the object is attached at a HUD point (its link set's root is).
-    bool onHud(const world::Object& object, const world::World& world,
-               const AvatarView* avatars) const;
     // A prim set to be a reflection probe, at `frame` (its position and rotation).
     void addProbe(render::Scene& scene, const world::Object& object, const glm::mat4& frame) const;
     std::optional<glm::mat4> frameOf(const world::Object& object, const world::World& world,

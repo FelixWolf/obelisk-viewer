@@ -159,7 +159,10 @@ struct Object
     // overrides come separately (World::materialOverrides).
     std::vector<std::pair<uint8_t, Uuid>> materials;
 
+    // Floating text (llSetText) and its color, RGBA (alpha as sent flipped
+    // back: 255 is opaque).
     std::string hoverText{};
+    std::array<uint8_t, 4> hoverTextColor{255, 255, 255, 255};
     // When the latest update (full or terse) arrived, and the simulator's
     // time dilation then: motion is predicted from here (extrapolate()).
     // Default (epoch): never updated over the network; nothing to predict.

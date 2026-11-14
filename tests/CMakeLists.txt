@@ -19,6 +19,7 @@ add_executable(viewer_tests
   ProtocolTests.cpp
   SessionTests.cpp
   TerrainTests.cpp
+  TextTests.cpp
   TextureCacheTests.cpp
   TextureProcessingTests.cpp
   UuidTests.cpp
@@ -43,6 +44,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::avatar
   viewer::volume
   viewer::render
+  viewer::text
   viewer::zlib
   viewer_warnings
 )

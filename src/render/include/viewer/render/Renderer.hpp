@@ -6,6 +6,8 @@
 #include "viewer/render/Mesh.hpp"
 #include "viewer/render/MeshPool.hpp"
 #include "viewer/render/Scene.hpp"
+#include "viewer/text/Font.hpp"
+#include "viewer/text/GlyphAtlas.hpp"
 
 #include <SDL3/SDL_gpu.h>
 #include <SDL3/SDL_video.h>
@@ -201,6 +203,13 @@ private:
     void drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene, SDL_GPUTexture* target,
                      uint32_t width, uint32_t height, const FrameVS& frameVs);
 
+    // Labels (RendererText.cpp): glyph quads for this frame's labels (and the
+    // glyphs new to the atlas) up to the GPU, then drawn over `target`
+    // (depth tested against the view), or into the HUD image.
+    void uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                      const glm::mat4& viewProjection, uint32_t width, uint32_t height);
+    void drawLabels(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, bool hud);
+
     // Renders the shadow casters into each cascade's layer of the shadow map.
     void drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene, const Cascades& cascades,
                      bool drawsReady);
@@ -262,6 +271,16 @@ private:
     SDL_GPUTexture* outlineMask_ = nullptr;
     uint32_t outlineWidth_ = 0;
     uint32_t outlineHeight_ = 0;
+
+    // Labels: the font, its glyphs (on the CPU, and as a texture), and this
+    // frame's glyph quads, those in the scene first, then the HUD's.
+    std::shared_ptr<const text::Font> font_;
+    std::unique_ptr<text::GlyphAtlas> glyphs_;
+    SDL_GPUTexture* glyphTexture_ = nullptr;
+    SDL_GPUTransferBuffer* glyphTransfer_ = nullptr;
+    FrameBuffer labelBuffer_;
+    uint32_t labelVertices_ = 0;
+    uint32_t hudLabelVertices_ = 0;
 
     SDL_GPUTexture* hudImage_ = nullptr;
     SDL_GPUTexture* hudDepth_ = nullptr;

@@ -417,7 +417,9 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
     if(flags & 0x04)
     {
         o.hoverText = r.string();
-        r.skip(4); // text color
+        r.bytes(o.hoverTextColor.data(), 4);
+        // Alpha is sent flipped (it zero-encodes better).
+        o.hoverTextColor[3] = static_cast<uint8_t>(255 - o.hoverTextColor[3]);
     }
     if(flags & 0x200)
     {

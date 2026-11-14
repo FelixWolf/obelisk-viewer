@@ -80,7 +80,7 @@ Renderer::~Renderer()
          luminance_,      exposureMaps_[0], exposureMaps_[1],   probeRadiance_,  probeIrradiance_,
          probeCapture_,   probeDepth_,      brdfTable_,         hudImage_,       hudDepth_,
          pickTargets_[0], pickTargets_[1],  pickTargets_[2],    pickTargets_[3], pickDepth_,
-         outlineMask_})
+         outlineMask_,    glyphTexture_})
     {
         if(t)
         {
@@ -88,15 +88,15 @@ Renderer::~Renderer()
         }
     }
     meshPool_.reset();
-    for(FrameBuffer* b :
-        {&drawBuffer_, &jointBuffer_, &instanceBuffer_, &lightBuffer_, &probeBuffer_})
+    for(FrameBuffer* b : {&drawBuffer_, &jointBuffer_, &instanceBuffer_, &lightBuffer_,
+                          &probeBuffer_, &labelBuffer_})
     {
         b->buffer.reset();
     }
     for(SDL_GPUTransferBuffer* t :
         {screenshotTransfer_, pickTransfer_, textureStaging_, drawBuffer_.transfer,
          jointBuffer_.transfer, instanceBuffer_.transfer, lightBuffer_.transfer,
-         probeBuffer_.transfer})
+         probeBuffer_.transfer, labelBuffer_.transfer, glyphTransfer_})
     {
         if(t)
         {

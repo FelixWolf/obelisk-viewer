@@ -213,3 +213,16 @@ if(zlib_ADDED)
   set_target_properties(viewer_zlib PROPERTIES POSITION_INDEPENDENT_CODE ON)
   add_library(viewer::zlib ALIAS viewer_zlib)
 endif()
+
+# --- stb_truetype: font loading and glyph rasterizing (viewer::text) ---------
+CPMAddPackage(
+  NAME stb
+  GITHUB_REPOSITORY nothings/stb
+  GIT_TAG 9600522de53973336fa033a289858a4354cbb04c
+  DOWNLOAD_ONLY YES
+)
+if(stb_ADDED)
+  add_library(viewer_stb INTERFACE)
+  target_include_directories(viewer_stb SYSTEM INTERFACE ${stb_SOURCE_DIR})
+  add_library(viewer::stb ALIAS viewer_stb)
+endif()

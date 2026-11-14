@@ -69,6 +69,8 @@ src/world    World state: terrain (LayerData decode) and objects
              (full/compressed/terse updates, texture entries)       -> viewer::world
 src/avatar   Default avatar: skeleton, .llm body meshes, shape, animation, attachment
              points (from assets/character)                        -> viewer::avatar
+src/text     Fonts (stb_truetype; Inter built in), glyph atlas,
+             text layout: no GPU, no ImGui                         -> viewer::text
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
 src/app      App (owns everything), LoginPanel, TextureBrowser, camera,
              TerrainView, ObjectView, AvatarView, AnimationManager, TextureManager, procedural test scene, main()
@@ -462,6 +464,28 @@ a quarter second on something clickable `ObjectProperties` selects the prim
 viewer does for its pie menu and inspector). They're kept a minute, then
 asked again; physical objects aren't asked (selecting stops them). Not yet:
 outlines on HUDs, dragging physical objects, avatars.
+
+### Floating text
+
+Text is our own, not ImGui's, so the same code can serve the UI to come.
+`viewer::text` loads fonts with stb_truetype (Inter Regular, as the
+official viewer uses, is built in: `assets/fonts`, SIL Open Font License),
+rasterizes glyphs the first time they're needed into a coverage atlas
+(`GlyphAtlas`, shelf packed, cleared and refilled when full), and lays out
+UTF-8 text (`layoutText`: line breaks, word wrap, kerning, alignment, glyphs
+at whole pixels so text stays sharp).
+
+Floating text (llSetText, with its color) becomes a `Scene::Label` per prim
+(`FloatingText.cpp`), placed as the official viewer places it
+(LLViewerObject::updateText, LLHUDText): 0.6 of the prim's height above it,
+brought nearer the camera by the prim's radius, fully shown within 8 m and
+faded out over the next 4. The renderer (`RendererText.cpp`, `label.vert`,
+`label.frag`) lays labels out at the official size (10 points), centered
+with the last baseline 12 pixels above the point, far ones first, with a
+1 pixel black drop shadow as strong as the text is light. They're drawn
+after tonemapping, over sRGB-encoded values as the official viewer's text
+is, depth tested at the label's point so whatever is in front hides them.
+HUD attachments' text is drawn into the HUD image, never hidden.
 
 ### HUDs
 

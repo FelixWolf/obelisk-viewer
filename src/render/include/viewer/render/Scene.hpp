@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -267,6 +268,18 @@ enum class Visibility : uint8_t
     Visible,
 };
 
+// Text over a point (llSetText's floating text): lines centered over
+// `position`, the last one a little above it, the same size on screen at
+// any distance, with a drop shadow. Hidden where the scene is in front of
+// the point; HUD labels are drawn into the HUD image, never hidden.
+struct Label
+{
+    glm::vec3 position{0.0f}; // scene coordinates (HUD space for HUD labels)
+    std::string text;
+    glm::vec4 color{1.0f}; // sRGB, and alpha
+    bool hud = false;
+};
+
 struct Scene
 {
     // Global position (meters) of the scene's origin. Terrain textures are
@@ -291,6 +304,7 @@ struct Scene
     // Every light that may reach the view; the renderer uses the nearest
     // (Renderer::kMaxLights).
     std::vector<LocalLight> lights;
+    std::vector<Label> labels;
 
     // Whatever is within this sphere: in view, only its shadow in view (or
     // near enough for reflection probes), or neither (frustum, shadows and

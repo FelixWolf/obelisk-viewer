@@ -6,6 +6,7 @@
 #include "viewer/protocol/Messages.hpp"
 
 #include "EmbeddedAssets.hpp"
+#include "FloatingText.hpp"
 
 #include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -967,6 +968,7 @@ void App::buildScene(render::Scene& scene)
     // Kept from frame to frame, so its lists keep their capacity.
     scene.objects.clear();
     scene.lights.clear();
+    scene.labels.clear();
     scene.terrain.clear();
     scene.probes.clear();
     scene.worldOrigin = {};
@@ -1113,6 +1115,7 @@ void App::buildScene(render::Scene& scene)
         placeHud(scene);
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         *legacyMaterials_, avatars_.get(), 128.0f);
+        addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
         trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
         // Automatic reflection probes where objects are dense, at least 2 m
         // over the ground (scene positions are from the origin region's corner).
