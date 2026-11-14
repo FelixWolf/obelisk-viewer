@@ -17,7 +17,6 @@ water yet.
 
 ## Rendering
 
-- Wind for flexible prims (and trees): the region's wind (LayerData)
 - Water: the surface with reflections and refraction, underwater fog
 - Particles (`llParticleSystem`)
 - Sun and moon textures, moon phases

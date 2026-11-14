@@ -158,7 +158,7 @@ void FlexibleView::setAttributes(Prim& prim, const glm::vec3& position, const gl
 }
 
 void FlexibleView::simulate(Prim& prim, const glm::vec3& position, const glm::quat& rotation,
-                            float seconds)
+                            float seconds, const WindAt& windAt)
 {
     const world::FlexibleParams& f = prim.params;
     const int count = 1 << prim.simulateResolution;
@@ -179,11 +179,17 @@ void FlexibleView::simulate(Prim& prim, const glm::vec3& position, const glm::qu
     const float momentum = 1.0f / friction;
     const float maxAngle = std::atan(length * 2.0f);
     const float force = length * seconds;
+    const float windFactor = f.wind * 0.1f * length * seconds;
+    const bool windy = f.wind > 0.001f && windAt;
 
     for(int i = 1; i <= count; i++)
     {
         const glm::vec3 last = s[i].position;
         s[i].position.z -= f.gravity * force;
+        if(windy)
+        {
+            s[i].position += windAt(s[i].position) * windFactor;
+        }
         s[i].position += f.force * force;
 
         // Tension: toward where the section below points.
@@ -249,7 +255,8 @@ void FlexibleView::simulate(Prim& prim, const glm::vec3& position, const glm::qu
 const std::vector<render::Mesh>* FlexibleView::faces(const world::ObjectKey& key,
                                                      const world::Object& object,
                                                      const glm::mat4& frame, float distance,
-                                                     int detail, Clock::time_point now)
+                                                     int detail, Clock::time_point now,
+                                                     const WindAt& windAt)
 {
     if(!object.flexible || object.scale.z <= 0.0f)
     {
@@ -288,7 +295,7 @@ const std::vector<render::Mesh>* FlexibleView::faces(const world::ObjectKey& key
     const float seconds =
         std::clamp(std::chrono::duration<float>(now - prim.lastStep).count(), 0.0f, kMaxStep);
     prim.lastStep = now;
-    simulate(prim, position, rotation, seconds);
+    simulate(prim, position, rotation, seconds, windAt);
 
     // The drawn sections, as path points in the prim's frame (meters).
     Sections drawn{};

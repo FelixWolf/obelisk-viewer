@@ -774,6 +774,23 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
     const auto now = std::chrono::steady_clock::now(); // texture animations, flexible prims
     flexible_.endFrame();
+    // The wind over a point in the scene: its region's (flexible prims).
+    const FlexibleView::WindAt windAt = [&world, originHandle](const glm::vec3& p)
+    {
+        const double x = static_cast<double>(originHandle >> 32) + static_cast<double>(p.x);
+        const double y = static_cast<double>(originHandle & 0xFFFFFFFFu) + static_cast<double>(p.y);
+        constexpr double kWidth = world::kRegionWidth;
+        const double cornerX = std::floor(x / kWidth) * kWidth;
+        const double cornerY = std::floor(y / kWidth) * kWidth;
+        const uint64_t handle =
+            static_cast<uint64_t>(cornerX) << 32 | static_cast<uint64_t>(cornerY);
+        const world::WindField* wind = world.wind(handle);
+        return wind ? world::windVelocity(*wind,
+                                          glm::vec2(static_cast<float>(x - cornerX),
+                                                    static_cast<float>(y - cornerY)),
+                                          static_cast<float>(kWidth))
+                    : glm::vec3(0.0f);
+    };
 
     for(const auto& [key, object] : world.objects())
     {
@@ -853,7 +870,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const bool flexible = object.flexible && sculpt == world::SculptType::None;
         if(flexible)
         {
-            faces = flexible_.faces(key, object, *frame, distance, detail, now);
+            faces = flexible_.faces(key, object, *frame, distance, detail, now,
+                                    hud ? FlexibleView::WindAt{} : windAt);
             extent = glm::vec3(1.0f); // it may bend anywhere within its length
         }
         else if(isMesh)

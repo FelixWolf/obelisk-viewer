@@ -49,9 +49,16 @@ const RegionTerrain* World::terrain(uint64_t regionHandle) const
     return it == terrain_.end() ? nullptr : it->second.get();
 }
 
+const WindField* World::wind(uint64_t regionHandle) const
+{
+    const auto it = wind_.find(regionHandle);
+    return it == wind_.end() ? nullptr : it->second.get();
+}
+
 void World::removeRegion(uint64_t regionHandle)
 {
     terrain_.erase(regionHandle);
+    wind_.erase(regionHandle);
     std::erase_if(objects_, [&](const auto& entry) { return entry.first.region == regionHandle; });
     std::erase_if(ids_.keys,
                   [&](const auto& entry) { return entry.second.region == regionHandle; });
@@ -488,9 +495,20 @@ WorldUpdate decodeMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
             return out;
         }
         const auto type = static_cast<LayerType>(layer->LayerID.Type);
+        if(type == LayerType::Wind || type == LayerType::WindExtended)
+        {
+            auto wind = decodeWindLayer(layer->LayerID.Type, layer->LayerData_.Data);
+            if(!wind)
+            {
+                log::warn("bad wind LayerData: {}", wind.error());
+                return out;
+            }
+            out.change = WorldUpdate::Wind{*wind};
+            return out;
+        }
         if(type != LayerType::Land && type != LayerType::LandExtended)
         {
-            return out; // wind, cloud, water: not used yet
+            return out; // cloud, water: not used
         }
         auto patches = decodeLandLayer(layer->LayerID.Type, layer->LayerData_.Data);
         if(!patches)
@@ -609,6 +627,10 @@ void World::apply(WorldUpdate update)
         terrain.composition = handshake->composition;
         terrain.hasComposition = true;
         terrain.revision++;
+    }
+    else if(auto* windUpdate = std::get_if<WorldUpdate::Wind>(&update.change))
+    {
+        wind_[regionHandle] = std::make_shared<const WindField>(windUpdate->wind);
     }
     else if(std::holds_alternative<WorldUpdate::RegionRemoved>(update.change))
     {

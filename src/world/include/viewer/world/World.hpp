@@ -137,6 +137,10 @@ struct WorldUpdate
     struct RegionRemoved
     {
     };
+    struct Wind
+    {
+        WindField wind;
+    };
     // An object's PBR material overrides, per face (GenericStreamingMessage
     // 0x4175): the whole set, replacing the last. `raw` is the message's
     // LLSD notation, for the object cache.
@@ -150,7 +154,7 @@ struct WorldUpdate
     uint64_t region = 0;
     // monostate: nothing for the world (or a message that didn't decode).
     std::variant<std::monostate, Objects, Kill, Terrain, Handshake, Appearance, Animations,
-                 RegionRemoved, MaterialOverrides>
+                 RegionRemoved, MaterialOverrides, Wind>
         change;
 };
 
@@ -181,6 +185,8 @@ public:
     }
     size_t regionCount() const { return terrain_.size(); }
     const RegionTerrain* terrain(uint64_t regionHandle) const;
+    // A region's latest wind (LayerData), if it has sent any.
+    const WindField* wind(uint64_t regionHandle) const;
 
     // Every object, as (ObjectKey, Object) pairs.
     auto objects() const
@@ -247,6 +253,7 @@ private:
     RegionTerrain& region(uint64_t handle);
 
     std::map<uint64_t, std::shared_ptr<RegionTerrain>> terrain_;
+    std::map<uint64_t, std::shared_ptr<const WindField>> wind_; // apart: it changes often
     ObjectMap objects_;
     IdIndex ids_;
     std::unordered_map<Uuid, std::shared_ptr<const Appearance>> appearances_;

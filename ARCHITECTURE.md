@@ -927,8 +927,17 @@ in: 12 x its length over its distance, at most 8 (FLEXIBLE_OBJECT_MAX_SECTIONS
 ones), turned into path points in the prim's frame, and
 `volume::generateVolumeAlong` sweeps the profile along them, in meters (the
 draw has no scale). Each frame's geometry goes up as new meshes (the pool
-keeps released ones until the frames using them are done). Not yet: wind
-(the region's wind isn't decoded).
+keeps released ones until the frames using them are done). Wind blows each
+section by the wind over it times the prim's wind sensitivity.
+
+Wind: regions send it as LayerData of type '7' ('9' for large regions),
+two patches coded as terrain patches are (the x velocities, then the y) on
+a 16 by 16 grid over the region (`world::decodeWindLayer`). `World` keeps
+each region's latest, apart from its terrain since it changes every few
+seconds, and `world::windVelocity` looks it up between the grid's points,
+times WIND_SCALE_HACK (2), as LLWind::getVelocity. Only flexible prims use
+it so far (the official viewer's trees don't: their trunk bend is never
+set); particles will.
 
 Texture animation (llSetTextureAnim; `world::TextureAnimation`, from the
 TextureAnim field or a compressed update's 0x40 block) runs as the

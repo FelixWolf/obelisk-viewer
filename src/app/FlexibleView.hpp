@@ -9,7 +9,8 @@
 // the prim's profile swept along it. Simulated in scene coordinates, so
 // moving or turning the prim (or the avatar wearing it) swings it.
 //
-// Not yet: wind (the region's wind isn't decoded).
+// Wind (scaled by the prim's wind sensitivity) comes from the region each
+// section is over.
 
 #include "viewer/render/Renderer.hpp"
 #include "viewer/world/World.hpp"
@@ -20,6 +21,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -30,6 +32,8 @@ class FlexibleView
 {
 public:
     using Clock = std::chrono::steady_clock;
+    // The wind at a point (scene coordinates), meters a second.
+    using WindAt = std::function<glm::vec3(const glm::vec3&)>;
 
     explicit FlexibleView(render::Renderer& renderer);
 
@@ -38,10 +42,11 @@ public:
     // and position, no scale), `distance` meters from the camera, at the
     // level of detail `detail` (index into volume::kDetailScales). The
     // meshes are in meters in the prim's frame: draw them with `frame`
-    // alone. Null if it can't be built.
+    // alone. `windAt` may be empty (no wind, as on HUDs). Null if it can't
+    // be built.
     const std::vector<render::Mesh>* faces(const world::ObjectKey& key, const world::Object& object,
                                            const glm::mat4& frame, float distance, int detail,
-                                           Clock::time_point now);
+                                           Clock::time_point now, const WindAt& windAt);
     // Once a frame: forgets prims not drawn for a while.
     void endFrame();
     // Drops everything (e.g. on logout).
@@ -88,7 +93,7 @@ private:
     static void setAttributes(Prim& prim, const glm::vec3& position, const glm::quat& rotation);
     // One step of `seconds` (doFlexibleUpdate).
     static void simulate(Prim& prim, const glm::vec3& position, const glm::quat& rotation,
-                         float seconds);
+                         float seconds, const WindAt& windAt);
 
     render::Renderer& renderer_;
     std::unordered_map<world::ObjectKey, Prim, world::ObjectKeyHash> prims_;

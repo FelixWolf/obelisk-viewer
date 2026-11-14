@@ -6,6 +6,8 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <bit>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -169,4 +171,86 @@ TEST_CASE("Terrain layer values follow height, settings and noise")
     const float blend = terrainBlendNoise(256000.0, 256000.0);
     CHECK(blend >= 0.0f);
     CHECK(blend <= 1.0f);
+}
+
+namespace
+{
+
+// Writes bits as the encoder does: most significant first, values wider
+// than 8 bits a byte at a time from the low byte.
+class BitWriter
+{
+public:
+    void bits(uint32_t value, uint32_t count)
+    {
+        for(uint32_t byte = 0; count > 0; byte++)
+        {
+            const uint32_t chunk = std::min<uint32_t>(count, 8);
+            const uint32_t b = (value >> (8 * byte)) & 0xFF;
+            for(uint32_t i = chunk; i > 0; i--)
+            {
+                bit((b >> (i - 1)) & 1);
+            }
+            count -= chunk;
+        }
+    }
+    std::vector<uint8_t> data;
+
+private:
+    void bit(uint32_t v)
+    {
+        if(used_ == 0)
+        {
+            data.push_back(0);
+        }
+        if(v)
+        {
+            data.back() |= static_cast<uint8_t>(0x80u >> used_);
+        }
+        used_ = (used_ + 1) % 8;
+    }
+    uint32_t used_ = 0;
+};
+
+// A wind layer of two flat patches: x velocity `x`, y velocity `y`.
+std::vector<uint8_t> flatWind(float x, float y)
+{
+    BitWriter w;
+    w.bits(16, 16); // stride
+    w.bits(16, 8);  // patch size
+    w.bits('7', 8);
+    for(const float v : {x, y})
+    {
+        w.bits(0, 8);                           // quantization
+        w.bits(std::bit_cast<uint32_t>(v), 32); // offset
+        w.bits(0, 16);                          // range: none
+        w.bits(0, 10);                          // patch ids
+        w.bits(0b10, 2);                        // end of block: all zero
+    }
+    return w.data;
+}
+
+} // namespace
+
+TEST_CASE("Wind: two patches decode to the grid, looked up between its points")
+{
+    const auto wind = decodeWindLayer('7', flatWind(1.5f, -0.5f));
+    REQUIRE(wind.has_value());
+    CHECK(wind->x[0] == doctest::Approx(1.5f));
+    CHECK(wind->y[255] == doctest::Approx(-0.5f));
+    // Twice the grid's (WIND_SCALE_HACK), anywhere in the region and
+    // clamped or wrapped outside it; never vertical.
+    for(const glm::vec2 p :
+        {glm::vec2(10.0f, 200.0f), glm::vec2(255.9f, 0.0f), glm::vec2(-5.0f, 300.0f)})
+    {
+        const glm::vec3 v = windVelocity(*wind, p, 256.0f);
+        CHECK(v.x == doctest::Approx(3.0f));
+        CHECK(v.y == doctest::Approx(-1.0f));
+        CHECK(v.z == 0.0f);
+    }
+    // Not wind, or too short.
+    CHECK_FALSE(decodeWindLayer('L', flatWind(1.0f, 1.0f)).has_value());
+    auto shortLayer = flatWind(1.0f, 1.0f);
+    shortLayer.resize(12);
+    CHECK_FALSE(decodeWindLayer('7', shortLayer).has_value());
 }
