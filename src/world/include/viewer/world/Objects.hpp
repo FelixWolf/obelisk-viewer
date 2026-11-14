@@ -7,6 +7,7 @@
 
 #include "viewer/core/Uuid.hpp"
 #include "viewer/volume/VolumeParams.hpp"
+#include "viewer/world/TextureAnimation.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -169,6 +170,12 @@ struct Object
     // back: 255 is opaque).
     std::string hoverText{};
     std::array<uint8_t, 4> hoverTextColor{255, 255, 255, 255};
+    // Texture animation, if any, and how far it had run (frames) when it
+    // (re)started at `textureAnimationSince`: World keeps these across
+    // updates (an update with one restarts it, a smooth one carries on).
+    std::optional<TextureAnimation> textureAnimation{};
+    std::chrono::steady_clock::time_point textureAnimationSince{};
+    float textureAnimationFrames = 0.0f;
     // Avatars: their legacy name and group title (from NameValue).
     std::string firstName{};
     std::string lastName{};

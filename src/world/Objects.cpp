@@ -505,7 +505,10 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
         {
             o.faces = *faces;
         }
-        // Texture animation (flags & 0x40) follows; not used yet.
+        if(flags & 0x40)
+        {
+            o.textureAnimation = decodeTextureAnimation(r.binary(), false);
+        }
     }
     if(r.failed())
     {

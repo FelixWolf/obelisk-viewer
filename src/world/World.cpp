@@ -155,7 +155,21 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update,
             }
         }
         Object& object = writable(objects_[key]);
+        const std::optional<TextureAnimation> animation = object.textureAnimation;
+        const auto since = object.textureAnimationSince;
+        const float frames = object.textureAnimationFrames;
         applyUpdate(object, update);
+        // An update with a texture animation restarts it, unless the one
+        // running was smooth: that carries on (LLVOVolume).
+        if(object.textureAnimation)
+        {
+            object.textureAnimationSince = received;
+            object.textureAnimationFrames =
+                animation && (animation->mode & TextureAnimation::Smooth)
+                    ? frames +
+                          std::chrono::duration<float>(received - since).count() * animation->rate
+                    : 0.0f;
+        }
         object.region = regionHandle;
         object.updatedAt = received;
         object.timeDilation = timeDilation;
@@ -284,6 +298,7 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
                 o.groupTitle = std::move(value);
             }
         }
+        o.textureAnimation = decodeTextureAnimation(b.TextureAnim, true);
         o.hoverTextColor = b.TextColor;
         o.hoverTextColor[3] = static_cast<uint8_t>(255 - o.hoverTextColor[3]); // sent flipped
         if(o.type == ObjectType::Prim)

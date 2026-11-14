@@ -4,7 +4,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <thread>
 
@@ -74,9 +76,60 @@ void uvTransform(glm::vec2 repeats, glm::vec2 offset, float rotation, glm::vec3&
     row1 = glm::vec3(d, e, -0.5f * d - 0.5f * e + offset.y + 0.5f);
 }
 
-void uvTransform(const world::TextureFace& face, glm::vec3& row0, glm::vec3& row1)
+// A face's texture transform with its object's texture animation (if any)
+// standing in for what that animates (LLVOVolume::animateTextures).
+void uvTransform(const world::TextureFace& face, const world::AnimatedTransform* animation,
+                 glm::vec3& row0, glm::vec3& row1)
 {
-    uvTransform(face.repeats, face.offset, face.rotation, row0, row1);
+    glm::vec2 repeats = face.repeats;
+    glm::vec2 offset = face.offset;
+    float rotation = face.rotation;
+    if(animation)
+    {
+        rotation = animation->rotates ? animation->rotation : rotation;
+        repeats = animation->scales ? glm::vec2(animation->scaleS, animation->scaleT) : repeats;
+        offset = animation->translates ? glm::vec2(animation->offsetS, animation->offsetT) : offset;
+    }
+    uvTransform(repeats, offset, rotation, row0, row1);
+}
+
+// An object's texture animation where it is now; nothing if it has none.
+std::optional<world::AnimatedTransform> textureAnimation(const world::Object& object,
+                                                         std::chrono::steady_clock::time_point now)
+{
+    if(!object.textureAnimation)
+    {
+        return std::nullopt;
+    }
+    const float seconds =
+        std::max(0.0f, std::chrono::duration<float>(now - object.textureAnimationSince).count());
+    return world::animateTexture(*object.textureAnimation,
+                                 object.textureAnimationFrames +
+                                     seconds * object.textureAnimation->rate);
+}
+
+// Whether the animation is on face `face` of `count`: its own face, or all
+// of them if it names none (or one the object hasn't).
+bool animates(const world::TextureAnimation& animation, size_t face, size_t count)
+{
+    return animation.face < 0 || static_cast<size_t>(animation.face) >= count ||
+           static_cast<size_t>(animation.face) == face;
+}
+
+// The PBR transform after the animation's (as the official viewer's PBR
+// shaders apply the texture matrix first).
+void animatePbr(const world::TextureFace& face, const world::AnimatedTransform& animation,
+                glm::vec3& row0, glm::vec3& row1)
+{
+    glm::vec3 a0;
+    glm::vec3 a1;
+    uvTransform(face, &animation, a0, a1);
+    const glm::vec3 g0 = row0;
+    const glm::vec3 g1 = row1;
+    row0 = glm::vec3(g0.x * a0.x + g0.y * a1.x, g0.x * a0.y + g0.y * a1.y,
+                     g0.x * a0.z + g0.y * a1.z + g0.z);
+    row1 = glm::vec3(g1.x * a0.x + g1.y * a1.x, g1.x * a0.y + g1.y * a1.y,
+                     g1.x * a0.z + g1.y * a1.z + g1.z);
 }
 
 } // namespace
@@ -219,7 +272,8 @@ void ObjectView::update()
 std::optional<render::BlinnPhongMaterial>
 ObjectView::material(const world::TextureFace& face, TextureManager& textures,
                      LegacyMaterialManager& legacyMaterials, const world::World& world,
-                     const world::Object* wearer, const AvatarView* avatars, float texels)
+                     const world::Object* wearer, const AvatarView* avatars, float texels,
+                     const world::AnimatedTransform* animation)
 {
     render::BlinnPhongMaterial m;
     if(wearer && avatars)
@@ -240,8 +294,12 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
             return m;
         }
     }
+    // An animated face's maps all follow the animation.
+    const glm::vec2 animated = animation && animation->scales
+                                   ? glm::vec2(animation->scaleS, animation->scaleT)
+                                   : face.repeats;
     auto texelsAt = [&](glm::vec2 repeats)
-    { return texels * std::max(std::abs(repeats.x), std::abs(repeats.y)); };
+    { return repeatedTexels(texels, animation ? animated : repeats); };
     m.diffuse = textures.get(face.texture, texelsAt(face.repeats));
     m.diffuseLoading = !m.diffuse && !face.texture.isNull();
     m.diffuseTint = face.color;
@@ -325,7 +383,8 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
 
 bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& object, size_t face,
                              const world::World& world, TextureManager& textures,
-                             MaterialManager& materials, float texels)
+                             MaterialManager& materials, float texels,
+                             const world::AnimatedTransform* animation)
 {
     Uuid id;
     for(const auto& [f, material] : object.materials)
@@ -355,11 +414,12 @@ bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& obje
     }
     render::PbrMaterial p;
     // Each map's size from its own repeats.
+    // (After the texture animation's scale, if it has one: animatePbr.)
+    const glm::vec2 animated = animation && animation->scales
+                                   ? glm::vec2(animation->scaleS, animation->scaleT)
+                                   : glm::vec2(1.0f);
     auto texelsOf = [&](size_t slot)
-    {
-        const glm::vec2 scale = m.transforms[slot].scale;
-        return texels * std::max(std::abs(scale.x), std::abs(scale.y));
-    };
+    { return repeatedTexels(texels, m.transforms[slot].scale * animated); };
     p.albedo =
         textures.get(m.textures[assets::kBaseColorTexture], texelsOf(assets::kBaseColorTexture));
     p.albedoLoading = !p.albedo && !m.textures[assets::kBaseColorTexture].isNull();
@@ -525,6 +585,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
 
     stats_.drawn++;
     stats_.meshObjects++;
+    const auto animation = textureAnimation(object, std::chrono::steady_clock::now());
     for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
     {
         const render::Mesh& mesh = (*faces)[f];
@@ -533,9 +594,17 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         {
             continue;
         }
+        const world::AnimatedTransform* faceAnimation =
+            animation && animates(*object.textureAnimation, f, faces->size()) ? &*animation
+                                                                              : nullptr;
         render::ObjectDraw draw{&mesh, root, render::BlinnPhongMaterial{}};
-        const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, texels);
+        const bool pbr =
+            pbrMaterial(draw, object, f, world, textures, materials, texels, faceAnimation);
         stats_.pbrFaces += pbr;
+        if(pbr && faceAnimation)
+        {
+            animatePbr(face, *faceAnimation, draw.uvRow0, draw.uvRow1);
+        }
         if(!pbr)
         {
             if(face.color.a <= 0.0f || face.texture == kTransparentTexture)
@@ -543,14 +612,19 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                 continue;
             }
             // Bake on Mesh shows the wearer's bakes; an animated object has none.
-            const auto m = material(face, textures, legacyMaterials, world,
-                                    owner.animated ? nullptr : owner.owner, avatars, texels);
+            const auto m =
+                material(face, textures, legacyMaterials, world,
+                         owner.animated ? nullptr : owner.owner, avatars, texels, faceAnimation);
             if(!m)
             {
                 continue;
             }
             draw.material = *m;
-            uvTransform(face, draw.uvRow0, draw.uvRow1);
+            uvTransform(face, faceAnimation, draw.uvRow0, draw.uvRow1);
+            if(faceAnimation)
+            {
+                std::get<render::BlinnPhongMaterial>(draw.material).mapTransforms = false;
+            }
         }
         draw.joints = palette;
         draw.wearer = owner.owner;
@@ -696,6 +770,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     probeObjects_.clear();
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
+    const auto now = std::chrono::steady_clock::now(); // texture animations
 
     for(const auto& [key, object] : world.objects())
     {
@@ -819,6 +894,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const uint64_t pickBase =
             pickable ? static_cast<uint64_t>(object.localId) << 32 | pickRegion(object.region) << 8
                      : 0;
+        const auto animation = textureAnimation(object, now);
         for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
         {
             const render::Mesh& mesh = (*faces)[f];
@@ -827,16 +903,25 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             {
                 continue;
             }
+            const world::AnimatedTransform* faceAnimation =
+                animation && animates(*object.textureAnimation, f, faces->size()) ? &*animation
+                                                                                  : nullptr;
             render::ObjectDraw draw{&mesh, transform, render::BlinnPhongMaterial{}};
             // Planar mapping repeats the texture twice a meter (before the
             // face's own repeats).
             draw.planar = face.planarMapping();
             const float faceTexels =
-                draw.planar
-                    ? texels * 2.0f * std::max({object.scale.x, object.scale.y, object.scale.z})
-                    : texels;
-            const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, faceTexels);
+                draw.planar ? repeatedTexels(
+                                  texels, glm::vec2(2.0f * std::max({object.scale.x, object.scale.y,
+                                                                     object.scale.z})))
+                            : texels;
+            const bool pbr =
+                pbrMaterial(draw, object, f, world, textures, materials, faceTexels, faceAnimation);
             stats_.pbrFaces += pbr;
+            if(pbr && faceAnimation)
+            {
+                animatePbr(face, *faceAnimation, draw.uvRow0, draw.uvRow1);
+            }
             if(!pbr)
             {
                 if(face.color.a <= 0.0f || face.texture == kTransparentTexture)
@@ -846,19 +931,25 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                         draw.pickOnly = true;
                         draw.pickId = pickBase | f;
                         draw.hud = hud;
-                        uvTransform(face, draw.uvRow0, draw.uvRow1);
+                        uvTransform(face, faceAnimation, draw.uvRow0, draw.uvRow1);
                         scene.objects.push_back(draw);
                     }
                     continue;
                 }
-                const auto m =
-                    material(face, textures, legacyMaterials, world, wearer, avatars, faceTexels);
+                const auto m = material(face, textures, legacyMaterials, world, wearer, avatars,
+                                        faceTexels, faceAnimation);
                 if(!m)
                 {
                     continue;
                 }
                 draw.material = *m;
-                uvTransform(face, draw.uvRow0, draw.uvRow1);
+                uvTransform(face, faceAnimation, draw.uvRow0, draw.uvRow1);
+                if(faceAnimation)
+                {
+                    // Normal and specular maps follow the animated
+                    // texture (llface.cpp).
+                    std::get<render::BlinnPhongMaterial>(draw.material).mapTransforms = false;
+                }
             }
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
             draw.hud = hud;

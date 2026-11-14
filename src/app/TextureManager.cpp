@@ -110,9 +110,15 @@ void TextureManager::setView(uint32_t heightPixels, float verticalFov)
                        (2.0f * std::tan(std::clamp(verticalFov, 0.01f, 3.0f) * 0.5f));
 }
 
-float TextureManager::texelsFor(float size, float distance, float repeats) const
+float repeatedTexels(float texels, glm::vec2 repeats)
 {
-    return size / std::max(distance, 0.01f) * pixelsPerRadian_ * std::abs(repeats);
+    const float r = std::clamp(std::min(std::abs(repeats.x), std::abs(repeats.y)), 0.125f, 8.0f);
+    return texels / r;
+}
+
+float TextureManager::texelsFor(float size, float distance) const
+{
+    return size / std::max(distance, 0.01f) * pixelsPerRadian_;
 }
 
 TextureManager::Entry& TextureManager::entry(const Uuid& id)

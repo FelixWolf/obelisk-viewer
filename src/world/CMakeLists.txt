@@ -3,6 +3,7 @@ add_library(viewer_world STATIC
   Objects.cpp
   TerrainDecoder.cpp
   TerrainLayers.cpp
+  TextureAnimation.cpp
   World.cpp
   WorldThread.cpp
 )

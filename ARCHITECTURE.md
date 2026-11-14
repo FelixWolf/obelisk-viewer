@@ -134,8 +134,11 @@ bottom-up rows on load, so Second Life texture coordinates apply unchanged.
 
 Sizes and memory: callers say how many texels across each use needs
 (`texelsFor`: the object's size over its distance, times the focal length
-in pixels, times the face's repeats; the least for draws that only cast
-shadows), and a texture is loaded at the most any use asked for this frame,
+in pixels; then `repeatedTexels` divides by the face's repeats, since a
+texture tiled four times needs a quarter of the texels and one zoomed in
+(a flipbook frame) more, going by the more zoomed in way and clamped to
+1/8 to 8 repeats as LLFace::getTextureVirtualSize clamps; the least for
+draws that only cast shadows), and a texture is loaded at the most any use asked for this frame,
 as a power of two from 32 to 2048 (or whole). It grows at once and shrinks
 once a smaller size has done for 5 s. The KTX2 keeps every level, so a new
 size is a read of only the levels wanted (`maxDimension`), never a new
@@ -895,6 +898,18 @@ geometry is shared at unit size, so the object vertex shader does it with
 the draw's scale (`ObjectDraw::planar`), before the face's legacy or glTF
 transform. Big floors use it to repeat a texture by size. Their textures
 are sized for the repeats that makes (twice the largest side).
+
+Texture animation (llSetTextureAnim; `world::TextureAnimation`, from the
+TextureAnim field or a compressed update's 0x40 block) runs as the
+official viewer's LLViewerTextureAnim: flipbook frames from a grid (whole
+frames, or smooth), scrolling, rotating or scaling, looping, reversed or
+ping-ponging, on one face or all. `animateTexture` gives the offset, scale
+or rotation for how many frames it has run, and those stand in for the
+face's own in its texture transform (`ObjectView`); normal and specular
+maps follow the animated texture, and PBR faces get it before their
+material's transform. An update carrying an animation restarts it, unless
+the running one is smooth (that carries on, as LLVOVolume has it). An
+animated face's textures are sized for the repeats it shows.
 
 `ObjectView` (app) generates geometry on the JobSystem, cached per (shape,
 level of detail), so identical prims share a mesh. Only what the camera can see

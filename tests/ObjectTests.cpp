@@ -289,3 +289,101 @@ TEST_CASE("Name values: names and values, values with spaces")
     CHECK(pairs[2].second == "Ralph pls go");
     CHECK(viewer::world::parseNameValues("").empty());
 }
+
+namespace
+{
+
+std::vector<uint8_t> packTextureAnimation(uint8_t mode, int8_t face, uint8_t x, uint8_t y,
+                                          float start, float length, float rate)
+{
+    std::vector<uint8_t> data{mode, static_cast<uint8_t>(face), x, y};
+    for(const float f : {start, length, rate})
+    {
+        const auto bits = std::bit_cast<std::array<uint8_t, 4>>(f);
+        data.insert(data.end(), bits.begin(), bits.end());
+    }
+    return data;
+}
+
+} // namespace
+
+TEST_CASE("Texture animation: decoding")
+{
+    using viewer::world::TextureAnimation;
+    const auto a = viewer::world::decodeTextureAnimation(
+        packTextureAnimation(TextureAnimation::On | TextureAnimation::Loop, 2, 4, 2, 1.0f, 0.0f,
+                             8.0f),
+        true);
+    REQUIRE(a);
+    CHECK(a->face == 2);
+    CHECK(a->sizeX == 4);
+    CHECK(a->sizeY == 2);
+    CHECK(a->start == 1.0f);
+    CHECK(a->rate == 8.0f);
+    // Full updates count an empty grid as one frame, unless smooth.
+    CHECK(viewer::world::decodeTextureAnimation(
+              packTextureAnimation(TextureAnimation::On, -1, 0, 0, 0, 0, 1), true)
+              ->sizeX == 1);
+    CHECK(viewer::world::decodeTextureAnimation(
+              packTextureAnimation(TextureAnimation::On, -1, 0, 0, 0, 0, 1), false)
+              ->sizeX == 0);
+    CHECK_FALSE(viewer::world::decodeTextureAnimation(std::vector<uint8_t>(15), true));
+}
+
+TEST_CASE("Texture animation: flipbooks, smooth scrolling, rotation")
+{
+    using viewer::world::animateTexture;
+    using viewer::world::TextureAnimation;
+    TextureAnimation flip;
+    flip.mode = TextureAnimation::On | TextureAnimation::Loop;
+    flip.sizeX = 4;
+    flip.sizeY = 2;
+    // Frame 0: the top left cell, a quarter by a half of the texture.
+    auto t = animateTexture(flip, 0.0f);
+    REQUIRE(t);
+    CHECK(t->translates);
+    CHECK(t->scales);
+    CHECK(t->scaleS == doctest::Approx(0.25f));
+    CHECK(t->scaleT == doctest::Approx(0.5f));
+    CHECK(t->offsetS == doctest::Approx(-0.375f));
+    CHECK(t->offsetT == doctest::Approx(0.25f));
+    // Frame 5: second row, second column; whole frames only.
+    t = animateTexture(flip, 5.4f);
+    CHECK(t->offsetS == doctest::Approx(-0.125f));
+    CHECK(t->offsetT == doctest::Approx(-0.25f));
+    // Looping: frame 9 of 8 is frame 1.
+    CHECK(animateTexture(flip, 9.0f)->offsetS == doctest::Approx(-0.125f));
+    // Not looping: it stays on the last.
+    flip.mode = TextureAnimation::On;
+    CHECK(animateTexture(flip, 100.0f)->offsetT == doctest::Approx(-0.25f));
+    CHECK(animateTexture(flip, 100.0f)->offsetS == doctest::Approx(0.375f));
+    // Ping-pong: 0 1 2 ... 7 6 5 ...; frame 9 is 5.
+    flip.mode = TextureAnimation::On | TextureAnimation::Loop | TextureAnimation::PingPong;
+    CHECK(animateTexture(flip, 9.0f)->offsetS == doctest::Approx(-0.125f));
+    CHECK(animateTexture(flip, 9.0f)->offsetT == doctest::Approx(-0.25f));
+
+    // Smooth scrolling: no grid, offset by the frame.
+    TextureAnimation scroll;
+    scroll.mode = TextureAnimation::On | TextureAnimation::Loop | TextureAnimation::Smooth;
+    scroll.sizeX = scroll.sizeY = 0;
+    scroll.length = 1.0f;
+    t = animateTexture(scroll, 2.25f);
+    REQUIRE(t);
+    CHECK(t->translates);
+    CHECK_FALSE(t->scales);
+    CHECK(t->offsetS == doctest::Approx(0.25f));
+
+    // Rotation: radians, nothing else.
+    TextureAnimation spin;
+    spin.mode = TextureAnimation::On | TextureAnimation::Loop | TextureAnimation::Smooth |
+                TextureAnimation::Rotate;
+    spin.length = 6.283f;
+    t = animateTexture(spin, 1.5f);
+    CHECK(t->rotates);
+    CHECK_FALSE(t->translates);
+    CHECK(t->rotation == doctest::Approx(1.5f));
+
+    // Off: nothing.
+    spin.mode = 0;
+    CHECK_FALSE(animateTexture(spin, 1.0f));
+}

@@ -29,6 +29,8 @@
 #include "viewer/net/HttpClient.hpp"
 #include "viewer/render/Renderer.hpp"
 
+#include <glm/glm.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -40,6 +42,13 @@
 
 namespace viewer
 {
+
+// How many texels across a texture needs where it's shown `repeats` times
+// over something `texels` across (texelsFor): fewer the more it repeats,
+// more where it's zoomed in (fewer than one repeat, as a flipbook frame
+// is), going by the more zoomed in way; from 1/8 to 8 repeats (as
+// LLFace::getTextureVirtualSize divides by the texture's area, clamped).
+float repeatedTexels(float texels, glm::vec2 repeats);
 
 class TextureManager
 {
@@ -64,8 +73,8 @@ public:
     void setView(uint32_t heightPixels, float verticalFov);
 
     // How many texels across a texture needs on something `size` meters
-    // across, `distance` meters away, repeated `repeats` times over it.
-    float texelsFor(float size, float distance, float repeats = 1.0f) const;
+    // across, `distance` meters away (once over it: repeatedTexels).
+    float texelsFor(float size, float distance) const;
 
     // The GPU texture if it's ready; otherwise starts loading it (once) and
     // returns nullptr. Color textures are sampled as sRGB. `texels`: how

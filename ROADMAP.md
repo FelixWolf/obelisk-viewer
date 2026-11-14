@@ -10,9 +10,9 @@ teleports and region crossings, avatars (appearance, animation, attachments,
 rigged mesh), prims, sculpts and mesh, legacy and PBR materials, local
 lights and projectors, sun shadows, reflection probes, the windlight sky
 and clouds, terrain, trees and grass, and HUDs (over the screen or on a
-panel), picking and touching with a hover outline and touch text, and
-floating text and name tags. It has no chat, IM, sitting, sound, particles, texture
-animation or water yet.
+panel), picking and touching with a hover outline and touch text,
+floating text, name tags, chat bubbles and texture animation. It has no
+chat window, IM, sitting, sound, particles or water yet.
 
 ## Rendering
 
@@ -20,7 +20,6 @@ animation or water yet.
 - ★ Flexiprims (drawn straight now)
 - Water: the surface with reflections and refraction, underwater fog
 - Particles (`llParticleSystem`)
-- Texture animation (`llSetTextureAnim`)
 - Sun and moon textures, moon phases
 - Anti-aliasing (FXAA or SMAA)
 
