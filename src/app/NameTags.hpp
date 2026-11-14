@@ -1,0 +1,26 @@
+#pragma once
+
+// Name tags over avatars, as the official viewer shows them by default
+// (LLVOAvatar::idleUpdateNameTag, LLHUDNameTag): in a dark bubble over the
+// head, a status line (away, do not disturb, editing appearance), the group
+// title, the display name, and the username when the display name isn't
+// made from it. They fade as the avatar gets small on screen and with
+// distance (gone past 25 m). Until an avatar's display name arrives, its
+// legacy name stands in.
+
+#include "AvatarNames.hpp"
+#include "AvatarView.hpp"
+
+#include "viewer/render/Scene.hpp"
+#include "viewer/world/World.hpp"
+
+#include <cstdint>
+
+namespace viewer
+{
+
+// Adds a tag per avatar (scene.camera must be set).
+void addNameTags(render::Scene& scene, const world::World& world, const AvatarView& avatars,
+                 AvatarNames& names, uint64_t originHandle);
+
+} // namespace viewer

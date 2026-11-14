@@ -275,3 +275,17 @@ TEST_CASE("Extra parameters: reflection probes")
     applyExtraParams(o, {});
     CHECK_FALSE(o.reflectionProbe.has_value());
 }
+
+TEST_CASE("Name values: names and values, values with spaces")
+{
+    const auto pairs = viewer::world::parseNameValues(
+        "FirstName STRING RW SV Automated\nLastName STRING RW SV Tests\r\n"
+        "Title STRING RW SV Ralph pls go\nbroken line\n");
+    REQUIRE(pairs.size() == 3);
+    CHECK(pairs[0].first == "FirstName");
+    CHECK(pairs[0].second == "Automated");
+    CHECK(pairs[1].second == "Tests");
+    CHECK(pairs[2].first == "Title");
+    CHECK(pairs[2].second == "Ralph pls go");
+    CHECK(viewer::world::parseNameValues("").empty());
+}

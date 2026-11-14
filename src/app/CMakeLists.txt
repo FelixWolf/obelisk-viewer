@@ -17,6 +17,7 @@ add_executable(viewer
   FrameProfile.cpp
   AnimationManager.cpp
   AutomaticProbes.cpp
+  AvatarNames.cpp
   AvatarView.cpp
   AgentController.cpp
   CameraController.cpp
@@ -27,6 +28,7 @@ add_executable(viewer
   LegacyMaterialManager.cpp
   MaterialManager.cpp
   MeshManager.cpp
+  NameTags.cpp
   ObjectMotion.cpp
   ObjectProperties.cpp
   ObjectView.cpp

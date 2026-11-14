@@ -48,12 +48,53 @@ const Glyph* GlyphAtlas::glyph(const Font& font, float pixelSize, int glyphIndex
         return &it->second;
     }
     const Font::Bitmap bitmap = font.rasterize(glyphIndex, static_cast<float>(key.size) / 64.0f);
-    Glyph glyph;
-    glyph.offset = glm::vec2(static_cast<float>(bitmap.left), static_cast<float>(bitmap.top));
-    if(bitmap.width > 0 && bitmap.height > 0)
+    return place(key, static_cast<uint32_t>(bitmap.width), static_cast<uint32_t>(bitmap.height),
+                 bitmap.pixels.data(),
+                 glm::vec2(static_cast<float>(bitmap.left), static_cast<float>(bitmap.top)));
+}
+
+const Glyph* GlyphAtlas::disc(float radius)
+{
+    const Key key{nullptr, static_cast<int>(std::lround(radius * 64.0f)), -1};
+    if(const auto it = glyphs_.find(key); it != glyphs_.end())
     {
-        const auto width = static_cast<uint32_t>(bitmap.width);
-        const auto height = static_cast<uint32_t>(bitmap.height);
+        return &it->second;
+    }
+    // An odd number of pixels across, so one is right in the middle.
+    const float r = static_cast<float>(key.size) / 64.0f;
+    const auto half = static_cast<int>(std::ceil(r));
+    const auto side = static_cast<uint32_t>(2 * half + 1);
+    std::vector<uint8_t> bitmap(static_cast<size_t>(side) * side);
+    constexpr int kSamples = 4; // a side, per pixel
+    for(uint32_t y = 0; y < side; y++)
+    {
+        for(uint32_t x = 0; x < side; x++)
+        {
+            int inside = 0;
+            for(int sy = 0; sy < kSamples; sy++)
+            {
+                for(int sx = 0; sx < kSamples; sx++)
+                {
+                    const float px = static_cast<float>(static_cast<int>(x) - half) - 0.5f +
+                                     (static_cast<float>(sx) + 0.5f) / kSamples;
+                    const float py = static_cast<float>(static_cast<int>(y) - half) - 0.5f +
+                                     (static_cast<float>(sy) + 0.5f) / kSamples;
+                    inside += px * px + py * py <= r * r;
+                }
+            }
+            bitmap[y * side + x] = static_cast<uint8_t>(inside * 255 / (kSamples * kSamples));
+        }
+    }
+    return place(key, side, side, bitmap.data(), glm::vec2(-static_cast<float>(half) - 0.5f));
+}
+
+const Glyph* GlyphAtlas::place(const Key& key, uint32_t width, uint32_t height,
+                               const uint8_t* bitmap, glm::vec2 offset)
+{
+    Glyph glyph;
+    glyph.offset = offset;
+    if(width > 0 && height > 0)
+    {
         if(width + 2 * kPadding > size_ || height + 2 * kPadding > size_)
         {
             return nullptr;
@@ -71,8 +112,7 @@ const Glyph* GlyphAtlas::glyph(const Font& font, float pixelSize, int glyphIndex
         }
         for(uint32_t y = 0; y < height; y++)
         {
-            std::memcpy(&pixels_[(shelfY_ + y) * size_ + shelfX_], &bitmap.pixels[y * width],
-                        width);
+            std::memcpy(&pixels_[(shelfY_ + y) * size_ + shelfX_], &bitmap[y * width], width);
         }
         const float scale = 1.0f / static_cast<float>(size_);
         glyph.size = glm::vec2(static_cast<float>(width), static_cast<float>(height));

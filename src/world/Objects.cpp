@@ -201,6 +201,43 @@ bool readField(Reader& r, TextureEntry& faces, T TextureFace::* member, Read rea
 
 } // namespace
 
+std::vector<std::pair<std::string, std::string>> parseNameValues(std::string_view text)
+{
+    std::vector<std::pair<std::string, std::string>> out;
+    while(!text.empty())
+    {
+        const size_t end = text.find('\n');
+        std::string_view line = text.substr(0, end);
+        text = end == std::string_view::npos ? std::string_view() : text.substr(end + 1);
+        while(!line.empty() && (line.back() == '\r' || line.back() == '\0'))
+        {
+            line.remove_suffix(1);
+        }
+        // Four words, then the value (which may have spaces).
+        std::string_view fields[4];
+        bool complete = true;
+        for(std::string_view& field : fields)
+        {
+            const size_t start = line.find_first_not_of(" \t");
+            if(start == std::string_view::npos)
+            {
+                complete = false;
+                break;
+            }
+            line.remove_prefix(start);
+            const size_t space = line.find_first_of(" \t");
+            field = line.substr(0, space);
+            line = space == std::string_view::npos ? std::string_view() : line.substr(space + 1);
+        }
+        if(!complete)
+        {
+            continue;
+        }
+        out.emplace_back(std::string(fields[0]), std::string(line));
+    }
+    return out;
+}
+
 std::optional<TextureEntry> decodeTextureEntry(std::span<const uint8_t> data)
 {
     if(data.empty())

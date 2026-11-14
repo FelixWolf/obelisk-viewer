@@ -475,7 +475,8 @@ rasterizes glyphs the first time they're needed into a coverage atlas
 UTF-8 text (`layoutText`: line breaks, word wrap, kerning, alignment, glyphs
 at whole pixels so text stays sharp).
 
-Floating text (llSetText, with its color) becomes a `Scene::Label` per prim
+Floating text (llSetText, with its color) becomes a `Scene::Label` (lines,
+each with its own size and color) per prim
 (`FloatingText.cpp`), placed as the official viewer places it
 (LLViewerObject::updateText, LLHUDText): 0.6 of the prim's height above it,
 brought nearer the camera by the prim's radius, fully shown within 8 m and
@@ -486,6 +487,25 @@ with the last baseline 12 pixels above the point, far ones first, with a
 after tonemapping, over sRGB-encoded values as the official viewer's text
 is, depth tested at the label's point so whatever is in front hides them.
 HUD attachments' text is drawn into the HUD image, never hidden.
+
+### Name tags
+
+Avatars' name tags are labels too (`NameTags.cpp`), styled as the official
+viewer's defaults (LLVOAvatar::idleUpdateNameTag, LLHUDNameTag): a black
+bubble at half opacity with rounded corners (quarters of a disc the glyph
+atlas draws), holding a status line (Away, Do Not Disturb, Editing
+Appearance, from the signaled animations), the group title, the display
+name (10 points) and, when the display name isn't made from it, the
+username (9 points, a little darker). The bubble sits 25 pixels above a
+point over the head (an ellipsoid around the body toward the camera's up,
+idleCalcNameTagPosition). Tags fade as the avatar gets small on screen
+(full from 5 degrees, gone at 2) and with distance (from 20 m, gone at 25).
+
+Legacy names and group titles come in object updates (NameValue: "FirstName
+STRING RW SV ..."); display names from the GetDisplayNames capability
+(`AvatarNames`, as LLAvatarNameCache: ids batched into a URL up to 3500
+characters long, one request at a time, kept 20 minutes). Until an
+avatar's display name arrives, its legacy name stands in.
 
 ### HUDs
 

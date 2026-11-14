@@ -1,5 +1,6 @@
 add_executable(viewer_tests
   main.cpp
+  AvatarNameTests.cpp
   AvatarTests.cpp
   CircuitTests.cpp
   DiskCacheTests.cpp
@@ -28,6 +29,7 @@ add_executable(viewer_tests
   ReflectionProbeTests.cpp
   # App code with no dependencies of its own, tested as is.
   ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/AvatarNames.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

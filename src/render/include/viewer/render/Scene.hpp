@@ -268,15 +268,34 @@ enum class Visibility : uint8_t
     Visible,
 };
 
-// Text over a point (llSetText's floating text): lines centered over
-// `position`, the last one a little above it, the same size on screen at
-// any distance, with a drop shadow. Hidden where the scene is in front of
-// the point; HUD labels are drawn into the HUD image, never hidden.
+// One line of a label (it may wrap): its text, color (sRGB, and alpha) and
+// size (points, at 96 dpi).
+struct LabelLine
+{
+    std::string text;
+    glm::vec4 color{1.0f};
+    float points = 10.0f;
+};
+
+// Text over a point, the same size on screen at any distance, centered
+// above it, with a drop shadow. Hidden where the scene is in front of the
+// point; HUD labels are drawn into the HUD image, never hidden. As the
+// official viewer draws them (llhudtext.cpp, llhudnametag.cpp):
+//   FloatingText (llSetText): the last baseline 12 pixels above the point.
+//   NameTag: in a rounded bubble whose bottom is `raise` pixels above the
+//   point, lines 3 pixels apart.
 struct Label
 {
+    enum class Style : uint8_t
+    {
+        FloatingText,
+        NameTag,
+    };
+    Style style = Style::FloatingText;
     glm::vec3 position{0.0f}; // scene coordinates (HUD space for HUD labels)
-    std::string text;
-    glm::vec4 color{1.0f}; // sRGB, and alpha
+    std::vector<LabelLine> lines;
+    glm::vec4 background{0.0f}; // NameTag: the bubble's color (sRGB, and alpha)
+    float raise = 0.0f;
     bool hud = false;
 };
 

@@ -7,6 +7,7 @@
 
 #include "EmbeddedAssets.hpp"
 #include "FloatingText.hpp"
+#include "NameTags.hpp"
 
 #include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -312,6 +313,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
+    app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
@@ -752,6 +754,8 @@ void App::updateSession()
     materials_->setViewerAssetUrl(viewerAsset);
     legacyMaterials_->setCapabilityUrl(
         std::string(session_->capability("RenderMaterials").value_or("")));
+    avatarNames_->setCapabilityUrl(
+        std::string(session_->capability("GetDisplayNames").value_or("")));
     if(animations_)
     {
         animations_->setViewerAssetUrl(viewerAsset);
@@ -941,6 +945,7 @@ void App::endSession()
     meshes_->setViewerAssetUrl({});
     materials_->setViewerAssetUrl({});
     legacyMaterials_->setCapabilityUrl({});
+    avatarNames_ = std::make_unique<AvatarNames>(*http_); // the next login may be another grid
     if(animations_)
     {
         animations_->setViewerAssetUrl({});
@@ -1100,6 +1105,7 @@ void App::buildScene(render::Scene& scene)
         meshes_->update();
         materials_->update();
         legacyMaterials_->update();
+        avatarNames_->update();
         if(animations_)
         {
             animations_->update();
@@ -1116,6 +1122,10 @@ void App::buildScene(render::Scene& scene)
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         *legacyMaterials_, avatars_.get(), 128.0f);
         addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
+        if(avatars_)
+        {
+            addNameTags(scene, *world_, *avatars_, *avatarNames_, *originHandle_);
+        }
         trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
         // Automatic reflection probes where objects are dense, at least 2 m
         // over the ground (scene positions are from the origin region's corner).

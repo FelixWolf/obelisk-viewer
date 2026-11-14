@@ -98,3 +98,23 @@ TEST_CASE("Text: the glyph atlas reuses glyphs, reports changes, and fills up")
     atlas.clear();
     CHECK(atlas.glyph(*font, 40.0f, font->glyphIndex(U'Q')) != nullptr);
 }
+
+TEST_CASE("Text: the atlas's disc is round, full in the middle")
+{
+    GlyphAtlas atlas(64);
+    const Glyph* disc = atlas.disc(6.0f);
+    REQUIRE(disc);
+    CHECK(disc->size == glm::vec2(13.0f));
+    CHECK(disc->offset == glm::vec2(-6.5f));
+    CHECK(atlas.disc(6.0f) == disc);
+    const auto at = [&](int x, int y)
+    {
+        const glm::vec2 p =
+            disc->uv0 * 64.0f + glm::vec2(static_cast<float>(x), static_cast<float>(y));
+        return atlas.pixels()[static_cast<size_t>(p.y) * 64 + static_cast<size_t>(p.x)];
+    };
+    CHECK(at(6, 6) == 255); // the middle
+    CHECK(at(0, 6) > 0);    // the edge, halfway down
+    CHECK(at(0, 0) == 0);   // a corner, outside
+    CHECK(at(12, 12) == 0);
+}

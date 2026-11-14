@@ -11,7 +11,7 @@ rigged mesh), prims, sculpts and mesh, legacy and PBR materials, local
 lights and projectors, sun shadows, reflection probes, the windlight sky
 and clouds, terrain, trees and grass, and HUDs (over the screen or on a
 panel), picking and touching with a hover outline and touch text, and
-floating text. It has no chat, IM, sitting, sound, particles, texture
+floating text and name tags. It has no chat, IM, sitting, sound, particles, texture
 animation or water yet.
 
 ## Rendering
@@ -32,7 +32,6 @@ animation or water yet.
 - ★ First person view, desktop and VR
 - ★ Hiding the head in first person: the head joint scaled to zero, which
   shrinks rigged and unrigged mesh alike
-- ★ Name tags
 - Sitting and standing (sit targets, the sit response, the seated camera)
 - Avatar physics (soft body bounce), optional
 - Complexity limits and "jelly dolls" for crowded places

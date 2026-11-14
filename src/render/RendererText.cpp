@@ -24,12 +24,18 @@ namespace
 {
 
 constexpr uint32_t kAtlasSize = 1024;
-// The official viewer's SansSerif at 10 points (96 dpi).
-constexpr float kLabelPixelSize = 13.333f;
-// Its lines go no wider than this (HUD_TEXT_MAX_WIDTH_NO_BUBBLE), and the
-// last one's baseline is this far above the point (VERTICAL_PADDING).
-constexpr float kLabelMaxWidth = 1000.0f;
-constexpr float kLabelBaseline = 12.0f;
+// Floating text: lines no wider than this (HUD_TEXT_MAX_WIDTH_NO_BUBBLE),
+// the last baseline this far above the point (VERTICAL_PADDING).
+constexpr float kTextMaxWidth = 1000.0f;
+constexpr float kTextBaseline = 12.0f;
+// Name tags (llhudnametag.cpp): lines no wider than NAMETAG_MAX_WIDTH, this
+// far apart (LINE_PADDING), in a bubble this much wider and taller than
+// they are (HORIZONTAL_PADDING, VERTICAL_PADDING) with corners this round.
+constexpr float kTagMaxWidth = 298.0f;
+constexpr float kTagLineGap = 3.0f;
+constexpr float kTagPaddingX = 16.0f;
+constexpr float kTagPaddingY = 12.0f;
+constexpr float kTagCorner = 6.0f;
 
 struct LabelVertex
 {
@@ -117,7 +123,7 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
     std::vector<Placed> hud;
     for(const Label& label : scene.labels)
     {
-        if(label.text.empty() || label.color.a <= 0.0f)
+        if(label.lines.empty())
         {
             continue;
         }
@@ -143,15 +149,58 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
     std::sort(world.begin(), world.end(), farFirst);
     std::sort(hud.begin(), hud.end(), farFirst);
 
-    // Glyph quads (a shadow quad before each glyph's own), from pixels to
-    // clip space. Should the atlas fill up, it's cleared and every label
-    // laid out again.
-    text::LayoutOptions options;
-    options.pixelSize = kLabelPixelSize;
-    options.maxWidth = kLabelMaxWidth;
-    options.align = text::Align::Center;
-    options.skipEmptyLines = true;
+    // Quads (bubbles, then for each glyph a shadow quad and its own), from
+    // pixels to clip space. Should the atlas fill up, it's cleared and every
+    // label laid out again.
     std::vector<LabelVertex> vertices;
+    auto quad = [&](glm::vec2 topLeft, glm::vec2 extent, glm::vec2 uv0, glm::vec2 uv1,
+                    uint32_t color, float depth)
+    {
+        const glm::vec2 a = topLeft / size * 2.0f - 1.0f;
+        const glm::vec2 b = (topLeft + extent) / size * 2.0f - 1.0f;
+        // Clip space y is up.
+        const LabelVertex v00{{a.x, -a.y, depth}, uv0, color};
+        const LabelVertex v10{{b.x, -a.y, depth}, {uv1.x, uv0.y}, color};
+        const LabelVertex v01{{a.x, -b.y, depth}, {uv0.x, uv1.y}, color};
+        const LabelVertex v11{{b.x, -b.y, depth}, uv1, color};
+        vertices.insert(vertices.end(), {v00, v10, v11, v00, v11, v01});
+    };
+    // A rounded box: the disc's quarters at the corners, its middle texel
+    // stretched over the rest.
+    auto box = [&](glm::vec2 topLeft, glm::vec2 extent, uint32_t color, float depth)
+    {
+        const text::Glyph* disc = glyphs_->disc(kTagCorner);
+        if(!disc)
+        {
+            return false;
+        }
+        const float texel = 1.0f / static_cast<float>(kAtlasSize);
+        const float c = std::min({std::floor(disc->size.x * 0.5f), std::floor(extent.x * 0.5f),
+                                  std::floor(extent.y * 0.5f)});
+        const glm::vec2 mid = (disc->uv0 + disc->uv1) * 0.5f;
+        const glm::vec2 near0 = disc->uv0;
+        const glm::vec2 near1 = disc->uv0 + glm::vec2(c * texel);
+        const glm::vec2 far0 = disc->uv1 - glm::vec2(c * texel);
+        const glm::vec2 far1 = disc->uv1;
+        const glm::vec2 corner(c);
+        const glm::vec2 bottomRight = topLeft + extent;
+        quad(topLeft, corner, near0, near1, color, depth);
+        quad({bottomRight.x - c, topLeft.y}, corner, {far0.x, near0.y}, {far1.x, near1.y}, color,
+             depth);
+        quad({topLeft.x, bottomRight.y - c}, corner, {near0.x, far0.y}, {near1.x, far1.y}, color,
+             depth);
+        quad(bottomRight - corner, corner, far0, far1, color, depth);
+        quad({topLeft.x + c, topLeft.y}, {extent.x - 2.0f * c, c}, mid, mid, color, depth);
+        quad({topLeft.x + c, bottomRight.y - c}, {extent.x - 2.0f * c, c}, mid, mid, color, depth);
+        quad({topLeft.x, topLeft.y + c}, {extent.x, extent.y - 2.0f * c}, mid, mid, color, depth);
+        return true;
+    };
+    struct Laid
+    {
+        text::TextLayout layout;
+        const LabelLine* line = nullptr;
+    };
+    std::vector<Laid> laid;
     auto build = [&]
     {
         vertices.clear();
@@ -160,42 +209,76 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
         {
             for(const Placed& p : *list)
             {
-                const text::TextLayout layout =
-                    text::layoutText(*glyphs_, *font_, p.label->text, options);
-                complete = complete && layout.complete;
-                if(layout.lines == 0)
+                const Label& label = *p.label;
+                const bool tag = label.style == Label::Style::NameTag;
+                text::LayoutOptions options;
+                options.maxWidth = tag ? kTagMaxWidth : kTextMaxWidth;
+                options.align = text::Align::Center;
+                options.skipEmptyLines = true;
+                laid.clear();
+                float widest = 0.0f;
+                float textHeight = 0.0f;
+                for(const LabelLine& line : label.lines)
+                {
+                    if(line.text.empty() || line.color.a <= 0.0f)
+                    {
+                        continue;
+                    }
+                    options.pixelSize = line.points * (96.0f / 72.0f);
+                    text::TextLayout layout =
+                        text::layoutText(*glyphs_, *font_, line.text, options);
+                    complete = complete && layout.complete;
+                    if(layout.lines == 0)
+                    {
+                        continue;
+                    }
+                    widest = std::max(widest, layout.size.x);
+                    textHeight += layout.size.y + (tag ? kTagLineGap : 0.0f);
+                    laid.push_back({std::move(layout), &line});
+                }
+                if(laid.empty())
                 {
                     continue;
                 }
-                // Centered over the point, the last baseline kLabelBaseline above it.
-                const float lastBaseline =
-                    layout.ascent + layout.lineHeight * static_cast<float>(layout.lines - 1);
-                const glm::vec2 origin(p.pixel.x - std::floor(layout.size.x * 0.5f),
-                                       p.pixel.y - kLabelBaseline - lastBaseline);
-                const glm::vec4& color = p.label->color;
-                const float strength = shadowStrength(color);
-                const uint32_t textColor = packColor(color);
-                const uint32_t shadowColor =
-                    packColor(glm::vec4(0.0f, 0.0f, 0.0f, color.a * strength));
-                for(const text::PlacedGlyph& g : layout.glyphs)
+                // The last baseline (screen y, down): above the point, or
+                // in the bubble above it.
+                const float bottom = p.pixel.y - (tag ? std::round(label.raise) : 0.0f);
+                float baseline =
+                    tag ? bottom - (kTagPaddingY - kTagLineGap) : bottom - kTextBaseline;
+                if(tag && label.background.a > 0.0f)
                 {
-                    auto quad = [&](glm::vec2 topLeft, uint32_t c)
+                    const glm::vec2 extent(std::ceil(widest + kTagPaddingX),
+                                           std::round(textHeight - kTagLineGap + kTagPaddingY));
+                    const glm::vec2 topLeft(p.pixel.x - std::floor(extent.x * 0.5f),
+                                            bottom - extent.y);
+                    complete =
+                        box(topLeft, extent, packColor(label.background), p.depth) && complete;
+                }
+                // Lines from the last up, each centered over the point.
+                for(auto it = laid.rbegin(); it != laid.rend(); ++it)
+                {
+                    const text::TextLayout& layout = it->layout;
+                    const float top = baseline - layout.ascent -
+                                      layout.lineHeight * static_cast<float>(layout.lines - 1);
+                    const glm::vec2 origin(p.pixel.x - std::floor(layout.size.x * 0.5f), top);
+                    const glm::vec4& color = it->line->color;
+                    const float strength = shadowStrength(color);
+                    const uint32_t textColor = packColor(color);
+                    const uint32_t shadowColor =
+                        packColor(glm::vec4(0.0f, 0.0f, 0.0f, color.a * strength));
+                    for(const text::PlacedGlyph& g : layout.glyphs)
                     {
-                        const glm::vec2 a = topLeft / size * 2.0f - 1.0f;
-                        const glm::vec2 b = (topLeft + g.size) / size * 2.0f - 1.0f;
-                        // Clip space y is up.
-                        const LabelVertex v00{{a.x, -a.y, p.depth}, g.uv0, c};
-                        const LabelVertex v10{{b.x, -a.y, p.depth}, {g.uv1.x, g.uv0.y}, c};
-                        const LabelVertex v01{{a.x, -b.y, p.depth}, {g.uv0.x, g.uv1.y}, c};
-                        const LabelVertex v11{{b.x, -b.y, p.depth}, g.uv1, c};
-                        vertices.insert(vertices.end(), {v00, v10, v11, v00, v11, v01});
-                    };
-                    const glm::vec2 topLeft = origin + g.position;
-                    if(strength > 0.0f)
-                    {
-                        quad(topLeft + glm::vec2(1.0f, 1.0f), shadowColor);
+                        const glm::vec2 topLeft = origin + g.position;
+                        if(strength > 0.0f)
+                        {
+                            quad(topLeft + glm::vec2(1.0f, 1.0f), g.size, g.uv0, g.uv1, shadowColor,
+                                 p.depth);
+                        }
+                        quad(topLeft, g.size, g.uv0, g.uv1, textColor, p.depth);
                     }
-                    quad(topLeft, textColor);
+                    // The line above: its baseline a line (this one's
+                    // height) and the gap higher.
+                    baseline = top + layout.ascent - layout.lineHeight - (tag ? kTagLineGap : 0.0f);
                 }
             }
             if(list == &world)

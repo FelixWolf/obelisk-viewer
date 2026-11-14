@@ -34,9 +34,9 @@ void addFloatingText(render::Scene& scene, const world::World& world, const Obje
         render::Label label;
         label.hud = objects.onHud(object, world, avatars);
         label.position = glm::vec3((*frame)[3]) + glm::vec3(0.0f, 0.0f, object.scale.z * 0.6f);
-        label.color = glm::vec4(object.hoverTextColor[0], object.hoverTextColor[1],
-                                object.hoverTextColor[2], object.hoverTextColor[3]) /
-                      255.0f;
+        glm::vec4 color = glm::vec4(object.hoverTextColor[0], object.hoverTextColor[1],
+                                    object.hoverTextColor[2], object.hoverTextColor[3]) /
+                          255.0f;
         if(!label.hud)
         {
             const glm::vec3 offset = label.position - camera.position;
@@ -63,14 +63,14 @@ void addFloatingText(render::Scene& scene, const world::World& world, const Obje
             }
             if(distance > kFadeDistance)
             {
-                label.color.a *= 1.0f - (distance - kFadeDistance) / kFadeRange;
+                color.a *= 1.0f - (distance - kFadeDistance) / kFadeRange;
             }
         }
-        if(label.color.a < 0.01f)
+        if(color.a < 0.01f)
         {
             continue;
         }
-        label.text = object.hoverText;
+        label.lines.push_back({object.hoverText, color, 10.0f}); // SansSerif
         scene.labels.push_back(std::move(label));
     }
 }

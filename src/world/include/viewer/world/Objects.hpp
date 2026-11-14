@@ -17,6 +17,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace viewer::world
@@ -53,6 +54,11 @@ struct TextureFace
 };
 
 using TextureEntry = std::array<TextureFace, kMaxFaces>;
+
+// Name-value pairs (an object update's NameValue): one a line, "Name Type
+// Class Sendto Value", such as "FirstName STRING RW SV Kyler"; avatars have
+// FirstName, LastName and Title (their group title). Name and value only.
+std::vector<std::pair<std::string, std::string>> parseNameValues(std::string_view text);
 
 // Decodes a packed texture entry (default value per field, then per-face
 // overrides). Nothing for an empty or malformed one.
@@ -163,6 +169,10 @@ struct Object
     // back: 255 is opaque).
     std::string hoverText{};
     std::array<uint8_t, 4> hoverTextColor{255, 255, 255, 255};
+    // Avatars: their legacy name and group title (from NameValue).
+    std::string firstName{};
+    std::string lastName{};
+    std::string groupTitle{};
     // When the latest update (full or terse) arrived, and the simulator's
     // time dilation then: motion is predicted from here (extrapolate()).
     // Default (epoch): never updated over the network; nothing to predict.

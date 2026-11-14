@@ -37,6 +37,11 @@ public:
     // A glyph of `font` at `pixelSize` (Font), rasterized into the atlas if
     // it isn't there yet; null if it doesn't fit (clear() and try again).
     const Glyph* glyph(const Font& font, float pixelSize, int glyphIndex);
+    // A filled, antialiased circle of `radius` pixels, an odd number of
+    // pixels across (its offset goes from its center to its top left; the
+    // middle texel is fully covered): quarters of it make rounded corners,
+    // its middle fills. Null if it doesn't fit.
+    const Glyph* disc(float radius);
     // Drops every glyph.
     void clear();
 
@@ -63,6 +68,9 @@ private:
     {
         size_t operator()(const Key& k) const;
     };
+    // Packs a bitmap into the atlas under `key`; null if it doesn't fit.
+    const Glyph* place(const Key& key, uint32_t width, uint32_t height, const uint8_t* bitmap,
+                       glm::vec2 offset);
     uint32_t size_ = 0;
     std::vector<uint8_t> pixels_;
     std::unordered_map<Key, Glyph, KeyHash> glyphs_;
