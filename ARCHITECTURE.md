@@ -449,9 +449,12 @@ shadow into view. `--no-occlusion` turns it off.
 `Renderer::drawStereo` draws the scene once per eye, each into its own
 square image, from the scene's camera moved half the eye separation to
 each side, then shows the left eye in the window: what a headset needs,
-before there is one. Each eye is a whole scene render for now (shadows,
-probes and uploads included); only the first does what's done once a
-frame (the pick, the occlusion map). `--stereo-benchmark [SIZE]` (2160 by
+before there is one. Both go through `Renderer::drawViews`, which does
+what the views share once, from the scene's camera (their middle): draw
+and light uploads, the shadow cascades, reflection probes, the pick, the
+HUD image and the exposure. Each view then gets its own scene pass, glow,
+tonemap, outline and labels; the first also makes the occlusion map and
+the screenshot. `--stereo-benchmark [SIZE]` (2160 by
 default) uses it with a square 90 degree view and logs every five seconds
 what a frame costs: frames a second, CPU time by stage, and time spent
 waiting for the GPU (the swapchain's acquire, which waits once the GPU is

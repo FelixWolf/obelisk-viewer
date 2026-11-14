@@ -886,31 +886,33 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
     return true;
 }
 
-void Renderer::drawScene(const Frame& frame, const Scene& scene, const Camera* eye, bool primary)
+void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                         std::span<const View> views)
 {
-    if(!ensureTargets(frame.width, frame.height))
+    if(views.empty() || !ensureTargets(views[0].width, views[0].height))
     {
         return;
     }
     const Pipelines& p = *pipelines_;
-    SDL_GPUCommandBuffer* commands = frame.commands;
     // New meshes' contents first: submitted before this frame's commands.
     meshPool_->flush();
 
-    const Camera& camera = eye ? *eye : scene.camera;
-    const float aspect = static_cast<float>(frame.width) / static_cast<float>(frame.height);
-    const glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
-    const glm::mat4 projection =
-        glm::perspective(camera.verticalFov, aspect, camera.nearPlane, camera.farPlane);
-
-    const FrameVS frameVs{projection * view, glm::vec4(camera.position, 1.0f)};
+    // What every view shares is done once, from the scene's camera (the
+    // views' middle): uploads, shadows, probes, the pick, the HUD.
+    const uint32_t width = views[0].width;
+    const uint32_t height = views[0].height;
+    const Camera& center = scene.camera;
+    const float aspect = static_cast<float>(width) / static_cast<float>(height);
+    auto viewOf = [](const Camera& c) { return glm::lookAt(c.position, c.target, c.up); };
+    auto projectionOf = [&](const Camera& c)
+    { return glm::perspective(c.verticalFov, aspect, c.nearPlane, c.farPlane); };
     const Lighting& light = scene.lighting;
     const Atmosphere& atmo = light.atmosphere;
     const bool shadows = scene.shadows.enabled && shadowMap_;
     const Cascades cascades =
-        shadows ? computeCascades(camera, aspect, scene.shadows, kShadowMapSize) : Cascades{};
+        shadows ? computeCascades(center, aspect, scene.shadows, kShadowMapSize) : Cascades{};
     FrameFS frameFs{
-        glm::vec4(camera.position, 1.0f),
+        glm::vec4(center.position, 1.0f),
         glm::vec4(glm::normalize(light.sunDirection), 0.0f),
         glm::vec4(light.sunColor, 1.0f),
         glm::vec4(light.skyAmbient, 1.0f),
@@ -933,7 +935,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene, const Camera* e
         cascades.splits,
         cascades.texels,
         glm::vec4(shadows ? 1.0f : 0.0f, 1.0f / static_cast<float>(kShadowMapSize), 0.0f, 0.0f),
-        glm::vec4(glm::normalize(camera.target - camera.position), 0.0f),
+        glm::vec4(glm::normalize(center.target - center.position), 0.0f),
         glm::vec4(0.0f), // local lights: below
         glm::vec4(0.0f), // probes: below
     };
@@ -950,221 +952,238 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene, const Camera* e
     // Reflection probes: the ones surfaces use (into frameFs), and the next
     // face of whichever is being captured.
     updateProbes(commands, scene, frameFs, drawsReady);
-    if(primary)
-    {
-        drawPick(commands, scene, drawsReady);
-    }
-    uploadLabels(commands, scene, projection * view, frame.width, frame.height);
+    drawPick(commands, scene, drawsReady);
+    // Labels (the HUD's, and the first view's) up before the HUD is drawn.
+    const Camera& first = *views[0].camera;
+    uploadLabels(commands, scene, projectionOf(first) * viewOf(first), width, height);
     // HUD attachments into their own image, as big as the view, with their
     // labels.
-    const bool hud = drawHud(commands, scene, frame.width, frame.height, drawsReady);
+    const bool hud = drawHud(commands, scene, width, height, drawsReady);
     if(hud)
     {
         drawLabels(commands, hudImage_, true);
     }
 
-    SDL_GPUColorTargetInfo color = {};
-    color.texture = hdrTarget_;
-    color.clear_color = SDL_FColor{light.skyColor.r, light.skyColor.g, light.skyColor.b, 1.0f};
-    color.load_op = SDL_GPU_LOADOP_CLEAR;
-    color.store_op = SDL_GPU_STOREOP_STORE;
-    SDL_GPUDepthStencilTargetInfo depth = {};
-    depth.texture = depthTarget_;
-    depth.clear_depth = 1.0f;
-    depth.load_op = SDL_GPU_LOADOP_CLEAR;
-    depth.store_op = SDL_GPU_STOREOP_STORE; // dynamic exposure tells the sky by it
-    depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
-    depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-    depth.cycle = true;
-
-    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-    ScenePass scenePass(commands, pass, p, frameVs, frameFs, lightBuffer_.buffer.get(),
-                        probeBuffer_.buffer.get());
-    if(atmo.enabled)
+    for(size_t v = 0; v < views.size(); v++)
     {
-        drawSky(scenePass, atmo, view, projection);
-    }
-    // Terrain first: it covers the most screen, so it fills depth early.
-    drawTerrain(scenePass, scene);
-
-    // Opaque objects, then blended ones from far to near (as the official
-    // viewer: each face by its own center's depth along the view, moved
-    // forward by a quarter of its size), then blended rigged mesh by wearer
-    // and attachment order.
-    std::vector<const ObjectDraw*> opaque;
-    struct Blended
-    {
-        float depth;  // faces: along the view; rigged: the wearer's distance
-        size_t index; // scene order, to keep ties stable
-        const ObjectDraw* draw;
-    };
-    std::vector<Blended> blended;
-    std::vector<Blended> blendedRigged;
-    const glm::vec3 viewAxis = glm::normalize(camera.target - camera.position);
-    for(const ObjectDraw& draw : scene.objects)
-    {
-        if(!drawsReady || !draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain ||
-           draw.shadowOnly || draw.hud || draw.pickOnly)
+        const Camera& camera = *views[v].camera;
+        SDL_GPUTexture* target = views[v].target;
+        const glm::mat4 view = viewOf(camera);
+        const glm::mat4 projection = projectionOf(camera);
+        const FrameVS frameVs{projection * view, glm::vec4(camera.position, 1.0f)};
+        FrameFS viewFs = frameFs;
+        viewFs.cameraPosition = glm::vec4(camera.position, 1.0f);
+        viewFs.viewAxis = glm::vec4(glm::normalize(camera.target - camera.position), 0.0f);
+        if(v > 0)
         {
-            continue;
+            uploadLabels(commands, scene, projection * view, width, height);
         }
-        if(draw.mesh->layout == VertexLayout::Skinned && draw.joints.empty())
+
+        SDL_GPUColorTargetInfo color = {};
+        color.texture = hdrTarget_;
+        color.clear_color = SDL_FColor{light.skyColor.r, light.skyColor.g, light.skyColor.b, 1.0f};
+        color.load_op = SDL_GPU_LOADOP_CLEAR;
+        color.store_op = SDL_GPU_STOREOP_STORE;
+        SDL_GPUDepthStencilTargetInfo depth = {};
+        depth.texture = depthTarget_;
+        depth.clear_depth = 1.0f;
+        depth.load_op = SDL_GPU_LOADOP_CLEAR;
+        depth.store_op = SDL_GPU_STOREOP_STORE; // dynamic exposure tells the sky by it
+        depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+        depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        depth.cycle = true;
+
+        SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+        ScenePass scenePass(commands, pass, p, frameVs, viewFs, lightBuffer_.buffer.get(),
+                            probeBuffer_.buffer.get());
+        if(atmo.enabled)
         {
-            continue;
+            drawSky(scenePass, atmo, view, projection);
         }
-        const auto* bp = std::get_if<BlinnPhongMaterial>(&draw.material);
-        const auto* pbrBlend = std::get_if<PbrMaterial>(&draw.material);
-        if((bp && bp->blend) || (pbrBlend && pbrBlend->blend))
+        // Terrain first: it covers the most screen, so it fills depth early.
+        drawTerrain(scenePass, scene);
+
+        // Opaque objects, then blended ones from far to near (as the official
+        // viewer: each face by its own center's depth along the view, moved
+        // forward by a quarter of its size), then blended rigged mesh by wearer
+        // and attachment order.
+        std::vector<const ObjectDraw*> opaque;
+        struct Blended
         {
-            const size_t index = static_cast<size_t>(&draw - scene.objects.data());
-            if(draw.mesh->layout == VertexLayout::Skinned)
+            float depth;  // faces: along the view; rigged: the wearer's distance
+            size_t index; // scene order, to keep ties stable
+            const ObjectDraw* draw;
+        };
+        std::vector<Blended> blended;
+        std::vector<Blended> blendedRigged;
+        const glm::vec3 viewAxis = glm::normalize(camera.target - camera.position);
+        for(const ObjectDraw& draw : scene.objects)
+        {
+            if(!drawsReady || !draw.mesh || !*draw.mesh ||
+               draw.mesh->layout == VertexLayout::Terrain || draw.shadowOnly || draw.hud ||
+               draw.pickOnly)
             {
-                const glm::vec3 d = glm::vec3(draw.transform[3]) - camera.position;
-                blendedRigged.push_back({glm::dot(d, d), index, &draw});
                 continue;
             }
-            const glm::vec3 localCenter = (draw.mesh->boundsMin + draw.mesh->boundsMax) * 0.5f;
-            const glm::vec3 center(draw.transform * glm::vec4(localCenter, 1.0f));
-            // The face's box in world axes: |rotation and scale| times its size.
-            const glm::mat3 m(draw.transform);
-            const glm::mat3 absolute(glm::abs(m[0]), glm::abs(m[1]), glm::abs(m[2]));
-            const glm::vec3 size = absolute * (draw.mesh->boundsMax - draw.mesh->boundsMin);
-            const glm::vec3 toward = center - camera.position - 0.25f * size * viewAxis;
-            blended.push_back({glm::dot(toward, viewAxis), index, &draw});
-        }
-        else
-        {
-            opaque.push_back(&draw);
-        }
-    }
-    // Opaque draws need no order: group them by pipeline, then texture, then
-    // buffer block, so state changes between neighbours are rare. One
-    // packed key: layout (2 bits), material kind (2), texture (44: its
-    // address, which only needs to tell textures apart), block (16).
-    auto stateKey = [](const ObjectDraw* draw)
-    {
-        const void* firstTexture = nullptr;
-        if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw->material))
-        {
-            firstTexture = m->diffuse;
-        }
-        else if(const auto* t = std::get_if<PbrMaterial>(&draw->material))
-        {
-            firstTexture = t->albedo;
-        }
-        const uint64_t textureBits =
-            (reinterpret_cast<uintptr_t>(firstTexture) >> 4) & ((1ull << 44) - 1);
-        return static_cast<uint64_t>(draw->mesh->layout) << 62 |
-               static_cast<uint64_t>(materialKind(*draw)) << 60 | textureBits << 16 |
-               (draw->mesh->block->index & 0xFFFFu);
-    };
-    keyedDraws_.clear();
-    for(const ObjectDraw* draw : opaque)
-    {
-        keyedDraws_.emplace_back(stateKey(draw), draw);
-    }
-    std::ranges::sort(keyedDraws_, {}, &std::pair<uint64_t, const ObjectDraw*>::first);
-    for(size_t i = 0; i < keyedDraws_.size(); i++)
-    {
-        opaque[i] = keyedDraws_[i].second;
-    }
-    std::ranges::sort(blended, [](const Blended& a, const Blended& b)
-                      { return a.depth != b.depth ? a.depth > b.depth : a.index < b.index; });
-    std::ranges::sort(blendedRigged,
-                      [](const Blended& a, const Blended& b)
-                      {
-                          if(a.draw->wearer != b.draw->wearer)
-                          {
-                              // Farther wearers first; the pointer breaks ties.
-                              return a.depth != b.depth ? a.depth > b.depth
-                                                        : a.draw->wearer < b.draw->wearer;
-                          }
-                          if(a.draw->layer != b.draw->layer)
-                          {
-                              return a.draw->layer > b.draw->layer;
-                          }
-                          return a.index < b.index;
-                      });
-    std::vector<const ObjectDraw*> order = std::move(opaque);
-    for(const Blended& b : blended)
-    {
-        order.push_back(b.draw);
-    }
-    for(const Blended& b : blendedRigged)
-    {
-        order.push_back(b.draw);
-    }
-
-    drawObjects(scenePass, scene, order);
-    if(hud && scene.hud.placement == Hud::Placement::World)
-    {
-        drawHudPanel(scenePass, scene.hud, projection * view);
-    }
-    SDL_EndGPURenderPass(pass);
-
-    if(primary)
-    {
-        drawOcclusion(commands, scene, projection * view);
-    }
-    updateExposure(commands, light);
-    drawGlow(commands, scene, light, frame.width, frame.height, frameVs, drawsReady);
-    drawTonemap(commands, frame.target, light, true);
-    drawOutline(commands, scene, frame.target, frame.width, frame.height, frameVs);
-    drawLabels(commands, frame.target, false);
-    if(hud && scene.hud.placement == Hud::Placement::Screen)
-    {
-        compositeHud(commands, frame.target);
-    }
-
-    if(screenshotRequested_)
-    {
-        screenshotRequested_ = false;
-        if(screenshotTexture_ &&
-           (screenshotWidth_ != frame.width || screenshotHeight_ != frame.height))
-        {
-            SDL_ReleaseGPUTexture(device_, screenshotTexture_);
-            SDL_ReleaseGPUTransferBuffer(device_, screenshotTransfer_);
-            screenshotTexture_ = nullptr;
-            screenshotTransfer_ = nullptr;
-        }
-        if(!screenshotTexture_)
-        {
-            SDL_GPUTextureCreateInfo info = {};
-            info.type = SDL_GPU_TEXTURETYPE_2D;
-            info.format = swapchainFormat();
-            info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-            info.width = frame.width;
-            info.height = frame.height;
-            info.layer_count_or_depth = 1;
-            info.num_levels = 1;
-            screenshotTexture_ = SDL_CreateGPUTexture(device_, &info);
-            SDL_GPUTransferBufferCreateInfo transfer = {};
-            transfer.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
-            transfer.size = frame.width * frame.height * 4;
-            screenshotTransfer_ = SDL_CreateGPUTransferBuffer(device_, &transfer);
-            screenshotWidth_ = frame.width;
-            screenshotHeight_ = frame.height;
-        }
-        if(screenshotTexture_ && screenshotTransfer_)
-        {
-            drawTonemap(commands, screenshotTexture_, light, true);
-            drawOutline(commands, scene, screenshotTexture_, frame.width, frame.height, frameVs);
-            drawLabels(commands, screenshotTexture_, false);
-            if(hud && scene.hud.placement == Hud::Placement::Screen)
+            if(draw.mesh->layout == VertexLayout::Skinned && draw.joints.empty())
             {
-                compositeHud(commands, screenshotTexture_);
+                continue;
             }
-            SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
-            SDL_GPUTextureRegion source = {};
-            source.texture = screenshotTexture_;
-            source.w = frame.width;
-            source.h = frame.height;
-            source.d = 1;
-            SDL_GPUTextureTransferInfo destination = {};
-            destination.transfer_buffer = screenshotTransfer_;
-            SDL_DownloadFromGPUTexture(copy, &source, &destination);
-            SDL_EndGPUCopyPass(copy);
-            screenshotPending_ = true;
+            const auto* bp = std::get_if<BlinnPhongMaterial>(&draw.material);
+            const auto* pbrBlend = std::get_if<PbrMaterial>(&draw.material);
+            if((bp && bp->blend) || (pbrBlend && pbrBlend->blend))
+            {
+                const size_t index = static_cast<size_t>(&draw - scene.objects.data());
+                if(draw.mesh->layout == VertexLayout::Skinned)
+                {
+                    const glm::vec3 d = glm::vec3(draw.transform[3]) - camera.position;
+                    blendedRigged.push_back({glm::dot(d, d), index, &draw});
+                    continue;
+                }
+                const glm::vec3 localCenter = (draw.mesh->boundsMin + draw.mesh->boundsMax) * 0.5f;
+                const glm::vec3 faceCenter(draw.transform * glm::vec4(localCenter, 1.0f));
+                // The face's box in world axes: |rotation and scale| times its size.
+                const glm::mat3 m(draw.transform);
+                const glm::mat3 absolute(glm::abs(m[0]), glm::abs(m[1]), glm::abs(m[2]));
+                const glm::vec3 size = absolute * (draw.mesh->boundsMax - draw.mesh->boundsMin);
+                const glm::vec3 toward = faceCenter - camera.position - 0.25f * size * viewAxis;
+                blended.push_back({glm::dot(toward, viewAxis), index, &draw});
+            }
+            else
+            {
+                opaque.push_back(&draw);
+            }
+        }
+        // Opaque draws need no order: group them by pipeline, then texture, then
+        // buffer block, so state changes between neighbours are rare. One
+        // packed key: layout (2 bits), material kind (2), texture (44: its
+        // address, which only needs to tell textures apart), block (16).
+        auto stateKey = [](const ObjectDraw* draw)
+        {
+            const void* firstTexture = nullptr;
+            if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw->material))
+            {
+                firstTexture = m->diffuse;
+            }
+            else if(const auto* t = std::get_if<PbrMaterial>(&draw->material))
+            {
+                firstTexture = t->albedo;
+            }
+            const uint64_t textureBits =
+                (reinterpret_cast<uintptr_t>(firstTexture) >> 4) & ((1ull << 44) - 1);
+            return static_cast<uint64_t>(draw->mesh->layout) << 62 |
+                   static_cast<uint64_t>(materialKind(*draw)) << 60 | textureBits << 16 |
+                   (draw->mesh->block->index & 0xFFFFu);
+        };
+        keyedDraws_.clear();
+        for(const ObjectDraw* draw : opaque)
+        {
+            keyedDraws_.emplace_back(stateKey(draw), draw);
+        }
+        std::ranges::sort(keyedDraws_, {}, &std::pair<uint64_t, const ObjectDraw*>::first);
+        for(size_t i = 0; i < keyedDraws_.size(); i++)
+        {
+            opaque[i] = keyedDraws_[i].second;
+        }
+        std::ranges::sort(blended, [](const Blended& a, const Blended& b)
+                          { return a.depth != b.depth ? a.depth > b.depth : a.index < b.index; });
+        std::ranges::sort(blendedRigged,
+                          [](const Blended& a, const Blended& b)
+                          {
+                              if(a.draw->wearer != b.draw->wearer)
+                              {
+                                  // Farther wearers first; the pointer breaks ties.
+                                  return a.depth != b.depth ? a.depth > b.depth
+                                                            : a.draw->wearer < b.draw->wearer;
+                              }
+                              if(a.draw->layer != b.draw->layer)
+                              {
+                                  return a.draw->layer > b.draw->layer;
+                              }
+                              return a.index < b.index;
+                          });
+        std::vector<const ObjectDraw*> order = std::move(opaque);
+        for(const Blended& b : blended)
+        {
+            order.push_back(b.draw);
+        }
+        for(const Blended& b : blendedRigged)
+        {
+            order.push_back(b.draw);
+        }
+
+        drawObjects(scenePass, scene, order);
+        if(hud && scene.hud.placement == Hud::Placement::World)
+        {
+            drawHudPanel(scenePass, scene.hud, projection * view);
+        }
+        SDL_EndGPURenderPass(pass);
+
+        // The first view also makes the occlusion map and measures the
+        // exposure, which the others use too.
+        if(v == 0)
+        {
+            drawOcclusion(commands, scene, projection * view);
+            updateExposure(commands, light);
+        }
+        drawGlow(commands, scene, light, width, height, frameVs, drawsReady);
+        drawTonemap(commands, target, light, true);
+        drawOutline(commands, scene, target, width, height, frameVs);
+        drawLabels(commands, target, false);
+        if(hud && scene.hud.placement == Hud::Placement::Screen)
+        {
+            compositeHud(commands, target);
+        }
+
+        if(v == 0 && screenshotRequested_)
+        {
+            screenshotRequested_ = false;
+            if(screenshotTexture_ && (screenshotWidth_ != width || screenshotHeight_ != height))
+            {
+                SDL_ReleaseGPUTexture(device_, screenshotTexture_);
+                SDL_ReleaseGPUTransferBuffer(device_, screenshotTransfer_);
+                screenshotTexture_ = nullptr;
+                screenshotTransfer_ = nullptr;
+            }
+            if(!screenshotTexture_)
+            {
+                SDL_GPUTextureCreateInfo info = {};
+                info.type = SDL_GPU_TEXTURETYPE_2D;
+                info.format = swapchainFormat();
+                info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+                info.width = width;
+                info.height = height;
+                info.layer_count_or_depth = 1;
+                info.num_levels = 1;
+                screenshotTexture_ = SDL_CreateGPUTexture(device_, &info);
+                SDL_GPUTransferBufferCreateInfo transfer = {};
+                transfer.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
+                transfer.size = width * height * 4;
+                screenshotTransfer_ = SDL_CreateGPUTransferBuffer(device_, &transfer);
+                screenshotWidth_ = width;
+                screenshotHeight_ = height;
+            }
+            if(screenshotTexture_ && screenshotTransfer_)
+            {
+                drawTonemap(commands, screenshotTexture_, light, true);
+                drawOutline(commands, scene, screenshotTexture_, width, height, frameVs);
+                drawLabels(commands, screenshotTexture_, false);
+                if(hud && scene.hud.placement == Hud::Placement::Screen)
+                {
+                    compositeHud(commands, screenshotTexture_);
+                }
+                SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
+                SDL_GPUTextureRegion source = {};
+                source.texture = screenshotTexture_;
+                source.w = width;
+                source.h = height;
+                source.d = 1;
+                SDL_GPUTextureTransferInfo destination = {};
+                destination.transfer_buffer = screenshotTransfer_;
+                SDL_DownloadFromGPUTexture(copy, &source, &destination);
+                SDL_EndGPUCopyPass(copy);
+                screenshotPending_ = true;
+            }
         }
     }
 }
@@ -2109,15 +2128,16 @@ void Renderer::drawStereo(const Frame& frame, const Scene& scene, uint32_t size,
     }
     const Camera& center = scene.camera;
     const glm::vec3 right = glm::normalize(glm::cross(center.target - center.position, center.up));
-    for(int e = 0; e < 2; e++)
+    std::array<Camera, 2> cameras{center, center};
+    std::array<View, 2> views{};
+    for(size_t e = 0; e < 2; e++)
     {
-        Camera camera = center;
         const glm::vec3 offset = right * (separation * (e == 0 ? -0.5f : 0.5f));
-        camera.position += offset;
-        camera.target += offset;
-        const Frame eyeFrame{frame.commands, eyeImages_[static_cast<size_t>(e)], size, size};
-        drawScene(eyeFrame, scene, &camera, e == 0);
+        cameras[e].position += offset;
+        cameras[e].target += offset;
+        views[e] = View{&cameras[e], eyeImages_[e], size, size};
     }
+    drawViews(frame.commands, scene, views);
 
     // The left eye in the window, as big as fits, centered.
     const float scale =
