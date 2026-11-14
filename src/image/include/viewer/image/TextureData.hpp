@@ -11,9 +11,10 @@ namespace viewer::image
 // texture is decoded and stored in the cache, so nothing re-scans pixels.
 enum class AlphaMode : uint8_t
 {
-    Opaque, // no alpha channel, or every alpha value is 255
-    Mask,   // every alpha value is 0 or 255 (alpha test, no sorting)
-    Blend,  // partial transparency (needs blending)
+    Opaque,      // no alpha channel, or every alpha value is 255
+    Mask,        // nearly all alpha near 0 or 255 (alpha test will do: no sorting)
+    Blend,       // partial transparency (needs blending)
+    Transparent, // every alpha value is 0: nothing shows
 };
 
 std::string_view alphaModeName(AlphaMode mode);

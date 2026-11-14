@@ -276,7 +276,7 @@ std::optional<render::BlinnPhongMaterial>
 ObjectView::material(const world::TextureFace& face, TextureManager& textures,
                      LegacyMaterialManager& legacyMaterials, const world::World& world,
                      const world::Object* wearer, const AvatarView* avatars, float texels,
-                     const world::AnimatedTransform* animation)
+                     const world::AnimatedTransform* animation, bool rigged)
 {
     render::BlinnPhongMaterial m;
     if(wearer && avatars)
@@ -350,13 +350,19 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
         alphaMode = legacy->alphaMode;
         maskCutoff = legacy->alphaCutoff;
     }
+    // What the diffuse alpha does, with what the texture's alpha turned out
+    // to be (none until it has loaded: drawn solid meanwhile).
+    const auto textureAlpha = textures.alphaMode(face.texture);
+    const bool opaqueFace = face.color.a >= 1.0f;
     switch(alphaMode)
     {
     case assets::DiffuseAlphaMode::None:
         m.opaque = true;
         break;
     case assets::DiffuseAlphaMode::Blend:
-        m.blend = true;
+        // Nothing to blend if the texture is wholly opaque (and the face
+        // too): drawn solid, which looks the same and costs less.
+        m.blend = !(textureAlpha == image::AlphaMode::Opaque && opaqueFace);
         break;
     case assets::DiffuseAlphaMode::Mask:
         m.alphaCutoff = maskCutoff;
@@ -366,15 +372,31 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
         m.opaque = true;
         break;
     case assets::DiffuseAlphaMode::Default:
-    {
-        const auto alpha = textures.alphaMode(face.texture);
-        if(alpha == image::AlphaMode::Mask)
+        // As the texture's alpha suggests: cut out if it's a mask, unless
+        // the face is see-through, glows or is rigged mesh
+        // (LLFace::canRenderAsMask); blended otherwise.
+        if(textureAlpha == image::AlphaMode::Mask)
         {
-            m.alphaCutoff = 0.5f;
+            if(opaqueFace && face.glow <= 0.0f && !rigged)
+            {
+                m.alphaCutoff = 0.5f;
+            }
+            else
+            {
+                m.blend = true;
+            }
         }
-        m.blend = alpha == image::AlphaMode::Blend;
+        m.blend = m.blend || textureAlpha == image::AlphaMode::Blend;
         break;
     }
+    // A wholly transparent texture shows nothing, blended or as it says:
+    // not drawn (tint alpha 0 says so).
+    if(textureAlpha == image::AlphaMode::Transparent &&
+       (alphaMode == assets::DiffuseAlphaMode::Blend ||
+        alphaMode == assets::DiffuseAlphaMode::Default))
+    {
+        m.diffuseTint.a = 0.0f;
+        return m;
     }
     m.blend = m.blend || face.color.a < 1.0f;
     if(m.blend)
@@ -638,12 +660,12 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                 continue;
             }
             // Bake on Mesh shows the wearer's bakes; an animated object has none.
-            const auto m =
-                material(face, textures, legacyMaterials, world,
-                         owner.animated ? nullptr : owner.owner, avatars, texels, faceAnimation);
-            if(!m)
+            const auto m = material(face, textures, legacyMaterials, world,
+                                    owner.animated ? nullptr : owner.owner, avatars, texels,
+                                    faceAnimation, true);
+            if(!m || m->diffuseTint.a <= 0.0f)
             {
-                continue;
+                continue; // a bake still loading, or nothing shows
             }
             draw.material = *m;
             uvTransform(face, faceAnimation, draw.uvRow0, draw.uvRow1);
@@ -1067,7 +1089,20 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             }
             if(!pbr)
             {
-                if(face.color.a <= 0.0f || face.texture == kTransparentTexture)
+                // Nothing of it shows: transparent, or its texture wholly so.
+                const bool clear = face.color.a <= 0.0f || face.texture == kTransparentTexture;
+                std::optional<render::BlinnPhongMaterial> m;
+                if(!clear)
+                {
+                    m = material(face, textures, legacyMaterials, world, wearer, avatars,
+                                 faceTexels, faceAnimation);
+                    if(!m)
+                    {
+                        complete = false; // a bake still loading
+                        continue;
+                    }
+                }
+                if(clear || m->diffuseTint.a <= 0.0f)
                 {
                     if(actionable)
                     {
@@ -1077,13 +1112,6 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                         uvTransform(face, faceAnimation, draw.uvRow0, draw.uvRow1);
                         scene.objects.push_back(draw);
                     }
-                    continue;
-                }
-                const auto m = material(face, textures, legacyMaterials, world, wearer, avatars,
-                                        faceTexels, faceAnimation);
-                if(!m)
-                {
-                    complete = false; // a bake still loading
                     continue;
                 }
                 draw.material = *m;

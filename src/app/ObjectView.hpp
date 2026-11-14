@@ -152,7 +152,7 @@ private:
     material(const world::TextureFace& face, TextureManager& textures,
              LegacyMaterialManager& legacyMaterials, const world::World& world,
              const world::Object* wearer, const AvatarView* avatars, float texels,
-             const world::AnimatedTransform* animation = nullptr);
+             const world::AnimatedTransform* animation = nullptr, bool rigged = false);
     // What a skeleton's owner is to this frame, for its rigged meshes:
     // where its skeleton stands, how big it is, how far, whether it's seen.
     struct RiggedOwner

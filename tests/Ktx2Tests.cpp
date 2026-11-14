@@ -3,6 +3,8 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+
 using namespace viewer::image;
 
 namespace
@@ -95,4 +97,19 @@ TEST_CASE("KTX2 reader rejects corrupt input")
     auto truncated = file;
     truncated.resize(file.size() - 4);
     CHECK_FALSE(readKtx2(truncated).has_value());
+}
+
+TEST_CASE("KTX2: files from before the alpha classification changed are classified again")
+{
+    const TextureData original = makeTexture(16, 8); // alpha all over: blend
+    auto file = writeKtx2(original, {});
+    REQUIRE(readKtx2(file)->alphaMode == AlphaMode::Mask); // as written
+    // An old file has no "viewer.alpha" key (rename it, same length).
+    const std::string key = "viewer.alpha";
+    auto at = std::search(file.begin(), file.end(), key.begin(), key.end());
+    REQUIRE(at != file.end());
+    *(at + static_cast<ptrdiff_t>(key.size()) - 1) = 'X';
+    const auto loaded = readKtx2(file);
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->alphaMode == AlphaMode::Blend);
 }

@@ -15,6 +15,8 @@ std::string_view alphaModeName(AlphaMode mode)
         return "mask";
     case AlphaMode::Blend:
         return "blend";
+    case AlphaMode::Transparent:
+        return "transparent";
     }
     return "opaque";
 }
@@ -66,26 +68,85 @@ MipLevel toRgba8(const Image& image)
 
 AlphaMode classifyAlpha(const MipLevel& rgba)
 {
-    bool sawPartial = false;
-    bool sawNonOpaque = false;
-    for(size_t i = 3; i < rgba.pixels.size(); i += 4)
+    // Wholly opaque or wholly transparent first.
+    bool allOpaque = true;
+    bool allClear = true;
+    for(size_t i = 3; i < rgba.pixels.size() && (allOpaque || allClear); i += 4)
     {
-        const uint8_t a = rgba.pixels[i];
-        if(a != 255)
+        allOpaque = allOpaque && rgba.pixels[i] == 255;
+        allClear = allClear && rgba.pixels[i] == 0;
+    }
+    if(allOpaque)
+    {
+        return AlphaMode::Opaque;
+    }
+    if(allClear)
+    {
+        return AlphaMode::Transparent;
+    }
+
+    // A mask, or does it need blending? As the official viewer decides
+    // (LLImageGL::analyzeAlphaData): a histogram of alpha in sixteenths,
+    // plus that of a 2x2 box-filtered copy (which pulls aliased edges
+    // towards the middle, so alpha too fine to cut out isn't), is a mask
+    // unless more than a 48th of it is mid-range, or it all sits in one half
+    // without reaching that half's extreme (an intentional effect).
+    uint64_t sample[16] = {};
+    uint64_t total = 0;
+    uint64_t length = static_cast<uint64_t>(rgba.width) * rgba.height;
+    auto alpha = [&](uint32_t x, uint32_t y)
+    {
+        return static_cast<uint32_t>(
+            rgba.pixels[(static_cast<size_t>(y) * rgba.width + x) * 4 + 3]);
+    };
+    if(rgba.width >= 2 && rgba.height >= 2)
+    {
+        for(uint32_t y = 0; y + 1 < rgba.height; y += 2)
         {
-            sawNonOpaque = true;
-            if(a != 0)
+            for(uint32_t x = 0; x + 1 < rgba.width; x += 2)
             {
-                sawPartial = true;
-                break;
+                const uint32_t s1 = alpha(x, y);
+                const uint32_t s2 = alpha(x, y + 1);
+                const uint32_t s3 = alpha(x + 1, y);
+                const uint32_t s4 = alpha(x + 1, y + 1);
+                sample[s1 / 16]++;
+                sample[s2 / 16]++;
+                sample[s3 / 16]++;
+                sample[s4 / 16]++;
+                const uint32_t sum = s1 + s2 + s3 + s4;
+                total += 2 * sum;
+                sample[sum / 64] += 4;
+            }
+        }
+        length = static_cast<uint64_t>(rgba.width / 2) * (rgba.height / 2) * 8;
+    }
+    else
+    {
+        for(uint32_t y = 0; y < rgba.height; y++)
+        {
+            for(uint32_t x = 0; x < rgba.width; x++)
+            {
+                const uint32_t s1 = alpha(x, y);
+                total += s1;
+                sample[s1 / 16]++;
             }
         }
     }
-    if(sawPartial)
+    uint64_t midrange = 0;
+    uint64_t lower = 0;
+    uint64_t upper = 0;
+    for(int i = 0; i < 16; i++)
+    {
+        midrange += (i >= 2 && i < 13) ? sample[i] : 0;
+        lower += i < 8 ? sample[i] : 0;
+        upper += i >= 8 ? sample[i] : 0;
+    }
+    if(midrange > length / 48 || (lower == length && total != 0) ||
+       (upper == length && total != 255 * length))
     {
         return AlphaMode::Blend;
     }
-    return sawNonOpaque ? AlphaMode::Mask : AlphaMode::Opaque;
+    return AlphaMode::Mask;
 }
 
 std::vector<MipLevel> buildMipChain(MipLevel base)

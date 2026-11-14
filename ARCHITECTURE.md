@@ -158,9 +158,25 @@ defaults otherwise), scaled to a common size of at most 1024.
 Each `TextureCache` instance has one results queue, so the texture browser
 and the world use separate instances on the same disk cache.
 
-KTX2 entries are RGBA8 with zstd supercompression, plus `viewer.alphaMode` and
+KTX2 entries are RGBA8 with zstd supercompression, plus `viewer.alpha` and
 `viewer.discardLevel` metadata (the J2K level they were decoded at: the
-whole image is that many times twice the size). The cache root defaults to
+whole image is that many times twice the size).
+
+A texture's alpha is classified once, when it's decoded (`classifyAlpha`):
+opaque (all 255), transparent (all 0), a mask, or blended. Mask is the
+official viewer's test (LLImageGL::analyzeAlphaData): a histogram of alpha,
+plus that of a 2x2 box-filtered copy, with at most a 48th of it mid-range
+and not all of it in one half short of that half's extreme, so cut-outs
+with soft edges still count. Files written before that key
+(`viewer.alphaMode`, which called only exact 0 and 255 a mask) are
+classified again when read. Legacy faces use it with their diffuse alpha
+mode (`ObjectView::material`): none and emissive are opaque (emissive's
+alpha shows unlit), mask cuts out at its cutoff, and blend blends, except
+that a wholly opaque texture on an opaque face is drawn solid. With no
+mode (default), a mask is cut out if the face is opaque, doesn't glow and
+isn't rigged (LLFace::canRenderAsMask), otherwise blended. A wholly
+transparent texture (default or blend) isn't drawn at all, only picked if
+clicking it does something. The cache root defaults to
 `$XDG_CACHE_HOME/viewer` (or `~/.cache/viewer`); override it with `--cache-dir`.
 
 ## Building

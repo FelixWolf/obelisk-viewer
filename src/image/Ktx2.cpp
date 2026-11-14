@@ -1,5 +1,7 @@
 #include "viewer/image/Ktx2.hpp"
 
+#include "viewer/image/TextureProcessing.hpp"
+
 #include <zstd.h>
 
 #include <algorithm>
@@ -25,7 +27,10 @@ constexpr size_t kIndexSize = 4 * 4 + 2 * 8;   // dfd/kvd offsets+lengths, sgd o
 constexpr size_t kLevelIndexEntrySize = 3 * 8; // byteOffset, byteLength, uncompressedByteLength
 
 constexpr std::string_view kKeyWriter = "KTXwriter";
-constexpr std::string_view kKeyAlphaMode = "viewer.alphaMode";
+// How its alpha is to be drawn (AlphaMode). Files from before this key
+// ("viewer.alphaMode": exactly 0 or 255 for a mask, no "transparent") are
+// classified again when read.
+constexpr std::string_view kKeyAlpha = "viewer.alpha";
 constexpr std::string_view kKeyDiscardLevel = "viewer.discardLevel";
 
 // --- little-endian helpers ---------------------------------------------------
@@ -137,6 +142,10 @@ std::optional<AlphaMode> parseAlphaMode(std::string_view s)
     {
         return AlphaMode::Mask;
     }
+    if(s == "transparent")
+    {
+        return AlphaMode::Transparent;
+    }
     if(s == "blend")
     {
         return AlphaMode::Blend;
@@ -156,7 +165,7 @@ std::vector<uint8_t> writeKtx2(const TextureData& texture, const Ktx2WriteOption
     // Keys must be sorted by byte value ("KTX..." sorts before "viewer...").
     std::vector<uint8_t> kvd;
     appendKeyValue(kvd, kKeyWriter, "viewer");
-    appendKeyValue(kvd, kKeyAlphaMode, alphaModeName(texture.alphaMode));
+    appendKeyValue(kvd, kKeyAlpha, alphaModeName(texture.alphaMode));
     appendKeyValue(kvd, kKeyDiscardLevel, std::to_string(texture.discardLevel));
 
     const size_t levelIndexOffset = kHeaderSize + kIndexSize;
@@ -253,6 +262,7 @@ std::optional<TextureData> readKtx2(std::span<const uint8_t> file, const Ktx2Rea
     }
 
     TextureData texture;
+    bool alphaKnown = false; // written by this version (kKeyAlpha)
 
     // Key/value data: our metadata. Unknown keys are ignored.
     for(size_t at = kvdOffset; at + 4 <= static_cast<size_t>(kvdOffset) + kvdLength;)
@@ -272,9 +282,13 @@ std::optional<TextureData> readKtx2(std::span<const uint8_t> file, const Ktx2Rea
             {
                 value.remove_suffix(1);
             }
-            if(key == kKeyAlphaMode)
+            if(key == kKeyAlpha)
             {
-                texture.alphaMode = parseAlphaMode(value).value_or(AlphaMode::Opaque);
+                if(const auto mode = parseAlphaMode(value))
+                {
+                    texture.alphaMode = *mode;
+                    alphaKnown = true;
+                }
             }
             else if(key == kKeyDiscardLevel)
             {
@@ -336,6 +350,12 @@ std::optional<TextureData> readKtx2(std::span<const uint8_t> file, const Ktx2Rea
             std::memcpy(level.pixels.data(), src, expected);
         }
         texture.levels.push_back(std::move(level));
+    }
+    // Written before the alpha classification changed: classified again,
+    // from the largest level read.
+    if(!alphaKnown && !texture.levels.empty())
+    {
+        texture.alphaMode = classifyAlpha(texture.levels.front());
     }
     return texture;
 }

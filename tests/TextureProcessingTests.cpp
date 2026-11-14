@@ -28,6 +28,34 @@ TEST_CASE("classifyAlpha distinguishes opaque, mask and blend")
 
     level.pixels[3] = 128;
     CHECK(classifyAlpha(level) == AlphaMode::Blend);
+
+    level.pixels[3] = 0;
+    CHECK(classifyAlpha(level) == AlphaMode::Transparent);
+}
+
+TEST_CASE("classifyAlpha: a cut-out with soft edges is a mask; an even haze isn't")
+{
+    // 128x128, the left half clear, the right opaque, its edge column soft:
+    // few mid-range values (the official viewer's rule: a 48th at most).
+    constexpr uint32_t kSide = 128;
+    MipLevel level{
+        .width = kSide, .height = kSide, .pixels = std::vector<uint8_t>(kSide * kSide * 4, 255)};
+    for(uint32_t y = 0; y < kSide; y++)
+    {
+        for(uint32_t x = 0; x < kSide / 2; x++)
+        {
+            level.pixels[(y * kSide + x) * 4 + 3] = 0;
+        }
+        level.pixels[(y * kSide + kSide / 2) * 4 + 3] = 128;
+    }
+    CHECK(classifyAlpha(level) == AlphaMode::Mask);
+
+    // All of it a little see-through: wanted that way, blended.
+    for(size_t i = 3; i < level.pixels.size(); i += 4)
+    {
+        level.pixels[i] = 200;
+    }
+    CHECK(classifyAlpha(level) == AlphaMode::Blend);
 }
 
 TEST_CASE("buildMipChain halves down to 1x1, including odd sizes")
