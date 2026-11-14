@@ -18,6 +18,7 @@ add_executable(viewer_tests
   FrustumTests.cpp
   MeshPoolTests.cpp
   MeshTests.cpp
+  ObjectIndexTests.cpp
   ObjectTests.cpp
   OcclusionTests.cpp
   ProtocolTests.cpp
@@ -36,6 +37,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/LocalChat.cpp
   ${PROJECT_SOURCE_DIR}/src/app/FlexibleView.cpp
   ${PROJECT_SOURCE_DIR}/src/app/FaceUpload.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ObjectIndex.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

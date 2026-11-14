@@ -32,6 +32,7 @@ add_executable(viewer
   MeshManager.cpp
   NameTags.cpp
   ObjectMotion.cpp
+  ObjectIndex.cpp
   ObjectProperties.cpp
   ObjectView.cpp
   PointerController.cpp

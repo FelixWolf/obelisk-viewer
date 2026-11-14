@@ -18,6 +18,7 @@
 #include "LegacyMaterialManager.hpp"
 #include "MaterialManager.hpp"
 #include "MeshManager.hpp"
+#include "ObjectIndex.hpp"
 #include "ObjectMotion.hpp"
 #include "TextureManager.hpp"
 
@@ -199,6 +200,7 @@ private:
     Stats stats_;
     std::vector<ProbeObject> probeObjects_;
     FlexibleView flexible_; // flexible prims' bent geometry
+    ObjectIndex index_;     // where prims are, to skip hidden ones a cell at a time
     // A prim's face draws as last built, reused while nothing they depend on
     // has changed and everything in them had loaded: each frame only their
     // transform, whether they only cast shadows, and their textures' use

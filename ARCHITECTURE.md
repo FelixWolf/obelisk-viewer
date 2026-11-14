@@ -992,6 +992,23 @@ material's transform. An update carrying an animation restarts it, unless
 the running one is smooth (that carries on, as LLVOVolume has it). An
 animated face's textures are sized for the repeats it shows.
 
+Which prims get looked at: `ObjectIndex` keeps the world's prims by link
+set, kept up to date from each world snapshot's changes (`World::changes`:
+WorldThread publishes snapshots one after another, each listing the
+objects updated, added or removed since the one before; a gap, or a region
+going, means rebuilding). Still link sets go into 32 m cells with a sphere
+around their members; moving ones (worn, moving or spinning, animated
+objects, or under a parent not known yet) are kept apart. Each frame
+`ObjectView` looks at a cell, then a link set, only if its sphere is in
+view and not hidden (`Scene::occluded`), in a reflection probe's view, or
+could cast a shadow into view (only its big prims if it's hidden: as
+`Scene::visibility`). Moving link sets are looked at every frame, worn ones
+skipped with their avatar when that's hidden; lights and reflection probe
+prims always (they matter unseen); automatic probes get every prim's
+sphere from the index. The world also keeps its avatars' and animated
+objects' keys, so `AvatarView` doesn't look through every object, and it
+poses avatars out of sight only every eighth frame.
+
 Per-frame cost: `ObjectView` keeps a record per prim. It holds what the
 prim is (on a HUD, rigged mesh; redone when its content revision changes,
 which movement alone doesn't) and its face draws once everything in them

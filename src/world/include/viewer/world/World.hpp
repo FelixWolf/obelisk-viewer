@@ -27,6 +27,7 @@
 #include <memory>
 #include <ranges>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -211,6 +212,32 @@ public:
     // The same, but not bumped by motion alone (terse updates without a
     // texture entry): for what depends on what objects are, not where.
     uint64_t objectContentsRevision() const { return contentsRevision_; }
+    // What changed since the snapshot before this one (WorldThread publishes
+    // each to the render thread in turn): the objects updated, added or
+    // removed, by key; `everything` when too much to list, or a region went.
+    struct Changes
+    {
+        std::vector<ObjectKey> keys;
+        bool everything = false;
+    };
+    const Changes& changes() const { return changes_; }
+    // Which snapshot this is (each published one is the last's plus one).
+    uint64_t serial() const { return serial_; }
+    // Before publishing a copy: the next changes start afresh.
+    void startNextSnapshot()
+    {
+        changes_ = {};
+        serial_++;
+    }
+
+    // The avatars, and the animated objects' roots (prims with
+    // animatedMesh), by key: few, among thousands of objects.
+    const std::unordered_set<ObjectKey, ObjectKeyHash>& avatarKeys() const { return avatarKeys_; }
+    const std::unordered_set<ObjectKey, ObjectKeyHash>& animatedKeys() const
+    {
+        return animatedKeys_;
+    }
+
     // Bumped whenever any avatar's appearance changes.
     uint64_t appearanceRevision() const { return appearanceSerial_; }
 
@@ -263,6 +290,44 @@ private:
     IdIndex ids_;
     std::unordered_map<Uuid, std::shared_ptr<const Appearance>> appearances_;
     uint64_t appearanceSerial_ = 0;
+    Changes changes_;
+    std::unordered_set<ObjectKey, ObjectKeyHash> avatarKeys_;
+    std::unordered_set<ObjectKey, ObjectKeyHash> animatedKeys_;
+    // Keeps avatarKeys_ and animatedKeys_ right for an object added,
+    // changed (null: removed).
+    void classify(const ObjectKey& key, const Object* object)
+    {
+        if(object && object->type == ObjectType::Avatar)
+        {
+            avatarKeys_.insert(key);
+        }
+        else
+        {
+            avatarKeys_.erase(key);
+        }
+        if(object && object->type == ObjectType::Prim && object->animatedMesh)
+        {
+            animatedKeys_.insert(key);
+        }
+        else
+        {
+            animatedKeys_.erase(key);
+        }
+    }
+    uint64_t serial_ = 0;
+    void changed(const ObjectKey& key)
+    {
+        if(changes_.everything)
+        {
+            return;
+        }
+        if(changes_.keys.size() >= 65536)
+        {
+            changes_ = {{}, true};
+            return;
+        }
+        changes_.keys.push_back(key);
+    }
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<PlayingAnimation>>> animations_;
     std::unordered_map<ObjectKey, std::shared_ptr<const FaceOverrides>, ObjectKeyHash>
         materialOverrides_;

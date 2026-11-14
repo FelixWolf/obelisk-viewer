@@ -196,6 +196,8 @@ private:
         bindings_;
     std::string appearanceUrl_;
     float hudAspect_ = 1.0f;
+    // Avatars out of sight are posed once in this many frames.
+    static constexpr uint64_t kUnseenPosePeriod = 8;
     // This frame's avatar root and attachment point frames (once posed),
     // kept: every attachment asks for its avatar's.
     struct PointKey

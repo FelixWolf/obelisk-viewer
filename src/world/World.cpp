@@ -57,9 +57,12 @@ const WindField* World::wind(uint64_t regionHandle) const
 
 void World::removeRegion(uint64_t regionHandle)
 {
+    changes_ = {{}, true};
     terrain_.erase(regionHandle);
     wind_.erase(regionHandle);
     std::erase_if(objects_, [&](const auto& entry) { return entry.first.region == regionHandle; });
+    std::erase_if(avatarKeys_, [&](const ObjectKey& k) { return k.region == regionHandle; });
+    std::erase_if(animatedKeys_, [&](const ObjectKey& k) { return k.region == regionHandle; });
     std::erase_if(ids_.keys,
                   [&](const auto& entry) { return entry.second.region == regionHandle; });
     std::erase_if(materialOverrides_,
@@ -145,6 +148,7 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update,
         {
             return;
         }
+        changed(key);
         Object& object = writable(it->second);
         applyUpdate(object, update);
         object.updatedAt = received;
@@ -162,6 +166,7 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update,
                 removeWithChildren(old);
             }
         }
+        changed(key);
         Object& object = writable(objects_[key]);
         const std::optional<TextureAnimation> animation = object.textureAnimation;
         const auto since = object.textureAnimationSince;
@@ -179,6 +184,7 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update,
                     : 0.0f;
         }
         object.region = regionHandle;
+        classify(key, &object);
         object.updatedAt = received;
         object.timeDilation = timeDilation;
     }
@@ -232,6 +238,8 @@ void World::removeWithChildren(const ObjectKey& key)
         const ObjectKey k{key.region, localId};
         if(const auto it = objects_.find(k); it != objects_.end())
         {
+            changed(k);
+            classify(k, nullptr);
             forgetId(k, *it->second);
             objects_.erase(it);
         }
@@ -574,6 +582,8 @@ void World::apply(WorldUpdate update)
             const ObjectKey key{regionHandle, id};
             if(const auto it = objects_.find(key); it != objects_.end())
             {
+                changed(key);
+                classify(key, nullptr);
                 forgetId(key, *it->second);
                 objects_.erase(it);
             }
@@ -588,9 +598,11 @@ void World::apply(WorldUpdate update)
         if(overrides->faces.empty())
         {
             materialOverrides_.erase(key);
+            changed(key);
         }
         else
         {
+            changed(key);
             materialOverrides_[key] =
                 std::make_shared<const FaceOverrides>(std::move(overrides->faces));
         }

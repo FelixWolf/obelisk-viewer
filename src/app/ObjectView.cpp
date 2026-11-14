@@ -178,6 +178,7 @@ ObjectView::~ObjectView()
 void ObjectView::clear()
 {
     drawCache_.clear();
+    index_.clear();
     cache_.clear();
     flexible_.clear();
 }
@@ -818,11 +819,12 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                     : glm::vec3(0.0f);
     };
 
-    for(const auto& [key, object] : world.objects())
+    // One prim (`moving`: of a link set looked at every frame).
+    auto addPrim = [&](const world::ObjectKey& key, const world::Object& object, bool moving)
     {
         if(object.type != world::ObjectType::Prim || !object.hasVolume)
         {
-            continue;
+            return;
         }
         // HUD attachments: in HUD space, drawn into the HUD only (no lights
         // or probes from them, no culling, always the most detail).
@@ -841,10 +843,6 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                             meshes.isRigged(object.sculptTexture).value_or(false);
         }
         const bool hud = record.onHud;
-        if(object.light && !hud)
-        {
-            addLight(scene, world, object, originHandle, textures, avatars, drawDistance);
-        }
         const uint8_t sculpt = object.sculptType & world::SculptType::Mask;
         const bool isMesh = sculpt == world::SculptType::Mesh;
         // Sculpted prims: shaped by their sculpt map, read on the CPU; not
@@ -856,7 +854,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             if(!sculptMap)
             {
                 stats_.skipped++;
-                continue;
+                return;
             }
         }
 
@@ -866,31 +864,27 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             if(hud)
             {
-                continue; // rigged mesh on a HUD: not drawn
+                return; // rigged mesh on a HUD: not drawn
             }
             addRigged(scene, world, object, originHandle, textures, meshes, materials,
                       legacyMaterials, avatars, drawDistance);
-            continue;
+            return;
         }
 
         const auto frame = frameOf(object, world, originHandle, avatars);
         if(!frame)
         {
             stats_.skipped++; // parent (or its avatar) not known yet
-            continue;
+            return;
         }
         const glm::vec3 position((*frame)[3]);
 
         // Distance and a rough "behind the camera" cull (unless its shadow
         // may still reach the view, or reflection probes see it).
         const float radius = glm::length(object.scale) * 0.5f;
-        if(!hud)
+        if(!hud && moving)
         {
-            probeObjects_.push_back({position, radius});
-            if(object.reflectionProbe)
-            {
-                addProbe(scene, object, *frame);
-            }
+            probeObjects_.push_back({position, radius}); // still ones: from the index
         }
         const glm::vec3 toObject = position - camera;
         const float distance = glm::length(toObject);
@@ -899,7 +893,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         if(!hud && (distance - radius > drawDistance || (!scene.shadows.enabled && !forProbes &&
                                                          glm::dot(toObject, forward) < -radius)))
         {
-            continue;
+            return;
         }
 
         // Hidden (behind something, as a recent frame saw it, or out of
@@ -909,7 +903,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
            scene.visibility(position, glm::length(object.scale)) == render::Visibility::Hidden)
         {
             stats_.culled++;
-            continue;
+            return;
         }
 
         const int detail = hud ? 3 : detailFor(radius, distance);
@@ -944,7 +938,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 if(seen == render::Visibility::Hidden)
                 {
                     stats_.culled++;
-                    continue;
+                    return;
                 }
                 const float texels = hud ? 2.0f * radius * scene.hud.pixelHeight * scene.hud.zoom
                                      : seen == render::Visibility::ShadowOnly
@@ -967,7 +961,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 stats_.faces += c.faces;
                 stats_.pbrFaces += c.pbrFaces;
                 stats_.meshObjects += c.mesh;
-                continue;
+                return;
             }
         }
         const std::vector<render::Mesh>* faces = nullptr;
@@ -998,7 +992,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         if(!faces)
         {
-            continue;
+            return;
         }
         const render::Visibility seen =
             hud ? render::Visibility::Visible
@@ -1006,7 +1000,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         if(seen == render::Visibility::Hidden)
         {
             stats_.culled++;
-            continue;
+            return;
         }
 
         // Textures as big as the prim shows (the least for shadows only; on
@@ -1144,6 +1138,136 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 record.draws.clear();
                 record.uses.clear();
             }
+        }
+    };
+
+    // Where prims are, by link set (moving ones apart), from this
+    // snapshot's changes.
+    index_.update(world);
+    auto toScene = [&](const glm::dvec3& global)
+    { return glm::vec3(global - glm::dvec3(scene.worldOrigin, 0.0)); };
+    // How much of something (a sphere) needs looking at: none, only its
+    // big prims (it's hidden behind something, but big things there may
+    // cast a shadow into view), or all of it.
+    enum class Reach : uint8_t
+    {
+        None,
+        Big,
+        All,
+    };
+    auto reach = [&](const glm::vec3& center, float r)
+    {
+        const glm::vec3 toCenter = center - camera;
+        if(glm::length(toCenter) - r > drawDistance)
+        {
+            return Reach::None;
+        }
+        const bool inView = scene.frustum.containsSphere(center, r);
+        const bool hidden = inView && scene.occluded(center, r);
+        if(inView && !hidden)
+        {
+            return Reach::All;
+        }
+        if(scene.reflections.enabled && scene.reflections.probeFace &&
+           scene.reflections.probeFace->containsSphere(center, r))
+        {
+            return Reach::All;
+        }
+        if(scene.shadows.enabled && glm::length(toCenter) - r < scene.shadows.distance + 64.0f &&
+           scene.frustum.containsShadowOf(center, r, scene.shadows.towardLight))
+        {
+            return hidden ? Reach::Big : Reach::All;
+        }
+        return Reach::None;
+    };
+    auto addMembers = [&](std::span<const world::ObjectKey> members, bool moving)
+    {
+        for(const world::ObjectKey& m : members)
+        {
+            if(const world::Object* o = world.object(m.region, m.localId);
+               o && o->type == world::ObjectType::Prim && o->hasVolume)
+            {
+                addPrim(m, *o, moving);
+            }
+        }
+    };
+
+    // Lights and reflection probes matter even unseen.
+    for(const world::ObjectKey& key : index_.lights())
+    {
+        const world::Object* o = world.object(key.region, key.localId);
+        if(o && o->light && !onHud(*o, world, avatars))
+        {
+            addLight(scene, world, *o, originHandle, textures, avatars, drawDistance);
+        }
+    }
+    for(const world::ObjectKey& key : index_.probes())
+    {
+        const world::Object* o = world.object(key.region, key.localId);
+        if(o && o->reflectionProbe && !onHud(*o, world, avatars))
+        {
+            if(const auto frame = frameOf(*o, world, originHandle, avatars))
+            {
+                addProbe(scene, *o, *frame);
+            }
+        }
+    }
+    // Moving link sets: every member, every frame.
+    for(const world::ObjectKey& root : index_.moving())
+    {
+        const ObjectIndex::LinkSet* set = index_.linkSet(root);
+        if(!set)
+        {
+            continue;
+        }
+        // Worn (not on the HUD): skipped with its avatar, if that's hidden.
+        const world::Object* r = world.object(root.region, root.localId);
+        const world::Object* avatar =
+            r && r->parentId != 0 ? world.object(root.region, r->parentId) : nullptr;
+        if(avatar && avatars && avatar->type == world::ObjectType::Avatar &&
+           !avatars->isHudPoint(avatar::attachmentPointFromState(r->state)))
+        {
+            const glm::vec3 at(avatars->rootFrame(*avatar, world, originHandle)[3]);
+            // Attachments reach past the body: a margin.
+            if(reach(at, std::max(avatars->extent(*avatar), 1.5f) + 2.0f) == Reach::None)
+            {
+                stats_.culled += set->members.size();
+                continue;
+            }
+        }
+        addMembers(set->members, true);
+    }
+    // Still ones: a cell at a time, then a link set at a time.
+    for(const auto& [cellKey, cell] : index_.cells())
+    {
+        const glm::dvec3 middle = (cell.lo + cell.hi) * 0.5;
+        const float cellRadius = static_cast<float>(glm::length(cell.hi - cell.lo) * 0.5);
+        const Reach cellReach = reach(toScene(middle), cellRadius);
+        for(const world::ObjectKey& root : cell.roots)
+        {
+            const ObjectIndex::LinkSet* set = index_.linkSet(root);
+            if(!set)
+            {
+                continue;
+            }
+            // Where prims are dense (automatic reflection probes): all of them.
+            for(const auto& [center, half] : set->spheres)
+            {
+                probeObjects_.push_back({toScene(center), half});
+            }
+            if(cellReach == Reach::None || (cellReach == Reach::Big && set->big.empty()))
+            {
+                stats_.culled += set->members.size();
+                continue;
+            }
+            const Reach setReach = std::min(cellReach, reach(toScene(set->center), set->radius));
+            if(setReach == Reach::None)
+            {
+                stats_.culled += set->members.size();
+                continue;
+            }
+            addMembers(setReach == Reach::Big ? std::span(set->big) : std::span(set->members),
+                       false);
         }
     }
 

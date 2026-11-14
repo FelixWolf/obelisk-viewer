@@ -475,12 +475,14 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
     rootFrames_.clear(); // poses change below
     attachmentFrames_.clear();
     collectAttachments(world, meshes);
-    for(const auto& [key, object] : world.objects())
+    for(const world::ObjectKey& key : world.avatarKeys())
     {
-        if(object.type != world::ObjectType::Avatar)
+        const world::Object* found = world.object(key.region, key.localId);
+        if(!found)
         {
             continue;
         }
+        const world::Object& object = *found;
         Avatar& a = avatars_[object.id];
         a.seen = frame_;
 
@@ -496,13 +498,21 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         const Body& body = a.body ? *a.body : *defaultBody_;
 
-        // Pose: every avatar's, since attachments follow it even when the
-        // body is out of sight.
-        pose(a, body.shape, world, object.id, animations, now);
-
+        // Seen (or its shadow, or near enough)? Where it stands doesn't
+        // depend on its pose.
         const glm::mat4 root = rootFrame(object, world, originHandle);
         const render::Visibility seen =
             scene.visibility(glm::vec3(root[3]), std::max(extent(object), 1.5f));
+
+        // Pose: every avatar's (attachments follow it), those out of sight
+        // only every so many frames, as the official viewer slows unseen
+        // avatars' updates (their animation's time still runs).
+        const bool unseen = seen == render::Visibility::Hidden;
+        if(!unseen || a.joints.empty() ||
+           (frame_ + std::hash<Uuid>()(object.id)) % kUnseenPosePeriod == 0)
+        {
+            pose(a, body.shape, world, object.id, animations, now);
+        }
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
            seen == render::Visibility::Hidden)
         {
@@ -545,13 +555,14 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
     // Animated objects: a skeleton of the default shape with no body, posed
     // by the object's animations (llcontrolavatar.cpp). Their rigged mesh
     // is skinned to it by ObjectView.
-    for(const auto& [key, object] : world.objects())
+    for(const world::ObjectKey& key : world.animatedKeys())
     {
-        if(object.type != world::ObjectType::Prim || !object.animatedMesh ||
-           skeletonOwner(world, object).owner != &object)
+        const world::Object* found = world.object(key.region, key.localId);
+        if(!found || skeletonOwner(world, *found).owner != found)
         {
             continue;
         }
+        const world::Object& object = *found;
         Avatar& a = avatars_[object.id];
         a.seen = frame_;
         pose(a, defaultBody_->shape, world, object.id, animations, now);

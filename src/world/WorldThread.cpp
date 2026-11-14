@@ -309,6 +309,7 @@ void WorldThread::run(std::stop_token stop)
         {
             // Copying shares everything; only the containers are new.
             auto copy = std::make_shared<const World>(world_);
+            world_.startNextSnapshot();
             std::shared_ptr<const World> old;
             {
                 std::lock_guard lock(mutex_);
