@@ -162,7 +162,7 @@ size_t ObjectView::KeyHash::operator()(const Key& key) const
 }
 
 ObjectView::ObjectView(JobSystem& jobs, render::Renderer& renderer, const ObjectMotion& motion)
-    : jobs_(jobs), renderer_(renderer), motion_(motion)
+    : jobs_(jobs), renderer_(renderer), motion_(motion), flexible_(renderer)
 {
 }
 
@@ -178,6 +178,7 @@ ObjectView::~ObjectView()
 void ObjectView::clear()
 {
     cache_.clear();
+    flexible_.clear();
 }
 
 std::optional<glm::mat4> ObjectView::frameOf(const world::Object& object, const world::World& world,
@@ -771,7 +772,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     probeObjects_.clear();
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
-    const auto now = std::chrono::steady_clock::now(); // texture animations
+    const auto now = std::chrono::steady_clock::now(); // texture animations, flexible prims
+    flexible_.endFrame();
 
     for(const auto& [key, object] : world.objects())
     {
@@ -846,7 +848,15 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const int detail = hud ? 3 : detailFor(radius, distance);
         const std::vector<render::Mesh>* faces = nullptr;
         glm::vec3 extent(0.5f); // mesh assets fit their box
-        if(isMesh)
+        // Flexible prims (not sculpted or mesh): bent each frame, their
+        // geometry in meters in the prim's frame.
+        const bool flexible = object.flexible && sculpt == world::SculptType::None;
+        if(flexible)
+        {
+            faces = flexible_.faces(key, object, *frame, distance, detail, now);
+            extent = glm::vec3(1.0f); // it may bend anywhere within its length
+        }
+        else if(isMesh)
         {
             faces = meshes.get(object.sculptTexture, detail);
             stats_.meshObjects += faces != nullptr;
@@ -880,7 +890,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                              : seen == render::Visibility::ShadowOnly
                                  ? 0.0f
                                  : textures.texelsFor(2.0f * radius, distance);
-        const glm::mat4 transform = *frame * glm::scale(glm::mat4(1.0f), object.scale);
+        const glm::mat4 transform =
+            flexible ? *frame : *frame * glm::scale(glm::mat4(1.0f), object.scale);
         const world::Object* wearer =
             object.parentId != 0 ? attachedAvatar(world, object) : nullptr;
         stats_.drawn++;

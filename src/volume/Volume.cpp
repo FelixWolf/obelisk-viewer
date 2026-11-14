@@ -362,14 +362,6 @@ struct Profile
 
 // --- Path (what the profile is swept along) -------------------------------------
 
-struct PathPoint
-{
-    glm::vec3 position{0.0f};
-    glm::vec2 scale{1.0f};
-    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
-    float texT = 0.0f;
-};
-
 // The official viewer composes "a then b" for a * b; glm's b * a does that.
 glm::quat angleAxis(float angle, const glm::vec3& axis)
 {
@@ -1096,6 +1088,22 @@ static std::vector<VolumeFace> buildFaces(const Builder& b, const VolumeParams& 
     return faces;
 }
 
+// Sweep: each profile point scaled by the path's taper, rotated and moved
+// to each path point; then the faces.
+static std::vector<VolumeFace> sweep(Builder& b, const VolumeParams& params)
+{
+    b.mesh.reserve(b.path.points.size() * static_cast<size_t>(b.profile.total));
+    for(const PathPoint& pp : b.path.points)
+    {
+        for(const glm::vec3& p : b.profile.points)
+        {
+            b.mesh.push_back(pp.rotation * glm::vec3(p.x * pp.scale.x, p.y * pp.scale.y, 0.0f) +
+                             pp.position);
+        }
+    }
+    return buildFaces(b, params);
+}
+
 std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail)
 {
     Builder b{params, {}, {}, {}};
@@ -1110,8 +1118,7 @@ std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail)
         split = 0;
     }
 
-    // Flexible prims bend at runtime; until that's simulated, draw them as
-    // straight lines.
+    // Flexible prims bend at runtime (generateVolumeAlong); straight here.
     VolumeParams effective = params;
     if((effective.path.curve & PathCurve::Flexible) != 0)
     {
@@ -1128,20 +1135,24 @@ std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail)
     {
         return {};
     }
+    return sweep(b, effective);
+}
 
-    // Sweep: each profile point scaled by the path's taper, rotated and moved
-    // to each path point.
-    b.mesh.reserve(b.path.points.size() * static_cast<size_t>(b.profile.total));
-    for(const PathPoint& pp : b.path.points)
+std::vector<VolumeFace> generateVolumeAlong(const VolumeParams& params, float detail,
+                                            std::span<const PathPoint> path)
+{
+    Builder b{params, {}, {}, {}};
+    VolumeParams effective = params;
+    effective.path.curve = PathCurve::Line; // faces laid out as a line's
+    b.path.points.assign(path.begin(), path.end());
+    b.path.open = true;
+    const int split = static_cast<int>(detail * 0.66f);
+    if(b.path.points.size() < 2 ||
+       !b.profile.generate(effective.profile, b.path.open, detail, split) || b.profile.total < 2)
     {
-        for(const glm::vec3& p : b.profile.points)
-        {
-            b.mesh.push_back(pp.rotation * glm::vec3(p.x * pp.scale.x, p.y * pp.scale.y, 0.0f) +
-                             pp.position);
-        }
+        return {};
     }
-
-    return buildFaces(b, effective);
+    return sweep(b, effective);
 }
 
 std::vector<VolumeFace> generateSculpt(const VolumeParams& params, float detail, uint8_t sculptType,

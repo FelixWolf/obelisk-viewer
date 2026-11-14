@@ -915,6 +915,21 @@ the draw's scale (`ObjectDraw::planar`), before the face's legacy or glTF
 transform. Big floors use it to repeat a texture by size. Their textures
 are sized for the repeats that makes (twice the largest side).
 
+Flexible prims (extra parameter 0x10: softness, tension, drag, gravity,
+wind, user force) bend as the official viewer's LLVolumeImplFlexible bends
+them (`FlexibleView`): the prim's length is a chain of 2^softness sections
+from its bottom, simulated in scene coordinates each frame (gravity, user
+force, tension toward the section below's direction, momentum slowed by
+drag, each bend at most atan(2 x section length)), so moving the prim or
+its wearer swings it. It's simulated in no more sections than it's drawn
+in: 12 x its length over its distance, at most 8 (FLEXIBLE_OBJECT_MAX_SECTIONS
+3). The chain is remapped to the drawn sections (cubic between simulated
+ones), turned into path points in the prim's frame, and
+`volume::generateVolumeAlong` sweeps the profile along them, in meters (the
+draw has no scale). Each frame's geometry goes up as new meshes (the pool
+keeps released ones until the frames using them are done). Not yet: wind
+(the region's wind isn't decoded).
+
 Texture animation (llSetTextureAnim; `world::TextureAnimation`, from the
 TextureAnim field or a compressed update's 0x40 block) runs as the
 official viewer's LLViewerTextureAnim: flipbook frames from a grid (whole

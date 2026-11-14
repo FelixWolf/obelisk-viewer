@@ -323,7 +323,7 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
 {
     object.sculptType = SculptType::None;
     object.sculptTexture = {};
-    object.flexible = false;
+    object.flexible.reset();
     object.animatedMesh = false;
     object.light.reset();
     object.lightImage.reset();
@@ -342,9 +342,26 @@ void applyExtraParams(Object& object, std::span<const uint8_t> data)
         Reader p(block);
         switch(type)
         {
-        case 0x10: // flexible
-            object.flexible = true;
+        case 0x10: // flexible (LLFlexibleObjectData::unpack)
+        {
+            FlexibleParams f;
+            if(block.size() >= 4)
+            {
+                const uint8_t tension = p.u8();
+                const uint8_t drag = p.u8();
+                const uint8_t gravity = p.u8();
+                const uint8_t wind = p.u8();
+                // Softness rides in the top bits of tension and drag.
+                f.softness = ((tension >> 6) & 2) | ((drag >> 7) & 1);
+                f.tension = static_cast<float>(tension & 0x7f) / 10.0f;
+                f.drag = static_cast<float>(drag & 0x7f) / 10.0f;
+                f.gravity = static_cast<float>(gravity) / 10.0f - 10.0f;
+                f.wind = static_cast<float>(wind) / 10.0f;
+                f.force = block.size() >= 16 ? p.vec3() : glm::vec3(0.0f);
+            }
+            object.flexible = f;
             break;
+        }
         case 0x30: // sculpt: texture (or mesh asset) and type
         case 0x60: // mesh: same layout (asset id, type 5)
             object.sculptTexture = p.uuid();

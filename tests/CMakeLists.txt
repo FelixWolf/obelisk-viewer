@@ -14,6 +14,7 @@ add_executable(viewer_tests
   MaterialTests.cpp
   Md5Tests.cpp
   EnvironmentTests.cpp
+  FlexibleTests.cpp
   FrustumTests.cpp
   MeshPoolTests.cpp
   MeshTests.cpp
@@ -32,6 +33,8 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarNames.cpp
   ${PROJECT_SOURCE_DIR}/src/app/LocalChat.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/FlexibleView.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/FaceUpload.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

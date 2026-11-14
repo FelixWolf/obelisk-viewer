@@ -23,6 +23,7 @@ add_executable(viewer
   CameraController.cpp
   EnvironmentManager.cpp
   FaceUpload.cpp
+  FlexibleView.cpp
   FloatingText.cpp
   LocalChat.cpp
   LoginPanel.cpp

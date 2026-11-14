@@ -11,12 +11,13 @@ rigged mesh), prims, sculpts and mesh, legacy and PBR materials, local
 lights and projectors, sun shadows, reflection probes, the windlight sky
 and clouds, terrain, trees and grass, and HUDs (over the screen or on a
 panel), picking and touching with a hover outline and touch text,
-floating text, name tags, chat bubbles, texture animation and glow. It
-has no chat window, IM, sitting, sound, particles or water yet.
+floating text, name tags, chat bubbles, texture animation, glow and
+flexible prims. It has no chat window, IM, sitting, sound, particles or
+water yet.
 
 ## Rendering
 
-- ★ Flexiprims (drawn straight now)
+- Wind for flexible prims (and trees): the region's wind (LayerData)
 - Water: the surface with reflections and refraction, underwater fog
 - Particles (`llParticleSystem`)
 - Sun and moon textures, moon phases

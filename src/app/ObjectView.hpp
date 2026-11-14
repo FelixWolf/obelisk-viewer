@@ -14,6 +14,7 @@
 
 #include "AutomaticProbes.hpp"
 #include "AvatarView.hpp"
+#include "FlexibleView.hpp"
 #include "LegacyMaterialManager.hpp"
 #include "MaterialManager.hpp"
 #include "MeshManager.hpp"
@@ -181,6 +182,7 @@ private:
     std::atomic<int> running_{0};
     Stats stats_;
     std::vector<ProbeObject> probeObjects_;
+    FlexibleView flexible_; // flexible prims' bent geometry
     // Regions by the index pick ids carry (index + 1).
     std::vector<uint64_t> pickRegions_;
     uint64_t pickRegion(uint64_t region);

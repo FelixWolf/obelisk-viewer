@@ -14,6 +14,7 @@
 
 #include <glm/ext/vector_uint4_sized.hpp>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <array>
 #include <cstdint>
@@ -57,6 +58,22 @@ struct VolumeFace
 // The faces of a prim at the given detail (one of kDetailScales). Returns no
 // faces for parameters the official viewer can't build either.
 std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail);
+
+// A point of the path the profile is swept along: where, how big and how
+// turned the profile is there, and its texture t.
+struct PathPoint
+{
+    glm::vec3 position{0.0f};
+    glm::vec2 scale{1.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    float texT = 0.0f;
+};
+
+// The faces of a prim swept along `path` instead of its own path (flexible
+// prims, bent by FlexibleView): an open line's faces, coordinates in
+// whatever units the path's are.
+std::vector<VolumeFace> generateVolumeAlong(const VolumeParams& params, float detail,
+                                            std::span<const PathPoint> path);
 
 // How a sculpt map's edges join: the sculpt type's low bits (llvolume.h
 // LL_SCULPT_TYPE_*), plus flags.

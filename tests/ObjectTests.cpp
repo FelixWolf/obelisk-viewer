@@ -164,7 +164,27 @@ TEST_CASE("Extra parameters: sculpts and meshes")
     sculpt.push_back(0x01);
     applyExtraParams(o, sculpt);
     CHECK(o.flexible);
+    CHECK(o.flexible->softness == 2); // too short: the defaults
     CHECK(o.sculptType == SculptType::Sphere);
+
+    // A flexible block: softness 3 (top bits of tension and drag), tension
+    // 1.5, drag 0.5, gravity 0.5, wind 1, force (0, 0, 2).
+    std::vector<uint8_t> flexi = {0x01, 0x10,      0x00,     0x10, 0x00, 0x00,
+                                  0x00, 0x80 | 15, 0x80 | 5, 105,  10};
+    for(const float f : {0.0f, 0.0f, 2.0f})
+    {
+        const auto bits = std::bit_cast<std::array<uint8_t, 4>>(f);
+        flexi.insert(flexi.end(), bits.begin(), bits.end());
+    }
+    applyExtraParams(o, flexi);
+    REQUIRE(o.flexible);
+    CHECK(o.flexible->softness == 3);
+    CHECK(o.flexible->tension == doctest::Approx(1.5f));
+    CHECK(o.flexible->drag == doctest::Approx(0.5f));
+    CHECK(o.flexible->gravity == doctest::Approx(0.5f));
+    CHECK(o.flexible->wind == doctest::Approx(1.0f));
+    CHECK(o.flexible->force.z == 2.0f);
+    applyExtraParams(o, sculpt);
     CHECK(o.sculptTexture.bytes[0] == 0xAB);
     CHECK_FALSE(o.animatedMesh);
 

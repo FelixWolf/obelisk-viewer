@@ -76,6 +76,20 @@ inline constexpr uint8_t Mesh = 5;
 inline constexpr uint8_t Mask = 0x07;
 } // namespace SculptType
 
+// A flexible prim (extra parameter 0x10, llprimitive.cpp
+// LLFlexibleObjectData): how it bends (FlexibleView simulates it). The
+// defaults are the official viewer's.
+struct FlexibleParams
+{
+    int softness = 2;      // 0..3: the path is simulated in 2^softness sections
+    float tension = 1.0f;  // 0..10
+    float drag = 2.0f;     // air friction, 0..10
+    float gravity = 0.3f;  // -10..10
+    float wind = 0.0f;     // wind sensitivity, 0..10
+    glm::vec3 force{0.0f}; // user force, region axes
+    bool operator==(const FlexibleParams&) const = default;
+};
+
 // A prim that gives light (extra parameter 0x20, llprimitive.cpp LLLightParams).
 struct LightParams
 {
@@ -157,7 +171,7 @@ struct Object
     TextureEntry faces{};
     uint8_t sculptType = SculptType::None; // with flags (invert 0x40, mirror 0x80)
     Uuid sculptTexture{};                  // or mesh asset
-    bool flexible = false;
+    std::optional<FlexibleParams> flexible;
     bool animatedMesh = false; // animesh: its rigged mesh follows a skeleton of its own
     std::optional<LightParams> light;
     std::optional<LightImage> lightImage;

@@ -259,3 +259,35 @@ TEST_CASE("Sculpt: a map without shape becomes a small sphere")
         CHECK(glm::length(p) == doctest::Approx(0.3f).epsilon(0.01));
     }
 }
+
+TEST_CASE("Volume: swept along a given path (flexible prims)")
+{
+    // A box along a bent path of three points in meters: up 1 m, then
+    // 1 m sideways, 0.5 m wide.
+    std::vector<PathPoint> path(3);
+    path[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+    path[1].position = glm::vec3(0.0f, 0.0f, 1.0f);
+    path[2].position = glm::vec3(1.0f, 0.0f, 1.0f);
+    for(size_t i = 0; i < path.size(); i++)
+    {
+        path[i].scale = glm::vec2(0.5f);
+        path[i].texT = static_cast<float>(i) / 2.0f;
+    }
+    // The last point turned to face along +x.
+    path[2].rotation = glm::angleAxis(1.5707963f, glm::vec3(0.0f, 1.0f, 0.0f));
+    const auto faces = generateVolumeAlong(box(), kDetailScales[3], path);
+    REQUIRE(faces.size() == 6);
+    // The bottom cap at the first point, the top cap at the last (turned).
+    for(const glm::vec3& p : faces[5].positions)
+    {
+        CHECK(p.z == doctest::Approx(0.0f));
+        CHECK(std::abs(p.x) <= 0.2501f);
+    }
+    for(const glm::vec3& p : faces[0].positions)
+    {
+        CHECK(p.x == doctest::Approx(1.0f).epsilon(0.001));
+        CHECK(std::abs(p.z - 1.0f) <= 0.2501f);
+    }
+    // Too short a path: nothing.
+    CHECK(generateVolumeAlong(box(), kDetailScales[3], std::span(path).first(1)).empty());
+}
