@@ -886,7 +886,7 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
     return true;
 }
 
-void Renderer::drawScene(const Frame& frame, const Scene& scene)
+void Renderer::drawScene(const Frame& frame, const Scene& scene, const Camera* eye, bool primary)
 {
     if(!ensureTargets(frame.width, frame.height))
     {
@@ -897,7 +897,7 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     // New meshes' contents first: submitted before this frame's commands.
     meshPool_->flush();
 
-    const Camera& camera = scene.camera;
+    const Camera& camera = eye ? *eye : scene.camera;
     const float aspect = static_cast<float>(frame.width) / static_cast<float>(frame.height);
     const glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
     const glm::mat4 projection =
@@ -950,7 +950,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     // Reflection probes: the ones surfaces use (into frameFs), and the next
     // face of whichever is being captured.
     updateProbes(commands, scene, frameFs, drawsReady);
-    drawPick(commands, scene, drawsReady);
+    if(primary)
+    {
+        drawPick(commands, scene, drawsReady);
+    }
     uploadLabels(commands, scene, projection * view, frame.width, frame.height);
     // HUD attachments into their own image, as big as the view, with their
     // labels.
@@ -1099,7 +1102,10 @@ void Renderer::drawScene(const Frame& frame, const Scene& scene)
     }
     SDL_EndGPURenderPass(pass);
 
-    drawOcclusion(commands, scene, projection * view);
+    if(primary)
+    {
+        drawOcclusion(commands, scene, projection * view);
+    }
     updateExposure(commands, light);
     drawGlow(commands, scene, light, frame.width, frame.height, frameVs, drawsReady);
     drawTonemap(commands, frame.target, light, true);
@@ -2063,6 +2069,74 @@ GpuTexture Renderer::uploadTextureArray(std::span<const image::TextureData* cons
     SDL_ReleaseGPUTransferBuffer(device_, transfer);
     return GpuTexture(device_, texture, first.width(), first.height(),
                       static_cast<uint32_t>(first.levels.size()));
+}
+
+} // namespace viewer::render
+
+namespace viewer::render
+{
+
+void Renderer::drawStereo(const Frame& frame, const Scene& scene, uint32_t size, float separation)
+{
+    if(size == 0)
+    {
+        return;
+    }
+    if(!eyeImages_[0] || eyeSize_ != size)
+    {
+        for(SDL_GPUTexture*& image : eyeImages_)
+        {
+            if(image)
+            {
+                SDL_ReleaseGPUTexture(device_, image);
+            }
+            SDL_GPUTextureCreateInfo info = {};
+            info.type = SDL_GPU_TEXTURETYPE_2D;
+            info.format = swapchainFormat();
+            info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+            info.width = size;
+            info.height = size;
+            info.layer_count_or_depth = 1;
+            info.num_levels = 1;
+            image = SDL_CreateGPUTexture(device_, &info);
+        }
+        eyeSize_ = size;
+        if(!eyeImages_[0] || !eyeImages_[1])
+        {
+            log::error("creating the eye images failed: {}", SDL_GetError());
+            return;
+        }
+    }
+    const Camera& center = scene.camera;
+    const glm::vec3 right = glm::normalize(glm::cross(center.target - center.position, center.up));
+    for(int e = 0; e < 2; e++)
+    {
+        Camera camera = center;
+        const glm::vec3 offset = right * (separation * (e == 0 ? -0.5f : 0.5f));
+        camera.position += offset;
+        camera.target += offset;
+        const Frame eyeFrame{frame.commands, eyeImages_[static_cast<size_t>(e)], size, size};
+        drawScene(eyeFrame, scene, &camera, e == 0);
+    }
+
+    // The left eye in the window, as big as fits, centered.
+    const float scale =
+        std::min(static_cast<float>(frame.width), static_cast<float>(frame.height)) /
+        static_cast<float>(size);
+    const auto shown = static_cast<uint32_t>(static_cast<float>(size) * scale);
+    SDL_GPUBlitInfo blit = {};
+    blit.source.texture = eyeImages_[0];
+    blit.source.w = size;
+    blit.source.h = size;
+    blit.destination.texture = frame.target;
+    blit.destination.x = (frame.width - shown) / 2;
+    blit.destination.y = (frame.height - shown) / 2;
+    blit.destination.w = shown;
+    blit.destination.h = shown;
+    blit.load_op = SDL_GPU_LOADOP_CLEAR;
+    blit.clear_color = SDL_FColor{0.0f, 0.0f, 0.0f, 1.0f};
+    blit.filter = SDL_GPU_FILTER_LINEAR;
+    SDL_BlitGPUTexture(frame.commands, &blit);
 }
 
 } // namespace viewer::render

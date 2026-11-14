@@ -444,6 +444,19 @@ things still go into reflection probes that see them, and into shadow maps
 only if they're big (8 m radius): smaller ones behind a wall rarely cast a
 shadow into view. `--no-occlusion` turns it off.
 
+### Stereo
+
+`Renderer::drawStereo` draws the scene once per eye, each into its own
+square image, from the scene's camera moved half the eye separation to
+each side, then shows the left eye in the window: what a headset needs,
+before there is one. Each eye is a whole scene render for now (shadows,
+probes and uploads included); only the first does what's done once a
+frame (the pick, the occlusion map). `--stereo-benchmark [SIZE]` (2160 by
+default) uses it with a square 90 degree view and logs every five seconds
+what a frame costs: frames a second, CPU time by stage, and time spent
+waiting for the GPU (the swapchain's acquire, which waits once the GPU is
+frames behind).
+
 ### Picking and touching
 
 The pointer is a ray: from the camera through the mouse now, from a VR

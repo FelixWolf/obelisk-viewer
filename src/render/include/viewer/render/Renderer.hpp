@@ -70,7 +70,18 @@ public:
 
     // Draws the 3D scene (HDR, depth-tested) and tonemaps it into the frame's
     // target, replacing its contents. The UI is drawn on top afterwards.
-    void drawScene(const Frame& frame, const Scene& scene);
+    void drawScene(const Frame& frame, const Scene& scene)
+    {
+        drawScene(frame, scene, nullptr, true);
+    }
+    // Stereo, as a headset will need (and, until there is one, to see what
+    // that costs: --stereo-benchmark): the scene once per eye, each `size`
+    // square, from the scene's camera moved sideways by half `separation`
+    // (meters) each way, into the eye images; then the left eye shown in
+    // the frame. Each eye is a whole scene render for now.
+    void drawStereo(const Frame& frame, const Scene& scene, uint32_t size, float separation);
+    // The eye images drawStereo last drew (left, right; null before).
+    std::array<SDL_GPUTexture*, 2> eyeImages() const { return eyeImages_; }
 
     void endFrame();
 
@@ -142,6 +153,10 @@ private:
     bool createPipelines();
     bool createDefaultTextures();
     bool ensureTargets(uint32_t width, uint32_t height);
+    // The scene as seen by `camera` (the scene's if null); `primary`: the
+    // frame's first view, which also does what's done once a frame (the
+    // pick, the occlusion map).
+    void drawScene(const Frame& frame, const Scene& scene, const Camera* camera, bool primary);
     Mesh createMesh(const void* vertices, size_t vertexBytes, std::span<const uint32_t> indices,
                     VertexLayout layout);
     void drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, const Lighting& light,
@@ -335,6 +350,9 @@ private:
     FrameBuffer labelBuffer_;
     uint32_t labelVertices_ = 0;
     uint32_t hudLabelVertices_ = 0;
+
+    std::array<SDL_GPUTexture*, 2> eyeImages_{};
+    uint32_t eyeSize_ = 0;
 
     SDL_GPUTexture* hudImage_ = nullptr;
     SDL_GPUTexture* hudDepth_ = nullptr;

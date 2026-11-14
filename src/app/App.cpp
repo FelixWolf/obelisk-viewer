@@ -76,7 +76,7 @@ void printUsage()
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
-                 "[--say TEXT] [--say-at SECONDS] [--no-occlusion]");
+                 "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]]");
 }
 
 } // namespace
@@ -163,6 +163,15 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
                 return std::nullopt;
             }
             options.pointAt = *id;
+        }
+        else if(arg == "--stereo-benchmark")
+        {
+            options.stereoSize = 2160;
+            if(hasValue && args[i + 1][0] != '-')
+            {
+                i++;
+                options.stereoSize = static_cast<uint32_t>(std::strtoul(args[i], nullptr, 10));
+            }
         }
         else if(arg == "--no-occlusion")
         {
@@ -309,6 +318,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->clickAt_ = options.clickAt;
     app->say_ = options.say;
     app->occlusion_ = options.occlusion;
+    app->stereoSize_ = options.stereoSize;
     app->sayAt_ = options.sayAt;
     app->screenshotPath_ = options.screenshotPath;
     app->screenshotDelay_ = options.screenshotDelay;
@@ -479,6 +489,27 @@ int App::run()
         frameTimes_.push_back(static_cast<float>(now - lastFrameTicks_) * 1e-6f);
         lastFrameTicks_ = now;
         logMemory(now);
+        // --stereo-benchmark: what both eyes cost, every few seconds.
+        if(stereoSize_ > 0 && now - stereoLoggedTicks_ > 5'000'000'000ull && !frameTimes_.empty())
+        {
+            stereoLoggedTicks_ = now;
+            float total = 0.0f;
+            for(const float ms : frameTimes_)
+            {
+                total += ms;
+            }
+            const float average = total / static_cast<float>(frameTimes_.size());
+            const FrameProfile::Times stages = profile_.average();
+            float cpu = 0.0f;
+            for(size_t i = 0; i < stages.size(); i++)
+            {
+                cpu += i == FrameProfile::Acquire ? 0.0f : stages[i];
+            }
+            log::info("stereo {}x{} per eye: {:.1f} FPS, {:.2f} ms a frame, {:.2f} ms CPU, "
+                      "{:.2f} ms waiting for the GPU; {}",
+                      stereoSize_, stereoSize_, 1000.0f / average, average, cpu,
+                      stages[FrameProfile::Acquire], FrameProfile::describe(stages));
+        }
         // --click-at: press at the given time, let go a moment later.
         if(clickAt_ && !clickedTicks_ && static_cast<float>(now - startTicks_) * 1e-9f >= *clickAt_)
         {
@@ -523,7 +554,14 @@ int App::run()
         if(auto frame = renderer_->beginFrame())
         {
             profile_.mark(FrameProfile::Acquire);
-            renderer_->drawScene(*frame, scene_);
+            if(stereoSize_ > 0)
+            {
+                renderer_->drawStereo(*frame, scene_, stereoSize_, 0.064f);
+            }
+            else
+            {
+                renderer_->drawScene(*frame, scene_);
+            }
             ui_->record(*frame);
             profile_.mark(FrameProfile::Render);
         }
@@ -1036,9 +1074,17 @@ void App::buildScene(render::Scene& scene)
     int width = 0;
     int height = 0;
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
-    textures_->setView(static_cast<uint32_t>(std::max(height, 1)), scene.camera.verticalFov);
-    scene.frustum = render::Frustum::fromCamera(
-        scene.camera, height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f);
+    float viewAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
+    int viewHeight = height;
+    if(stereoSize_ > 0)
+    {
+        // A headset's eye: square, about 90 degrees each way.
+        scene.camera.verticalFov = glm::radians(90.0f);
+        viewAspect = 1.0f;
+        viewHeight = static_cast<int>(stereoSize_);
+    }
+    textures_->setView(static_cast<uint32_t>(std::max(viewHeight, 1)), scene.camera.verticalFov);
+    scene.frustum = render::Frustum::fromCamera(scene.camera, viewAspect);
     // The HUD image is as big as the view, so HUDs lay out as on screen.
     scene.hud.aspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
     scene.hud.pixelHeight = static_cast<float>(std::max(height, 1));

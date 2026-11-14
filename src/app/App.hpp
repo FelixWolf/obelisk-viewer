@@ -77,6 +77,9 @@ struct AppOptions
     std::string say;
     float sayAt = 20.0f;
     bool occlusion = true; // --no-occlusion: draw what's hidden too
+    // --stereo-benchmark [SIZE]: draw both eyes of a headset view, SIZE
+    // pixels square each (2160), and log what it costs.
+    uint32_t stereoSize = 0;
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -177,8 +180,10 @@ private:
     std::optional<float> clickAt_;
     std::string say_; // --say, and when
     float sayAt_ = 0.0f;
-    int said_ = 0;          // 1: typing, 2: said
-    bool occlusion_ = true; // occlusion culling
+    int said_ = 0;                   // 1: typing, 2: said
+    bool occlusion_ = true;          // occlusion culling
+    uint32_t stereoSize_ = 0;        // --stereo-benchmark: eye size, 0 off
+    uint64_t stereoLoggedTicks_ = 0; // its last timing log
     LocalChat localChat_;
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
     // The pointer's ray this frame (none over the UI or while dragging).
