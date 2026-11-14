@@ -7,9 +7,15 @@
 // made from it. They fade as the avatar gets small on screen and with
 // distance (gone past 25 m). Until an avatar's display name arrives, its
 // legacy name stands in.
+//
+// Chat bubbles: while an avatar has recent chat or is typing, its tag
+// shows that chat (left aligned, new lines bright, then dimmer as they age,
+// ours yellow), "..." while typing, with the names in a band across the
+// top; seen twice as far.
 
 #include "AvatarNames.hpp"
 #include "AvatarView.hpp"
+#include "LocalChat.hpp"
 
 #include "viewer/render/Scene.hpp"
 #include "viewer/world/World.hpp"
@@ -19,8 +25,9 @@
 namespace viewer
 {
 
-// Adds a tag per avatar (scene.camera must be set).
+// Adds a tag per avatar (scene.camera must be set); `self` is our avatar.
 void addNameTags(render::Scene& scene, const world::World& world, const AvatarView& avatars,
-                 AvatarNames& names, uint64_t originHandle);
+                 AvatarNames& names, LocalChat& chat, const Uuid& self, uint64_t originHandle,
+                 LocalChat::Clock::time_point now);
 
 } // namespace viewer

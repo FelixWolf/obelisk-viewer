@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 
@@ -12,8 +13,10 @@ namespace viewer
 namespace
 {
 
-// Shown fully this near, gone this much further on (CHAT_NORMAL_RADIUS, 5).
+// Shown fully this near, gone this much further on (CHAT_NORMAL_RADIUS, 5);
+// with chat, twice as far.
 constexpr float kFadeDistance = 20.0f;
+constexpr float kChatFadeDistance = 40.0f;
 constexpr float kFadeRange = 5.0f;
 // Above the head by this much of the avatar's height
 // (NAMETAG_VERT_OFFSET_WEIGHT), then this many pixels higher on screen
@@ -25,6 +28,10 @@ constexpr glm::vec4 kBubble{0.0f, 0.0f, 0.0f, 0.5f};
 // NameTagMatch, NameTagMismatch: white; the username a little darker.
 constexpr glm::vec4 kNameColor{1.0f};
 constexpr float kUserNameShade = 0.83f;
+// Chat: others' (AgentChatColor) and ours (UserChatColor), as new lines;
+// older ones toward gray.
+constexpr glm::vec4 kOthersChat{1.0f, 1.0f, 1.0f, 1.0f};
+constexpr glm::vec4 kOwnChat{1.0f, 1.0f, 0.0f, 1.0f};
 // SansSerif and SansSerifSmall.
 constexpr float kNamePoints = 10.0f;
 constexpr float kSmallPoints = 9.0f;
@@ -83,10 +90,63 @@ std::string printable(std::string text)
     return text;
 }
 
+// a to b as t goes from `from` to `to`.
+glm::vec4 blend(const glm::vec4& a, const glm::vec4& b, float t, float from, float to)
+{
+    return glm::mix(a, b, std::clamp((t - from) / (to - from), 0.0f, 1.0f));
+}
+
+// The chat lines (and "..." while typing) for a bubble, faded by `alpha`.
+void addChatLines(render::Label& label, const LocalChat::Bubble& bubble, bool self,
+                  LocalChat::Clock::time_point now, float alpha)
+{
+    const glm::vec4 fresh = self ? kOwnChat : kOthersChat;
+    const glm::vec4 normal = glm::mix(fresh, glm::vec4(0.8f, 0.8f, 0.8f, 1.0f), 0.7f);
+    const glm::vec4 old = glm::mix(normal, glm::vec4(0.6f, 0.6f, 0.6f, 1.0f), 0.7f);
+    const float fade = std::chrono::duration<float>(LocalChat::kFadeTime).count();
+    auto first = bubble.lines.begin();
+    if(bubble.typing && bubble.lines.size() >= 12 && first != bubble.lines.end())
+    {
+        ++first; // room for the dots
+    }
+    for(auto it = first; it != bubble.lines.end(); ++it)
+    {
+        const float age = std::chrono::duration<float>(now - it->time).count() / fade;
+        glm::vec4 color;
+        if(age < 1.0f)
+        {
+            color = blend(fresh, normal, age, 0.9f, 1.0f);
+        }
+        else if(age < 2.0f)
+        {
+            color = blend(normal, old, age, 1.9f, 2.0f);
+        }
+        else if(age < 3.0f)
+        {
+            color = old;
+        }
+        else
+        {
+            continue;
+        }
+        color.a *= alpha;
+        label.lines.push_back({it->text, color, kNamePoints});
+    }
+    if(bubble.typing)
+    {
+        const float seconds = std::chrono::duration<float>(now - bubble.typingSince).count();
+        const int dots = (static_cast<int>(std::floor(seconds * 3.0f)) + 2) % 3 + 1;
+        glm::vec4 color = fresh;
+        color.a *= alpha;
+        label.lines.push_back({std::string(static_cast<size_t>(dots), '.'), color, kNamePoints});
+    }
+}
+
 } // namespace
 
 void addNameTags(render::Scene& scene, const world::World& world, const AvatarView& avatars,
-                 AvatarNames& names, uint64_t originHandle)
+                 AvatarNames& names, LocalChat& chat, const Uuid& self, uint64_t originHandle,
+                 LocalChat::Clock::time_point now)
 {
     const render::Camera& camera = scene.camera;
     const glm::vec3 forward = glm::normalize(camera.target - camera.position);
@@ -98,6 +158,8 @@ void addNameTags(render::Scene& scene, const world::World& world, const AvatarVi
         {
             continue;
         }
+        const LocalChat::Bubble* bubble = chat.bubble(object.id, now);
+        const float fadeDistance = bubble ? kChatFadeDistance : kFadeDistance;
         const glm::mat4 root = avatars.rootFrame(object, world, originHandle);
         const glm::vec3 rootPosition(root[3]);
         const auto& joints = avatars.posedJoints(object);
@@ -151,39 +213,44 @@ void addNameTags(render::Scene& scene, const world::World& world, const AvatarVi
             label.position -= glm::normalize(offset) * radius;
         }
         const float distance = glm::length(label.position - camera.position);
-        if(distance > kFadeDistance + kFadeRange)
+        if(distance > fadeDistance + kFadeRange)
         {
             continue;
         }
-        if(distance > kFadeDistance)
+        if(distance > fadeDistance)
         {
-            alpha *= 1.0f - (distance - kFadeDistance) / kFadeRange;
+            alpha *= 1.0f - (distance - fadeDistance) / kFadeRange;
         }
         if(alpha < 0.01f)
         {
             continue;
         }
 
-        glm::vec4 color = kNameColor;
+        // The names; with chat, black in the band at the top, all in the
+        // tag's font (LLHUDNameTag labels).
+        glm::vec4 color = bubble ? glm::vec4(0.0f, 0.0f, 0.0f, 1.0f) : kNameColor;
         color.a *= alpha;
+        const bool header = bubble != nullptr;
+        auto addName = [&](std::string text, const glm::vec4& c, float points)
+        { label.lines.push_back({std::move(text), c, header ? kNamePoints : points, header}); };
         if(std::string status = statusLine(world, object.id); !status.empty())
         {
-            label.lines.push_back({std::move(status), color, kSmallPoints});
+            addName(std::move(status), color, kSmallPoints);
         }
         if(!object.groupTitle.empty())
         {
-            label.lines.push_back({printable(object.groupTitle), color, kSmallPoints});
+            addName(printable(object.groupTitle), color, kSmallPoints);
         }
         if(const AvatarName* name = names.get(object.id))
         {
-            label.lines.push_back({name->displayName, color, kNamePoints});
+            addName(name->displayName, color, kNamePoints);
             if(!name->displayNameDefault)
             {
                 glm::vec4 shade = color;
                 shade.r *= kUserNameShade;
                 shade.g *= kUserNameShade;
                 shade.b *= kUserNameShade;
-                label.lines.push_back({name->userName(), shade, kSmallPoints});
+                addName(name->userName(), shade, kSmallPoints);
             }
         }
         else
@@ -191,7 +258,14 @@ void addNameTags(render::Scene& scene, const world::World& world, const AvatarVi
             AvatarName legacy;
             legacy.legacyFirstName = object.firstName;
             legacy.legacyLastName = object.lastName;
-            label.lines.push_back({legacy.userName(), color, kNamePoints});
+            addName(legacy.userName(), color, kNamePoints);
+        }
+        if(bubble)
+        {
+            addChatLines(label, *bubble, object.id == self, now, alpha);
+            label.alignLeft = true;
+            label.headerBackground =
+                glm::vec4(kNameColor.r, kNameColor.g, kNameColor.b, kBubble.a * alpha);
         }
         label.background = kBubble;
         label.background.a *= alpha;

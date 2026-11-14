@@ -47,7 +47,8 @@ animation or water yet.
 
 ## Communication
 
-- Local chat, in and out (maybe chat bubbles)
+- Local chat window: the log and a line to type in (chat comes in, shows in
+  bubbles, and can be sent; there's no window yet)
 - Instant messages, group chat, friends list, online and offline notices
 - ★ VR keyboard
 - Voice (WebRTC), later

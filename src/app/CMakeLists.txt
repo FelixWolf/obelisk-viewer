@@ -24,6 +24,7 @@ add_executable(viewer
   EnvironmentManager.cpp
   FaceUpload.cpp
   FloatingText.cpp
+  LocalChat.cpp
   LoginPanel.cpp
   LegacyMaterialManager.cpp
   MaterialManager.cpp

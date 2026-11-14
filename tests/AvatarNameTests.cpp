@@ -27,6 +27,7 @@ TEST_CASE("Avatar names: a GetDisplayNames agent, and usernames")
     CHECK_FALSE(parsed->second.displayNameDefault);
     // "Resident" isn't shown.
     CHECK(parsed->second.userName() == "AutomatedTests");
+    CHECK(parsed->second.completeName() == "Automated Tests (automatedtests)");
     CHECK_FALSE(parseAvatarName(agents[1]));
 
     AvatarName old;

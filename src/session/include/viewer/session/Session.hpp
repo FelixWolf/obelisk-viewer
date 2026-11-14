@@ -294,6 +294,11 @@ public:
                      const TouchSurface& surface);
     void releaseObject(uint64_t regionHandle, uint32_t localId, const TouchSurface& surface);
 
+    // Local chat (ChatFromViewer) to the main region: on a channel (0 is
+    // what people hear), whispered (0), said (1) or shouted (2); 4 and 5
+    // tell others we started or stopped typing.
+    void say(std::string_view text, int32_t channel = 0, uint8_t type = 1);
+
     // Selecting prims (ObjectSelect) makes their region send their
     // ObjectProperties (name, description, touch and sit text, ...);
     // deselect them once those are in.

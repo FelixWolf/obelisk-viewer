@@ -685,7 +685,7 @@ TEST_CASE("Session: avatar appearance requests go to the main region")
     CHECK(request->second.AgentData.AgentID == session.login()->agentId);
 }
 
-TEST_CASE("Session: touching grabs and releases; selecting and deselecting")
+TEST_CASE("Session: touching grabs and releases; selecting and deselecting; chat")
 {
     FakeSimulator sim;
     std::atomic<uint16_t> httpPort{0};
@@ -745,6 +745,15 @@ TEST_CASE("Session: touching grabs and releases; selecting and deselecting")
     REQUIRE(pumpUntil(session,
                       [&] { return (deselect = sim.take<msg::ObjectDeselect>()).has_value(); }));
     CHECK(deselect->second.ObjectData[0].ObjectLocalID == 1234);
+
+    // Local chat.
+    session.say("Hello there", 0, 2);
+    std::optional<std::pair<FakeSimulator::Received, msg::ChatFromViewer>> chat;
+    REQUIRE(
+        pumpUntil(session, [&] { return (chat = sim.take<msg::ChatFromViewer>()).has_value(); }));
+    CHECK(viewer::protocol::toString(chat->second.ChatData.Message) == "Hello there");
+    CHECK(chat->second.ChatData.Type == 2);
+    CHECK(chat->second.ChatData.Channel == 0);
 }
 
 #endif // _WIN32

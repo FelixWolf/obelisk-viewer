@@ -275,6 +275,7 @@ struct LabelLine
     std::string text;
     glm::vec4 color{1.0f};
     float points = 10.0f;
+    bool header = false; // NameTag: in the band across the bubble's top
 };
 
 // Text over a point, the same size on screen at any distance, centered
@@ -283,7 +284,8 @@ struct LabelLine
 // official viewer draws them (llhudtext.cpp, llhudnametag.cpp):
 //   FloatingText (llSetText): the last baseline 12 pixels above the point.
 //   NameTag: in a rounded bubble whose bottom is `raise` pixels above the
-//   point, lines 3 pixels apart.
+//   point, lines 3 pixels apart; header lines (a chat bubble's name) in a
+//   band across its top, the rest centered or (chat) left aligned.
 struct Label
 {
     enum class Style : uint8_t
@@ -294,7 +296,9 @@ struct Label
     Style style = Style::FloatingText;
     glm::vec3 position{0.0f}; // scene coordinates (HUD space for HUD labels)
     std::vector<LabelLine> lines;
-    glm::vec4 background{0.0f}; // NameTag: the bubble's color (sRGB, and alpha)
+    glm::vec4 background{0.0f};       // NameTag: the bubble's color (sRGB, and alpha)
+    glm::vec4 headerBackground{0.0f}; // and its header band's
+    bool alignLeft = false;           // NameTag: lines other than headers
     float raise = 0.0f;
     bool hud = false;
 };

@@ -34,6 +34,7 @@ struct LayoutOptions
     float maxWidth = std::numeric_limits<float>::infinity();
     Align align = Align::Left;
     bool skipEmptyLines = false; // as floating text does
+    float lineGap = 0.0f;        // extra pixels between lines
 };
 
 struct PlacedGlyph
@@ -50,9 +51,9 @@ struct TextLayout
 {
     std::vector<PlacedGlyph> glyphs; // visible ones (not blanks)
     size_t lines = 0;
-    float lineHeight = 0.0f;
-    float ascent = 0.0f;  // the first baseline, from the top
-    glm::vec2 size{0.0f}; // the widest line, by every line
+    float lineHeight = 0.0f; // baseline to baseline: the font's, plus the gap
+    float ascent = 0.0f;     // the first baseline, from the top
+    glm::vec2 size{0.0f};    // the widest line, by every line
     // False if the atlas filled up: clear it and lay out again.
     bool complete = true;
 };

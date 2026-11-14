@@ -28,6 +28,15 @@ std::string AvatarName::userName() const
     return legacyFirstName + " " + legacyLastName;
 }
 
+std::string AvatarName::completeName() const
+{
+    if(username.empty() || displayNameDefault)
+    {
+        return displayName;
+    }
+    return displayName + " (" + username + ")";
+}
+
 std::optional<std::pair<Uuid, AvatarName>> parseAvatarName(const llsd::Value& agent)
 {
     const Uuid id = agent["id"].asUuid();
@@ -37,12 +46,13 @@ std::optional<std::pair<Uuid, AvatarName>> parseAvatarName(const llsd::Value& ag
     }
     AvatarName name;
     name.displayName = agent["display_name"].asString();
+    name.username = agent["username"].asString();
     name.legacyFirstName = agent["legacy_first_name"].asString();
     name.legacyLastName = agent["legacy_last_name"].asString();
     name.displayNameDefault = agent["is_display_name_default"].asBoolean();
     if(name.displayName.empty())
     {
-        name.displayName = agent["username"].asString();
+        name.displayName = name.username;
     }
     return std::pair{id, std::move(name)};
 }

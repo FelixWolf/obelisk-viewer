@@ -507,6 +507,26 @@ STRING RW SV ..."); display names from the GetDisplayNames capability
 characters long, one request at a time, kept 20 minutes). Until an
 avatar's display name arrives, its legacy name stands in.
 
+### Local chat and chat bubbles
+
+`LocalChat` takes in ChatFromSimulator as the official viewer does
+(process_chat_from_simulator): only fully audible chat; "/me" lines become
+"Name ..." (the complete name: display name and username); whispers and
+shouts get "whispers: " and "shouts: "; tabs become four spaces. It keeps a
+log (for a chat window to come) and, per avatar, what its bubble shows
+(LLVOAvatar::addChat): the latest 12 lines (1023 characters at most), all
+gone 24 seconds after the latest, and whether it's typing (chat types 4
+and 5; a real line ends it). `Session::say` sends ChatFromViewer (and
+typing starts and stops); `--say TEXT` (`--say-at SECONDS`) tries it.
+
+Chat bubbles are the name tag's chat mode (idleUpdateNameTagText): the
+names move into a band across the bubble's top (black on white at the
+bubble's opacity, all at 10 points), and below them the lines, left
+aligned and wrapped at 190 pixels, ours yellow and others' white, dimming
+to gray after 8 and 16 seconds and gone after 24, with "." to "..." while
+typing. Chatting tags are seen to 40 m (fading to 45). Not yet: italic
+whispers and bold shouts (no such fonts yet), muting.
+
 ### HUDs
 
 HUD attachments (attachment points 31 to 38, on the mScreen joint) are

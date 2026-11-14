@@ -36,6 +36,12 @@ constexpr float kTagLineGap = 3.0f;
 constexpr float kTagPaddingX = 16.0f;
 constexpr float kTagPaddingY = 12.0f;
 constexpr float kTagCorner = 6.0f;
+// Chat in a name tag: lines no wider than HUD_TEXT_MAX_WIDTH, this far in
+// from the bubble's left (HORIZONTAL_PADDING / 2, and one); the header band
+// this much taller than its lines (VERTICAL_PADDING / 3).
+constexpr float kChatMaxWidth = 190.0f;
+constexpr float kChatIndent = 9.0f;
+constexpr float kHeaderPadding = 4.0f;
 
 struct LabelVertex
 {
@@ -165,9 +171,10 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
         const LabelVertex v11{{b.x, -b.y, depth}, uv1, color};
         vertices.insert(vertices.end(), {v00, v10, v11, v00, v11, v01});
     };
-    // A rounded box: the disc's quarters at the corners, its middle texel
-    // stretched over the rest.
-    auto box = [&](glm::vec2 topLeft, glm::vec2 extent, uint32_t color, float depth)
+    // A rounded box: the disc's quarters at the corners (the bottom ones
+    // square if not `roundBottom`), its middle texel stretched over the rest.
+    auto box =
+        [&](glm::vec2 topLeft, glm::vec2 extent, uint32_t color, float depth, bool roundBottom)
     {
         const text::Glyph* disc = glyphs_->disc(kTagCorner);
         if(!disc)
@@ -187,9 +194,17 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
         quad(topLeft, corner, near0, near1, color, depth);
         quad({bottomRight.x - c, topLeft.y}, corner, {far0.x, near0.y}, {far1.x, near1.y}, color,
              depth);
-        quad({topLeft.x, bottomRight.y - c}, corner, {near0.x, far0.y}, {near1.x, far1.y}, color,
-             depth);
-        quad(bottomRight - corner, corner, far0, far1, color, depth);
+        if(roundBottom)
+        {
+            quad({topLeft.x, bottomRight.y - c}, corner, {near0.x, far0.y}, {near1.x, far1.y},
+                 color, depth);
+            quad(bottomRight - corner, corner, far0, far1, color, depth);
+        }
+        else
+        {
+            quad({topLeft.x, bottomRight.y - c}, corner, mid, mid, color, depth);
+            quad(bottomRight - corner, corner, mid, mid, color, depth);
+        }
         quad({topLeft.x + c, topLeft.y}, {extent.x - 2.0f * c, c}, mid, mid, color, depth);
         quad({topLeft.x + c, bottomRight.y - c}, {extent.x - 2.0f * c, c}, mid, mid, color, depth);
         quad({topLeft.x, topLeft.y + c}, {extent.x, extent.y - 2.0f * c}, mid, mid, color, depth);
@@ -201,84 +216,138 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
         const LabelLine* line = nullptr;
     };
     std::vector<Laid> laid;
+    bool complete = true;
+    // A line's glyphs (each after its shadow), its block's top left at `origin`.
+    auto glyphQuads = [&](const Laid& l, glm::vec2 origin, float depth)
+    {
+        const glm::vec4& color = l.line->color;
+        const float strength = shadowStrength(color);
+        const uint32_t textColor = packColor(color);
+        const uint32_t shadowColor = packColor(glm::vec4(0.0f, 0.0f, 0.0f, color.a * strength));
+        for(const text::PlacedGlyph& g : l.layout.glyphs)
+        {
+            const glm::vec2 topLeft = origin + g.position;
+            if(strength > 0.0f)
+            {
+                quad(topLeft + glm::vec2(1.0f, 1.0f), g.size, g.uv0, g.uv1, shadowColor, depth);
+            }
+            quad(topLeft, g.size, g.uv0, g.uv1, textColor, depth);
+        }
+    };
+    // Floating text: lines stacked up from the last, whose baseline is
+    // kTextBaseline above the point.
+    auto floatingText = [&](const Placed& p)
+    {
+        float baseline = p.pixel.y - kTextBaseline;
+        for(auto it = laid.rbegin(); it != laid.rend(); ++it)
+        {
+            const text::TextLayout& layout = it->layout;
+            const float top =
+                baseline - layout.ascent - layout.lineHeight * static_cast<float>(layout.lines - 1);
+            glyphQuads(*it, {p.pixel.x - std::floor(layout.size.x * 0.5f), top}, p.depth);
+            baseline = top + layout.ascent - layout.lineHeight;
+        }
+    };
+    // A name tag: the bubble (and its header band), then lines from the top
+    // down (LLHUDNameTag::renderText): a header's baseline a line below the
+    // one before, other lines' a line and the gap below.
+    auto nameTag = [&](const Placed& p)
+    {
+        const Label& label = *p.label;
+        float widest = 0.0f;
+        float headers = 0.0f;
+        float textHeight = 0.0f;
+        for(const Laid& l : laid)
+        {
+            widest = std::max(widest, l.layout.size.x);
+            if(l.line->header)
+            {
+                headers += l.layout.size.y;
+                textHeight += l.layout.size.y;
+            }
+            else
+            {
+                textHeight += l.layout.size.y + kTagLineGap;
+            }
+        }
+        if(textHeight > headers)
+        {
+            textHeight -= kTagLineGap; // none under the last line
+        }
+        const glm::vec2 extent(std::ceil(widest + kTagPaddingX),
+                               std::round(textHeight + kTagPaddingY));
+        const float bottom = p.pixel.y - std::round(label.raise);
+        const glm::vec2 topLeft(p.pixel.x - std::floor(extent.x * 0.5f), bottom - extent.y);
+        if(label.background.a > 0.0f)
+        {
+            complete = box(topLeft, extent, packColor(label.background), p.depth, true) && complete;
+        }
+        if(headers > 0.0f && label.headerBackground.a > 0.0f)
+        {
+            complete = box(topLeft, {extent.x, std::round(headers + kHeaderPadding)},
+                           packColor(label.headerBackground), p.depth, false) &&
+                       complete;
+        }
+        float y = topLeft.y; // the latest baseline
+        for(const Laid& l : laid)
+        {
+            const text::TextLayout& layout = l.layout;
+            const bool left = label.alignLeft && !l.line->header;
+            const float x =
+                left ? topLeft.x + kChatIndent : p.pixel.x - std::floor(layout.size.x * 0.5f);
+            // Its first baseline (a line's textHeight includes the gap).
+            y += layout.lineHeight;
+            glyphQuads(l, {x, y - layout.ascent}, p.depth);
+            y += layout.lineHeight * static_cast<float>(layout.lines - 1);
+        }
+    };
     auto build = [&]
     {
         vertices.clear();
-        bool complete = true;
+        complete = true;
         for(const auto* list : {&world, &hud})
         {
             for(const Placed& p : *list)
             {
                 const Label& label = *p.label;
                 const bool tag = label.style == Label::Style::NameTag;
-                text::LayoutOptions options;
-                options.maxWidth = tag ? kTagMaxWidth : kTextMaxWidth;
-                options.align = text::Align::Center;
-                options.skipEmptyLines = true;
                 laid.clear();
-                float widest = 0.0f;
-                float textHeight = 0.0f;
                 for(const LabelLine& line : label.lines)
                 {
                     if(line.text.empty() || line.color.a <= 0.0f)
                     {
                         continue;
                     }
+                    text::LayoutOptions options;
                     options.pixelSize = line.points * (96.0f / 72.0f);
+                    options.align =
+                        label.alignLeft && !line.header ? text::Align::Left : text::Align::Center;
+                    options.skipEmptyLines = true;
+                    options.maxWidth = !tag                              ? kTextMaxWidth
+                                       : label.alignLeft && !line.header ? kChatMaxWidth
+                                                                         : kTagMaxWidth;
+                    // Name tag lines (but headers) are a gap apart, even
+                    // when one wraps.
+                    options.lineGap = tag && !line.header ? kTagLineGap : 0.0f;
                     text::TextLayout layout =
                         text::layoutText(*glyphs_, *font_, line.text, options);
                     complete = complete && layout.complete;
-                    if(layout.lines == 0)
+                    if(layout.lines > 0)
                     {
-                        continue;
+                        laid.push_back({std::move(layout), &line});
                     }
-                    widest = std::max(widest, layout.size.x);
-                    textHeight += layout.size.y + (tag ? kTagLineGap : 0.0f);
-                    laid.push_back({std::move(layout), &line});
                 }
                 if(laid.empty())
                 {
                     continue;
                 }
-                // The last baseline (screen y, down): above the point, or
-                // in the bubble above it.
-                const float bottom = p.pixel.y - (tag ? std::round(label.raise) : 0.0f);
-                float baseline =
-                    tag ? bottom - (kTagPaddingY - kTagLineGap) : bottom - kTextBaseline;
-                if(tag && label.background.a > 0.0f)
+                if(tag)
                 {
-                    const glm::vec2 extent(std::ceil(widest + kTagPaddingX),
-                                           std::round(textHeight - kTagLineGap + kTagPaddingY));
-                    const glm::vec2 topLeft(p.pixel.x - std::floor(extent.x * 0.5f),
-                                            bottom - extent.y);
-                    complete =
-                        box(topLeft, extent, packColor(label.background), p.depth) && complete;
+                    nameTag(p);
                 }
-                // Lines from the last up, each centered over the point.
-                for(auto it = laid.rbegin(); it != laid.rend(); ++it)
+                else
                 {
-                    const text::TextLayout& layout = it->layout;
-                    const float top = baseline - layout.ascent -
-                                      layout.lineHeight * static_cast<float>(layout.lines - 1);
-                    const glm::vec2 origin(p.pixel.x - std::floor(layout.size.x * 0.5f), top);
-                    const glm::vec4& color = it->line->color;
-                    const float strength = shadowStrength(color);
-                    const uint32_t textColor = packColor(color);
-                    const uint32_t shadowColor =
-                        packColor(glm::vec4(0.0f, 0.0f, 0.0f, color.a * strength));
-                    for(const text::PlacedGlyph& g : layout.glyphs)
-                    {
-                        const glm::vec2 topLeft = origin + g.position;
-                        if(strength > 0.0f)
-                        {
-                            quad(topLeft + glm::vec2(1.0f, 1.0f), g.size, g.uv0, g.uv1, shadowColor,
-                                 p.depth);
-                        }
-                        quad(topLeft, g.size, g.uv0, g.uv1, textColor, p.depth);
-                    }
-                    // The line above: its baseline a line (this one's
-                    // height) and the gap higher.
-                    baseline = top + layout.ascent - layout.lineHeight - (tag ? kTagLineGap : 0.0f);
+                    floatingText(p);
                 }
             }
             if(list == &world)

@@ -8,6 +8,7 @@
 #include "EnvironmentManager.hpp"
 #include "FrameProfile.hpp"
 #include "LegacyMaterialManager.hpp"
+#include "LocalChat.hpp"
 #include "LoginPanel.hpp"
 #include "MaterialManager.hpp"
 #include "ObjectProperties.hpp"
@@ -71,6 +72,10 @@ struct AppOptions
     std::optional<std::array<float, 2>> pointer;
     std::optional<float> clickAt;
     Uuid pointAt; // or at this object (its center)
+    // For testing: say this in local chat this many seconds in (typing
+    // for 3 seconds before).
+    std::string say;
+    float sayAt = 20.0f;
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -169,6 +174,10 @@ private:
     Uuid pointAt_;
     bool loggedHoverInfo_ = false;
     std::optional<float> clickAt_;
+    std::string say_; // --say, and when
+    float sayAt_ = 0.0f;
+    int said_ = 0; // 1: typing, 2: said
+    LocalChat localChat_;
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
     // The pointer's ray this frame (none over the UI or while dragging).
     std::optional<PointerController::Ray> pointerRay(const render::Scene& scene) const;

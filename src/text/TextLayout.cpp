@@ -102,7 +102,7 @@ TextLayout layoutText(GlyphAtlas& atlas, const Font& font, std::string_view utf8
     TextLayout layout;
     const float size = options.pixelSize;
     const Font::Metrics metrics = font.metrics(size);
-    layout.lineHeight = std::round(metrics.lineHeight());
+    layout.lineHeight = std::round(metrics.lineHeight() + options.lineGap);
     layout.ascent = std::round(metrics.ascent);
     const std::u32string text = decodeUtf8(utf8);
     if(text.empty())
@@ -221,7 +221,8 @@ TextLayout layoutText(GlyphAtlas& atlas, const Font& font, std::string_view utf8
         widest = std::max(widest, width);
     }
     layout.lines = lines.size();
-    layout.size = glm::vec2(widest, layout.lineHeight * static_cast<float>(lines.size()));
+    layout.size = glm::vec2(widest, layout.lineHeight * static_cast<float>(lines.size()) -
+                                        (lines.empty() ? 0.0f : std::round(options.lineGap)));
     for(size_t l = 0; l < lines.size(); l++)
     {
         float x0 = 0.0f;

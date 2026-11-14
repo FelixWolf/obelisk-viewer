@@ -24,6 +24,7 @@ namespace viewer
 struct AvatarName
 {
     std::string displayName;
+    std::string username; // "first.last", or "first"
     std::string legacyFirstName;
     std::string legacyLastName;
     bool displayNameDefault = false; // the display name is made from the username
@@ -31,6 +32,9 @@ struct AvatarName
     // "First Last", or just "First" for the many whose last name is
     // "Resident" (LLAvatarName::getUserName).
     std::string userName() const;
+    // "Display Name (username)", or the display name alone when it's made
+    // from the username (LLAvatarName::getCompleteName).
+    std::string completeName() const;
 };
 
 // One agent from a GetDisplayNames answer (agents[i]); nothing without an id.

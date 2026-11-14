@@ -799,6 +799,22 @@ void Session::teleportTo(uint64_t regionHandle, protocol::Vector3 position)
     sendTeleportRequest(regionHandle, position);
 }
 
+void Session::say(std::string_view text, int32_t channel, uint8_t type)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    msg::ChatFromViewer chat;
+    chat.AgentData.AgentID = login_->agentId;
+    chat.AgentData.SessionID = login_->sessionId;
+    chat.ChatData.Message = protocol::fromString(text);
+    chat.ChatData.Type = type;
+    chat.ChatData.Channel = channel;
+    send(*main, chat, true);
+}
+
 void Session::teleportHome()
 {
     const Region* main = mainRegion();

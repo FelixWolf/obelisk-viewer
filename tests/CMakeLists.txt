@@ -8,6 +8,7 @@ add_executable(viewer_tests
   JobSystemTests.cpp
   Ktx2Tests.cpp
   LlsdTests.cpp
+  LocalChatTests.cpp
   LoginTests.cpp
   LegacyMaterialTests.cpp
   MaterialTests.cpp
@@ -30,6 +31,7 @@ add_executable(viewer_tests
   # App code with no dependencies of its own, tested as is.
   ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarNames.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/LocalChat.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

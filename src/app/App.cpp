@@ -75,7 +75,8 @@ void printUsage()
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
-                 "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS]");
+                 "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
+                 "[--say TEXT] [--say-at SECONDS]");
 }
 
 } // namespace
@@ -162,6 +163,16 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
                 return std::nullopt;
             }
             options.pointAt = *id;
+        }
+        else if(arg == "--say" && hasValue)
+        {
+            i++;
+            options.say = args[i];
+        }
+        else if(arg == "--say-at" && hasValue)
+        {
+            i++;
+            options.sayAt = std::strtof(args[i], nullptr);
         }
         else if(arg == "--click-at" && hasValue)
         {
@@ -292,6 +303,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->pointerOverride_ = options.pointer;
     app->pointAt_ = options.pointAt;
     app->clickAt_ = options.clickAt;
+    app->say_ = options.say;
+    app->sayAt_ = options.sayAt;
     app->screenshotPath_ = options.screenshotPath;
     app->screenshotDelay_ = options.screenshotDelay;
     app->startTicks_ = SDL_GetTicksNS();
@@ -471,6 +484,22 @@ int App::run()
         {
             pointer_.release(*session_);
         }
+        // --say: typing, then saying it.
+        if(!say_.empty() && session_ && said_ < 2)
+        {
+            const float seconds = static_cast<float>(now - startTicks_) * 1e-9f;
+            if(said_ == 0 && seconds >= sayAt_ - 3.0f)
+            {
+                session_->say({}, 0, ChatType::StartTyping);
+                said_ = 1;
+            }
+            else if(said_ == 1 && seconds >= sayAt_)
+            {
+                session_->say({}, 0, ChatType::StopTyping);
+                session_->say(say_);
+                said_ = 2;
+            }
+        }
         if(!screenshotPath_.empty() && !screenshotRequested_ &&
            static_cast<float>(now - startTicks_) * 1e-9f >= screenshotDelay_)
         {
@@ -634,6 +663,10 @@ void App::updateSession()
         else if(m.event.is<protocol::msg::ObjectProperties>())
         {
             objectProperties_.handle(*session_, m.regionHandle, m.event);
+        }
+        else if(m.event.is<protocol::msg::ChatFromSimulator>())
+        {
+            localChat_.handle(m.event, *avatarNames_, LocalChat::Clock::now());
         }
         else
         {
@@ -946,6 +979,7 @@ void App::endSession()
     materials_->setViewerAssetUrl({});
     legacyMaterials_->setCapabilityUrl({});
     avatarNames_ = std::make_unique<AvatarNames>(*http_); // the next login may be another grid
+    localChat_.clear();
     if(animations_)
     {
         animations_->setViewerAssetUrl({});
@@ -1124,7 +1158,9 @@ void App::buildScene(render::Scene& scene)
         addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
         if(avatars_)
         {
-            addNameTags(scene, *world_, *avatars_, *avatarNames_, *originHandle_);
+            const auto* login = session_ ? session_->login() : nullptr;
+            addNameTags(scene, *world_, *avatars_, *avatarNames_, localChat_,
+                        login ? login->agentId : Uuid{}, *originHandle_, LocalChat::Clock::now());
         }
         trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
         // Automatic reflection probes where objects are dense, at least 2 m
