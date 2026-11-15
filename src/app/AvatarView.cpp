@@ -134,6 +134,22 @@ std::optional<glm::vec3> AvatarView::eyePosition(const world::Object& avatar,
     return glm::vec3(rootFrame(avatar, world, originHandle) * glm::vec4(eyes, 1.0f));
 }
 
+std::optional<glm::vec3> AvatarView::eyesFromHead(const world::Object& avatar) const
+{
+    const auto it = avatars_.find(avatar.id);
+    if(it == avatars_.end() || !it->second.hasEyes)
+    {
+        return std::nullopt;
+    }
+    return it->second.eyesFromHead;
+}
+
+float AvatarView::eyesForward(const world::Object& avatar) const
+{
+    const auto it = avatars_.find(avatar.id);
+    return it == avatars_.end() ? 0.0f : it->second.eyesForward;
+}
+
 bool AvatarView::hiddenInFirstPerson(const world::Object& avatar, int point) const
 {
     if(!firstPerson_ || *firstPerson_ != avatar.id)
@@ -511,13 +527,22 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
                 }
             }
         };
-        if(goals.lookAt)
+        if(!goals.avatarSpace)
         {
-            local(*goals.lookAt);
+            if(goals.lookAt)
+            {
+                local(*goals.lookAt);
+            }
+            effector(goals.head);
+            effector(goals.leftHand);
+            effector(goals.rightHand);
+            for(avatar::IkGoals::Chain& c : goals.chains)
+            {
+                std::optional<avatar::IkGoals::Effector> e = c.goal;
+                effector(e);
+                c.goal = *e;
+            }
         }
-        effector(goals.head);
-        effector(goals.leftHand);
-        effector(goals.rightHand);
         if(a.pose.size() != base_.skeleton.joints.size())
         {
             a.pose.resize(base_.skeleton.joints.size());
@@ -544,7 +569,16 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
             {
                 const auto pelvis = static_cast<size_t>(ikJoints_.pelvis);
                 const std::vector<avatar::JointFrame> rest = avatar::poseFrames(base_, shape);
-                a.steadyEyes = frames[pelvis].position + between(rest) - rest[pelvis].position;
+                // Straight above the pelvis: turning the body mustn't move
+                // the view.
+                const glm::vec3 offset = between(rest) - rest[pelvis].position;
+                a.steadyEyes = frames[pelvis].position + glm::vec3(0.0f, 0.0f, offset.z);
+                a.eyesForward = offset.x;
+                if(ikJoints_.head >= 0)
+                {
+                    a.eyesFromHead =
+                        between(rest) - rest[static_cast<size_t>(ikJoints_.head)].position;
+                }
             }
             a.hasEyes = true;
         }

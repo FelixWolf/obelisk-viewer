@@ -12,6 +12,7 @@
 
 #include <SDL3/SDL_events.h>
 
+#include <cmath>
 #include <optional>
 #include <utility>
 
@@ -34,6 +35,8 @@ public:
     // world origin moving).
     void shift(glm::vec3 offset) { target_ += offset; }
     float yaw() const { return yaw_; }
+    // Turns it (degrees, counter-clockwise): a headset's snap turn.
+    void turn(float degrees) { yaw_ = std::remainder(yaw_ + degrees, 360.0f); }
     float pitch() const { return pitch_; }
 
     void setFirstPerson(bool on);

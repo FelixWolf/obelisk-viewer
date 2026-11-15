@@ -14,8 +14,9 @@
 //
 // Poses are in the viewer's axes (+X forward, +Y left, +Z up, meters),
 // relative to where the head was and the way it faced when last recentered
-// (on the first frame, and recenter()), not to the room: the app places that
-// origin (at the avatar's eyes).
+// (when the session gets focus, as the headset is put on, and recenter()),
+// not to the room: the app places that origin (at the avatar's eyes). The
+// head can lean 35 cm from it sideways; past that, the origin follows.
 
 #include <SDL3/SDL_gpu.h>
 #include <SDL3/SDL_properties.h>
@@ -52,6 +53,21 @@ struct HeadsetFrame
         glm::vec4 tangents{-1.0f, 1.0f, -1.0f, 1.0f};
     };
     std::array<Eye, 2> eyes; // left, right
+    // The controllers (left, right), where they'll be when the frame is
+    // shown; only while the session has input focus.
+    struct Hand
+    {
+        bool tracked = false;  // grip and aim located
+        Pose grip;             // where the hand holds it
+        Pose aim;              // pointing: along +X
+        float trigger = 0.0f;  // 0..1
+        float squeeze = 0.0f;  // 0..1 (the grip)
+        glm::vec2 stick{0.0f}; // right, forward: -1..1 (a Vive trackpad's touch)
+        bool stickClick = false;
+        bool primary = false;   // A or X
+        bool secondary = false; // B or Y (a Vive's menu button)
+    };
+    std::array<Hand, 2> hands;
     // The images to draw each eye into (acquireImages), all this size, of
     // this format.
     std::array<SDL_GPUTexture*, 2> targets{};

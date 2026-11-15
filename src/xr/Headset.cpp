@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
+#include <initializer_list>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -68,6 +70,10 @@ const char* stateName(XrSessionState state)
     }
 }
 
+// How far the head can lean (horizontally) from the origin before the
+// origin follows it.
+constexpr float kLeash = 0.35f;
+
 } // namespace
 
 struct Headset::Impl
@@ -101,6 +107,32 @@ struct Headset::Impl
     PFN_xrAcquireSwapchainImage acquireSwapchainImage = nullptr;
     PFN_xrWaitSwapchainImage waitSwapchainImage = nullptr;
     PFN_xrReleaseSwapchainImage releaseSwapchainImage = nullptr;
+    PFN_xrStringToPath stringToPath = nullptr;
+    PFN_xrCreateActionSet createActionSet = nullptr;
+    PFN_xrCreateAction createAction = nullptr;
+    PFN_xrSuggestInteractionProfileBindings suggestBindings = nullptr;
+    PFN_xrAttachSessionActionSets attachActionSets = nullptr;
+    PFN_xrCreateActionSpace createActionSpace = nullptr;
+    PFN_xrSyncActions syncActions = nullptr;
+    PFN_xrGetActionStateFloat getFloat = nullptr;
+    PFN_xrGetActionStateVector2f getVector2 = nullptr;
+    PFN_xrGetActionStateBoolean getBoolean = nullptr;
+
+    // The controllers (one action each, for both hands: left, right).
+    XrActionSet actions = XR_NULL_HANDLE;
+    std::array<XrPath, 2> handPaths{};
+    XrAction gripPose = XR_NULL_HANDLE;
+    XrAction aimPose = XR_NULL_HANDLE;
+    XrAction trigger = XR_NULL_HANDLE;
+    XrAction squeeze = XR_NULL_HANDLE;
+    XrAction stick = XR_NULL_HANDLE;
+    XrAction stickClick = XR_NULL_HANDLE;
+    XrAction primary = XR_NULL_HANDLE;
+    XrAction secondary = XR_NULL_HANDLE;
+    std::array<XrSpace, 2> gripSpaces{};
+    std::array<XrSpace, 2> aimSpaces{};
+    bool createActions();
+    void readHands(HeadsetFrame& frame);
 
     struct Swapchain
     {
@@ -186,7 +218,7 @@ struct Headset::Impl
                 SDL_DestroyGPUXRSwapchain(device, s.handle, s.images);
             }
         }
-        for(XrSpace space : {view, local})
+        for(XrSpace space : {gripSpaces[0], gripSpaces[1], aimSpaces[0], aimSpaces[1], view, local})
         {
             if(space && destroySpace)
             {
@@ -257,6 +289,16 @@ bool Headset::Impl::load()
     get("xrAcquireSwapchainImage", acquireSwapchainImage);
     get("xrWaitSwapchainImage", waitSwapchainImage);
     get("xrReleaseSwapchainImage", releaseSwapchainImage);
+    get("xrStringToPath", stringToPath);
+    get("xrCreateActionSet", createActionSet);
+    get("xrCreateAction", createAction);
+    get("xrSuggestInteractionProfileBindings", suggestBindings);
+    get("xrAttachSessionActionSets", attachActionSets);
+    get("xrCreateActionSpace", createActionSpace);
+    get("xrSyncActions", syncActions);
+    get("xrGetActionStateFloat", getFloat);
+    get("xrGetActionStateVector2f", getVector2);
+    get("xrGetActionStateBoolean", getBoolean);
     return ok;
 }
 
@@ -382,6 +424,10 @@ bool Headset::start(SDL_GPUDevice* device)
     {
         return false;
     }
+    if(!m.createActions())
+    {
+        log::warn("OpenXR: no controller input");
+    }
     m.ender = std::thread([&m] { m.endLoop(); });
     return true;
 }
@@ -441,6 +487,11 @@ void Headset::poll()
                 m.recenterPending = true;
                 break;
             }
+            case XR_SESSION_STATE_FOCUSED:
+                // Put on (or back on): the origin where the head is now, not
+                // where the headset lay before.
+                m.recenterPending = true;
+                break;
             case XR_SESSION_STATE_STOPPING:
                 m.finishEnd();
                 m.endSession(m.session);
@@ -556,6 +607,16 @@ std::optional<HeadsetFrame> Headset::beginFrame()
         m.originYaw = std::atan2(forward.y, forward.x);
         m.recenterPending = false;
     }
+    // A leash: the head can lean so far from the origin; past that (walking
+    // round the room), the origin follows it.
+    {
+        const glm::vec3 from = headPosition - m.origin;
+        const float away = glm::length(glm::vec2(from));
+        if(away > kLeash)
+        {
+            m.origin += glm::vec3(glm::vec2(from) * (1.0f - kLeash / away), 0.0f);
+        }
+    }
     frame.head = m.relative(headPosition, headOrientation);
     for(size_t e = 0; e < 2; e++)
     {
@@ -574,8 +635,208 @@ std::optional<HeadsetFrame> Headset::beginFrame()
         frame.eyes[e].tangents = t;
     }
 
+    m.readHands(frame);
     frame.render = true;
     return frame;
+}
+
+bool Headset::Impl::createActions()
+{
+    XrActionSetCreateInfo setInfo = make<XrActionSetCreateInfo>(XR_TYPE_ACTION_SET_CREATE_INFO);
+    std::snprintf(setInfo.actionSetName, sizeof(setInfo.actionSetName), "viewer");
+    std::snprintf(setInfo.localizedActionSetName, sizeof(setInfo.localizedActionSetName), "Viewer");
+    if(XR_FAILED(createActionSet(instance, &setInfo, &actions)))
+    {
+        return false;
+    }
+    auto path = [&](const char* text)
+    {
+        XrPath p = XR_NULL_PATH;
+        stringToPath(instance, text, &p);
+        return p;
+    };
+    handPaths = {path("/user/hand/left"), path("/user/hand/right")};
+    bool ok = true;
+    auto action = [&](XrAction& out, const char* name, const char* label, XrActionType type)
+    {
+        XrActionCreateInfo info = make<XrActionCreateInfo>(XR_TYPE_ACTION_CREATE_INFO);
+        std::snprintf(info.actionName, sizeof(info.actionName), "%s", name);
+        std::snprintf(info.localizedActionName, sizeof(info.localizedActionName), "%s", label);
+        info.actionType = type;
+        info.countSubactionPaths = 2;
+        info.subactionPaths = handPaths.data();
+        ok = ok && XR_SUCCEEDED(createAction(actions, &info, &out));
+    };
+    action(gripPose, "grip_pose", "Hand", XR_ACTION_TYPE_POSE_INPUT);
+    action(aimPose, "aim_pose", "Pointer", XR_ACTION_TYPE_POSE_INPUT);
+    action(trigger, "trigger", "Touch", XR_ACTION_TYPE_FLOAT_INPUT);
+    action(squeeze, "squeeze", "Grab", XR_ACTION_TYPE_FLOAT_INPUT);
+    action(stick, "stick", "Move and turn", XR_ACTION_TYPE_VECTOR2F_INPUT);
+    action(stickClick, "stick_click", "Stick click", XR_ACTION_TYPE_BOOLEAN_INPUT);
+    action(primary, "primary", "Primary button", XR_ACTION_TYPE_BOOLEAN_INPUT);
+    action(secondary, "secondary", "Secondary button", XR_ACTION_TYPE_BOOLEAN_INPUT);
+    if(!ok)
+    {
+        return false;
+    }
+
+    // Suggested bindings for the controllers people have; the runtime maps
+    // others to one of these.
+    struct Binding
+    {
+        XrAction action;
+        const char* path; // after /user/hand/{left,right}/input/
+    };
+    auto suggest = [&](const char* profile, std::initializer_list<Binding> both,
+                       std::initializer_list<Binding> leftOnly = {},
+                       std::initializer_list<Binding> rightOnly = {})
+    {
+        std::vector<XrActionSuggestedBinding> list;
+        auto add = [&](const char* hand, const Binding& b)
+        {
+            char text[256];
+            std::snprintf(text, sizeof(text), "/user/hand/%s/input/%s", hand, b.path);
+            list.push_back({b.action, path(text)});
+        };
+        for(const Binding& b : both)
+        {
+            add("left", b);
+            add("right", b);
+        }
+        for(const Binding& b : leftOnly)
+        {
+            add("left", b);
+        }
+        for(const Binding& b : rightOnly)
+        {
+            add("right", b);
+        }
+        XrInteractionProfileSuggestedBinding suggested = make<XrInteractionProfileSuggestedBinding>(
+            XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING);
+        suggested.interactionProfile = path(profile);
+        suggested.countSuggestedBindings = static_cast<uint32_t>(list.size());
+        suggested.suggestedBindings = list.data();
+        if(XR_FAILED(suggestBindings(instance, &suggested)))
+        {
+            log::warn("OpenXR: bindings for {} refused", profile);
+        }
+    };
+    suggest("/interaction_profiles/valve/index_controller", {{gripPose, "grip/pose"},
+                                                             {aimPose, "aim/pose"},
+                                                             {trigger, "trigger/value"},
+                                                             {squeeze, "squeeze/value"},
+                                                             {stick, "thumbstick"},
+                                                             {stickClick, "thumbstick/click"},
+                                                             {primary, "a/click"},
+                                                             {secondary, "b/click"}});
+    suggest("/interaction_profiles/htc/vive_controller", {{gripPose, "grip/pose"},
+                                                          {aimPose, "aim/pose"},
+                                                          {trigger, "trigger/value"},
+                                                          {squeeze, "squeeze/click"},
+                                                          {stick, "trackpad"},
+                                                          {stickClick, "trackpad/click"},
+                                                          {secondary, "menu/click"}});
+    suggest("/interaction_profiles/oculus/touch_controller",
+            {{gripPose, "grip/pose"},
+             {aimPose, "aim/pose"},
+             {trigger, "trigger/value"},
+             {squeeze, "squeeze/value"},
+             {stick, "thumbstick"},
+             {stickClick, "thumbstick/click"}},
+            {{primary, "x/click"}, {secondary, "y/click"}},
+            {{primary, "a/click"}, {secondary, "b/click"}});
+    suggest("/interaction_profiles/khr/simple_controller", {{gripPose, "grip/pose"},
+                                                            {aimPose, "aim/pose"},
+                                                            {trigger, "select/click"},
+                                                            {secondary, "menu/click"}});
+
+    XrSessionActionSetsAttachInfo attach =
+        make<XrSessionActionSetsAttachInfo>(XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO);
+    attach.countActionSets = 1;
+    attach.actionSets = &actions;
+    if(XR_FAILED(attachActionSets(session, &attach)))
+    {
+        return false;
+    }
+    for(size_t h = 0; h < 2; h++)
+    {
+        XrActionSpaceCreateInfo info =
+            make<XrActionSpaceCreateInfo>(XR_TYPE_ACTION_SPACE_CREATE_INFO);
+        info.subactionPath = handPaths[h];
+        info.poseInActionSpace.orientation.w = 1.0f;
+        info.action = gripPose;
+        createActionSpace(session, &info, &gripSpaces[h]);
+        info.action = aimPose;
+        createActionSpace(session, &info, &aimSpaces[h]);
+    }
+    return true;
+}
+
+void Headset::Impl::readHands(HeadsetFrame& frame)
+{
+    if(!actions)
+    {
+        return;
+    }
+    XrActiveActionSet active{actions, XR_NULL_PATH};
+    XrActionsSyncInfo sync = make<XrActionsSyncInfo>(XR_TYPE_ACTIONS_SYNC_INFO);
+    sync.countActiveActionSets = 1;
+    sync.activeActionSets = &active;
+    if(syncActions(session, &sync) != XR_SUCCESS)
+    {
+        return; // not focused: no input
+    }
+    for(size_t h = 0; h < 2; h++)
+    {
+        HeadsetFrame::Hand& hand = frame.hands[h];
+        XrActionStateGetInfo get = make<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO);
+        get.subactionPath = handPaths[h];
+        auto value = [&](XrAction a)
+        {
+            get.action = a;
+            XrActionStateFloat got = make<XrActionStateFloat>(XR_TYPE_ACTION_STATE_FLOAT);
+            return XR_SUCCEEDED(getFloat(session, &get, &got)) && got.isActive ? got.currentState
+                                                                               : 0.0f;
+        };
+        auto pressed = [&](XrAction a)
+        {
+            get.action = a;
+            XrActionStateBoolean got = make<XrActionStateBoolean>(XR_TYPE_ACTION_STATE_BOOLEAN);
+            return XR_SUCCEEDED(getBoolean(session, &get, &got)) && got.isActive &&
+                   got.currentState;
+        };
+        hand.trigger = value(trigger);
+        hand.squeeze = value(squeeze);
+        get.action = stick;
+        XrActionStateVector2f stickState =
+            make<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F);
+        if(XR_SUCCEEDED(getVector2(session, &get, &stickState)) && stickState.isActive)
+        {
+            hand.stick = glm::vec2(stickState.currentState.x, stickState.currentState.y);
+        }
+        hand.stickClick = pressed(stickClick);
+        hand.primary = pressed(primary);
+        hand.secondary = pressed(secondary);
+
+        auto locate = [&](XrSpace space, Pose& out)
+        {
+            XrSpaceLocation where = make<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
+            constexpr XrSpaceLocationFlags kValid =
+                XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+            if(!space || XR_FAILED(locateSpace(space, local, displayTime, &where)) ||
+               (where.locationFlags & kValid) != kValid)
+            {
+                return false;
+            }
+            out = relative(toViewer(where.pose.position), toViewer(where.pose.orientation));
+            return true;
+        };
+        hand.tracked = locate(gripSpaces[h], hand.grip);
+        if(!locate(aimSpaces[h], hand.aim))
+        {
+            hand.aim = hand.grip;
+        }
+    }
 }
 
 bool Headset::acquireImages(HeadsetFrame& frame)

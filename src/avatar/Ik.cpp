@@ -134,6 +134,47 @@ void reach(const BaseAvatar& base, const Shape& shape, std::span<const int> chai
     poseChain(base, shape, chain, points, goal.rotation, goal.weight, pose);
 }
 
+// A chain goal: the joints from `length` up to the bone, by FABRIK (or,
+// one long, the bone turned, and the pelvis moved too).
+void solveChain(const BaseAvatar& base, const Shape& shape, const IkJoints& joints,
+                const IkGoals::Chain& c, std::vector<JointPose>& pose)
+{
+    const Skeleton& skeleton = base.skeleton;
+    if(c.joint < 0 || static_cast<size_t>(c.joint) >= skeleton.joints.size() ||
+       c.goal.weight <= 0.0f)
+    {
+        return;
+    }
+    std::vector<int> chain;
+    for(int j = c.joint; j >= 0 && static_cast<int>(chain.size()) < std::max(c.length, 1);
+        j = skeleton.joints[static_cast<size_t>(j)].parent)
+    {
+        chain.insert(chain.begin(), j);
+    }
+    const float weight = std::clamp(c.goal.weight, 0.0f, 1.0f);
+    if(chain.size() == 1)
+    {
+        const std::vector<JointFrame> frames = poseFrames(base, shape, pose);
+        JointPose& p = pose[static_cast<size_t>(c.joint)];
+        if(c.goal.rotation)
+        {
+            const glm::quat local = glm::normalize(
+                glm::inverse(parentRotation(frames, skeleton, c.joint)) * *c.goal.rotation);
+            p.rotation = glm::slerp(localOf(pose, skeleton, c.joint), local, weight);
+        }
+        if(c.joint == joints.pelvis && skeleton.joints[static_cast<size_t>(c.joint)].parent < 0)
+        {
+            const glm::vec3 now = frames[static_cast<size_t>(c.joint)].position;
+            const glm::vec3 animated =
+                p.position.value_or(skeleton.joints[static_cast<size_t>(c.joint)].position);
+            p.position = animated + (c.goal.position - now) * weight;
+        }
+        return;
+    }
+    const std::vector<JointFrame> frames = poseFrames(base, shape, pose);
+    reach(base, shape, chain, c.goal, chainPole(joints, chain, frames), pose);
+}
+
 // The desktop look-at (LLHeadRotMotion, LLEyeMotion).
 void lookAt(const BaseAvatar& base, const Shape& shape, const IkJoints& j, const glm::vec3& target,
             float weight, std::vector<JointPose>& pose)
@@ -305,6 +346,10 @@ IkJoints IkJoints::find(const Skeleton& skeleton)
                  skeleton.find("mWristLeft")};
     j.rightArm = {skeleton.find("mShoulderRight"), skeleton.find("mElbowRight"),
                   skeleton.find("mWristRight")};
+    j.leftLeg = {skeleton.find("mHipLeft"), skeleton.find("mKneeLeft"),
+                 skeleton.find("mAnkleLeft")};
+    j.rightLeg = {skeleton.find("mHipRight"), skeleton.find("mKneeRight"),
+                  skeleton.find("mAnkleRight")};
     return j;
 }
 
@@ -325,19 +370,47 @@ void applyIk(const BaseAvatar& base, const Shape& shape, const IkJoints& joints,
     {
         lookAt(base, shape, joints, *goals.lookAt, goals.lookAtWeight, pose);
     }
-    // Elbows bend down, back and out (avatar space: +X forward, +Y left).
-    const std::vector<JointFrame> frames = poseFrames(base, shape, pose);
-    auto elbowPole = [&](const std::array<int, 3>& arm, float side)
-    { return frames[static_cast<size_t>(arm[0])].position + glm::vec3(-0.3f, side * 0.4f, -1.0f); };
     if(goals.leftHand && joints.leftArm[0] >= 0)
     {
-        reach(base, shape, joints.leftArm, *goals.leftHand, elbowPole(joints.leftArm, 1.0f), pose);
+        const auto frames = poseFrames(base, shape, pose);
+        reach(base, shape, joints.leftArm, *goals.leftHand,
+              chainPole(joints, joints.leftArm, frames), pose);
     }
     if(goals.rightHand && joints.rightArm[0] >= 0)
     {
-        reach(base, shape, joints.rightArm, *goals.rightHand, elbowPole(joints.rightArm, -1.0f),
-              pose);
+        const auto frames = poseFrames(base, shape, pose);
+        reach(base, shape, joints.rightArm, *goals.rightHand,
+              chainPole(joints, joints.rightArm, frames), pose);
     }
+    for(const IkGoals::Chain& c : goals.chains)
+    {
+        solveChain(base, shape, joints, c, pose);
+    }
+}
+
+std::optional<glm::vec3> chainPole(const IkJoints& joints, std::span<const int> chain,
+                                   std::span<const JointFrame> frames)
+{
+    if(chain.size() < 3)
+    {
+        return std::nullopt;
+    }
+    const int end = chain.back();
+    const glm::vec3 root = frames[static_cast<size_t>(chain.front())].position;
+    // (Avatar space: +X forward, +Y left, +Z up.)
+    if(end == joints.leftArm[2])
+    {
+        return root + glm::vec3(-0.3f, 0.4f, -1.0f);
+    }
+    if(end == joints.rightArm[2])
+    {
+        return root + glm::vec3(-0.3f, -0.4f, -1.0f);
+    }
+    if(end == joints.leftLeg[2] || end == joints.rightLeg[2])
+    {
+        return root + glm::vec3(1.0f, 0.0f, -0.5f);
+    }
+    return std::nullopt;
 }
 
 } // namespace viewer::avatar

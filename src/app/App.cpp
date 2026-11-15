@@ -645,6 +645,34 @@ int App::run()
         if(headsetFrame_)
         {
             headsetSize_ = {headsetFrame_->width, headsetFrame_->height};
+            const xr::HeadsetFrame& f = *headsetFrame_;
+            const glm::vec3 look = f.head.orientation * glm::vec3(1.0f, 0.0f, 0.0f);
+            vr_.headYaw = glm::degrees(std::atan2(look.y, look.x));
+            // The right stick turns in steps (pushed past most of the way,
+            // then let back), the left one walks.
+            const float turn = f.hands[1].stick.x;
+            if(!vr_.snapped && std::abs(turn) > 0.7f)
+            {
+                camera_.turn(turn > 0.0f ? -30.0f : 30.0f);
+                vr_.snapped = true;
+            }
+            else if(std::abs(turn) < 0.3f)
+            {
+                vr_.snapped = false;
+            }
+            // The right stick clicked: recenter (as Home).
+            if(f.hands[1].stickClick && !vr_.recentering)
+            {
+                headset_->recenter();
+            }
+            vr_.recentering = f.hands[1].stickClick;
+            agent_.setStick(f.hands[0].stick);
+            vr_.walking = glm::length(f.hands[0].stick) > 0.5f;
+        }
+        else
+        {
+            agent_.setStick(glm::vec2(0.0f));
+            vr_.placed = false;
         }
         profile_.mark(FrameProfile::HeadsetWait);
         // The scene before the swapchain: building it overlaps the GPU
@@ -923,12 +951,41 @@ void App::updateSession()
         {
             // In a headset, steady: the headset moves the view itself.
             const bool steady = headset_ && headset_->running();
-            if(const auto eye = avatars_->eyePosition(*me, *world_, *originHandle_, steady))
+            if(auto eye = avatars_->eyePosition(*me, *world_, *originHandle_, steady))
             {
+                if(steady)
+                {
+                    // The eyes ahead of the pelvis along the headset's
+                    // heading (not the body's: its turning mustn't move
+                    // the view), as they were when it was centered.
+                    const float yaw = glm::radians(camera_.yaw());
+                    *eye +=
+                        glm::vec3(std::cos(yaw), std::sin(yaw), 0.0f) * avatars_->eyesForward(*me);
+                }
                 camera_.setEye(*eye);
             }
         }
-        agent_.setYaw(camera_.yaw());
+        if(headset_ && headset_->running())
+        {
+            // The body turns once the head is far round from it (keeping it
+            // within 45 degrees), and faces where the head does to walk.
+            const float head = camera_.yaw() + vr_.headYaw;
+            if(!vr_.bodyYaw || vr_.walking)
+            {
+                vr_.bodyYaw = head;
+            }
+            const float off = std::remainder(head - *vr_.bodyYaw, 360.0f);
+            if(std::abs(off) > 45.0f)
+            {
+                *vr_.bodyYaw += off - std::copysign(45.0f, off);
+            }
+            *vr_.bodyYaw = std::remainder(*vr_.bodyYaw, 360.0f);
+            agent_.setYaw(*vr_.bodyYaw);
+        }
+        else
+        {
+            agent_.setYaw(camera_.yaw());
+        }
         // Kept captured: something (the window losing focus, say) may have
         // let go of it.
         if(!SDL_GetWindowRelativeMouseMode(window_.get()) &&
@@ -1664,6 +1721,9 @@ void App::placeEyes(render::Camera& camera, const xr::HeadsetFrame& frame)
     // person), facing the camera's heading; its pitch is the head's own.
     const render::Camera base = camera;
     const glm::quat heading = glm::angleAxis(glm::radians(camera_.yaw()), glm::vec3(0, 0, 1));
+    vr_.placed = true;
+    vr_.base = base.position;
+    vr_.heading = heading;
     auto place = [&](const xr::Pose& pose)
     {
         render::Camera c = base;
@@ -1768,6 +1828,14 @@ void App::updateIk(const render::Scene& scene, const std::optional<PointerContro
     // How far towards a value in `seconds`, by half-life.
     auto towards = [&](float halfLife) { return 1.0f - std::exp2(-seconds / halfLife); };
 
+    if(vr_.placed && headsetFrame_ && headsetFrame_->render)
+    {
+        updateVrIk(scene, login->agentId);
+        updateOthersIk(login->agentId, seconds);
+        sendAttention(login->agentId, true, static_cast<double>(now) * 1e-9,
+                      scene.camera.target - scene.camera.position);
+        return;
+    }
     // The head: at what the pointer's on, or along its ray; following it
     // with the official look-at's lag (HEAD_LOOKAT_LAG_HALF_LIFE).
     std::optional<glm::vec3> look;
@@ -1818,6 +1886,55 @@ void App::updateIk(const render::Scene& scene, const std::optional<PointerContro
     updateOthersIk(login->agentId, seconds);
     sendAttention(login->agentId, look.has_value(), static_cast<double>(now) * 1e-9,
                   scene.camera.target - scene.camera.position);
+}
+
+void App::updateVrIk(const render::Scene& scene, const Uuid& self)
+{
+    const world::Object* me =
+        world_ && agentKey_ ? world_->object(agentKey_->region, agentKey_->localId) : nullptr;
+    if(!me)
+    {
+        return;
+    }
+    const avatar::Skeleton& skeleton = avatars_->base().skeleton;
+    avatar::IkGoals goals;
+
+    // The head where the headset is (its eyes on the headset's), the spine
+    // reaching for it.
+    const render::Camera& c = scene.camera;
+    const glm::vec3 forward = glm::normalize(c.target - c.position);
+    const glm::vec3 up = glm::normalize(c.up);
+    const glm::quat head =
+        glm::quat_cast(glm::mat3(forward, glm::normalize(glm::cross(up, forward)), up));
+    if(const auto eyes = avatars_->eyesFromHead(*me))
+    {
+        goals.chains.push_back(
+            {skeleton.find("mHead"), 4, {c.position - head * *eyes, head, 1.0f}});
+    }
+
+    // The hands where the controllers are: the wrist a little behind the
+    // grip, the hand turned from the grip's axes (it holds along +X, palm
+    // inwards) to the wrist's (fingers out along +Y on the left, -Y on the
+    // right, palm down).
+    constexpr float kWristBehindGrip = 0.08f;
+    static const std::array<glm::quat, 2> kGripToWrist = {
+        glm::quat_cast(glm::mat3(glm::vec3(0, 0, 1), glm::vec3(1, 0, 0), glm::vec3(0, 1, 0))),
+        glm::quat_cast(glm::mat3(glm::vec3(0, 0, 1), glm::vec3(-1, 0, 0), glm::vec3(0, -1, 0)))};
+    const std::array<int, 2> wrists = {skeleton.find("mWristLeft"), skeleton.find("mWristRight")};
+    for(size_t h = 0; h < 2; h++)
+    {
+        const xr::HeadsetFrame::Hand& hand = headsetFrame_->hands[h];
+        if(!hand.tracked || wrists[h] < 0)
+        {
+            continue;
+        }
+        const xr::Pose grip = vrToScene(hand.grip);
+        const glm::quat wrist = glm::normalize(grip.orientation * kGripToWrist[h]);
+        const glm::vec3 fingers = wrist * glm::vec3(0.0f, h == 0 ? 1.0f : -1.0f, 0.0f);
+        goals.chains.push_back(
+            {wrists[h], 3, {grip.position - fingers * kWristBehindGrip, wrist, 1.0f}});
+    }
+    avatars_->setIk(self, goals.chains.empty() ? std::nullopt : std::optional(goals));
 }
 
 std::optional<glm::vec3> App::attentionPoint(const ViewerEffects::Target& target, bool look)

@@ -54,6 +54,19 @@ struct IkGoals
     std::optional<Effector> head;
     std::optional<Effector> leftHand;
     std::optional<Effector> rightHand;
+    // Any bone reaching for a goal with the `length` joints ending at it
+    // (itself included: a wrist's chain of 3 is shoulder, elbow, wrist; 1
+    // only turns it, and the pelvis also moves). Solved after the above, in
+    // order. The headset's tracking comes as these.
+    struct Chain
+    {
+        int joint = -1;
+        int length = 1;
+        Effector goal;
+    };
+    std::vector<Chain> chains;
+    // Positions and rotations given in avatar space already, not the scene's.
+    bool avatarSpace = false;
 };
 
 // The joints IK moves, found by name (-1: missing).
@@ -61,11 +74,19 @@ struct IkJoints
 {
     int pelvis = -1, torso = -1, chest = -1, neck = -1, head = -1;
     int eyeLeft = -1, eyeRight = -1;
-    // Shoulder, elbow, wrist.
+    // Shoulder, elbow, wrist; hip, knee, ankle.
     std::array<int, 3> leftArm{-1, -1, -1};
     std::array<int, 3> rightArm{-1, -1, -1};
+    std::array<int, 3> leftLeg{-1, -1, -1};
+    std::array<int, 3> rightLeg{-1, -1, -1};
     static IkJoints find(const Skeleton& skeleton);
 };
+
+// The pole a chain bends towards (avatar space): an elbow down, back and
+// out from the shoulder, a knee forward and down from the hip; none for
+// others.
+std::optional<glm::vec3> chainPole(const IkJoints& joints, std::span<const int> chain,
+                                   std::span<const JointFrame> frames);
 
 // The goals applied to an animated pose (one entry per joint; local
 // rotations are set on the joints they move).

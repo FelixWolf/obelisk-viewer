@@ -38,6 +38,11 @@ struct Skeleton
     std::map<std::string, int, std::less<>> byName; // names and aliases
 
     int find(std::string_view name) const;
+    // Bone numbers, as the official viewer numbers joints (LLJoint
+    // getJointNum): the bones in avatar_skeleton.xml's order, from mPelvis
+    // (0), without the collision volumes. -1 for a volume or out of range.
+    int boneNumber(int joint) const;
+    int jointOfBone(int number) const;
     // Joint transforms relative to the avatar root, in the rest pose with the
     // pelvis at the root (as the official viewer places it).
     std::vector<glm::mat4> restPose() const;

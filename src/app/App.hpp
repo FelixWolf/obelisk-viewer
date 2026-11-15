@@ -167,6 +167,29 @@ private:
     std::optional<xr::HeadsetFrame> headsetFrame_;
     std::array<render::Camera, 2> eyeCameras_{};
     glm::uvec2 headsetSize_{0}; // per eye, for the log
+    // The headset's origin in the scene this frame (placeEyes), and what
+    // follows from its tracking: the head's heading from the origin's
+    // (degrees), the body's (turning once the head is far round, or to
+    // where it looks when walking), the right stick's snap turn.
+    struct Vr
+    {
+        bool placed = false;
+        glm::vec3 base{0.0f};
+        glm::quat heading{1.0f, 0.0f, 0.0f, 0.0f};
+        float headYaw = 0.0f;
+        std::optional<float> bodyYaw;
+        bool walking = false;
+        bool snapped = false;
+        bool recentering = false; // the right stick held down
+    };
+    Vr vr_;
+    // A pose from the headset's origin into the scene.
+    xr::Pose vrToScene(const xr::Pose& pose) const
+    {
+        return {vr_.base + vr_.heading * pose.position, vr_.heading * pose.orientation};
+    }
+    // Our avatar's IK from the headset and controllers.
+    void updateVrIk(const render::Scene& scene, const Uuid& self);
     std::unique_ptr<ui::ImGuiLayer> ui_;
     std::unique_ptr<JobSystem> jobs_;
     std::unique_ptr<image::J2kDecoder> j2kDecoder_;

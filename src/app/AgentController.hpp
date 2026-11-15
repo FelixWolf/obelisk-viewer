@@ -9,6 +9,8 @@
 
 #include <SDL3/SDL_events.h>
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 
 namespace viewer
@@ -37,6 +39,9 @@ public:
         mouselookDown_ = down;
     }
 
+    // A controller's stick (first person): x right, y forward, -1..1.
+    void setStick(glm::vec2 stick) { stick_ = stick; }
+
     uint32_t controlFlags() const { return flags_; }
     protocol::Quaternion bodyRotation() const;
 
@@ -48,6 +53,7 @@ private:
     bool mouselookDown_ = false;
     bool mouselookUp_ = false;
     uint32_t flags_ = 0;
+    glm::vec2 stick_{0.0f};
 };
 
 } // namespace viewer

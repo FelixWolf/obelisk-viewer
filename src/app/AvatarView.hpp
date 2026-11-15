@@ -88,6 +88,12 @@ public:
     // head's sway, or its IK following the view, would shake it).
     std::optional<glm::vec3> eyePosition(const world::Object& avatar, const world::World& world,
                                          uint64_t originHandle, bool steady = false) const;
+    // Unanimated, from its head joint to between its eyes (avatar axes):
+    // where to put the head for the eyes to be somewhere.
+    std::optional<glm::vec3> eyesFromHead(const world::Object& avatar) const;
+    // Unanimated, how far ahead of the pelvis the eyes are (the steady
+    // eyePosition is straight above it).
+    float eyesForward(const world::Object& avatar) const;
     // A joint's position as posed (scene coordinates); nothing for an
     // avatar not posed yet or an unknown joint.
     std::optional<glm::vec3> jointPosition(const world::Object& avatar, const world::World& world,
@@ -173,8 +179,10 @@ private:
         std::vector<glm::mat4> joints; // posed this frame, relative to the root
         std::array<std::vector<glm::mat4>, std::size(avatar::kBodyParts)> palettes;
         float extent = 0.0f;
-        glm::vec3 eyes{0.0f};       // between the eyes, avatar space (before first person)
-        glm::vec3 steadyEyes{0.0f}; // as eyePosition's steady ones, avatar space
+        glm::vec3 eyes{0.0f};         // between the eyes, avatar space (before first person)
+        glm::vec3 steadyEyes{0.0f};   // as eyePosition's steady ones, avatar space
+        glm::vec3 eyesFromHead{0.0f}; // unanimated: between the eyes, from mHead
+        float eyesForward = 0.0f;     // unanimated: how far the eyes are ahead of the pelvis
         bool hasEyes = false;
         uint64_t seen = 0; // frame last updated
     };

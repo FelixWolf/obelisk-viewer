@@ -241,6 +241,33 @@ int Skeleton::find(std::string_view name) const
     return it == byName.end() ? -1 : it->second;
 }
 
+int Skeleton::boneNumber(int joint) const
+{
+    if(joint < 0 || static_cast<size_t>(joint) >= joints.size() ||
+       joints[static_cast<size_t>(joint)].volume)
+    {
+        return -1;
+    }
+    int number = 0;
+    for(int j = 0; j < joint; j++)
+    {
+        number += joints[static_cast<size_t>(j)].volume ? 0 : 1;
+    }
+    return number;
+}
+
+int Skeleton::jointOfBone(int number) const
+{
+    for(size_t j = 0; j < joints.size(); j++)
+    {
+        if(!joints[j].volume && number-- == 0)
+        {
+            return static_cast<int>(j);
+        }
+    }
+    return -1;
+}
+
 std::vector<glm::mat4> Skeleton::restPose() const
 {
     std::vector<glm::mat4> world(joints.size());

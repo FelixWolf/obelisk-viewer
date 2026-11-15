@@ -38,7 +38,24 @@ void AgentController::update(float seconds, bool keyboardFree)
         flags |= control::kMouselook;
         flags |= mouselookDown_ ? control::kMouselookDown : 0;
         flags |= mouselookUp_ ? control::kMouselookUp : 0;
-        mouselookUp_ = false; // once
+        mouselookUp_ = false;         // once
+        constexpr float kPush = 0.5f; // how far a stick goes before it walks
+        if(stick_.y > kPush)
+        {
+            flags |= control::kAtPos | control::kFastAt;
+        }
+        if(stick_.y < -kPush)
+        {
+            flags |= control::kAtNeg | control::kFastAt;
+        }
+        if(stick_.x < -kPush)
+        {
+            flags |= control::kLeftPos | control::kFastLeft;
+        }
+        if(stick_.x > kPush)
+        {
+            flags |= control::kLeftNeg | control::kFastLeft;
+        }
         if(held(SDL_SCANCODE_W) || held(SDL_SCANCODE_UP) || autoWalk_)
         {
             flags |= control::kAtPos | control::kFastAt;

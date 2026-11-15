@@ -149,3 +149,38 @@ TEST_CASE("IK: in VR the spine reaches for the headset, the head taking its rota
         poseFrames(*r.base, r.shape, pose)[static_cast<size_t>(r.joints.head)].rotation;
     CHECK(std::abs(glm::dot(headWorld, turn)) > 0.9999f);
 }
+
+TEST_CASE("IK: bone numbers as the official viewer's, and chain goals by them")
+{
+    const Rig r = rig();
+    const Skeleton& s = r.base->skeleton;
+    // Bones in avatar_skeleton.xml's order from the pelvis, volumes left out.
+    CHECK(s.boneNumber(s.find("mPelvis")) == 0);
+    CHECK(s.boneNumber(s.find("PELVIS")) == -1); // a collision volume
+    for(const char* name : {"mHead", "mWristLeft", "mAnkleRight", "mFaceRoot"})
+    {
+        const int joint = s.find(name);
+        REQUIRE(joint >= 0);
+        CHECK(s.jointOfBone(s.boneNumber(joint)) == joint);
+    }
+
+    // A wrist's chain of 3 (shoulder, elbow, wrist) reaching, the elbow
+    // bending down (the pole), the wrist taking the rotation.
+    std::vector<JointPose> rest(s.joints.size());
+    const int wrist = r.joints.leftArm[2];
+    const glm::vec3 shoulder = at(r, rest, r.joints.leftArm[0]);
+    IkGoals goals;
+    goals.avatarSpace = true;
+    const glm::quat turn = glm::angleAxis(0.5f, glm::vec3(1.0f, 0.0f, 0.0f));
+    goals.chains.push_back({wrist, 3, {shoulder + glm::vec3(0.3f, 0.25f, -0.1f), turn, 1.0f}});
+    std::vector<JointPose> pose = rest;
+    applyIk(*r.base, r.shape, r.joints, goals, pose);
+    CHECK(glm::length(at(r, pose, wrist) - goals.chains[0].goal.position) < 0.01f);
+    CHECK(at(r, pose, r.joints.leftArm[1]).z < shoulder.z);
+    const glm::quat wristWorld =
+        poseFrames(*r.base, r.shape, pose)[static_cast<size_t>(wrist)].rotation;
+    CHECK(std::abs(glm::dot(wristWorld, turn)) > 0.9999f);
+    // The collar above the chain stays as it was.
+    const int collar = s.joints[static_cast<size_t>(r.joints.leftArm[0])].parent;
+    CHECK(!pose[static_cast<size_t>(collar)].rotation);
+}
