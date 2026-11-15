@@ -40,6 +40,7 @@ add_executable(viewer
   Procedural.cpp
   SceneAssets.cpp
   TerrainTextures.cpp
+  TerrainOverrides.cpp
   TerrainView.cpp
   TextureManager.cpp
   TreeView.cpp

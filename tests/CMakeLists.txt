@@ -41,6 +41,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/FaceUpload.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ObjectIndex.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ParticleView.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/TerrainOverrides.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

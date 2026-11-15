@@ -164,6 +164,7 @@ private:
     std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;
     std::unique_ptr<MaterialManager> materials_;
+    std::unique_ptr<TerrainOverrides> terrainOverrides_;
     std::unique_ptr<LegacyMaterialManager> legacyMaterials_;
     std::unique_ptr<AvatarNames> avatarNames_;     // display names, for name tags
     ObjectMotion motion_;                          // before the views that read it

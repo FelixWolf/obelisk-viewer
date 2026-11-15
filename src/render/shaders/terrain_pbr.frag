@@ -41,6 +41,12 @@ layout(set = 3, binding = 1) uniform MaterialFS
     vec4 baseColorFactor[4];
     vec4 emissiveTint[4]; // RGB tint, A strength
     vec4 factors[4];      // x roughness, y metallic, z occlusion strength
+    // Each layer's texture transform (from region-local meters: rows of a
+    // 2x3 matrix), and its linear part's inverse (rows a b, c d), which
+    // turns the projection's tangents to follow it.
+    vec4 uvRow0[4];
+    vec4 uvRow1[4];
+    vec4 uvInverse[4];
 } material;
 
 layout(location = 0) out vec4 outColor;
@@ -57,10 +63,20 @@ struct Sample
     vec3 normal; // world space
 };
 
-// One projection of one layer. `tangent` and `bitangent` are the world
-// directions in which u and v increase for this projection.
-Sample sampleProjection(int layer, vec2 uv, vec3 tangent, vec3 bitangent, vec3 n)
+// One projection of one layer. `position` is the projection's plane
+// coordinates in meters; `tangent` and `bitangent` the world directions in
+// which they increase. The layer's transform applies to both (as the
+// official viewer's terrain_texture_transform, the same for every
+// projection).
+Sample sampleProjection(int layer, vec2 position, vec3 tangent, vec3 bitangent, vec3 n)
 {
+    const vec3 p = vec3(position, 1.0);
+    const vec2 uv = vec2(dot(material.uvRow0[layer].xyz, p), dot(material.uvRow1[layer].xyz, p));
+    const vec4 inv = material.uvInverse[layer];
+    const vec3 du = inv.x * tangent + inv.z * bitangent;
+    const vec3 dv = inv.y * tangent + inv.w * bitangent;
+    tangent = du;
+    bitangent = dv;
     vec3 uvw = vec3(uv, float(layer));
     Sample s;
     s.baseColor = texture(albedoMaps, uvw).rgb * material.baseColorFactor[layer].rgb;

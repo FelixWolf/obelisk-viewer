@@ -86,9 +86,13 @@ struct TerrainPbrMaterial
         float roughness = 1.0f;
         float metallic = 1.0f;
         float occlusionStrength = 1.0f;
+        // Texture coordinates from region-local meters (x, y): rows of a
+        // 2x3 matrix applied to (x, y, 1). Default: one repeat every 8 m
+        // (the official RenderTerrainPBRScale).
+        glm::vec3 uvRow0{1.0f / 8.0f, 0.0f, 0.0f};
+        glm::vec3 uvRow1{0.0f, 1.0f / 8.0f, 0.0f};
     };
     std::array<Layer, 4> layers{};
-    float textureRepeatsPerMeter = 1.0f / 8.0f; // official viewer default: 8 m
 };
 
 } // namespace viewer::render

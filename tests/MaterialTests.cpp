@@ -94,3 +94,31 @@ TEST_CASE("PBR materials: overrides replace only what they set")
     // An empty override changes nothing.
     CHECK(applyOverride(base, MaterialOverride::fromLlsd(llsd::Value(llsd::Map{}))) == base);
 }
+
+#include "TerrainOverrides.hpp"
+
+TEST_CASE("PBR terrain: the region's material overrides, from ModifyRegion's reply")
+{
+    using viewer::TerrainOverrides;
+    const auto layers = TerrainOverrides::parse(
+        "<llsd><map><key>success</key><boolean>1</boolean><key>overrides</key><array>"
+        "<undef />"
+        "<map><key>rf</key><real>0.25</real></map>"
+        "<map />"
+        "<map><key>mf</key><real>0.5</real></map>"
+        "</array></map></llsd>");
+    REQUIRE(layers);
+    CHECK_FALSE((*layers)[0]);
+    REQUIRE((*layers)[1]);
+    CHECK((*layers)[1]->roughness.value_or(-1.0f) == doctest::Approx(0.25f));
+    CHECK_FALSE((*layers)[2]); // an empty map changes nothing
+    REQUIRE((*layers)[3]);
+    CHECK((*layers)[3]->metallic.value_or(-1.0f) == doctest::Approx(0.5f));
+
+    // Failed, or too few layers: nothing.
+    CHECK_FALSE(
+        TerrainOverrides::parse("<llsd><map><key>success</key><boolean>0</boolean></map></llsd>"));
+    CHECK_FALSE(
+        TerrainOverrides::parse("<llsd><map><key>success</key><boolean>1</boolean>"
+                                "<key>overrides</key><array><undef /></array></map></llsd>"));
+}

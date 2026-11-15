@@ -150,6 +150,8 @@ std::vector<std::string> defaultCapabilityNames()
         "FetchLibDescendents2",
         "GetDisplayNames",
         "HomeLocation",
+        // PBR terrain's material overrides (TerrainOverrides).
+        "ModifyRegion",
         // Never used (we don't edit materials): asking for it is how a
         // viewer tells the simulator it handles PBR materials, which then
         // streams their per-face overrides (GenericStreamingMessage).

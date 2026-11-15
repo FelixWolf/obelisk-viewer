@@ -90,6 +90,9 @@ struct TerrainPbrFS
     glm::vec4 baseColorFactor[4];
     glm::vec4 emissiveTint[4];
     glm::vec4 factors[4];
+    glm::vec4 uvRow0[4]; // each layer's texture transform (TerrainPbrMaterial::Layer)
+    glm::vec4 uvRow1[4];
+    glm::vec4 uvInverse[4]; // its linear part's inverse (a, b, c, d: rows), for tangents
 };
 
 struct ShaderDesc

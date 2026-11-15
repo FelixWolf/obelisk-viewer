@@ -945,9 +945,24 @@ underWaterF.glsl, waterFogF.glsl):
 
 Not yet: planar (mirror) reflections, shoreline fade.
 
-Terrain textures come from the grid (see the texture pipeline); the
-procedural ones stand in until they're loaded. PBR terrain materials from the
-grid aren't supported yet, so the PBR terrain toggle uses procedural ones.
+Terrain layers come from the grid (`TerrainTextures`). As the official
+viewer (LLTerrainMaterials::getMaterialType), each of a region's four detail
+assets is asked for both as a texture and as a PBR material: texture terrain
+if any loads as a texture, otherwise PBR terrain once all four materials
+have, its four arrays (base color, metallic-roughness, emissive, normal)
+from the materials' textures and its per-layer factors from theirs.
+Procedural layers stand in until then. Arrays are built from the textures'
+whole images (CPU copies) at their largest size, at most 1024, and built
+again when a bigger copy arrives, so terrain isn't left at the size that
+loaded first. PBR layers get the region's material overrides
+(`TerrainOverrides`: asked once of each region's ModifyRegion capability,
+four override maps as faces' overrides are) and each layer's texture
+transform, as lldrawpoolterrain.cpp: the material's base color transform
+(KHR_texture_transform with v flipped around it, the same for every map),
+its scale over RenderTerrainPBRScale (8 m), from region-local meters (the
+region's southwest corner is the origin); the triplanar projections use it
+alike, their tangents turned by its inverse so normal maps follow. The PBR
+terrain toggle is a shader test: procedural PBR layers everywhere.
 
 Shaders are GLSL in `src/render/shaders`, compiled to SPIR-V by glslang at
 build time (the installed `glslangValidator` if there is one, otherwise

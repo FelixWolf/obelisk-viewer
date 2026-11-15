@@ -354,6 +354,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->meshes_ =
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
+    app->terrainOverrides_ = std::make_unique<TerrainOverrides>(*app->http_);
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
@@ -849,6 +850,16 @@ void App::updateSession()
         std::string(session_->capability("RenderMaterials").value_or("")));
     avatarNames_->setCapabilityUrl(
         std::string(session_->capability("GetDisplayNames").value_or("")));
+    // PBR terrain overrides: each region's, once its capabilities are in.
+    for(const auto& [circuit, region] : session_->regions())
+    {
+        if(const auto it = region->capabilities.find("ModifyRegion");
+           it != region->capabilities.end())
+        {
+            terrainOverrides_->request(region->handle, it->second);
+        }
+    }
+    terrainOverrides_->update();
     if(animations_)
     {
         animations_->setViewerAssetUrl(viewerAsset);
@@ -1050,6 +1061,7 @@ void App::endSession()
     world_.reset();
     worldThread_.reset();
     terrainView_.clear();
+    terrainOverrides_->clear();
     trees_->clear();
     if(avatars_)
     {
@@ -1184,12 +1196,13 @@ void App::buildScene(render::Scene& scene)
                            {
                                if(pbrTerrain_)
                                {
-                                   // PBR terrain materials from the grid aren't
-                                   // supported yet: procedural stand-ins.
+                                   // A shader test: procedural PBR layers
+                                   // everywhere.
                                    return sceneAssets_->terrainPbr();
                                }
-                               return terrainTextures_.material(*world_->terrain(handle),
-                                                                *textures_, placeholder);
+                               return terrainTextures_.material(
+                                   *world_->terrain(handle), *textures_, *materials_,
+                                   terrainOverrides_->overrides(handle), placeholder);
                            });
         const float seconds = static_cast<float>(SDL_GetTicksNS() - startTicks_) * 1e-9f;
         profile_.mark(FrameProfile::Terrain);

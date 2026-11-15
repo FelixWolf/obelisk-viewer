@@ -1661,7 +1661,11 @@ void Renderer::drawTerrain(ScenePass& pass, const Scene& scene)
             };
             pass.bindSamplers(samplers);
             pushVertexUniforms(pass.commands(), 1,
-                               terrainVs(draw.transform, t->textureRepeatsPerMeter));
+                               // Region-local meters: each layer's transform
+                               // does the rest (the official UV origin is the
+                               // region's corner).
+                               TerrainVS{draw.transform, glm::vec4(1.0f, 0.0f, -draw.transform[3].x,
+                                                                   -draw.transform[3].y)});
             TerrainPbrFS fs{};
             for(size_t i = 0; i < 4; i++)
             {
@@ -1670,6 +1674,15 @@ void Renderer::drawTerrain(ScenePass& pass, const Scene& scene)
                 fs.emissiveTint[i] = glm::vec4(layer.emissiveTint, layer.emissiveStrength);
                 fs.factors[i] =
                     glm::vec4(layer.roughness, layer.metallic, layer.occlusionStrength, 0.0f);
+                fs.uvRow0[i] = glm::vec4(layer.uvRow0, 0.0f);
+                fs.uvRow1[i] = glm::vec4(layer.uvRow1, 0.0f);
+                const glm::mat2 linear(layer.uvRow0.x, layer.uvRow1.x, layer.uvRow0.y,
+                                       layer.uvRow1.y); // columns
+                const glm::mat2 inverse = std::abs(glm::determinant(linear)) > 1e-12f
+                                              ? glm::inverse(linear)
+                                              : glm::mat2(1.0f);
+                fs.uvInverse[i] =
+                    glm::vec4(inverse[0][0], inverse[1][0], inverse[0][1], inverse[1][1]);
             }
             pushFragmentUniforms(pass.commands(), 1, fs);
         }
