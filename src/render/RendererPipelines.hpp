@@ -67,6 +67,7 @@ struct Renderer::Pipelines
     SDL_GPUShader* particleGlowFrag = nullptr;
     std::unordered_map<uint16_t, SDL_GPUGraphicsPipeline*> particle;
     SDL_GPUGraphicsPipeline* particleGlow = nullptr;
+    SDL_GPUGraphicsPipeline* water = nullptr;
     SDL_GPUSampler* repeatSampler = nullptr;
     SDL_GPUSampler* clampSampler = nullptr;
     SDL_GPUSampler* shadowSampler = nullptr; // compares depth, filters the results
@@ -109,7 +110,8 @@ struct Renderer::Pipelines
                                           shadowSkinned,
                                           shadowSkinnedMasked,
                                           shadowTerrain,
-                                          particleGlow})
+                                          particleGlow,
+                                          water})
         {
             if(p)
             {

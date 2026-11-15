@@ -97,6 +97,15 @@ Renderer::~Renderer()
             SDL_ReleaseGPUTexture(device_, t);
         }
     }
+    waterVertices_.buffer.reset();
+    if(waterVertices_.transfer)
+    {
+        SDL_ReleaseGPUTransferBuffer(device_, waterVertices_.transfer);
+    }
+    if(waterScene_)
+    {
+        SDL_ReleaseGPUTexture(device_, waterScene_);
+    }
     particleVertices_.buffer.reset();
     if(particleVertices_.transfer)
     {

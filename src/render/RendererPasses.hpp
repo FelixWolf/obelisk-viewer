@@ -78,6 +78,8 @@ struct FrameFS
     glm::vec4 probeInfo;
     glm::vec4 clusterGrid{0.0f};  // x, y a tile's size in pixels, z, w tiles across, down
     glm::vec4 clusterDepth{0.0f}; // x slices, y near, z log(far / near), w on (1)
+    glm::vec4 waterInfo{0.0f};    // x height, y on (1), z fog density, w fog ks
+    glm::vec4 waterFog{0.0f};     // rgb fog color (as the settings)
 };
 struct SkyFS
 {
@@ -151,6 +153,7 @@ public:
 
     SDL_GPUBuffer* clusters() const { return clusters_; }
     SDL_GPUBuffer* lights() const { return lights_; }
+    SDL_GPUBuffer* probes() const { return probes_; }
     // After binding buffers directly: drawMesh binds its own again.
     void forgetBuffers()
     {

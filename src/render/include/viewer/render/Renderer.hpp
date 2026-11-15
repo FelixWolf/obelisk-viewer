@@ -283,6 +283,18 @@ private:
                       const glm::mat4& viewProjection, uint32_t width, uint32_t height);
     void drawLabels(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, bool hud);
 
+    // Water (RendererWater.cpp): this frame's squares up to the GPU; the
+    // view so far copied for it to show through; drawn into a view.
+    void uploadWater(SDL_GPUCommandBuffer* commands, const Scene& scene);
+    void copyForWater(SDL_GPUCommandBuffer* commands, uint32_t width, uint32_t height);
+    void drawWater(ScenePass& pass, const Scene& scene, const Camera& camera, uint32_t width,
+                   uint32_t height);
+    FrameBuffer waterVertices_;
+    uint32_t waterVertexCount_ = 0;
+    SDL_GPUTexture* waterScene_ = nullptr; // the view behind the water
+    uint32_t waterSceneWidth_ = 0;
+    uint32_t waterSceneHeight_ = 0;
+
     // Particles (RendererParticles.cpp): this frame's quads, far ones first
     // (from `camera`), up to the GPU once; drawn into each view after the
     // blended objects, blended as each asks, and their glow into the mask.

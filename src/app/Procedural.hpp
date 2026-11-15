@@ -23,8 +23,6 @@ struct MeshData
 MeshData sphere(uint32_t segments = 128, uint32_t rings = 64);
 // Cube from -1 to 1, one UV square per face.
 MeshData cube();
-// A unit square from (0, 0) to (1, 1) at z = 0, facing up.
-MeshData quad();
 
 // Smooth 2D value noise in [0, 1], tiling with the given period (in cells).
 float noise(float x, float y, int period);
@@ -39,7 +37,6 @@ image::TextureData tileAlbedo();
 image::TextureData tileOrm();
 image::TextureData tileEmissive();
 image::TextureData tileNormal();
-image::TextureData waterNormal(); // gentle ripples; tiles seamlessly
 
 // Four terrain layers, low to high: dirt, grass, rock, snow.
 std::array<image::TextureData, 4> terrainDiffuse();

@@ -283,6 +283,43 @@ struct LabelLine
     bool header = false; // NameTag: in the band across the bubble's top
 };
 
+// Water (RendererWater.cpp), as the official viewer draws it
+// (lldrawpoolwater.cpp, waterF.glsl): the regions' water planes and the
+// water beyond them, with the day's water settings.
+struct Water
+{
+    bool enabled = false;
+    // Its fog's plane: the camera's region's water height. Under it,
+    // surfaces get the water's fog, not the air's haze.
+    float height = 20.0f;
+    glm::vec3 fogColor{0.0156f, 0.149f, 0.2509f}; // as the settings (roughly sRGB)
+    float fogDensity = 2.0f;                      // seen from above
+    float fogDensityBelow = 2.0f;                 // with the camera under it
+    float fresnelScale = 0.4f;
+    float fresnelOffset = 0.5f;
+    float roughness = 0.08f;  // the reflection's blur (blur multiplier, twice)
+    float scaleAbove = 0.03f; // how far waves bend what's seen through them
+    float scaleBelow = 0.2f;
+    glm::vec3 normalScale{2.0f};
+    glm::vec2 wave1{1.05f, -0.42f}; // directions (and speeds) the waves move
+    glm::vec2 wave2{1.11f, -1.16f};
+    // The waves' normal maps (cross-fading between keyframes); null while
+    // they load (flat).
+    const GpuTexture* normalMap = nullptr;
+    const GpuTexture* nextNormalMap = nullptr;
+    float normalBlend = 0.0f;
+    float time = 0.0f; // seconds, for the waves' drift
+    // Squares of water: each region's, at its height, and those around
+    // the known regions to the horizon.
+    struct Patch
+    {
+        glm::vec2 corner{0.0f}; // scene coordinates
+        float size = 256.0f;
+        float height = 20.0f;
+    };
+    std::vector<Patch> patches;
+};
+
 // A particle (app's ParticleView simulates them), as the official viewer
 // draws it (llvopartgroup.cpp): a quad facing the camera (or, following
 // its velocity, turned to point along it), or a ribbon segment from it to
@@ -362,6 +399,7 @@ struct Scene
     std::vector<LocalLight> lights;
     std::vector<Label> labels;
     std::vector<ParticleDraw> particles;
+    Water water;
     // Passes that can be left out (for measuring what they cost): glow,
     // measuring the view for dynamic exposure (the last exposure stays), and
     // the clusters (every pixel then looks at every light and probe).

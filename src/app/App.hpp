@@ -80,7 +80,7 @@ struct AppOptions
     // --stereo-benchmark [SIZE]: draw both eyes of a headset view, SIZE
     // pixels square each (2160), and log what it costs.
     uint32_t stereoSize = 0;
-    // --without shadows,lights,probes,glow,exposure,clusters,particles: leave passes out, to
+    // --without shadows,lights,probes,glow,exposure,clusters,particles,water: leave passes out, to
     // measure what they cost.
     std::vector<std::string> without;
 };
@@ -196,6 +196,9 @@ private:
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
     // The pointer's ray this frame (none over the UI or while dragging).
     std::optional<PointerController::Ray> pointerRay(const render::Scene& scene) const;
+    // The regions' water and the water beyond them, with the day's water
+    // settings, into the scene.
+    void addWater(render::Scene& scene, float seconds);
     void pressPointer();
     std::unique_ptr<TreeView> trees_;
     TerrainTextures terrainTextures_;

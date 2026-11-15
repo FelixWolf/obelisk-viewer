@@ -58,6 +58,10 @@ const float PI = 3.14159265359;
         /* x slices, y where the first starts, z log(far / near), w on (1) */                 \
         vec4 clusterGrid;                                                                     \
         vec4 clusterDepth;                                                                    \
+        /* Water (atmosphere.glsl, water.frag): x the plane's height, y on (1), */            \
+        /* z fog density (thicker for a camera under it), w fog ks; then its fog color */     \
+        vec4 waterInfo;                                                                       \
+        vec4 waterFog;                                                                        \
     }                                                                                         \
     frame;
 

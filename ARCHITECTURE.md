@@ -433,7 +433,7 @@ it never comes back to the CPU. Skies made for PBR (with
 as in the official viewer (RenderSkyAutoAdjustLegacy off). The tonemap
 dithers its output so the sky's slow gradients don't band. The Environment window shows the day cycle
 and can fix the time of day; `--day-time 0..1` does that from the command
-line. Not drawn yet: sun and moon textures, moon phases, water.
+line. Not drawn yet: sun and moon textures, moon phases.
 
 ### Occlusion culling
 
@@ -487,7 +487,7 @@ the screenshot. `--stereo-benchmark [SIZE]` (2160 by
 default) uses it with a square 90 degree view and logs every five seconds
 what a frame costs: frames a second, CPU time by stage, and time spent
 waiting for the GPU (the swapchain's acquire, which waits once the GPU is
-frames behind). `--without shadows,lights,probes,glow,exposure,clusters,particles` leaves those
+frames behind). `--without shadows,lights,probes,glow,exposure,clusters,particles,water` leaves those
 passes out (`Scene::glow`, `Scene::dynamicExposure`, and the scene's
 shadow, light and probe settings), to see what each costs; storage buffers
 not made yet are stood in for by an empty one (`Renderer::storageOr`), and
@@ -905,9 +905,34 @@ Terrain follows the official viewer's behavior (our own implementation; see
   under 10% weight, so slopes don't stretch. Both use global coordinates, so
   textures line up across region borders.
 
-Water: each region gets a 256 m square at its RegionHandshake water height,
-drawn as blended Blinn-Phong with a procedural ripple normal map that drifts
-over time. No reflections, refraction or water outside known regions yet.
+Water, as the official viewer's (lldrawpoolwater.cpp, waterF.glsl,
+underWaterF.glsl, waterFogF.glsl):
+
+- Settings: the day cycle's water track (`environment::WaterSettings`, as
+  LLSettingsWater: fog color and density, the underwater fog mod, fresnel
+  scale and offset, blur, refraction scales above and below, normal scale,
+  the two wave directions, the normal map, by default 822ded49), blended
+  between keyframes like the skies, the normal maps cross-fading.
+- Where: each known region's 256 m square at its RegionHandshake water
+  height, and squares around them out to ten regions from the camera's at
+  the camera's region's height (`App::addWater`, `Scene::water`).
+- The surface (`RendererWater.cpp`, `water.frag`): after the opaque scene,
+  which is copied for it to show through (the main pass splits there; the
+  occlusion map is made before, so what's under it isn't hidden), before
+  what's blended. Three layers of waves from the normal map, drifting along
+  the wave directions; what's behind bent by them; the reflection probes
+  along the waves' reflected view, mixed in by the official fresnel term;
+  the sun's highlight (GGX, its normal flattened with distance). From
+  below, what's above bent by the waves' sum, and the water's fog to it.
+- Fog: every surface under the water plane (the camera's region's height)
+  gets the water's fog instead of the air's haze (`applyAtmosphere` in
+  atmosphere.glsl, as applySkyAndWaterFog: from where the view enters the
+  water, the official formula with ks from the light's height), with the
+  density raised by the fog mod when the camera is under it; then the sky
+  below the horizon is the fog's color.
+
+Not yet: planar (mirror) reflections, the official exclusion of water
+inside prims (water exclusion surfaces), shoreline fade.
 
 Terrain textures come from the grid (see the texture pipeline); the
 procedural ones stand in until they're loaded. PBR terrain materials from the

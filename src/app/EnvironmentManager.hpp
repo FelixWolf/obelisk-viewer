@@ -53,6 +53,8 @@ public:
     const Status& status() const { return status_; }
     // The cloud noise texture the current sky uses (after apply()).
     const Uuid& cloudTexture() const { return cloudTexture_; }
+    // The water at the time of the last apply().
+    const environment::WaterSettings& water() const { return water_; }
 
 private:
     struct Reply
@@ -76,6 +78,7 @@ private:
     glm::vec2 cloudScroll_{0.0f};
     double lastApply_ = 0.0;
     Uuid cloudTexture_{};
+    environment::WaterSettings water_;
     Status status_;
 };
 

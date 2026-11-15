@@ -34,6 +34,8 @@ set(shader_sources
   particle.vert
   particle.frag
   particle_glow.frag
+  water.vert
+  water.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -87,6 +89,7 @@ add_library(viewer_render STATIC
   RendererText.cpp
   RendererGlow.cpp
   RendererParticles.cpp
+  RendererWater.cpp
   RendererOcclusion.cpp
   OcclusionMap.cpp
   Clusters.cpp

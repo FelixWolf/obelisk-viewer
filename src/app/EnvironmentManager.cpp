@@ -117,6 +117,7 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
         status_.name = cycle_->name;
         status_.fromRegion = true;
         sky = cycle_->skyAt(status_.position, altitude);
+        water_ = cycle_->waterAt(status_.position);
     }
     else
     {
@@ -125,6 +126,7 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
         status_.name = "default sky";
         status_.fromRegion = false;
         sky = defaultSky();
+        water_ = environment::WaterSettings{};
         if(fixedPosition_)
         {
             // Round the sky once a day: rising in the east at 0.25.

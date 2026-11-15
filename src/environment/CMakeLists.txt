@@ -1,6 +1,7 @@
 add_library(viewer_environment STATIC
   DayCycle.cpp
   Sky.cpp
+  Water.cpp
 )
 add_library(viewer::environment ALIAS viewer_environment)
 

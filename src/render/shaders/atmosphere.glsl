@@ -11,7 +11,7 @@ vec3 srgbToLinear(vec3 c)
 // Haze between the camera and a surface (the windlight model, as the
 // official viewer's atmosphericsFuncs.glsl, Z up): the surface's color is
 // dimmed by `atten`, and the light the air scatters towards us is added.
-vec3 applyAtmosphere(vec3 color, vec3 worldPosition)
+vec3 applySky(vec3 color, vec3 worldPosition)
 {
     if(frame.atmoLight.w < 0.5)
     {
@@ -56,4 +56,40 @@ vec3 applyAtmosphere(vec3 color, vec3 worldPosition)
                     frame.blueHorizon.w * hazeWeight * (shaded * hazeGlow + cloudyAmbient);
     additive = min(additive * (vec3(1.0) - atten), vec3(10.0));
     return color * atten.r + srgbToLinear(additive * 2.0);
+}
+
+// Water fog between the camera and a surface under the water, for the
+// stretch of the view that's under it (waterFogF.glsl
+// getWaterFogViewNoClip, in world space: the plane is z = height).
+vec3 applyWaterFog(vec3 color, vec3 worldPosition)
+{
+    const vec3 rel = worldPosition - frame.cameraPosition.xyz;
+    const vec3 view = normalize(rel);
+    const float above = frame.cameraPosition.z - frame.waterInfo.x; // the camera's height over it
+    const float es = -view.z;
+    const float e0 = max(-above, 0.0);
+    // From where the view enters the water (or the camera, under it).
+    const vec3 entry = above > 0.0 && es > 1e-5 ? view * (above / es) : vec3(0.0);
+    const float l = max(length(rel - entry), 0.1);
+    const float kd = frame.waterInfo.z;
+    const float ks = frame.waterInfo.w;
+    const float F = 0.98;
+    const float t1 = -kd * pow(F, ks * e0);
+    float t2 = kd + ks * es;
+    t2 = abs(t2) < 1e-5 ? 1e-5 : t2;
+    const float t3 = pow(F, t2 * l) - 1.0;
+    const float L = pow(clamp(t1 / t2 * t3, 0.0, 1.0), 1.0 / 1.7);
+    const float D = pow(F, l * kd);
+    return color * D + srgbToLinear(frame.waterFog.rgb) * L;
+}
+
+// The air's haze, or the water's fog for what's under the water
+// (waterFogF.glsl applySkyAndWaterFog).
+vec3 applyAtmosphere(vec3 color, vec3 worldPosition)
+{
+    if(frame.waterInfo.y > 0.5 && worldPosition.z < frame.waterInfo.x)
+    {
+        return applyWaterFog(color, worldPosition);
+    }
+    return applySky(color, worldPosition);
 }

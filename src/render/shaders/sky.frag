@@ -243,5 +243,11 @@ void main()
             color = mix(color, color + vec3(0.55, 0.56, 0.6) * (0.5 + frame.moonInfo.x), t * clear);
         }
     }
+    // Under the water, looking down or across: nothing but its fog (the
+    // sky above shows through the surface).
+    if(frame.waterInfo.y > 0.5 && frame.cameraPosition.z < frame.waterInfo.x && dir.z <= 0.0)
+    {
+        color = srgbToLinear(frame.waterFog.rgb);
+    }
     outColor = vec4(color, 1.0);
 }

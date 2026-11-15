@@ -150,3 +150,56 @@ TEST_CASE("Sky settings: probe ambiance tells skies made for PBR from older ones
     CHECK(s.gamma == doctest::Approx(2.0f));
     CHECK(blend(SkySettings::fromLlsd(older), s, 0.5f).probeAmbiance == doctest::Approx(0.5f));
 }
+
+TEST_CASE("Water settings: read from a frame, the official defaults otherwise")
+{
+    llsd::Value frame;
+    frame["type"] = "water";
+    frame["water_fog_color"] = array({0.1, 0.2, 0.3});
+    frame["water_fog_density"] = 4.0;
+    frame["underwater_fog_mod"] = 0.5;
+    frame["wave1_direction"] = array({0.5, -1.0});
+    frame["normal_scale"] = array({1.0, 2.0, 3.0});
+    frame["normal_map"] = viewer::Uuid::parse("11111111-2222-3333-4444-555555555555").value();
+    const WaterSettings w = WaterSettings::fromLlsd(frame);
+    CHECK(w.fogColor == glm::vec3(0.1f, 0.2f, 0.3f));
+    CHECK(w.fogDensity == doctest::Approx(4.0f));
+    CHECK(w.wave1 == glm::vec2(0.5f, -1.0f));
+    CHECK(w.normalScale == glm::vec3(1.0f, 2.0f, 3.0f));
+    CHECK(w.normalMap.toString() == "11111111-2222-3333-4444-555555555555");
+    CHECK(w.fresnelOffset == doctest::Approx(0.5f)); // default
+    CHECK(w.scaleBelow == doctest::Approx(0.2f));
+    // Under the water: the density to the fog mod's power.
+    CHECK(w.fogDensityFor(false) == doctest::Approx(4.0f));
+    CHECK(w.fogDensityFor(true) == doctest::Approx(2.0f));
+    WaterSettings negative = w;
+    negative.fogDensity = -2.0f; // a fractional power of it isn't a number
+    CHECK(negative.fogDensityFor(true) == doctest::Approx(1.0f));
+}
+
+TEST_CASE("Water settings: the water track blends its keyframes, normal maps cross-fading")
+{
+    llsd::Value env = environment();
+    llsd::Value& day = env["day_cycle"];
+    day["frames"]["clear"]["type"] = "water";
+    day["frames"]["clear"]["water_fog_density"] = 1.0;
+    day["frames"]["murky"]["type"] = "water";
+    day["frames"]["murky"]["water_fog_density"] = 3.0;
+    day["frames"]["murky"]["normal_map"] =
+        viewer::Uuid::parse("11111111-2222-3333-4444-555555555555").value();
+    llsd::Value water;
+    water.append(keyframe(0.5, "murky"));
+    water.append(keyframe(0.0, "clear"));
+    day["tracks"][0] = water;
+    const auto cycle = DayCycle::fromEnvironment(env);
+    REQUIRE(cycle);
+    REQUIRE(cycle->waterTrack.size() == 2);
+    const WaterSettings quarter = cycle->waterAt(0.25);
+    CHECK(quarter.fogDensity == doctest::Approx(2.0f));
+    CHECK(quarter.normalBlend == doctest::Approx(0.5f));
+    CHECK(quarter.nextNormalMap.toString() == "11111111-2222-3333-4444-555555555555");
+    // Round past the end of the day, back to the first.
+    CHECK(cycle->waterAt(0.875).fogDensity == doctest::Approx(1.5f));
+    // No water keyframes: the defaults.
+    CHECK(DayCycle{}.waterAt(0.3).fogDensity == doctest::Approx(2.0f));
+}

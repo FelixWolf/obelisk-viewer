@@ -77,7 +77,7 @@ void printUsage()
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
-                 "[--without shadows,lights,probes,glow,exposure,clusters,particles]");
+                 "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
 } // namespace
@@ -1193,19 +1193,7 @@ void App::buildScene(render::Scene& scene)
                            });
         const float seconds = static_cast<float>(SDL_GetTicksNS() - startTicks_) * 1e-9f;
         profile_.mark(FrameProfile::Terrain);
-        for(const auto& [handle, terrain] : world_->terrain())
-        {
-            if(!terrain.hasComposition)
-            {
-                continue;
-            }
-            const glm::vec2 corner(
-                static_cast<float>(static_cast<int64_t>(handle >> 32) -
-                                   static_cast<int64_t>(*originHandle_ >> 32)),
-                static_cast<float>(static_cast<int64_t>(handle & 0xFFFFFFFFu) -
-                                   static_cast<int64_t>(*originHandle_ & 0xFFFFFFFFu)));
-            sceneAssets_->addWater(scene, corner, terrain.composition.waterHeight, seconds);
-        }
+        addWater(scene, seconds);
         objects_->update();
         meshes_->update();
         materials_->update();
@@ -1289,7 +1277,99 @@ void App::buildScene(render::Scene& scene)
         {
             scene.particles.clear();
         }
+        if(without("water"))
+        {
+            scene.water.enabled = false;
+        }
     }
+}
+
+void App::addWater(render::Scene& scene, float seconds)
+{
+    render::Water& water = scene.water;
+    water.patches.clear();
+    water.enabled = false;
+    if(!world_ || !originHandle_)
+    {
+        return;
+    }
+    constexpr int64_t kRegion = 256;
+    constexpr int kReach = 10; // regions around the camera's that get water
+    const int64_t originX = static_cast<int64_t>(*originHandle_ >> 32);
+    const int64_t originY = static_cast<int64_t>(*originHandle_ & 0xFFFFFFFFu);
+    auto cornerOf = [&](int64_t x, int64_t y)
+    { return glm::vec2(static_cast<float>(x - originX), static_cast<float>(y - originY)); };
+    // Each known region's water, at its height; the camera's region's
+    // height (or the origin's) for the fog and the water beyond.
+    const glm::vec3 camera = scene.camera.position;
+    const int64_t cameraX =
+        static_cast<int64_t>(std::floor((static_cast<double>(originX) + camera.x) / kRegion)) *
+        kRegion;
+    const int64_t cameraY =
+        static_cast<int64_t>(std::floor((static_cast<double>(originY) + camera.y) / kRegion)) *
+        kRegion;
+    std::optional<float> cameraHeight;
+    std::optional<float> originHeight;
+    std::unordered_set<uint64_t> known;
+    for(const auto& [handle, terrain] : world_->terrain())
+    {
+        if(!terrain.hasComposition)
+        {
+            continue;
+        }
+        const auto x = static_cast<int64_t>(handle >> 32);
+        const auto y = static_cast<int64_t>(handle & 0xFFFFFFFFu);
+        const float height = terrain.composition.waterHeight;
+        known.insert(handle);
+        water.patches.push_back({cornerOf(x, y), static_cast<float>(kRegion), height});
+        if(x == cameraX && y == cameraY)
+        {
+            cameraHeight = height;
+        }
+        if(handle == *originHandle_)
+        {
+            originHeight = height;
+        }
+    }
+    if(water.patches.empty())
+    {
+        return;
+    }
+    water.enabled = true;
+    water.height = cameraHeight.value_or(originHeight.value_or(water.patches.front().height));
+    for(int i = -kReach; i <= kReach; i++)
+    {
+        for(int j = -kReach; j <= kReach; j++)
+        {
+            const int64_t x = cameraX + i * kRegion;
+            const int64_t y = cameraY + j * kRegion;
+            if(x >= 0 && y >= 0 &&
+               !known.contains(static_cast<uint64_t>(x) << 32 | static_cast<uint64_t>(y)))
+            {
+                water.patches.push_back(
+                    {cornerOf(x, y), static_cast<float>(kRegion), water.height});
+            }
+        }
+    }
+
+    const environment::WaterSettings& w = environment_->water();
+    water.fogColor = w.fogColor;
+    water.fogDensity = w.fogDensityFor(false);
+    water.fogDensityBelow = w.fogDensityFor(true);
+    water.fresnelScale = w.fresnelScale;
+    water.fresnelOffset = w.fresnelOffset;
+    water.roughness = std::max(0.0f, w.blurMultiplier) * 2.0f;
+    water.scaleAbove = w.scaleAbove;
+    water.scaleBelow = w.scaleBelow;
+    water.normalScale = w.normalScale;
+    water.wave1 = w.wave1;
+    water.wave2 = w.wave2;
+    water.normalMap = textures_->getLinear(w.normalMap, 512.0f);
+    water.nextNormalMap = w.nextNormalMap == w.normalMap
+                              ? water.normalMap
+                              : textures_->getLinear(w.nextNormalMap, 512.0f);
+    water.normalBlend = w.normalBlend;
+    water.time = seconds * 0.5f; // as the official phase_time
 }
 
 std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene) const

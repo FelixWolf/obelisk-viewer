@@ -184,29 +184,6 @@ MeshData cube()
     return mesh;
 }
 
-MeshData quad()
-{
-    MeshData mesh;
-    const glm::vec2 corners[] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-    for(const glm::vec2& c : corners)
-    {
-        render::ObjectVertex v;
-        v.position = glm::vec3(c, 0.0f);
-        v.normal = glm::vec3(0, 0, 1);
-        v.tangent = glm::vec4(1, 0, 0, 1);
-        v.uv = c;
-        mesh.vertices.push_back(v);
-    }
-    mesh.indices = {0, 1, 2, 0, 2, 3};
-    return mesh;
-}
-
-image::TextureData waterNormal()
-{
-    return normalFromHeight([](float u, float v) { return fbm(u * 8.0f, v * 8.0f, 4, 8); }, 1.5f,
-                            [](float, float) { return 1.0f; });
-}
-
 image::TextureData checkerDiffuse()
 {
     return makeTexture(

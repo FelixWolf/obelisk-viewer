@@ -23,17 +23,11 @@ public:
     // `origin`.
     void addTestScene(render::Scene& scene, glm::vec3 origin) const;
 
-    // A region's water: a 256 m square at `height`, its corner at `corner`.
-    // `seconds` animates the ripples.
-    void addWater(render::Scene& scene, glm::vec2 corner, float height, float seconds) const;
-
 private:
     render::Mesh sphere_;
     render::Mesh cube_;
     render::Mesh testTerrainLeft_;
     render::Mesh testTerrainRight_;
-    render::Mesh waterQuad_;
-    render::GpuTexture waterNormal_;
 
     render::GpuTexture checkerDiffuse_;
     render::GpuTexture bumpNormal_;

@@ -12,6 +12,7 @@
 // either side of it, wrapping around midnight.
 
 #include "viewer/environment/Sky.hpp"
+#include "viewer/environment/Water.hpp"
 #include "viewer/llsd/Value.hpp"
 
 #include <array>
@@ -25,7 +26,7 @@ namespace viewer::environment
 struct Keyframe
 {
     float position = 0.0f; // 0..1 through the day
-    size_t sky = 0;        // index into DayCycle::skies
+    size_t sky = 0;        // index into DayCycle::skies (the water track's: waters)
 };
 
 struct DayCycle
@@ -36,6 +37,9 @@ struct DayCycle
     std::vector<SkySettings> skies;
     // Sky tracks 1..4 (index 0 is track 1), keyframes sorted by position.
     std::array<std::vector<Keyframe>, kSkyTracks> tracks;
+    // The water track (0); its keyframes index `waters`.
+    std::vector<WaterSettings> waters;
+    std::vector<Keyframe> waterTrack;
     double dayLength = 14400.0; // seconds
     double dayOffset = 57600.0; // seconds
     // Where tracks 2, 3 and 4 begin (meters); track 1 is below the first.
@@ -49,6 +53,8 @@ struct DayCycle
     // The sky at that position for something at this altitude. A cycle
     // without sky keyframes gives the default sky.
     SkySettings skyAt(double position, float altitude) const;
+    // The water at that position (the default water without keyframes).
+    WaterSettings waterAt(double position) const;
 };
 
 } // namespace viewer::environment

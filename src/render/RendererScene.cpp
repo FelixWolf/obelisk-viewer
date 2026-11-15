@@ -141,6 +141,48 @@ bool Renderer::createPipelines()
         createShader(device_, {kOutlineFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "outline.frag");
     SDL_GPUShader* labelVert =
         createShader(device_, {kLabelVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "label.vert");
+    SDL_GPUShader* waterVert =
+        createShader(device_, {kWaterVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "water.vert");
+    SDL_GPUShader* waterFrag =
+        createShader(device_, {kWaterFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 2, 2}, "water.frag");
+    if(waterVert && waterFrag)
+    {
+        // Squares of positions; opaque (it shows what's behind itself),
+        // seen from both sides, writing depth.
+        const SDL_GPUVertexBufferDescription buffer = {0, sizeof(glm::vec3),
+                                                       SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+        const SDL_GPUVertexAttribute attribute = {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0};
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kHdrFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = waterVert;
+        info.fragment_shader = waterFrag;
+        info.vertex_input_state.num_vertex_buffers = 1;
+        info.vertex_input_state.vertex_buffer_descriptions = &buffer;
+        info.vertex_input_state.vertex_attributes = &attribute;
+        info.vertex_input_state.num_vertex_attributes = 1;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        p.water = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!p.water)
+        {
+            log::error("creating the water pipeline failed: {}", SDL_GetError());
+        }
+    }
+    for(SDL_GPUShader* shader : {waterVert, waterFrag})
+    {
+        if(shader)
+        {
+            SDL_ReleaseGPUShader(device_, shader);
+        }
+    }
     // Particles' (kept: their pipelines are made as blends are needed).
     p.particleVert =
         createShader(device_, {kParticleVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "particle.vert");
@@ -759,8 +801,8 @@ bool Renderer::createPipelines()
            p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick && p.outlineMask && p.outline &&
            p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
            p.glowBlur && p.occlusionReduce && p.shadowObject && p.shadowObjectMasked &&
-           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.repeatSampler &&
-           p.clampSampler && p.shadowSampler;
+           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.water &&
+           p.repeatSampler && p.clampSampler && p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -1005,6 +1047,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
     const Camera& first = *views[0].camera;
     uploadLabels(commands, scene, projectionOf(first) * viewOf(first), width, height);
     uploadParticles(commands, scene, first.position);
+    uploadWater(commands, scene);
     // HUD attachments into their own image, as big as the view, with their
     // labels.
     const bool hud = drawHud(commands, scene, width, height, drawsReady);
@@ -1023,6 +1066,16 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         FrameFS viewFs = frameFs;
         viewFs.cameraPosition = glm::vec4(camera.position, 1.0f);
         viewFs.viewAxis = glm::vec4(glm::normalize(camera.target - camera.position), 0.0f);
+        if(scene.water.enabled)
+        {
+            // The fog's ks as the official (WATER_FOG_LIGHT_CLAMP 0.3).
+            const bool under = camera.position.z < scene.water.height;
+            viewFs.waterInfo =
+                glm::vec4(scene.water.height, 1.0f,
+                          under ? scene.water.fogDensityBelow : scene.water.fogDensity,
+                          1.0f / std::max(scene.lighting.sunDirection.z, 0.3f));
+            viewFs.waterFog = glm::vec4(scene.water.fogColor, 0.0f);
+        }
         if(v > 0)
         {
             uploadLabels(commands, scene, projection * view, width, height);
@@ -1145,6 +1198,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
                               }
                               return a.index < b.index;
                           });
+        const size_t opaqueCount = opaque.size();
         std::vector<const ObjectDraw*> order = std::move(opaque);
         for(const Blended& b : blended)
         {
@@ -1208,19 +1262,51 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         // Terrain first: it covers the most screen, so it fills depth early.
         drawTerrain(scenePass, scene);
 
-        drawObjects(scenePass, scene, order, instanceBase);
-        drawParticles(scenePass);
+        const std::span<const ObjectDraw* const> all(order);
+        const auto blendedBase =
+            instanceBase ? std::optional(*instanceBase + static_cast<uint32_t>(opaqueCount))
+                         : std::nullopt;
+        drawObjects(scenePass, scene, all.first(opaqueCount), instanceBase);
+        // Water: the view so far copied for it to show through, then it,
+        // then what's blended over it (another pass, loading the first's).
+        // The occlusion map is made before, so what's under it isn't hidden.
+        const bool water =
+            scene.water.enabled && !scene.water.patches.empty() && waterVertices_.buffer;
+        std::optional<ScenePass> second;
+        SDL_GPURenderPass* blendPass = pass;
+        if(water)
+        {
+            SDL_EndGPURenderPass(pass);
+            if(v == 0)
+            {
+                drawOcclusion(commands, scene, projection * view);
+            }
+            copyForWater(commands, width, height);
+            color.load_op = SDL_GPU_LOADOP_LOAD;
+            depth.load_op = SDL_GPU_LOADOP_LOAD;
+            depth.cycle = false;
+            blendPass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+            second.emplace(commands, blendPass, p, frameVs, viewFs, storageOr(lightBuffer_),
+                           storageOr(probeBuffer_), clusters);
+            drawWater(*second, scene, camera, width, height);
+        }
+        ScenePass& over = second ? *second : scenePass;
+        drawObjects(over, scene, all.subspan(opaqueCount), blendedBase);
+        drawParticles(over);
         if(hud && scene.hud.placement == Hud::Placement::World)
         {
-            drawHudPanel(scenePass, scene.hud, projection * view);
+            drawHudPanel(over, scene.hud, projection * view);
         }
-        SDL_EndGPURenderPass(pass);
+        SDL_EndGPURenderPass(blendPass);
 
         // The first view also makes the occlusion map and measures the
         // exposure, which the others use too.
         if(v == 0)
         {
-            drawOcclusion(commands, scene, projection * view);
+            if(!water)
+            {
+                drawOcclusion(commands, scene, projection * view);
+            }
             if(scene.dynamicExposure)
             {
                 updateExposure(commands, light);

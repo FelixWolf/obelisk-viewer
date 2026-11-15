@@ -79,10 +79,6 @@ SceneAssets::SceneAssets(render::Renderer& renderer)
         renderer.createMesh(std::span<const render::ObjectVertex>(sphere.vertices), sphere.indices);
     const auto cube = procedural::cube();
     cube_ = renderer.createMesh(std::span<const render::ObjectVertex>(cube.vertices), cube.indices);
-    const auto quad = procedural::quad();
-    waterQuad_ =
-        renderer.createMesh(std::span<const render::ObjectVertex>(quad.vertices), quad.indices);
-    waterNormal_ = uploadOne(renderer, procedural::waterNormal(), false);
     testTerrainLeft_ = testTerrain(renderer, 0.0f);
     testTerrainRight_ = testTerrain(renderer, 40.0f);
 
@@ -111,28 +107,6 @@ render::TerrainPbrMaterial SceneAssets::terrainPbr() const
     m.ormLayers = &terrainOrm_;
     m.normalLayers = &terrainNormal_;
     return m;
-}
-
-void SceneAssets::addWater(render::Scene& scene, glm::vec2 corner, float height,
-                           float seconds) const
-{
-    constexpr float kRegion = 256.0f;
-    constexpr float kRepeats = kRegion / 12.0f; // ripples every 12 m
-    render::BlinnPhongMaterial m;
-    m.normal = &waterNormal_;
-    m.diffuseTint = glm::vec4(0.06f, 0.16f, 0.22f, 0.8f);
-    m.specularTint = glm::vec3(1.0f);
-    m.glossiness = 1.0f;
-    m.blend = true;
-    render::ObjectDraw draw{&waterQuad_,
-                            glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(corner, height)),
-                                       glm::vec3(kRegion, kRegion, 1.0f)),
-                            m};
-    // Tile the ripples and drift them slowly.
-    const float drift = std::fmod(seconds * 0.02f, 1.0f);
-    draw.uvRow0 = glm::vec3(kRepeats, 0.0f, drift);
-    draw.uvRow1 = glm::vec3(0.0f, kRepeats, drift * 0.6f);
-    scene.objects.push_back(draw);
 }
 
 void SceneAssets::addTestScene(render::Scene& scene, glm::vec3 origin) const

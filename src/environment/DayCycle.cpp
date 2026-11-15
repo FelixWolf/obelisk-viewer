@@ -35,8 +35,9 @@ std::expected<DayCycle, std::string> DayCycle::fromEnvironment(const llsd::Value
         cycle.trackAltitudes[i] = static_cast<float>(altitudes[i].asReal());
     }
 
-    // Sky frames by name.
+    // Sky and water frames by name.
     std::map<std::string, size_t, std::less<>> byName;
+    std::map<std::string, size_t, std::less<>> waterByName;
     if(const auto* frames = day["frames"].get<llsd::Map>())
     {
         for(const auto& [name, frame] : *frames)
@@ -46,10 +47,31 @@ std::expected<DayCycle, std::string> DayCycle::fromEnvironment(const llsd::Value
                 byName.emplace(name, cycle.skies.size());
                 cycle.skies.push_back(SkySettings::fromLlsd(frame));
             }
+            else if(frame["type"].asString() == "water")
+            {
+                waterByName.emplace(name, cycle.waters.size());
+                cycle.waters.push_back(WaterSettings::fromLlsd(frame));
+            }
         }
     }
 
     const llsd::Value& tracks = day["tracks"];
+    auto byPosition = [](const Keyframe& a, const Keyframe& b) { return a.position < b.position; };
+    if(tracks.size() > 0)
+    {
+        const llsd::Value& track = tracks[0];
+        for(size_t k = 0; k < track.size(); k++)
+        {
+            const auto it = waterByName.find(track[k]["key_name"].asString());
+            if(it != waterByName.end())
+            {
+                cycle.waterTrack.push_back(
+                    {std::clamp(static_cast<float>(track[k]["key_keyframe"].asReal()), 0.0f, 1.0f),
+                     it->second});
+            }
+        }
+        std::sort(cycle.waterTrack.begin(), cycle.waterTrack.end(), byPosition);
+    }
     for(size_t t = 0; t < kSkyTracks && t + 1 < tracks.size(); t++)
     {
         const llsd::Value& track = tracks[t + 1];
@@ -64,8 +86,7 @@ std::expected<DayCycle, std::string> DayCycle::fromEnvironment(const llsd::Value
                 {std::clamp(static_cast<float>(track[k]["key_keyframe"].asReal()), 0.0f, 1.0f),
                  it->second});
         }
-        std::sort(cycle.tracks[t].begin(), cycle.tracks[t].end(),
-                  [](const Keyframe& a, const Keyframe& b) { return a.position < b.position; });
+        std::sort(cycle.tracks[t].begin(), cycle.tracks[t].end(), byPosition);
     }
     if(cycle.tracks[0].empty())
     {
@@ -82,6 +103,53 @@ double DayCycle::position(double unixSeconds) const
     }
     const double p = std::fmod(unixSeconds + dayOffset, dayLength) / dayLength;
     return p < 0.0 ? p + 1.0 : p;
+}
+
+namespace
+{
+
+// The keyframes either side of `position` and how far between them,
+// wrapping around the end of the day.
+struct Between
+{
+    const Keyframe* previous;
+    const Keyframe* next;
+    float t;
+};
+Between between(const std::vector<Keyframe>& keys, double position)
+{
+    const auto p = static_cast<float>(position);
+    auto after = std::upper_bound(keys.begin(), keys.end(), p,
+                                  [](float v, const Keyframe& k) { return v < k.position; });
+    const Keyframe& next = after == keys.end() ? keys.front() : *after;
+    const Keyframe& previous = after == keys.begin() ? keys.back() : *(after - 1);
+    float span = next.position - previous.position;
+    float into = p - previous.position;
+    if(span <= 0.0f)
+    {
+        span += 1.0f;
+    }
+    if(into < 0.0f)
+    {
+        into += 1.0f;
+    }
+    return {&previous, &next, span > 0.0f ? into / span : 0.0f};
+}
+
+} // namespace
+
+WaterSettings DayCycle::waterAt(double position) const
+{
+    if(waterTrack.empty())
+    {
+        return WaterSettings{};
+    }
+    if(waterTrack.size() == 1)
+    {
+        return waters[waterTrack[0].sky];
+    }
+    const Between b = between(waterTrack, position);
+    return blend(waters[b.previous->sky], waters[b.next->sky], b.t);
 }
 
 SkySettings DayCycle::skyAt(double position, float altitude) const
@@ -106,23 +174,8 @@ SkySettings DayCycle::skyAt(double position, float altitude) const
         return skies[keys[0].sky];
     }
 
-    // The keyframes on either side, wrapping around the end of the day.
-    const auto p = static_cast<float>(position);
-    auto after = std::upper_bound(keys.begin(), keys.end(), p,
-                                  [](float v, const Keyframe& k) { return v < k.position; });
-    const Keyframe& next = after == keys.end() ? keys.front() : *after;
-    const Keyframe& previous = after == keys.begin() ? keys.back() : *(after - 1);
-    float span = next.position - previous.position;
-    float into = p - previous.position;
-    if(span <= 0.0f)
-    {
-        span += 1.0f;
-    }
-    if(into < 0.0f)
-    {
-        into += 1.0f;
-    }
-    return blend(skies[previous.sky], skies[next.sky], span > 0.0f ? into / span : 0.0f);
+    const Between b = between(keys, position);
+    return blend(skies[b.previous->sky], skies[b.next->sky], b.t);
 }
 
 } // namespace viewer::environment
