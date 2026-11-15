@@ -273,6 +273,23 @@ void ObjectView::update()
     drained_.clear();
 }
 
+const render::GpuTexture* ObjectView::faceTexture(const Uuid& id, float texels, bool linear,
+                                                  TextureManager& textures,
+                                                  const world::World& world,
+                                                  const world::Object* wearer,
+                                                  const AvatarView* avatars)
+{
+    if(wearer && avatars)
+    {
+        // Worn: shown about as big as the avatar's own bakes.
+        if(const auto bake = avatars->bakeFor(world, *wearer, id, textures, 2.0f * texels, linear))
+        {
+            return *bake;
+        }
+    }
+    return linear ? textures.getLinear(id, texels) : textures.get(id, texels);
+}
+
 std::optional<render::BlinnPhongMaterial>
 ObjectView::material(const world::TextureFace& face, TextureManager& textures,
                      LegacyMaterialManager& legacyMaterials, const world::World& world,
@@ -280,31 +297,24 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
                      const world::AnimatedTransform* animation, bool rigged)
 {
     render::BlinnPhongMaterial m;
-    if(wearer && avatars)
-    {
-        // Worn on the body: shown about as big as the avatar's own bakes.
-        if(const auto bake =
-               avatars->bakeFor(world, *wearer, face.texture, textures, 2.0f * texels))
-        {
-            if(!*bake)
-            {
-                return std::nullopt;
-            }
-            // Bakes cut holes where alpha layers are, like the body.
-            m.diffuse = *bake;
-            m.diffuseTint = face.color;
-            m.alphaCutoff = 0.5f;
-            m.specularTint = glm::vec3(0.0f); // bodies have no highlight
-            return m;
-        }
-    }
+    // Bake on Mesh: on a worn face, any of its textures may stand for one
+    // of the wearer's bakes (faceTexture).
+    const bool worn = wearer && avatars;
+    const std::optional<Uuid> diffuseBake =
+        worn ? avatars->bakeId(world, *wearer, face.texture) : std::nullopt;
+    auto fetch = [&](const Uuid& id, float t, bool linear)
+    { return faceTexture(id, t, linear, textures, world, worn ? wearer : nullptr, avatars); };
     // An animated face's maps all follow the animation.
     const glm::vec2 animated = animation && animation->scales
                                    ? glm::vec2(animation->scaleS, animation->scaleT)
                                    : face.repeats;
     auto texelsAt = [&](glm::vec2 repeats)
     { return repeatedTexels(texels, animation ? animated : repeats); };
-    m.diffuse = textures.get(face.texture, texelsAt(face.repeats));
+    m.diffuse = fetch(face.texture, texelsAt(face.repeats), false);
+    if(diffuseBake && !m.diffuse)
+    {
+        return std::nullopt; // the bake still loading (or none)
+    }
     m.diffuseLoading = !m.diffuse && !face.texture.isNull();
     m.diffuseTint = face.color;
     m.fullbright = face.fullbright();
@@ -330,8 +340,7 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
                     legacy->specularTransform.rotation, m.specularUv[0], m.specularUv[1]);
         if(!legacy->normalMap.isNull())
         {
-            m.normal =
-                textures.getLinear(legacy->normalMap, texelsAt(legacy->normalTransform.scale));
+            m.normal = fetch(legacy->normalMap, texelsAt(legacy->normalTransform.scale), true);
         }
         // With a specular map, the material's specular color, glossiness
         // and environment intensity replace the face's shiny ones
@@ -341,7 +350,7 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
         if(!legacy->specularMap.isNull())
         {
             m.specular =
-                textures.get(legacy->specularMap, texelsAt(legacy->specularTransform.scale));
+                fetch(legacy->specularMap, texelsAt(legacy->specularTransform.scale), false);
             m.specularTint = legacy->glossiness > 0.0f
                                  ? srgbToLinear(glm::vec3(legacy->specularColor))
                                  : glm::vec3(0.0f);
@@ -353,8 +362,14 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
     }
     // What the diffuse alpha does, with what the texture's alpha turned out
     // to be (none until it has loaded: drawn solid meanwhile).
-    const auto textureAlpha = textures.alphaMode(face.texture);
+    const auto textureAlpha = textures.alphaMode(diffuseBake ? *diffuseBake : face.texture);
     const bool opaqueFace = face.color.a >= 1.0f;
+    if(diffuseBake && alphaMode == assets::DiffuseAlphaMode::Default)
+    {
+        // Bakes cut holes where alpha layers are, like the body.
+        m.alphaCutoff = 0.5f;
+        return m;
+    }
     switch(alphaMode)
     {
     case assets::DiffuseAlphaMode::None:
@@ -410,7 +425,8 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
 bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& object, size_t face,
                              const world::World& world, TextureManager& textures,
                              MaterialManager& materials, float texels,
-                             const world::AnimatedTransform* animation)
+                             const world::AnimatedTransform* animation, const world::Object* wearer,
+                             const AvatarView* avatars)
 {
     Uuid id;
     for(const auto& [f, material] : object.materials)
@@ -446,16 +462,19 @@ bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& obje
                                    : glm::vec2(1.0f);
     auto texelsOf = [&](size_t slot)
     { return repeatedTexels(texels, m.transforms[slot].scale * animated); };
-    p.albedo =
-        textures.get(m.textures[assets::kBaseColorTexture], texelsOf(assets::kBaseColorTexture));
+    // Bake on Mesh: on a worn face, any of the maps may stand for one of
+    // the wearer's bakes (faceTexture).
+    auto fetch = [&](size_t slot, bool linear)
+    {
+        return faceTexture(m.textures[slot], texelsOf(slot), linear, textures, world, wearer,
+                           avatars);
+    };
+    p.albedo = fetch(assets::kBaseColorTexture, false);
     p.albedoLoading = !p.albedo && !m.textures[assets::kBaseColorTexture].isNull();
-    p.normal =
-        textures.getLinear(m.textures[assets::kNormalTexture], texelsOf(assets::kNormalTexture));
+    p.normal = fetch(assets::kNormalTexture, true);
     // glTF's metallic-roughness map: G roughness, B metallic (R unused).
-    p.orm = textures.getLinear(m.textures[assets::kMetallicRoughnessTexture],
-                               texelsOf(assets::kMetallicRoughnessTexture));
-    p.emissive =
-        textures.get(m.textures[assets::kEmissiveTexture], texelsOf(assets::kEmissiveTexture));
+    p.orm = fetch(assets::kMetallicRoughnessTexture, true);
+    p.emissive = fetch(assets::kEmissiveTexture, false);
     p.baseColorFactor = m.baseColor;
     p.emissiveTint = m.emissive;
     p.emissiveStrength = 1.0f;
@@ -700,7 +719,8 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                                                                               : nullptr;
         render::ObjectDraw draw{&mesh, root, render::BlinnPhongMaterial{}};
         const bool pbr =
-            pbrMaterial(draw, object, f, world, textures, materials, texels, faceAnimation);
+            pbrMaterial(draw, object, f, world, textures, materials, texels, faceAnimation,
+                        owner.animated ? nullptr : owner.owner, avatars);
         stats_.pbrFaces += pbr;
         if(pbr && faceAnimation)
         {
@@ -1130,8 +1150,10 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                                  : textures.texelsFor(2.0f * radius, distance);
         const glm::mat4 transform =
             flexible ? *frame : *frame * glm::scale(glm::mat4(1.0f), object.scale);
+        // Worn (not on a HUD: Bake on Mesh doesn't reach those, as
+        // LLViewerObject::getBakedTextureForMagicId).
         const world::Object* wearer =
-            object.parentId != 0 ? attachedAvatar(world, object) : nullptr;
+            object.parentId != 0 && !hud ? attachedAvatar(world, object) : nullptr;
         stats_.drawn++;
         // Picking: unless clicks go through it, each face can be picked;
         // its invisible faces too if clicking it does something (invisible
@@ -1177,8 +1199,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                                   texels, glm::vec2(2.0f * std::max({object.scale.x, object.scale.y,
                                                                      object.scale.z})))
                             : texels;
-            const bool pbr =
-                pbrMaterial(draw, object, f, world, textures, materials, faceTexels, faceAnimation);
+            const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, faceTexels,
+                                         faceAnimation, wearer, avatars);
             stats_.pbrFaces += pbr;
             if(pbr && faceAnimation)
             {

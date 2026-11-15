@@ -102,6 +102,8 @@ public:
     // The texture sampled as plain data, not sRGB color: normal maps,
     // metallic-roughness maps. A copy of its own, made only when asked for.
     const render::GpuTexture* getLinear(const Uuid& id, float texels = kFullSize);
+    const render::GpuTexture* getLinear(const Uuid& id, const std::string& url,
+                                        float texels = kFullSize);
 
     // The decoded image, whole, for textures that need CPU-side processing
     // (terrain layers go into an array). Keeps a copy once asked for;

@@ -228,7 +228,7 @@ std::optional<glm::mat4> AvatarView::computeAttachmentFrame(const world::Object&
 
 const render::GpuTexture* AvatarView::bake(const world::World& world, const world::Object& avatar,
                                            int slot, const char* name, TextureManager& textures,
-                                           float texels) const
+                                           float texels, bool linear) const
 {
     // From AvatarAppearance if we have it, else the object's own entry.
     const world::World::Appearance* appearance = world.appearance(avatar.id);
@@ -240,21 +240,35 @@ const render::GpuTexture* AvatarView::bake(const world::World& world, const worl
         return nullptr;
     }
     // As the official viewer's getImageURL().
-    return textures.get(id,
-                        std::format("{}texture/{}/{}/{}", appearanceUrl_, avatar.id.toString(),
-                                    name, id.toString()),
-                        texels);
+    const std::string url = std::format("{}texture/{}/{}/{}", appearanceUrl_, avatar.id.toString(),
+                                        name, id.toString());
+    return linear ? textures.getLinear(id, url, texels) : textures.get(id, url, texels);
 }
 
 std::optional<const render::GpuTexture*>
 AvatarView::bakeFor(const world::World& world, const world::Object& avatar, const Uuid& texture,
-                    TextureManager& textures, float texels) const
+                    TextureManager& textures, float texels, bool linear) const
 {
     for(const BakeSlot& b : kBakeSlots)
     {
         if(b.placeholder == texture)
         {
-            return bake(world, avatar, b.slot, b.name, textures, texels);
+            return bake(world, avatar, b.slot, b.name, textures, texels, linear);
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<Uuid> AvatarView::bakeId(const world::World& world, const world::Object& avatar,
+                                       const Uuid& texture) const
+{
+    for(const BakeSlot& b : kBakeSlots)
+    {
+        if(b.placeholder == texture)
+        {
+            const world::World::Appearance* appearance = world.appearance(avatar.id);
+            const world::TextureEntry& faces = appearance ? appearance->faces : avatar.faces;
+            return faces[static_cast<size_t>(b.slot)].texture;
         }
     }
     return std::nullopt;

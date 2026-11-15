@@ -181,6 +181,21 @@ const render::GpuTexture* TextureManager::get(const Uuid& id, const std::string&
     return get(id, texels);
 }
 
+const render::GpuTexture* TextureManager::getLinear(const Uuid& id, const std::string& url,
+                                                    float texels)
+{
+    if(id.isNull())
+    {
+        return nullptr;
+    }
+    Entry& e = entry(id);
+    if(e.url.empty())
+    {
+        e.url = url;
+    }
+    return getLinear(id, texels);
+}
+
 const render::GpuTexture* TextureManager::getLinear(const Uuid& id, float texels)
 {
     if(id.isNull())

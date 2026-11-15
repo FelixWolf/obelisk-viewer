@@ -1260,7 +1260,15 @@ the whole avatar (the render position, so attachments too); again the
 highest mesh id's wins. Both only come from meshes that carry joint
 positions, as in llvoavatar.cpp addAttachmentOverridesForObject. Bake on Mesh: attachment faces showing one of the
 `IMG_USE_BAKED_*` placeholders show the wearer's bake instead (head, upper,
-lower, eyes, skirt, hair, left arm, left leg, aux 1-3), and the default body
+lower, eyes, skirt, hair, left arm, left leg, aux 1-3). Any of a worn face's
+textures may be one: its diffuse texture, its legacy material's normal and
+specular maps, and its PBR material's base color, normal,
+metallic-roughness and emissive maps (`ObjectView::faceTexture`; normal and
+metallic-roughness bakes are sampled as plain data), so one bake can be the
+color and another the glow or roughness. Not on HUDs or animated objects
+(as getBakedTextureForMagicId). A diffuse bake is cut out at 0.5 where its
+alpha is, like the body, unless the face's legacy material sets its alpha
+mode. The default body
 parts using those bakes are hidden (head and eyelashes, upper, lower, eyes,
 skirt, hair), as llvoavatar.cpp updateMeshVisibility does. A worn rigged
 mesh's level of detail comes from its avatar's size (the diagonal of its

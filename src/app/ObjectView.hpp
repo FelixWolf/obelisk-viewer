@@ -181,10 +181,20 @@ private:
     // A face's PBR material, with its override, and its texture transform,
     // into `draw`. False if the face has none, or it hasn't loaded yet (the
     // legacy texture stands in).
+    // Worn by `wearer` (not an animated object's), its maps may be bakes.
     static bool pbrMaterial(render::ObjectDraw& draw, const world::Object& object, size_t face,
                             const world::World& world, TextureManager& textures,
                             MaterialManager& materials, float texels,
-                            const world::AnimatedTransform* animation = nullptr);
+                            const world::AnimatedTransform* animation = nullptr,
+                            const world::Object* wearer = nullptr,
+                            const AvatarView* avatars = nullptr);
+    // One of a face's textures (its material's maps too): if it's worn
+    // (`wearer`) and `id` stands for one of the wearer's bakes, that bake
+    // (null while it loads); otherwise the texture. `linear`: sampled as
+    // plain data (normal, metallic-roughness maps).
+    static const render::GpuTexture*
+    faceTexture(const Uuid& id, float texels, bool linear, TextureManager& textures,
+                const world::World& world, const world::Object* wearer, const AvatarView* avatars);
     // An object's frame (position and rotation, no scale) in scene
     // coordinates, through its linkset root and, for attachments, its
     // avatar's attachment point. Nothing if a parent isn't known yet.
