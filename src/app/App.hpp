@@ -284,6 +284,9 @@ private:
     void pressPointer();
     std::unique_ptr<TreeView> trees_;
     TerrainTextures terrainTextures_;
+    // Remembered accounts, the logging in (apart from the UI), its panel.
+    std::unique_ptr<SavedLogins> savedLogins_;
+    std::unique_ptr<LoginFlow> loginFlow_;
     std::unique_ptr<LoginPanel> loginPanel_;
     std::unique_ptr<SceneAssets> sceneAssets_;
     std::unique_ptr<session::Session> session_;

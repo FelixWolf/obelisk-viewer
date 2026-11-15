@@ -252,6 +252,19 @@ retry reuses the last attempt's parameters, so the password isn't needed
 again. Only the `$1$` MD5 hash of the password is kept, and the plain text is
 wiped from the input buffer as soon as it's hashed.
 
+That conversation is `LoginFlow` (app), apart from any UI: it starts
+logins (typed, a saved account, a credentials file), turns a session's
+failure into a prompt (`Code`, `Terms`, `Critical`, `Error`) and retries
+with the answer. The ImGui `LoginPanel` only shows it, so our own UI can
+replace the panel. Accounts logged in with "Remember me" are saved
+(`SavedLogins`): which ones in a plain list (`accounts.txt` in the
+platform's config directory: grid and name), their password hash and the
+MFA hash a two-factor login returns in the system's credential store
+(the keychain library: the Secret Service on Linux, the Keychain on
+macOS, the Credential Manager on Windows). The MFA hash goes with each
+later login of that account, so the authenticator code is asked for only
+when the grid stops taking it (then it's replaced).
+
 For development, `--login-file PATH` (viewer) and `logintest` (headless) read
 a test account from a text file: username, then password or `$1$<md5>`, then
 optionally a login URI (default: the Aditi beta grid). See

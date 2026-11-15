@@ -402,8 +402,11 @@ std::unique_ptr<App> App::create(const AppOptions& options)
             log::error("default avatar not loaded ({}); avatars won't be drawn", avatar.error());
         }
     }
-    app->loginPanel_ = std::make_unique<LoginPanel>(session::queryMachineInfo(), "viewer",
-                                                    VIEWER_VERSION, options.loginUri);
+    app->savedLogins_ =
+        std::make_unique<SavedLogins>(SavedLogins::defaultListFile(), SecretStore::system());
+    app->loginFlow_ = std::make_unique<LoginFlow>(*app->savedLogins_, session::queryMachineInfo(),
+                                                  "viewer", VIEWER_VERSION);
+    app->loginPanel_ = std::make_unique<LoginPanel>(*app->loginFlow_, options.loginUri);
     if(!options.loginFile.empty())
     {
         app->loginPanel_->setStart(options.start);
@@ -2502,6 +2505,7 @@ void App::drawUi()
     textureBrowser_->draw();
     drawTeleportWindow();
     drawEnvironmentWindow();
+    loginFlow_->observe(session_.get());
     handleLoginAction(loginPanel_->draw(session_.get()));
 
     if(showDemoWindow_)

@@ -27,6 +27,8 @@ add_executable(viewer
   FloatingText.cpp
   LocalChat.cpp
   LoginPanel.cpp
+  LoginFlow.cpp
+  SavedLogins.cpp
   LegacyMaterialManager.cpp
   MaterialManager.cpp
   MeshManager.cpp
@@ -70,6 +72,11 @@ target_link_libraries(viewer PRIVATE
   viewer::xr
   viewer_warnings
 )
+
+if(TARGET keychain)
+  target_link_libraries(viewer PRIVATE keychain)
+  target_compile_definitions(viewer PRIVATE VIEWER_HAVE_KEYCHAIN=1)
+endif()
 
 target_compile_definitions(viewer PRIVATE
   $<$<CONFIG:Debug>:VIEWER_GPU_DEBUG=1>

@@ -61,13 +61,6 @@ sound yet.
   users see, with ImGui for debug UI only (not decided yet). Drawing it
   into images, as HUDs are, would let the same UI be a screen overlay on
   desktop and panels in VR.
-- ★ Two-factor login: try the login; if the grid asks for MFA
-  (`mfa_challenge`), prompt for the token; keep the credentials and the
-  returned MFA hash (which skips the prompt for a while) in the system
-  credential store, cross-platform, several accounts. The flow kept apart
-  from ImGui (a UI-independent login state the ImGui panel only shows), so
-  our own UI can replace it. (`session::Login` already sends `token` and
-  `mfa_hash`.)
 - ★ Login screen: an island with trees, and Second Life grid stats
 - Settings in a config file instead of hard-coded parameters, and key
   bindings

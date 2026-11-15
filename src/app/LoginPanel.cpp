@@ -31,9 +31,7 @@ const ImVec4 kErrorColor(1.0f, 0.45f, 0.4f, 1.0f);
 
 } // namespace
 
-LoginPanel::LoginPanel(session::MachineInfo machine, std::string channel, std::string version,
-                       std::string loginUri)
-    : machine_(std::move(machine)), channel_(std::move(channel)), version_(std::move(version))
+LoginPanel::LoginPanel(LoginFlow& flow, std::string loginUri) : flow_(flow)
 {
     if(!loginUri.empty())
     {
@@ -76,24 +74,14 @@ LoginAction LoginPanel::logInWith(const session::Credentials& credentials)
 {
     username_ = credentials.name.first + " " + credentials.name.last;
     selectGrid(credentials.loginUri);
-    return makeLogIn(credentials.name, credentials.passwordHash, credentials.loginUri);
+    // A file's account isn't remembered: it's in the file.
+    return flow_.logIn(
+        {credentials.name, credentials.passwordHash, credentials.loginUri, start(), false});
 }
 
-LoginAction LoginPanel::makeLogIn(session::AgentName name, std::string passwordHash,
-                                  std::string loginUri)
+std::string LoginPanel::start() const
 {
-    LoginAction action;
-    session::LoginParameters& p = action.parameters;
-    p.loginUri = std::move(loginUri);
-    p.name = std::move(name);
-    p.passwordHash = std::move(passwordHash);
-    p.start = start_ == 0 ? "last" : start_ == 1 ? "home" : session::startLocation(startRegion_);
-    p.channel = channel_;
-    p.version = version_;
-    p.machine = machine_;
-    lastAttempt_ = p;
-    action.kind = LoginAction::Kind::LogIn;
-    return action;
+    return start_ == 0 ? "last" : start_ == 1 ? "home" : session::startLocation(startRegion_);
 }
 
 LoginPanel::~LoginPanel()
@@ -213,60 +201,105 @@ void LoginPanel::drawSession(const session::Session& session, LoginAction& actio
     drawCounts("Event queue", session.eventCounts());
 }
 
-LoginAction LoginPanel::drawForm(const session::Session* session)
+void LoginPanel::drawPrompt(LoginAction& action)
 {
-    LoginAction action;
-    const session::LoginFailure* failure = session ? session->failure() : nullptr;
-
-    // Prompts the server can answer a login with; the retry reuses the last
-    // attempt's parameters (including the password hash).
-    if(failure && lastAttempt_)
+    using Prompt = LoginFlow::Prompt;
+    switch(flow_.prompt())
     {
-        if(failure->reason == "mfa_challenge")
+    case Prompt::None:
+        return;
+    case Prompt::Code:
+    {
+        ImGui::TextWrapped("%s", flow_.message().c_str());
+        const bool entered = ImGui::InputText("Authenticator code", &mfaToken_,
+                                              ImGuiInputTextFlags_EnterReturnsTrue);
+        if((ImGui::Button("Continue") || entered) && !mfaToken_.empty())
         {
-            ImGui::TextWrapped("%s", failure->message.c_str());
-            const bool entered = ImGui::InputText("Authenticator code", &mfaToken_,
-                                                  ImGuiInputTextFlags_EnterReturnsTrue);
-            if((ImGui::Button("Continue") || entered) && !mfaToken_.empty())
-            {
-                action.kind = LoginAction::Kind::LogIn;
-                action.parameters = *lastAttempt_;
-                action.parameters.mfaToken = mfaToken_;
-                mfaToken_.clear();
-            }
-            ImGui::Separator();
+            action = flow_.answerCode(mfaToken_);
+            mfaToken_.clear();
         }
-        else if(failure->reason == "tos" || failure->reason == "critical")
+        ImGui::SameLine();
+        if(ImGui::Button("Cancel"))
         {
-            const bool tos = failure->reason == "tos";
-            ImGui::BeginChild("message", ImVec2(0, 200), ImGuiChildFlags_Borders);
-            ImGui::TextWrapped("%s", failure->message.c_str());
-            ImGui::EndChild();
-            ImGui::Checkbox(tos ? "I agree to the Terms of Service" : "I have read this message",
-                            &accepted_);
-            ImGui::BeginDisabled(!accepted_);
-            if(ImGui::Button("Continue"))
-            {
-                action.kind = LoginAction::Kind::LogIn;
-                action.parameters = *lastAttempt_;
-                (tos ? action.parameters.agreeToTos : action.parameters.readCritical) = true;
-                accepted_ = false;
-            }
-            ImGui::EndDisabled();
-            ImGui::Separator();
+            flow_.dismiss();
         }
-        else
+        break;
+    }
+    case Prompt::Terms:
+    case Prompt::Critical:
+    {
+        const bool tos = flow_.prompt() == Prompt::Terms;
+        ImGui::BeginChild("message", ImVec2(0, 200), ImGuiChildFlags_Borders);
+        ImGui::TextWrapped("%s", flow_.message().c_str());
+        ImGui::EndChild();
+        ImGui::Checkbox(tos ? "I agree to the Terms of Service" : "I have read this message",
+                        &accepted_);
+        ImGui::BeginDisabled(!accepted_);
+        if(ImGui::Button("Continue"))
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
-            ImGui::TextWrapped("%s", failure->message.c_str());
-            ImGui::PopStyleColor();
-            ImGui::TextDisabled("(%s)", failure->reason.c_str());
-            ImGui::Separator();
+            action = flow_.accept();
+            accepted_ = false;
+        }
+        ImGui::EndDisabled();
+        break;
+    }
+    case Prompt::Error:
+        ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+        ImGui::TextWrapped("%s", flow_.message().c_str());
+        ImGui::PopStyleColor();
+        ImGui::TextDisabled("(%s)", flow_.reason().c_str());
+        break;
+    }
+    ImGui::Separator();
+}
+
+void LoginPanel::drawSaved(LoginAction& action)
+{
+    const auto& accounts = flow_.saved().accounts();
+    if(accounts.empty())
+    {
+        return;
+    }
+    ImGui::SeparatorText("Saved accounts");
+    std::optional<SavedAccount> forget;
+    for(size_t i = 0; i < accounts.size(); i++)
+    {
+        const SavedAccount& a = accounts[i];
+        const auto grid = std::ranges::find(kGrids, std::string_view(a.loginUri), &Grid::uri);
+        const std::string label =
+            std::format("{} {} ({})###saved{}", a.name.first, a.name.last,
+                        grid != kGrids.end() ? grid->label : a.loginUri.c_str(), i);
+        if(ImGui::Button(label.c_str()))
+        {
+            username_ = a.name.first + " " + a.name.last;
+            selectGrid(a.loginUri);
+            action = flow_.logInSaved(a, start());
+        }
+        ImGui::SameLine();
+        if(ImGui::SmallButton(std::format("Forget###forget{}", i).c_str()))
+        {
+            forget = a;
         }
     }
+    if(forget)
+    {
+        flow_.saved().forget(*forget);
+    }
+    ImGui::SeparatorText("Log in");
+}
+
+LoginAction LoginPanel::drawForm(const session::Session* session)
+{
+    (void)session;
+    LoginAction action;
+    drawPrompt(action);
     if(action.kind == LoginAction::Kind::LogIn)
     {
-        lastAttempt_ = action.parameters;
+        return action;
+    }
+    drawSaved(action);
+    if(action.kind == LoginAction::Kind::LogIn)
+    {
         return action;
     }
 
@@ -300,6 +333,10 @@ LoginAction LoginPanel::drawForm(const session::Session* session)
         ImGui::InputText("Region[/x/y/z]", &startRegion_);
     }
 
+    ImGui::Checkbox("Remember me", &remember_);
+    ImGui::SetItemTooltip("Saves the account in the system's credential store once it has "
+                          "logged in (the password's hash, never the password)");
+
     if(ImGui::Button("Log in") || entered)
     {
         formError_.clear();
@@ -324,7 +361,8 @@ LoginAction LoginPanel::drawForm(const session::Session* session)
         }
         else
         {
-            action = makeLogIn(std::move(*name), session::hashPassword(password_), loginUri);
+            action = flow_.logIn(
+                {std::move(*name), session::hashPassword(password_), loginUri, start(), remember_});
             wipePassword();
         }
     }

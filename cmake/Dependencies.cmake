@@ -229,3 +229,13 @@ if(stb_ADDED)
   target_include_directories(viewer_stb SYSTEM INTERFACE ${stb_SOURCE_DIR})
   add_library(viewer::stb ALIAS viewer_stb)
 endif()
+
+# --- keychain: the system credential store (saved logins) -------------------
+# Secret Service through libsecret on Linux (GNOME Keyring, KWallet), the
+# Keychain on macOS, the Credential Manager on Windows.
+CPMAddPackage(
+  NAME keychain
+  GITHUB_REPOSITORY hrantzsch/keychain
+  GIT_TAG v1.3.1
+  OPTIONS "BUILD_TESTS OFF"
+)

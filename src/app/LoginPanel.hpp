@@ -1,9 +1,12 @@
 #pragma once
 
-// The login window. It doesn't own the Session; it shows the current one (if
-// any) and tells the App what the user asked for. The plain-text password
-// lives only in the input buffer until "Log in" is pressed, and is then
-// replaced by its hash.
+// The login window (ImGui): a view of the LoginFlow, which does the logging
+// in. It doesn't own the Session; it shows the current one (if any) and
+// tells the App what the user asked for. The plain-text password lives only
+// in the input buffer until "Log in" is pressed, and is then replaced by
+// its hash.
+
+#include "LoginFlow.hpp"
 
 #include "viewer/session/Credentials.hpp"
 #include "viewer/session/Login.hpp"
@@ -14,23 +17,10 @@
 namespace viewer
 {
 
-struct LoginAction
-{
-    enum class Kind : uint8_t
-    {
-        None,
-        LogIn,  // replace the current session with a new one
-        LogOut, // destroy the current session
-    };
-    Kind kind = Kind::None;
-    session::LoginParameters parameters{};
-};
-
 class LoginPanel
 {
 public:
-    LoginPanel(session::MachineInfo machine, std::string channel, std::string version,
-               std::string loginUri);
+    LoginPanel(LoginFlow& flow, std::string loginUri);
     ~LoginPanel();
 
     LoginAction draw(const session::Session* session);
@@ -45,13 +35,13 @@ public:
 private:
     LoginAction drawForm(const session::Session* session);
     void selectGrid(const std::string& loginUri);
-    LoginAction makeLogIn(session::AgentName name, std::string passwordHash, std::string loginUri);
+    std::string start() const;
+    void drawPrompt(LoginAction& action);
+    void drawSaved(LoginAction& action);
     void drawSession(const session::Session& session, LoginAction& action);
     void wipePassword();
 
-    session::MachineInfo machine_;
-    std::string channel_;
-    std::string version_;
+    LoginFlow& flow_;
 
     std::string username_;
     std::string password_;
@@ -61,11 +51,8 @@ private:
     std::string startRegion_;
     std::string mfaToken_;
     bool accepted_ = false; // the user accepted the TOS / critical message
+    bool remember_ = true;  // save the account once logged in
     std::string formError_;
-
-    // What the last attempt sent, so a retry after an MFA or TOS prompt
-    // doesn't need the password again.
-    std::optional<session::LoginParameters> lastAttempt_;
 };
 
 } // namespace viewer
