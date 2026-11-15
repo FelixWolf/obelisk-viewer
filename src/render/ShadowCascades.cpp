@@ -22,8 +22,7 @@ Cascades computeCascades(const Camera& camera, float aspect, const Shadows& shad
     const glm::vec3 forward = glm::normalize(camera.target - camera.position);
     const glm::vec3 right = glm::normalize(glm::cross(forward, camera.up));
     const glm::vec3 up = glm::cross(right, forward);
-    const float tanY = std::tan(camera.verticalFov * 0.5f);
-    const float tanX = tanY * aspect;
+    const glm::vec4 tangents = camera.tangents(aspect);
 
     float previous = nearEnd;
     for(size_t i = 0; i < 4; i++)
@@ -37,12 +36,11 @@ Cascades computeCascades(const Camera& camera, float aspect, const Shadows& shad
         size_t k = 0;
         for(const float d : {previous, split})
         {
-            for(const float sx : {-1.0f, 1.0f})
+            for(const float sx : {tangents.x, tangents.y})
             {
-                for(const float sy : {-1.0f, 1.0f})
+                for(const float sy : {tangents.z, tangents.w})
                 {
-                    corners[k++] = camera.position + forward * d + right * (sx * tanX * d) +
-                                   up * (sy * tanY * d);
+                    corners[k++] = camera.position + forward * d + right * (sx * d) + up * (sy * d);
                 }
             }
         }

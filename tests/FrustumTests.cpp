@@ -4,6 +4,7 @@
 #include <doctest/doctest.h>
 
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 using viewer::render::Camera;
 using viewer::render::Frustum;
@@ -132,4 +133,43 @@ TEST_CASE("Projector: the prim's -Z face is the near plane, fov spans its Y size
     CHECK(glm::length(turned.axis - glm::vec3(1.0f, 0.0f, 0.0f)) < 1e-5f);
     const glm::vec4 ahead = turned.matrix * glm::vec4(8.0f, 0.0f, 0.0f, 1.0f);
     CHECK(ahead.x / ahead.w == doctest::Approx(0.5f));
+}
+
+TEST_CASE("Camera: a headset eye's off-center view")
+{
+    Camera camera;
+    camera.position = glm::vec3(0.0f);
+    camera.target = glm::vec3(1.0f, 0.0f, 0.0f);
+    camera.verticalFov = glm::half_pi<float>();
+    camera.nearPlane = 0.5f;
+    camera.farPlane = 100.0f;
+
+    // Without edges, as glm::perspective.
+    const glm::mat4 symmetric = camera.projection(1.5f);
+    const glm::mat4 expected = glm::perspective(camera.verticalFov, 1.5f, 0.5f, 100.0f);
+    for(int c = 0; c < 4; c++)
+    {
+        for(int r = 0; r < 4; r++)
+        {
+            CHECK(symmetric[c][r] == doctest::Approx(expected[c][r]).epsilon(1e-5));
+        }
+    }
+
+    // Off center: further right (-Y) than left, down than up; the aspect
+    // ignored.
+    camera.edges = glm::vec4(-0.5f, 1.2f, -1.0f, 0.8f); // left, right, down, up
+    CHECK(camera.tangents(3.0f) == *camera.edges);
+    auto clip = [&](const glm::vec3& p)
+    {
+        const glm::vec4 c = camera.projection(3.0f) * camera.view() * glm::vec4(p, 1.0f);
+        return glm::vec3(c) / c.w;
+    };
+    // Each edge at x = -1 or 1 (y up) where its tangent says.
+    CHECK(clip({10.0f, 5.0f, 0.0f}).x == doctest::Approx(-1.0f));   // left: 0.5 m a meter
+    CHECK(clip({10.0f, -12.0f, 0.0f}).x == doctest::Approx(1.0f));  // right: 1.2
+    CHECK(clip({10.0f, 0.0f, 8.0f}).y == doctest::Approx(1.0f));    // up: 0.8
+    CHECK(clip({10.0f, 0.0f, -10.0f}).y == doctest::Approx(-1.0f)); // down: 1.0
+    // Depth 0 at the near plane, 1 at the far.
+    CHECK(clip({0.5f, 0.0f, 0.0f}).z == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(clip({100.0f, 0.0f, 0.0f}).z == doctest::Approx(1.0f).epsilon(1e-4));
 }

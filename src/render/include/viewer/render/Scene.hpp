@@ -32,6 +32,17 @@ struct Camera
     float verticalFov = 1.0472f; // radians
     float nearPlane = 0.25f;
     float farPlane = 1024.0f;
+    // A headset's eye sees an off-center view: its edges, as the tangents of
+    // their angles from the view axis (left, right, down, up; left and down
+    // negative), stand in for verticalFov and the image's aspect.
+    std::optional<glm::vec4> edges;
+
+    glm::vec3 forward() const { return glm::normalize(target - position); }
+    glm::mat4 view() const;
+    // The edges' tangents for an image of this aspect (width / height).
+    glm::vec4 tangents(float aspect) const;
+    // Depth 0..1, near to far.
+    glm::mat4 projection(float aspect) const;
 };
 
 // Second Life's atmosphere model ("windlight"): the sky is drawn from it,

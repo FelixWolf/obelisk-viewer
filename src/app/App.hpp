@@ -32,6 +32,7 @@
 #include "viewer/ui/ImGuiLayer.hpp"
 #include "viewer/world/World.hpp"
 #include "viewer/world/WorldThread.hpp"
+#include "viewer/xr/Headset.hpp"
 
 #include <SDL3/SDL_video.h>
 
@@ -56,6 +57,7 @@ struct AppOptions
     bool testScene = false;                     // show the material test scene
     bool pbrTerrain = false;                    // start with the PBR terrain shader
     bool firstPerson = false;                   // go first person once in the world
+    bool vr = false;                            // --vr: show the world in a headset (OpenXR)
     bool vsync = true;                          // --no-vsync: uncapped, for measuring
     std::string start;                          // login start: last, home, Region[/x/y/z]
     std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
@@ -123,6 +125,9 @@ private:
     void logOutBeforeExit();
     // Fills the frame's scene (cleared first).
     void buildScene(render::Scene& scene);
+    // The headset's eyes (eyeCameras_) and head (into `camera`), placed
+    // from `camera`.
+    void placeEyes(render::Camera& camera, const xr::HeadsetFrame& frame);
     void endSession();
     // The agent arrived (login, teleport, region crossing): move the world
     // origin and the camera.
@@ -150,10 +155,17 @@ private:
     // Members are destroyed in reverse declaration order, which is the
     // shutdown order: session (cancels its HTTP requests) -> login panel ->
     // HTTP client -> browser (GPU textures) -> cache (waits for its jobs) ->
-    // decoder -> job threads -> UI -> renderer -> window -> SDL_Quit.
+    // decoder -> job threads -> UI -> headset -> renderer -> window ->
+    // SDL_Quit.
     SdlRuntime sdl_;
     std::unique_ptr<SDL_Window, WindowDeleter> window_;
     std::unique_ptr<render::Renderer> renderer_;
+    // --vr: the headset (its session goes before the GPU device). Its frame
+    // under way, and each eye's camera this frame (buildScene).
+    std::unique_ptr<xr::Headset> headset_;
+    std::optional<xr::HeadsetFrame> headsetFrame_;
+    std::array<render::Camera, 2> eyeCameras_{};
+    glm::uvec2 headsetSize_{0}; // per eye, for the log
     std::unique_ptr<ui::ImGuiLayer> ui_;
     std::unique_ptr<JobSystem> jobs_;
     std::unique_ptr<image::J2kDecoder> j2kDecoder_;

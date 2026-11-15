@@ -71,8 +71,9 @@ sound yet.
 
 ## VR
 
-- OpenXR: stereo rendering, controllers, locomotion (smooth and
-  teleport), comfort options
+- OpenXR: stereo rendering (done: `--vr`, the head tracked from the
+  avatar's eyes), controllers, locomotion (smooth and teleport), comfort
+  options
 - Built from the items above: radial menu, VR keyboard, IK, hover
   outline, HUD panels
 

@@ -67,6 +67,7 @@ target_link_libraries(viewer PRIVATE
   viewer::volume
   viewer::render
   viewer::ui
+  viewer::xr
   viewer_warnings
 )
 

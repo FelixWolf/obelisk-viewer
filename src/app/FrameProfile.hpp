@@ -30,11 +30,13 @@ public:
         Ui,
         Render, // recording the frame's GPU commands
         Submit,
+        HeadsetWait, // the headset's xrWaitFrame (its pace, or the GPU behind)
+        HeadsetEnd,  // handing the eyes to the headset (xrEndFrame)
         kStageCount,
     };
     static constexpr std::array<const char*, kStageCount> kNames = {
-        "session", "textures", "acquire", "loading", "terrain",
-        "avatars", "objects",  "ui",      "render",  "submit",
+        "session", "textures", "acquire", "loading", "terrain",      "avatars",
+        "objects", "ui",       "render",  "submit",  "headset wait", "headset end",
     };
     static constexpr size_t kHistory = 240;
 

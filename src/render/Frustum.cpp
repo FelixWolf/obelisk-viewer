@@ -26,10 +26,7 @@ Frustum Frustum::fromViewProjection(const glm::mat4& m)
 
 Frustum Frustum::fromCamera(const Camera& camera, float aspect)
 {
-    const glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
-    const glm::mat4 projection =
-        glm::perspective(camera.verticalFov, aspect, camera.nearPlane, camera.farPlane);
-    return fromViewProjection(projection * view);
+    return fromViewProjection(camera.projection(aspect) * camera.view());
 }
 
 bool Frustum::containsSphere(const glm::vec3& center, float radius) const

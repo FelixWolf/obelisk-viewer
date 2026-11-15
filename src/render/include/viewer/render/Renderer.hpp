@@ -16,6 +16,7 @@
 
 #include <array>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -40,6 +41,10 @@ struct RendererOptions
 {
     bool gpuDebug = false; // enable backend validation layers
     bool vsync = true;     // off: present as soon as a frame is done (for measuring)
+    // More for the GPU device's creation properties (a headset's: the device
+    // then drives it). If the device can't be made with them, it's made
+    // without (extendedDevice() says which).
+    std::function<void(SDL_PropertiesID)> deviceProperties;
 };
 
 // Owns the SDL GPU device and its binding to one window.
@@ -62,12 +67,16 @@ public:
     Renderer& operator=(const Renderer&) = delete;
 
     SDL_GPUDevice* device() const { return device_; }
+    // Made with RendererOptions::deviceProperties.
+    bool extendedDevice() const { return extendedDevice_; }
     SDL_GPUTextureFormat swapchainFormat() const;
     const char* driverName() const;
 
     // Returns nullopt if no swapchain image is available (e.g. minimized).
     // The frame must always be finished with endFrame(), even then.
-    std::optional<Frame> beginFrame();
+    // Without waiting for the window (a headset sets the pace): the frame
+    // comes back anyway, its target null if the window has no image free.
+    std::optional<Frame> beginFrame(bool waitForWindow = true);
 
     // Draws the 3D scene (HDR, depth-tested) and tonemaps it into the frame's
     // target, replacing its contents. The UI is drawn on top afterwards.
@@ -91,6 +100,19 @@ public:
     // (meters) each way, into the eye images; then the left eye shown in
     // the frame. What the eyes share is done once (drawViews).
     void drawStereo(const Frame& frame, const Scene& scene, uint32_t size, float separation);
+    // A headset's eyes (xr::Headset): the scene from each eye's camera into
+    // the eye images (`width` x `height`), the left one also filling the
+    // frame's target, if it has one. Then (copyEyes) into the headset's
+    // images (`targets`, of `format`), as linear values: OpenXR takes 8-bit
+    // UNORM images' values as linear too, and sRGB ones are encoded on the
+    // way in. Apart, so the headset's images are needed only at the end.
+    void drawEyes(const Frame& frame, const Scene& scene, const std::array<Camera, 2>& cameras,
+                  uint32_t width, uint32_t height);
+    void copyEyes(const Frame& frame, const std::array<SDL_GPUTexture*, 2>& targets,
+                  SDL_GPUTextureFormat format);
+    // The left eye image last drawn, filling the frame's target (cropped to
+    // its shape); black before there is one.
+    void drawMirror(const Frame& frame);
     // The eye images drawStereo last drew (left, right; null before).
     std::array<SDL_GPUTexture*, 2> eyeImages() const { return eyeImages_; }
 
@@ -160,7 +182,7 @@ public:
     struct Pipelines;
 
 private:
-    Renderer(SDL_Window* window, SDL_GPUDevice* device);
+    Renderer(SDL_Window* window, SDL_GPUDevice* device, bool extendedDevice);
     bool createPipelines();
     bool createDefaultTextures();
     bool ensureTargets(uint32_t width, uint32_t height);
@@ -437,8 +459,15 @@ private:
     uint32_t labelVertices_ = 0;
     uint32_t hudLabelVertices_ = 0;
 
+    // The eye images (the window's format, as the views' passes draw into),
+    // made or remade at this size; false if they couldn't be.
+    bool ensureEyeImages(uint32_t width, uint32_t height);
     std::array<SDL_GPUTexture*, 2> eyeImages_{};
-    uint32_t eyeSize_ = 0;
+    uint32_t eyeWidth_ = 0;
+    uint32_t eyeHeight_ = 0;
+    // Into a headset's image of this format (made when first needed).
+    SDL_GPUGraphicsPipeline* eyeCopyPipeline(SDL_GPUTextureFormat format);
+    bool extendedDevice_ = false;
 
     SDL_GPUTexture* hudImage_ = nullptr;
     SDL_GPUTexture* hudDepth_ = nullptr;

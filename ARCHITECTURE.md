@@ -486,6 +486,34 @@ takes about a third off the draw calls.
 
 ### Stereo
 
+A headset (`--vr`; `xr::Headset`, src/xr) goes through SDL's GPU OpenXR
+support: the GPU device is made with the headset's properties (SDL makes
+the OpenXR instance, on the GPU the headset uses; without a headset the
+device is made as usual and the viewer stays on the screen), then the
+session, a local and a view space, and one swapchain per eye at the
+runtime's recommended size, 8-bit sRGB where offered. Each frame
+`beginFrame` waits for the headset (that sets the pace: the window is
+acquired without waiting, and presents without vsync) and locates the
+eyes and head for when the frame will show, in the viewer's axes and
+relative to an origin taken from the head on the first frame and on Home
+(and when the runtime recenters). The App places that origin at the
+camera (the avatar's eyes: VR is first person), turned to its heading;
+the scene's camera is the head, with edges covering both eyes, so culling,
+shadows and level of detail serve both. `Renderer::drawEyes` draws each
+eye with its off-center view (`Camera::edges`: the tangents of the view's
+four edges, which `Camera::projection` turns into an asymmetric frustum)
+into an eye image in the window's format, so every pass works unchanged,
+then copies it into the headset's image as linear values (OpenXR reads
+UNORM images as linear too; an sRGB image encodes them again) and shows
+the left eye in the window, cropped to fill it, with the UI over it (the
+window never gets a scene of its own). Frames overlap: `xrEndFrame`, where
+SteamVR waits for the GPU to finish the eyes, runs on a thread of the
+headset's own, so the next frame is waited for, built and recorded
+meanwhile; only `acquireImages`, just before the eyes are copied into the
+headset's images, waits for it to be done (`xrBeginFrame` must come after
+the last frame's end). Before that, the CPU's and the GPU's time added up
+within the 11.1 ms; now the larger of the two has to fit.
+
 `Renderer::drawStereo` draws the scene once per eye, each into its own
 square image, from the scene's camera moved half the eye separation to
 each side, then shows the left eye in the window: what a headset needs,
@@ -1180,8 +1208,8 @@ its owner's frame and visibility once per owner.
 `ObjectView` (app) generates geometry on the JobSystem, cached per (shape,
 level of detail), so identical prims share a mesh. Only what the camera can see
 is drawn: the App puts the view volume in the scene (`render::Frustum`,
-six planes from the view-projection matrix; for VR it will have to hold
-both eyes), and the views test against it. Prims are tested with a sphere
+six planes from the view-projection matrix; in VR the head's, wide enough
+for both eyes), and the views test against it. Prims are tested with a sphere
 around their geometry (its largest coordinate per axis, measured when the
 shape is generated, since tori and twisted prims reach past their box),
 mesh objects with their box, avatars and rigged mesh with the skeleton's

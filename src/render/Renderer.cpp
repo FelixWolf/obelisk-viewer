@@ -18,7 +18,29 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
     // Windows). Metal (MSL) and D3D12 (DXIL) need converted shaders first.
     const SDL_GPUShaderFormat formats = SDL_GPU_SHADERFORMAT_SPIRV;
 
-    SDL_GPUDevice* device = SDL_CreateGPUDevice(formats, options.gpuDebug, nullptr);
+    auto createDevice = [&](bool extended)
+    {
+        const SDL_PropertiesID props = SDL_CreateProperties();
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN,
+                               (formats & SDL_GPU_SHADERFORMAT_SPIRV) != 0);
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN,
+                               options.gpuDebug);
+        if(extended)
+        {
+            options.deviceProperties(props);
+        }
+        SDL_GPUDevice* made = SDL_CreateGPUDeviceWithProperties(props);
+        SDL_DestroyProperties(props);
+        return made;
+    };
+    bool extended = static_cast<bool>(options.deviceProperties);
+    SDL_GPUDevice* device = createDevice(extended);
+    if(!device && extended)
+    {
+        log::warn("making the GPU device for the headset failed ({}): without it", SDL_GetError());
+        extended = false;
+        device = createDevice(false);
+    }
     if(!device)
     {
         log::error("SDL_CreateGPUDevice failed: {}", SDL_GetError());
@@ -33,7 +55,8 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
     }
 
     SDL_GPUPresentMode present = SDL_GPU_PRESENTMODE_VSYNC;
-    if(!options.vsync)
+    // A headset sets the pace: the window mustn't hold frames back.
+    if(!options.vsync || extended)
     {
         present = SDL_WindowSupportsGPUPresentMode(device, window, SDL_GPU_PRESENTMODE_IMMEDIATE)
                       ? SDL_GPU_PRESENTMODE_IMMEDIATE
@@ -44,7 +67,7 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
     SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, present);
 
     log::info("GPU device created (driver: {})", SDL_GetGPUDeviceDriver(device));
-    std::unique_ptr<Renderer> renderer(new Renderer(window, device));
+    std::unique_ptr<Renderer> renderer(new Renderer(window, device, extended));
     if(!renderer->createPipelines() || !renderer->createDefaultTextures() ||
        !renderer->createProbes())
     {
@@ -53,8 +76,9 @@ std::unique_ptr<Renderer> Renderer::create(SDL_Window* window, const RendererOpt
     return renderer;
 }
 
-Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device)
-    : window_(window), device_(device), meshPool_(std::make_unique<MeshPool>(device))
+Renderer::Renderer(SDL_Window* window, SDL_GPUDevice* device, bool extendedDevice)
+    : window_(window), device_(device), extendedDevice_(extendedDevice),
+      meshPool_(std::make_unique<MeshPool>(device))
 {
 }
 
@@ -153,7 +177,7 @@ const char* Renderer::driverName() const
     return SDL_GetGPUDeviceDriver(device_);
 }
 
-std::optional<Frame> Renderer::beginFrame()
+std::optional<Frame> Renderer::beginFrame(bool waitForWindow)
 {
     assert(!currentCommands_ && "beginFrame called twice without endFrame");
 
@@ -166,6 +190,15 @@ std::optional<Frame> Renderer::beginFrame()
 
     Frame frame;
     frame.commands = currentCommands_;
+    if(!waitForWindow)
+    {
+        if(!SDL_AcquireGPUSwapchainTexture(currentCommands_, window_, &frame.target, &frame.width,
+                                           &frame.height))
+        {
+            frame.target = nullptr;
+        }
+        return frame;
+    }
     if(!SDL_WaitAndAcquireGPUSwapchainTexture(currentCommands_, window_, &frame.target,
                                               &frame.width, &frame.height))
     {

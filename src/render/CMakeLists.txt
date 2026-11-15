@@ -38,6 +38,7 @@ set(shader_sources
   water.frag
   water_mask.frag
   water_mask_object.vert
+  eye_copy.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -93,8 +94,10 @@ add_library(viewer_render STATIC
   RendererParticles.cpp
   RendererWater.cpp
   RendererOcclusion.cpp
+  RendererEyes.cpp
   OcclusionMap.cpp
   Clusters.cpp
+  Camera.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp

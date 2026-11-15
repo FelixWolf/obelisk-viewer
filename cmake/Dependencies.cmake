@@ -5,7 +5,10 @@
 CPMAddPackage(
   NAME SDL3
   GITHUB_REPOSITORY libsdl-org/SDL
-  GIT_TAG release-3.4.20
+  # The development branch (3.5), pinned, for its GPU OpenXR support
+  # (SDL_openxr.h), which no release has yet; back to a release (3.6) when
+  # one does.
+  GIT_TAG fda4ece2775c80faf42e548c1631b4dd91b74469
   OPTIONS
     "SDL_SHARED OFF"
     "SDL_STATIC ON"

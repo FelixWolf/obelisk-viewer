@@ -77,7 +77,7 @@ void printUsage()
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
-                 "[--first-person] "
+                 "[--first-person] [--vr] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -128,6 +128,10 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         else if(arg == "--first-person")
         {
             options.firstPerson = true;
+        }
+        else if(arg == "--vr")
+        {
+            options.vr = true;
         }
         else if(arg == "--pbr-terrain")
         {
@@ -287,10 +291,22 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     renderOptions.gpuDebug = true;
 #endif
     renderOptions.vsync = options.vsync;
+    if(options.vr)
+    {
+        app->headset_ = xr::Headset::prepare();
+        renderOptions.deviceProperties = [headset = app->headset_.get()](SDL_PropertiesID props)
+        { headset->addDeviceProperties(props); };
+    }
     app->renderer_ = render::Renderer::create(app->window_.get(), renderOptions);
     if(!app->renderer_)
     {
         return nullptr;
+    }
+    if(app->headset_ &&
+       (!app->renderer_->extendedDevice() || !app->headset_->start(app->renderer_->device())))
+    {
+        log::warn("--vr: no headset to show the world in; on the screen only");
+        app->headset_.reset();
     }
 
     app->ui_ = ui::ImGuiLayer::create(app->window_.get(), *app->renderer_);
@@ -322,7 +338,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->loadTerrainBlendRamp();
     app->showTestScene_ = options.testScene;
     app->pbrTerrain_ = options.pbrTerrain;
-    app->wantFirstPerson_ = options.firstPerson;
+    // In a headset, the view is from the avatar's eyes.
+    app->wantFirstPerson_ = options.firstPerson || app->headset_ != nullptr;
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
     if(options.camera)
     {
@@ -491,6 +508,12 @@ int App::run()
                 releasePointer();
             }
 
+            // Home: the headset's origin where the head is now.
+            if(headset_ && event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+               event.key.scancode == SDL_SCANCODE_HOME && !uiConsumed)
+            {
+                headset_->recenter();
+            }
             if(event.type == SDL_EVENT_QUIT)
             {
                 running_ = false;
@@ -507,7 +530,18 @@ int App::run()
         updateSession();
         profile_.mark(FrameProfile::Session);
 
-        if(SDL_GetWindowFlags(window_.get()) & SDL_WINDOW_MINIMIZED)
+        // The headset's news (its session starting, stopping, ending).
+        if(headset_)
+        {
+            headset_->poll();
+            if(headset_->ended())
+            {
+                log::info("the headset's session is over; on the screen only");
+                headset_.reset();
+            }
+        }
+        const bool headsetRunning = headset_ && headset_->running();
+        if(!headsetRunning && SDL_GetWindowFlags(window_.get()) & SDL_WINDOW_MINIMIZED)
         {
             SDL_Delay(10);
             continue;
@@ -532,7 +566,9 @@ int App::run()
         lastFrameTicks_ = now;
         logMemory(now);
         // --stereo-benchmark: what both eyes cost, every few seconds.
-        if(stereoSize_ > 0 && now - stereoLoggedTicks_ > 5'000'000'000ull && !frameTimes_.empty())
+        // --vr: the same for the headset.
+        if((stereoSize_ > 0 || headsetRunning) && now - stereoLoggedTicks_ > 5'000'000'000ull &&
+           !frameTimes_.empty())
         {
             stereoLoggedTicks_ = now;
             float total = 0.0f;
@@ -545,14 +581,17 @@ int App::run()
             float cpu = 0.0f;
             for(size_t i = 0; i < stages.size(); i++)
             {
-                cpu += i == FrameProfile::Acquire ? 0.0f : stages[i];
+                const bool waiting = i == FrameProfile::Acquire || i == FrameProfile::HeadsetWait ||
+                                     i == FrameProfile::HeadsetEnd;
+                cpu += waiting ? 0.0f : stages[i];
             }
             const auto o = objects_->stats();
             log::info("stereo {}x{} per eye: {:.1f} FPS, {:.2f} ms a frame, {:.2f} ms CPU, "
                       "{:.2f} ms waiting for the GPU; {}; prims drawn {} ({} kept), {} culled, "
                       "{} faces, {} particles from {} sources",
-                      stereoSize_, stereoSize_, 1000.0f / average, average, cpu,
-                      stages[FrameProfile::Acquire], FrameProfile::describe(stages), o.drawn,
+                      headsetRunning ? headsetSize_.x : stereoSize_,
+                      headsetRunning ? headsetSize_.y : stereoSize_, 1000.0f / average, average,
+                      cpu, stages[FrameProfile::Acquire], FrameProfile::describe(stages), o.drawn,
                       o.reused, o.culled, o.faces, o.particles, o.particleSources);
         }
         // --click-at: press at the given time, let go a moment later.
@@ -588,6 +627,15 @@ int App::run()
             screenshotRequested_ = true;
         }
 
+        // The headset's next frame: waiting for it sets the pace, and the
+        // scene is built for the eyes' poses it predicts.
+        profile_.mark(FrameProfile::Textures);
+        headsetFrame_ = headsetRunning ? headset_->beginFrame() : std::nullopt;
+        if(headsetFrame_)
+        {
+            headsetSize_ = {headsetFrame_->width, headsetFrame_->height};
+        }
+        profile_.mark(FrameProfile::HeadsetWait);
         // The scene before the swapchain: building it overlaps the GPU
         // finishing earlier frames.
         buildScene(scene_);
@@ -596,7 +644,42 @@ int App::run()
         ui_->endFrame();
         profile_.mark(FrameProfile::Ui);
 
-        if(auto frame = renderer_->beginFrame())
+        if(headsetFrame_)
+        {
+            // The eyes into the headset's images, the left one in the
+            // window (when it has an image free), the UI over it.
+            if(auto frame = renderer_->beginFrame(false))
+            {
+                profile_.mark(FrameProfile::Acquire);
+                xr::HeadsetFrame& h = *headsetFrame_;
+                if(h.render)
+                {
+                    renderer_->drawEyes(*frame, scene_, eyeCameras_, h.width, h.height);
+                }
+                else
+                {
+                    renderer_->drawMirror(*frame);
+                }
+                if(frame->target)
+                {
+                    ui_->record(*frame);
+                }
+                profile_.mark(FrameProfile::Render);
+                // Only now the headset's images (once the last frame has
+                // ended: all the above was done meanwhile).
+                if(h.render && headset_->acquireImages(h))
+                {
+                    profile_.mark(FrameProfile::HeadsetEnd);
+                    renderer_->copyEyes(*frame, h.targets, h.format);
+                }
+            }
+            renderer_->endFrame();
+            profile_.mark(FrameProfile::Submit);
+            headset_->endFrame(); // after the eyes' commands are submitted; returns at once
+            profile_.mark(FrameProfile::HeadsetEnd);
+            headsetFrame_.reset();
+        }
+        else if(auto frame = renderer_->beginFrame())
         {
             profile_.mark(FrameProfile::Acquire);
             if(stereoSize_ > 0)
@@ -609,8 +692,12 @@ int App::run()
             }
             ui_->record(*frame);
             profile_.mark(FrameProfile::Render);
+            renderer_->endFrame();
         }
-        renderer_->endFrame();
+        else
+        {
+            renderer_->endFrame();
+        }
         profile_.mark(FrameProfile::Submit);
         profile_.endFrame();
 
@@ -1154,6 +1241,10 @@ void App::buildScene(render::Scene& scene)
     scene.probes.clear();
     scene.worldOrigin = {};
     scene.camera = camera_.camera();
+    if(headsetFrame_ && headsetFrame_->render)
+    {
+        placeEyes(scene.camera, *headsetFrame_);
+    }
     const auto wallClock = std::chrono::system_clock::now().time_since_epoch();
     environment_->apply(
         scene.lighting,
@@ -1175,7 +1266,13 @@ void App::buildScene(render::Scene& scene)
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
     float viewAspect = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
     int viewHeight = height;
-    if(stereoSize_ > 0)
+    if(headsetFrame_ && headsetFrame_->render)
+    {
+        viewAspect = static_cast<float>(headsetFrame_->width) /
+                     static_cast<float>(std::max(headsetFrame_->height, 1u));
+        viewHeight = static_cast<int>(headsetFrame_->height);
+    }
+    else if(stereoSize_ > 0)
     {
         // A headset's eye: square, about 90 degrees each way.
         scene.camera.verticalFov = glm::radians(90.0f);
@@ -1514,9 +1611,7 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
                         1.0f - 2.0f * y / static_cast<float>(height));
     const render::Camera& camera = scene.camera;
     const float aspect = static_cast<float>(width) / static_cast<float>(height);
-    const glm::mat4 inverse = glm::inverse(
-        glm::perspective(camera.verticalFov, aspect, camera.nearPlane, camera.farPlane) *
-        glm::lookAt(camera.position, camera.target, camera.up));
+    const glm::mat4 inverse = glm::inverse(camera.projection(aspect) * camera.view());
     const glm::vec4 far = inverse * glm::vec4(ndc, 1.0f, 1.0f);
     PointerController::Ray ray;
     ray.origin = camera.position;
@@ -1545,6 +1640,37 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
         }
     }
     return ray;
+}
+
+void App::placeEyes(render::Camera& camera, const xr::HeadsetFrame& frame)
+{
+    // The headset's origin where the camera is (the avatar's eyes in first
+    // person), facing the camera's heading; its pitch is the head's own.
+    const render::Camera base = camera;
+    const glm::quat heading = glm::angleAxis(glm::radians(camera_.yaw()), glm::vec3(0, 0, 1));
+    auto place = [&](const xr::Pose& pose)
+    {
+        render::Camera c = base;
+        const glm::quat orientation = heading * pose.orientation;
+        c.position = base.position + heading * pose.position;
+        c.target = c.position + orientation * glm::vec3(1.0f, 0.0f, 0.0f);
+        c.up = orientation * glm::vec3(0.0f, 0.0f, 1.0f);
+        return c;
+    };
+    for(size_t e = 0; e < 2; e++)
+    {
+        eyeCameras_[e] = place(frame.eyes[e].pose);
+        eyeCameras_[e].edges = frame.eyes[e].tangents;
+    }
+    // The scene's camera, which what both eyes share is done from (culling,
+    // shadows, level of detail): the head, seeing all both eyes do.
+    camera = place(frame.head);
+    const glm::vec4& l = frame.eyes[0].tangents;
+    const glm::vec4& r = frame.eyes[1].tangents;
+    const glm::vec4 edges(std::min(l.x, r.x), std::max(l.y, r.y), std::min(l.z, r.z),
+                          std::max(l.w, r.w));
+    camera.edges = edges;
+    camera.verticalFov = std::atan(edges.w) - std::atan(edges.z);
 }
 
 void App::setFirstPerson(bool on)

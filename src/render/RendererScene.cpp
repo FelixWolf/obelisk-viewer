@@ -245,6 +245,10 @@ bool Renderer::createPipelines()
         createShader(device_, {kHudPanelVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "hud_panel.vert");
     SDL_GPUShader* hudPanelFrag = createShader(
         device_, {kHudPanelFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "hud_panel.frag");
+    p.eyeCopyVert = createShader(device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0},
+                                 "fullscreen.vert");
+    p.eyeCopyFrag =
+        createShader(device_, {kEyeCopyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "eye_copy.frag");
     SDL_GPUShader* brdfTableFrag = createShader(
         device_, {kBrdfTableFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "brdf_table.frag");
 
@@ -1023,9 +1027,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
     const uint32_t height = views[0].height;
     const Camera& center = scene.camera;
     const float aspect = static_cast<float>(width) / static_cast<float>(height);
-    auto viewOf = [](const Camera& c) { return glm::lookAt(c.position, c.target, c.up); };
-    auto projectionOf = [&](const Camera& c)
-    { return glm::perspective(c.verticalFov, aspect, c.nearPlane, c.farPlane); };
+    auto viewOf = [](const Camera& c) { return c.view(); };
+    auto projectionOf = [&](const Camera& c) { return c.projection(aspect); };
     const Lighting& light = scene.lighting;
     const Atmosphere& atmo = light.atmosphere;
     const bool shadows = scene.shadows.enabled && shadowMap_;
@@ -2540,75 +2543,6 @@ GpuTexture Renderer::uploadTextureArray(std::span<const image::TextureData* cons
     SDL_ReleaseGPUTransferBuffer(device_, transfer);
     return GpuTexture(device_, texture, first.width(), first.height(),
                       static_cast<uint32_t>(first.levels.size()));
-}
-
-} // namespace viewer::render
-
-namespace viewer::render
-{
-
-void Renderer::drawStereo(const Frame& frame, const Scene& scene, uint32_t size, float separation)
-{
-    if(size == 0)
-    {
-        return;
-    }
-    if(!eyeImages_[0] || eyeSize_ != size)
-    {
-        for(SDL_GPUTexture*& image : eyeImages_)
-        {
-            if(image)
-            {
-                SDL_ReleaseGPUTexture(device_, image);
-            }
-            SDL_GPUTextureCreateInfo info = {};
-            info.type = SDL_GPU_TEXTURETYPE_2D;
-            info.format = swapchainFormat();
-            info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-            info.width = size;
-            info.height = size;
-            info.layer_count_or_depth = 1;
-            info.num_levels = 1;
-            image = SDL_CreateGPUTexture(device_, &info);
-        }
-        eyeSize_ = size;
-        if(!eyeImages_[0] || !eyeImages_[1])
-        {
-            log::error("creating the eye images failed: {}", SDL_GetError());
-            return;
-        }
-    }
-    const Camera& center = scene.camera;
-    const glm::vec3 right = glm::normalize(glm::cross(center.target - center.position, center.up));
-    std::array<Camera, 2> cameras{center, center};
-    std::array<View, 2> views{};
-    for(size_t e = 0; e < 2; e++)
-    {
-        const glm::vec3 offset = right * (separation * (e == 0 ? -0.5f : 0.5f));
-        cameras[e].position += offset;
-        cameras[e].target += offset;
-        views[e] = View{&cameras[e], eyeImages_[e], size, size};
-    }
-    drawViews(frame.commands, scene, views);
-
-    // The left eye in the window, as big as fits, centered.
-    const float scale =
-        std::min(static_cast<float>(frame.width), static_cast<float>(frame.height)) /
-        static_cast<float>(size);
-    const auto shown = static_cast<uint32_t>(static_cast<float>(size) * scale);
-    SDL_GPUBlitInfo blit = {};
-    blit.source.texture = eyeImages_[0];
-    blit.source.w = size;
-    blit.source.h = size;
-    blit.destination.texture = frame.target;
-    blit.destination.x = (frame.width - shown) / 2;
-    blit.destination.y = (frame.height - shown) / 2;
-    blit.destination.w = shown;
-    blit.destination.h = shown;
-    blit.load_op = SDL_GPU_LOADOP_CLEAR;
-    blit.clear_color = SDL_FColor{0.0f, 0.0f, 0.0f, 1.0f};
-    blit.filter = SDL_GPU_FILTER_LINEAR;
-    SDL_BlitGPUTexture(frame.commands, &blit);
 }
 
 } // namespace viewer::render

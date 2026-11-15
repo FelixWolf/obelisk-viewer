@@ -71,6 +71,11 @@ struct Renderer::Pipelines
     // The water mask: the water's squares, and exclusion surfaces.
     SDL_GPUGraphicsPipeline* waterMask = nullptr;
     SDL_GPUGraphicsPipeline* waterMaskObject = nullptr;
+    // An eye's image into a headset's (per its format, made when first
+    // needed, from these shaders, kept).
+    SDL_GPUShader* eyeCopyVert = nullptr;
+    SDL_GPUShader* eyeCopyFrag = nullptr;
+    std::unordered_map<int, SDL_GPUGraphicsPipeline*> eyeCopy;
     SDL_GPUSampler* repeatSampler = nullptr;
     SDL_GPUSampler* clampSampler = nullptr;
     SDL_GPUSampler* shadowSampler = nullptr; // compares depth, filters the results
@@ -127,7 +132,12 @@ struct Renderer::Pipelines
         {
             SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
         }
-        for(SDL_GPUShader* s : {particleVert, particleFrag, particleGlowFrag})
+        for(const auto& [format, pipeline] : eyeCopy)
+        {
+            SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+        }
+        for(SDL_GPUShader* s :
+            {particleVert, particleFrag, particleGlowFrag, eyeCopyVert, eyeCopyFrag})
         {
             if(s)
             {
