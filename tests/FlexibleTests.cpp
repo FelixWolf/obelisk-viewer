@@ -39,3 +39,12 @@ TEST_CASE("Flexible prims: sections remapped straight, skipped and interpolated"
         CHECK(more[i].position.x == doctest::Approx(1.0f));
     }
 }
+
+TEST_CASE("Flexible: small ones on screen are updated less often, at most 32 flexi frames apart")
+{
+    CHECK(FlexibleView::updatePeriod(1.0f) == 1);   // filling the view
+    CHECK(FlexibleView::updatePeriod(0.01f) == 1);  // a hundredth of it
+    CHECK(FlexibleView::updatePeriod(0.002f) == 3); // 0.005 / 0.002 + 1
+    CHECK(FlexibleView::updatePeriod(0.0f) == 32);
+    CHECK(FlexibleView::updatePeriod(1e-5f) == 32);
+}

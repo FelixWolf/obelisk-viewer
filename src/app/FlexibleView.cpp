@@ -23,6 +23,30 @@ constexpr uint64_t kForgetAfter = 600;
 // The prim jumped this far (a teleport, the scene's origin moving): start
 // over rather than swing.
 constexpr float kJump = 32.0f;
+// Flexi frames a second (SEC_PER_FLEXI_FRAME).
+constexpr double kFlexiFrames = 60.0;
+// Closer than this (meters, and as cosines for turns) to the path last
+// meshed: not meshed again.
+constexpr float kStill = 0.0005f;
+constexpr float kStillTurn = 0.999999f;
+
+bool samePath(const std::vector<volume::PathPoint>& a, const std::vector<volume::PathPoint>& b)
+{
+    if(a.size() != b.size())
+    {
+        return false;
+    }
+    for(size_t i = 0; i < a.size(); i++)
+    {
+        if(glm::length(a[i].position - b[i].position) > kStill ||
+           std::abs(glm::dot(a[i].rotation, b[i].rotation)) < kStillTurn ||
+           glm::length(a[i].scale - b[i].scale) > kStill)
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 // The shortest rotation from one direction to another (unit vectors).
 glm::quat shortestArc(const glm::vec3& from, const glm::vec3& to)
@@ -252,11 +276,18 @@ void FlexibleView::simulate(Prim& prim, const glm::vec3& position, const glm::qu
     s[count].dPosition = (s[count].position - s[count - 1].position) * inverseLength;
 }
 
+uint32_t FlexibleView::updatePeriod(float screen)
+{
+    // screen area * 0.01 / (pixel area * (factor + 1)) + 1, at most 32.
+    const float period = 0.005f / std::max(screen, 1e-6f);
+    return static_cast<uint32_t>(std::clamp(period, 0.0f, 31.0f)) + 1;
+}
+
 const std::vector<render::Mesh>* FlexibleView::faces(const world::ObjectKey& key,
                                                      const world::Object& object,
                                                      const glm::mat4& frame, float distance,
-                                                     int detail, Clock::time_point now,
-                                                     const WindAt& windAt)
+                                                     int detail, float screen,
+                                                     Clock::time_point now, const WindAt& windAt)
 {
     if(!object.flexible || object.scale.z <= 0.0f)
     {
@@ -284,13 +315,28 @@ const std::vector<render::Mesh>* FlexibleView::faces(const world::ObjectKey& key
         std::clamp(static_cast<int>(12.0f * object.scale.z / std::max(distance, 0.01f)),
                    std::max(softness - 1, 0), kMaxResolution);
     const int simulated = std::min(softness, prim.renderResolution);
-    if(!prim.initialized || prim.simulateResolution != simulated)
+    const bool fresh = !prim.initialized || prim.simulateResolution != simulated;
+    if(fresh)
     {
         prim.simulateResolution = simulated;
         setAttributes(prim, position, rotation);
         prim.initialized = true;
         prim.lastStep = now;
     }
+
+    // Due this frame? (Spread over frames by its key; caught up if a flexi
+    // frame was missed.)
+    const auto flexiFrame = static_cast<uint64_t>(
+        std::chrono::duration<double>(now.time_since_epoch()).count() * kFlexiFrames);
+    const uint32_t period = updatePeriod(screen);
+    const uint64_t delay = (flexiFrame + world::ObjectKeyHash{}(key)) % period;
+    const bool due = (delay == 0 && prim.updated < flexiFrame) ||
+                     prim.updated + period < flexiFrame || prim.updated > flexiFrame;
+    if(!fresh && !due && !prim.meshes.empty() && prim.meshedDetail == detail)
+    {
+        return &prim.meshes;
+    }
+    prim.updated = flexiFrame - delay;
 
     const float seconds =
         std::clamp(std::chrono::duration<float>(now - prim.lastStep).count(), 0.0f, kMaxStep);
@@ -311,6 +357,10 @@ const std::vector<render::Mesh>* FlexibleView::faces(const world::ObjectKey& key
         p.scale = drawn[i].scale;
         p.texT = static_cast<float>(i) / static_cast<float>(count);
     }
+    if(!prim.meshes.empty() && prim.meshedDetail == detail && samePath(path, prim.meshedPath))
+    {
+        return &prim.meshes; // at rest
+    }
     const auto faces = volume::generateVolumeAlong(
         object.volume, volume::kDetailScales[static_cast<size_t>(std::clamp(detail, 0, 3))], path);
     if(faces.empty())
@@ -318,6 +368,8 @@ const std::vector<render::Mesh>* FlexibleView::faces(const world::ObjectKey& key
         return nullptr;
     }
     prim.meshes = uploadFaces(renderer_, faces);
+    prim.meshedDetail = detail;
+    prim.meshedPath = std::move(path);
     return &prim.meshes;
 }
 

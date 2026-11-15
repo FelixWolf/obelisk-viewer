@@ -1016,9 +1016,16 @@ in: 12 x its length over its distance, at most 8 (FLEXIBLE_OBJECT_MAX_SECTIONS
 3). The chain is remapped to the drawn sections (cubic between simulated
 ones), turned into path points in the prim's frame, and
 `volume::generateVolumeAlong` sweeps the profile along them, in meters (the
-draw has no scale). Each frame's geometry goes up as new meshes (the pool
-keeps released ones until the frames using them are done). Wind blows each
+draw has no scale). New geometry goes up as new meshes (the pool keeps
+released ones until the frames using them are done). Wind blows each
 section by the wind over it times the prim's wind sensitivity.
+
+As the official viewer's doIdleUpdate, not every prim is updated every
+frame: time is counted in flexi frames (60 a second), and a prim covering a
+share s of the view is updated every 0.005 / s + 1 of them (at most 32;
+`FlexibleView::updatePeriod`), spread over frames by its key; in between it
+keeps its meshes. When it is updated but its path hasn't moved (half a
+millimeter) since last meshed, as one at rest, it keeps them too.
 
 Wind: regions send it as LayerData of type '7' ('9' for large regions),
 two patches coded as terrain patches are (the x velocities, then the y) on

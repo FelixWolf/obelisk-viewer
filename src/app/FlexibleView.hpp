@@ -11,8 +11,14 @@
 //
 // Wind (scaled by the prim's wind sensitivity) comes from the region each
 // section is over.
+//
+// As the official viewer (LLVolumeImplFlexible::doIdleUpdate), small ones
+// on screen are updated less often: every 1 to 32 "flexi frames" (60 a
+// second), spread over frames by the prim's key. A prim whose shape hasn't
+// changed since last meshed (one at rest) keeps its meshes.
 
 #include "viewer/render/Renderer.hpp"
+#include "viewer/volume/Volume.hpp"
 #include "viewer/world/World.hpp"
 
 #include <glm/glm.hpp>
@@ -42,11 +48,16 @@ public:
     // and position, no scale), `distance` meters from the camera, at the
     // level of detail `detail` (index into volume::kDetailScales). The
     // meshes are in meters in the prim's frame: draw them with `frame`
-    // alone. `windAt` may be empty (no wind, as on HUDs). Null if it can't
-    // be built.
+    // alone. `windAt` may be empty (no wind, as on HUDs). `screen` is the
+    // share of the view it covers (0..1; 1 updates it every flexi frame).
+    // Null if it can't be built.
     const std::vector<render::Mesh>* faces(const world::ObjectKey& key, const world::Object& object,
                                            const glm::mat4& frame, float distance, int detail,
-                                           Clock::time_point now, const WindAt& windAt);
+                                           float screen, Clock::time_point now,
+                                           const WindAt& windAt);
+    // How many flexi frames apart a prim covering `screen` of the view is
+    // updated (as doIdleUpdate's update_period, RenderFlexTimeFactor 1).
+    static uint32_t updatePeriod(float screen);
     // Once a frame: forgets prims not drawn for a while.
     void endFrame();
     // Drops everything (e.g. on logout).
@@ -87,6 +98,11 @@ private:
         Clock::time_point lastStep{};
         std::vector<render::Mesh> meshes;
         uint64_t drawnFrame = 0;
+        // The flexi frame it was last updated in; what its meshes were made
+        // from.
+        uint64_t updated = 0;
+        int meshedDetail = -1;
+        std::vector<volume::PathPoint> meshedPath;
     };
     // The sections' twist and size, and section 0 at the prim's bottom
     // (setAttributesOfAllSections).

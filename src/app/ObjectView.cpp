@@ -2,6 +2,7 @@
 
 #include "FaceUpload.hpp"
 
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -993,7 +994,12 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const bool flexible = flexibleNow;
         if(flexible)
         {
-            faces = flexible_.faces(key, object, *frame, distance, detail, now,
+            // The share of the view it covers: a disc of its radius, over
+            // the view's height squared.
+            const float across =
+                radius / (std::max(distance, 0.01f) * std::tan(scene.camera.verticalFov * 0.5f));
+            const float screen = hud ? 1.0f : 0.25f * glm::pi<float>() * across * across;
+            faces = flexible_.faces(key, object, *frame, distance, detail, screen, now,
                                     hud ? FlexibleView::WindAt{} : windAt);
             extent = glm::vec3(1.0f); // it may bend anywhere within its length
         }
