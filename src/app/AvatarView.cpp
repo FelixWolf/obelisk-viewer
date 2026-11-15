@@ -568,7 +568,24 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
             if(ikJoints_.pelvis >= 0)
             {
                 const auto pelvis = static_cast<size_t>(ikJoints_.pelvis);
-                const std::vector<avatar::JointFrame> rest = avatar::poseFrames(base_, shape);
+                // Unanimated, but with rigged mesh's joint positions (a
+                // smaller or larger mesh avatar's eyes are where its mesh
+                // puts them).
+                std::vector<avatar::JointPose> restPose(base_.skeleton.joints.size());
+                if(const auto o = overrides_.find(id); o != overrides_.end())
+                {
+                    for(const auto& [joint, override] : o->second.joints)
+                    {
+                        avatar::JointPose& p = restPose[static_cast<size_t>(joint)];
+                        p.position = override.position;
+                        if(override.lockScale)
+                        {
+                            p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
+                        }
+                    }
+                }
+                const std::vector<avatar::JointFrame> rest =
+                    avatar::poseFrames(base_, shape, restPose);
                 // Straight above the pelvis: turning the body mustn't move
                 // the view.
                 const glm::vec3 offset = between(rest) - rest[pelvis].position;
