@@ -299,6 +299,7 @@ void Renderer::drawParticles(ScenePass& pass)
             {b.texture, p.clampSampler},
             {shadowMap_, p.shadowSampler},
             {projectors_, p.clampSampler},
+            waterMaskBinding_,
         };
         pass.bindSamplers(samplers);
         SDL_DrawGPUIndexedPrimitives(rp, b.indexCount, 1, b.firstIndex, 0, 0);

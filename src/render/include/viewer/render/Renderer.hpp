@@ -289,6 +289,17 @@ private:
     void copyForWater(SDL_GPUCommandBuffer* commands, uint32_t width, uint32_t height);
     void drawWater(ScenePass& pass, const Scene& scene, const Camera& camera, uint32_t width,
                    uint32_t height);
+    // The water mask (as the official mWaterExclusionMask): the water's
+    // squares 1, water exclusion surfaces in front of them (above the
+    // water) 0; the scene's shaders read it (waterMaskBinding_: a white
+    // texel when nothing excludes water, or outside the view's passes).
+    void drawWaterMask(SDL_GPUCommandBuffer* commands, const Scene& scene, const FrameVS& frameVs,
+                       uint32_t width, uint32_t height);
+    SDL_GPUTexture* waterMask_ = nullptr;
+    SDL_GPUTexture* waterMaskDepth_ = nullptr;
+    uint32_t waterMaskWidth_ = 0;
+    uint32_t waterMaskHeight_ = 0;
+    SDL_GPUTextureSamplerBinding waterMaskBinding_{};
     FrameBuffer waterVertices_;
     uint32_t waterVertexCount_ = 0;
     SDL_GPUTexture* waterScene_ = nullptr; // the view behind the water

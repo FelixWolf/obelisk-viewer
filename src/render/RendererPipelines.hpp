@@ -68,6 +68,9 @@ struct Renderer::Pipelines
     std::unordered_map<uint16_t, SDL_GPUGraphicsPipeline*> particle;
     SDL_GPUGraphicsPipeline* particleGlow = nullptr;
     SDL_GPUGraphicsPipeline* water = nullptr;
+    // The water mask: the water's squares, and exclusion surfaces.
+    SDL_GPUGraphicsPipeline* waterMask = nullptr;
+    SDL_GPUGraphicsPipeline* waterMaskObject = nullptr;
     SDL_GPUSampler* repeatSampler = nullptr;
     SDL_GPUSampler* clampSampler = nullptr;
     SDL_GPUSampler* shadowSampler = nullptr; // compares depth, filters the results
@@ -111,7 +114,9 @@ struct Renderer::Pipelines
                                           shadowSkinnedMasked,
                                           shadowTerrain,
                                           particleGlow,
-                                          water})
+                                          water,
+                                          waterMask,
+                                          waterMaskObject})
         {
             if(p)
             {

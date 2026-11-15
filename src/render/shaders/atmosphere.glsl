@@ -1,6 +1,19 @@
 // Second Life's atmosphere for surfaces and the sky. Include after
 // FRAME_FS_BLOCK (it reads `frame`).
 
+// Shaders that draw what can be under the water define WATER_MASK_BINDING
+// (a sampler in set 2): the water mask (RendererWater.cpp), 1 where the
+// water is in front, 0 where a water exclusion surface is (or no water).
+#ifdef WATER_MASK_BINDING
+layout(set = 2, binding = WATER_MASK_BINDING) uniform sampler2D waterMask;
+
+// The mask at this fragment (a 1 by 1 white one stands for all water).
+float waterMaskHere()
+{
+    return texelFetch(waterMask, min(ivec2(gl_FragCoord.xy), textureSize(waterMask, 0) - 1), 0).r;
+}
+#endif
+
 // The sky settings' colors are roughly sRGB; the scene is linear.
 vec3 srgbToLinear(vec3 c)
 {
@@ -84,12 +97,18 @@ vec3 applyWaterFog(vec3 color, vec3 worldPosition)
 }
 
 // The air's haze, or the water's fog for what's under the water
-// (waterFogF.glsl applySkyAndWaterFog).
+// (waterFogF.glsl applySkyAndWaterFog): from above, only where the water's
+// in front of it, not behind a water exclusion surface (waterHazeF.glsl).
 vec3 applyAtmosphere(vec3 color, vec3 worldPosition)
 {
     if(frame.waterInfo.y > 0.5 && worldPosition.z < frame.waterInfo.x)
     {
-        return applyWaterFog(color, worldPosition);
+#ifdef WATER_MASK_BINDING
+        if(frame.cameraPosition.z < frame.waterInfo.x || waterMaskHere() > 0.5)
+#endif
+        {
+            return applyWaterFog(color, worldPosition);
+        }
     }
     return applySky(color, worldPosition);
 }

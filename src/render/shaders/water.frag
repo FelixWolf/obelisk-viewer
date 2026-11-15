@@ -28,13 +28,14 @@ layout(set = 3, binding = 1) uniform WaterFS
 }
 water;
 
+#define WATER_MASK_BINDING 7
 #include "atmosphere.glsl"
 #include "shadow.glsl"
 #define PROBE_RADIANCE_BINDING 4
 #define PROBE_IRRADIANCE_BINDING 5
 #define BRDF_TABLE_BINDING 6
-#define PROBES_BINDING 7
-#define CLUSTERS_BINDING 8
+#define PROBES_BINDING 8
+#define CLUSTERS_BINDING 9
 #include "clusters.glsl"
 #include "probes.glsl"
 
@@ -77,6 +78,13 @@ void main()
     // below as underWaterF.glsl, by their sum).
     const bool under = water.viewInfo.w > 0.5;
     const vec2 screen = gl_FragCoord.xy * water.viewInfo.yz;
+    // Behind a water exclusion surface (from above): no water, what's
+    // behind as it is (waterF.glsl's fade).
+    if(!under && waterMaskHere() < 0.5)
+    {
+        outColor = vec4(texture(sceneColor, screen).rgb, 1.0);
+        return;
+    }
     const vec2 offset = under ? normalize(wave1 + wave2 + wave3).xy * water.scale.w
                               : wavef.xy * 3.0 * water.scale.w / max(sqrt(dist), 1.0) * 2.0;
     const vec2 bent = clamp(screen + offset, vec2(0.0), vec2(0.999));

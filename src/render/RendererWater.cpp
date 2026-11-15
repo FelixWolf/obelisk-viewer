@@ -11,6 +11,7 @@
 
 #include <SDL3/SDL_error.h>
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -61,6 +62,92 @@ void Renderer::uploadWater(SDL_GPUCommandBuffer* commands, const Scene& scene)
     SDL_UploadToGPUBuffer(copy, &from, &to, true);
     SDL_EndGPUCopyPass(copy);
     waterVertexCount_ = static_cast<uint32_t>(vertices.size());
+}
+
+void Renderer::drawWaterMask(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                             const FrameVS& frameVs, uint32_t width, uint32_t height)
+{
+    const Pipelines& p = *pipelines_;
+    // Nothing excludes water: all water (a white texel).
+    waterMaskBinding_ = {white_.get(), p.clampSampler};
+    if(!scene.water.enabled || waterVertexCount_ == 0 || !p.waterMask || !p.waterMaskObject ||
+       std::ranges::none_of(scene.objects, &ObjectDraw::waterExclusion))
+    {
+        return;
+    }
+    if(!waterMask_ || waterMaskWidth_ != width || waterMaskHeight_ != height)
+    {
+        for(SDL_GPUTexture* t : {waterMask_, waterMaskDepth_})
+        {
+            if(t)
+            {
+                SDL_ReleaseGPUTexture(device_, t);
+            }
+        }
+        SDL_GPUTextureCreateInfo info = {};
+        info.type = SDL_GPU_TEXTURETYPE_2D;
+        info.format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
+        info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        info.width = width;
+        info.height = height;
+        info.layer_count_or_depth = 1;
+        info.num_levels = 1;
+        waterMask_ = SDL_CreateGPUTexture(device_, &info);
+        info.format = depthFormat_;
+        info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+        waterMaskDepth_ = SDL_CreateGPUTexture(device_, &info);
+        waterMaskWidth_ = width;
+        waterMaskHeight_ = height;
+        if(!waterMask_ || !waterMaskDepth_)
+        {
+            log::error("creating the water mask failed: {}", SDL_GetError());
+            return;
+        }
+    }
+    SDL_GPUColorTargetInfo color = {};
+    color.texture = waterMask_;
+    color.clear_color = SDL_FColor{0.0f, 0.0f, 0.0f, 0.0f};
+    color.load_op = SDL_GPU_LOADOP_CLEAR;
+    color.store_op = SDL_GPU_STOREOP_STORE;
+    color.cycle = true;
+    SDL_GPUDepthStencilTargetInfo depth = {};
+    depth.texture = waterMaskDepth_;
+    depth.clear_depth = 1.0f;
+    depth.load_op = SDL_GPU_LOADOP_CLEAR;
+    depth.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depth.cycle = true;
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+    pushVertexUniforms(commands, 0, frameVs);
+
+    // The water: 1.
+    SDL_BindGPUGraphicsPipeline(pass, p.waterMask);
+    pushFragmentUniforms(commands, 0, glm::vec4(1.0f, scene.water.height, 0.0f, 0.0f));
+    const SDL_GPUBufferBinding squares = {waterVertices_.buffer.get(), 0};
+    SDL_BindGPUVertexBuffers(pass, 0, &squares, 1);
+    SDL_DrawGPUPrimitives(pass, waterVertexCount_, 1, 0, 0);
+
+    // Exclusion surfaces in front of it, above it: 0.
+    SDL_BindGPUGraphicsPipeline(pass, p.waterMaskObject);
+    pushFragmentUniforms(commands, 0, glm::vec4(0.0f, scene.water.height, 1.0f, 0.0f));
+    for(const ObjectDraw& draw : scene.objects)
+    {
+        if(!draw.waterExclusion || !draw.mesh || !*draw.mesh ||
+           draw.mesh->layout != VertexLayout::Object)
+        {
+            continue;
+        }
+        pushVertexUniforms(commands, 1, draw.transform);
+        const SDL_GPUBufferBinding vertices = {draw.mesh->vertexBuffer(), 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &vertices, 1);
+        const SDL_GPUBufferBinding indices = {draw.mesh->indexBuffer(), 0};
+        SDL_BindGPUIndexBuffer(pass, &indices, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(pass, draw.mesh->indexCount, 1, draw.mesh->firstIndex,
+                                     static_cast<Sint32>(draw.mesh->firstVertex), 0);
+    }
+    SDL_EndGPURenderPass(pass);
+    waterMaskBinding_ = {waterMask_, p.clampSampler};
 }
 
 void Renderer::copyForWater(SDL_GPUCommandBuffer* commands, uint32_t width, uint32_t height)
@@ -126,6 +213,7 @@ void Renderer::drawWater(ScenePass& pass, const Scene& scene, const Camera& came
         probes[0],
         probes[1],
         probes[2],
+        waterMaskBinding_,
     };
     pass.bindSamplers(samplers);
     SDL_GPUBuffer* storage[] = {pass.probes(), pass.clusters()};

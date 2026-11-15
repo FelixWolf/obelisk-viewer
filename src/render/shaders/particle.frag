@@ -17,11 +17,12 @@ layout(set = 2, binding = 1) uniform sampler2DArrayShadow shadowMap;
 
 FRAME_FS_BLOCK
 
+#define WATER_MASK_BINDING 3
 #include "atmosphere.glsl"
 #include "shadow.glsl"
 #define PROJECTORS_BINDING 2
-#define LIGHTS_BINDING 3
-#define CLUSTERS_BINDING 4
+#define LIGHTS_BINDING 4
+#define CLUSTERS_BINDING 5
 #include "clusters.glsl"
 #include "lights.glsl"
 

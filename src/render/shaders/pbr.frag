@@ -21,21 +21,22 @@ layout(set = 2, binding = 4) uniform sampler2DArrayShadow shadowMap;
 
 FRAME_FS_BLOCK
 
+#define WATER_MASK_BINDING 9
 #include "atmosphere.glsl"
 #include "shadow.glsl"
 #define PROJECTORS_BINDING 5
 #define PROBE_RADIANCE_BINDING 6
 #define PROBE_IRRADIANCE_BINDING 7
 #define BRDF_TABLE_BINDING 8
-#define LIGHTS_BINDING 10
-#define PROBES_BINDING 11
-#define CLUSTERS_BINDING 12
+#define LIGHTS_BINDING 11
+#define PROBES_BINDING 12
+#define CLUSTERS_BINDING 13
 #include "clusters.glsl"
 #include "lights.glsl"
 #include "probes.glsl"
 
 layout(location = 4) flat in uint inDraw;
-layout(std430, set = 2, binding = 9) readonly buffer Draws
+layout(std430, set = 2, binding = 10) readonly buffer Draws
 {
     DrawData draws[];
 };

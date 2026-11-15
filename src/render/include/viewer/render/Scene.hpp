@@ -126,6 +126,9 @@ struct ObjectDraw
     // invisible but can still be clicked.
     uint64_t pickId = 0;
     bool pickOnly = false;
+    // A water exclusion surface (pickOnly too): not drawn, but where it's
+    // in front of the water (above it) there's no water (RendererWater.cpp).
+    bool waterExclusion = false;
     // Glow (the texture entry's): how much the face glows, a blurred halo
     // added over the view (RendererGlow.cpp).
     float glow = 0.0f;

@@ -102,9 +102,12 @@ Renderer::~Renderer()
     {
         SDL_ReleaseGPUTransferBuffer(device_, waterVertices_.transfer);
     }
-    if(waterScene_)
+    for(SDL_GPUTexture* t : {waterScene_, waterMask_, waterMaskDepth_})
     {
-        SDL_ReleaseGPUTexture(device_, waterScene_);
+        if(t)
+        {
+            SDL_ReleaseGPUTexture(device_, t);
+        }
     }
     particleVertices_.buffer.reset();
     if(particleVertices_.transfer)

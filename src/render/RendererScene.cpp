@@ -97,16 +97,16 @@ bool Renderer::createPipelines()
     SDL_GPUShader* skinnedVert =
         createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1, 4}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 4}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 4}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 1, 4}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 1, 3},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1, 3},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 2, 3}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 11, 2, 3}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
@@ -144,7 +144,7 @@ bool Renderer::createPipelines()
     SDL_GPUShader* waterVert =
         createShader(device_, {kWaterVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "water.vert");
     SDL_GPUShader* waterFrag =
-        createShader(device_, {kWaterFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 2, 2}, "water.frag");
+        createShader(device_, {kWaterFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 2, 2}, "water.frag");
     if(waterVert && waterFrag)
     {
         // Squares of positions; opaque (it shows what's behind itself),
@@ -176,7 +176,48 @@ bool Renderer::createPipelines()
             log::error("creating the water pipeline failed: {}", SDL_GetError());
         }
     }
-    for(SDL_GPUShader* shader : {waterVert, waterFrag})
+    // The water mask: one channel, its own depth (the water's squares
+    // against the exclusion surfaces only), both sides.
+    SDL_GPUShader* waterMaskFrag = createShader(
+        device_, {kWaterMaskFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 1}, "water_mask.frag");
+    SDL_GPUShader* waterMaskObjectVert =
+        createShader(device_, {kWaterMaskObjectVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2},
+                     "water_mask_object.vert");
+    if(waterVert && waterMaskFrag && waterMaskObjectVert)
+    {
+        SDL_GPUColorTargetDescription mask = {};
+        mask.format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.fragment_shader = waterMaskFrag;
+        info.vertex_input_state.num_vertex_buffers = 1;
+        info.vertex_input_state.num_vertex_attributes = 1;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = &mask;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        const SDL_GPUVertexAttribute position = {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0};
+        info.vertex_input_state.vertex_attributes = &position;
+        const SDL_GPUVertexBufferDescription squares = {0, sizeof(glm::vec3),
+                                                        SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+        info.vertex_input_state.vertex_buffer_descriptions = &squares;
+        info.vertex_shader = waterVert;
+        p.waterMask = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        const SDL_GPUVertexBufferDescription objects = {0, sizeof(ObjectVertex),
+                                                        SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+        info.vertex_input_state.vertex_buffer_descriptions = &objects;
+        info.vertex_shader = waterMaskObjectVert;
+        p.waterMaskObject = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!p.waterMask || !p.waterMaskObject)
+        {
+            log::error("creating the water mask pipelines failed: {}", SDL_GetError());
+        }
+    }
+    for(SDL_GPUShader* shader : {waterVert, waterFrag, waterMaskFrag, waterMaskObjectVert})
     {
         if(shader)
         {
@@ -186,7 +227,7 @@ bool Renderer::createPipelines()
     // Particles' (kept: their pipelines are made as blends are needed).
     p.particleVert =
         createShader(device_, {kParticleVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "particle.vert");
-    p.particleFrag = createShader(device_, {kParticleFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1, 2},
+    p.particleFrag = createShader(device_, {kParticleFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1, 2},
                                   "particle.frag");
     p.particleGlowFrag = createShader(
         device_, {kParticleGlowFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "particle_glow.frag");
@@ -801,8 +842,8 @@ bool Renderer::createPipelines()
            p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick && p.outlineMask && p.outline &&
            p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
            p.glowBlur && p.occlusionReduce && p.shadowObject && p.shadowObjectMasked &&
-           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.water &&
-           p.repeatSampler && p.clampSampler && p.shadowSampler;
+           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.water && p.waterMask &&
+           p.waterMaskObject && p.repeatSampler && p.clampSampler && p.shadowSampler;
 }
 
 bool Renderer::createDefaultTextures()
@@ -1046,6 +1087,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
     // Labels (the HUD's, and the first view's) up before the HUD is drawn.
     const Camera& first = *views[0].camera;
     uploadLabels(commands, scene, projectionOf(first) * viewOf(first), width, height);
+    // Until a view's water mask: all water (probe captures don't read it).
+    waterMaskBinding_ = {white_.get(), p.clampSampler};
     uploadParticles(commands, scene, first.position);
     uploadWater(commands, scene);
     // HUD attachments into their own image, as big as the view, with their
@@ -1252,6 +1295,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             }
         }
 
+        drawWaterMask(commands, scene, frameVs, width, height);
         SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
         ScenePass scenePass(commands, pass, p, frameVs, viewFs, storageOr(lightBuffer_),
                             storageOr(probeBuffer_), clusters);
@@ -1450,6 +1494,7 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
                 probes[0],
                 probes[1],
                 probes[2],
+                waterMaskBinding_,
             };
             pass.bindSamplers(samplers);
         }
@@ -1465,6 +1510,7 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
                 probes[0],
                 probes[1],
                 probes[2],
+                waterMaskBinding_,
             };
             pass.bindSamplers(samplers);
         }
@@ -1591,7 +1637,8 @@ void Renderer::drawTerrain(ScenePass& pass, const Scene& scene)
                 {projectors_, p.clampSampler},
                 probes[0],
                 probes[1],
-                probes[2]};
+                probes[2],
+                waterMaskBinding_};
             pass.bindSamplers(samplers);
             pushVertexUniforms(pass.commands(), 1,
                                terrainVs(draw.transform, m->textureRepeatsPerMeter));
@@ -1610,6 +1657,7 @@ void Renderer::drawTerrain(ScenePass& pass, const Scene& scene)
                 probes[0],
                 probes[1],
                 probes[2],
+                waterMaskBinding_,
             };
             pass.bindSamplers(samplers);
             pushVertexUniforms(pass.commands(), 1,

@@ -931,8 +931,19 @@ underWaterF.glsl, waterFogF.glsl):
   density raised by the fog mod when the camera is under it; then the sky
   below the horizon is the fog's color.
 
-Not yet: planar (mirror) reflections, the official exclusion of water
-inside prims (water exclusion surfaces), shoreline fade.
+- Water exclusion surfaces ("Hide water"): faces with the official
+  viewer's invisiprim textures (IMG_ALPHA_GRAD e97cf410, IMG_ALPHA_GRAD_2D
+  38b86f85) aren't drawn anywhere; on a prim neither worn nor rigged they
+  are kept as pick-only draws marked `waterExclusion`. Before each view a
+  mask is drawn (as mWaterExclusionMask, its own depth): the water squares
+  1, then the exclusion faces' parts above the water 0. Where it's 0 the
+  water shows what's behind it as it is, and surfaces under the water get
+  no water fog from above (waterHazeF.glsl); from below everything's
+  fogged. Every scene shader that applies the atmosphere reads it
+  (WATER_MASK_BINDING); with no exclusion surfaces in the scene the mask is
+  a white texel and the pass is skipped.
+
+Not yet: planar (mirror) reflections, shoreline fade.
 
 Terrain textures come from the grid (see the texture pipeline); the
 procedural ones stand in until they're loaded. PBR terrain materials from the

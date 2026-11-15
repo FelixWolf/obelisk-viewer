@@ -20,6 +20,15 @@ namespace
 // Faces whose texture is the official viewer's fully transparent one aren't
 // drawn (asset id from indra_constants.cpp).
 const Uuid kTransparentTexture = *Uuid::parse("8dcd4a48-2d37-4909-9f78-f7a9eb4ef903");
+// The official viewer's invisiprim textures (IMG_ALPHA_GRAD, _2D): faces
+// with one aren't drawn; on a prim neither worn nor rigged they're water
+// exclusion surfaces (llvovolume.cpp PASS_INVISIBLE, "Hide water").
+const Uuid kAlphaGradient = *Uuid::parse("e97cf410-8e61-7005-ec06-629eba4cd1fb");
+const Uuid kAlphaGradient2d = *Uuid::parse("38b86f85-2575-52a9-a531-23108d8da837");
+bool invisiprim(const world::TextureFace& face)
+{
+    return face.texture == kAlphaGradient || face.texture == kAlphaGradient2d;
+}
 
 // Level of detail from how large the prim appears, as the official viewer's
 // LLVolumeLODGroup::getDetailFromTan with its default thresholds and a LOD
@@ -714,7 +723,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     {
         const render::Mesh& mesh = (*faces)[f];
         const world::TextureFace& face = object.faces[f];
-        if(!mesh || mesh.layout != render::VertexLayout::Skinned)
+        if(!mesh || mesh.layout != render::VertexLayout::Skinned || invisiprim(face))
         {
             continue;
         }
@@ -1189,6 +1198,20 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             const world::TextureFace& face = object.faces[f];
             if(!mesh)
             {
+                continue;
+            }
+            if(invisiprim(face))
+            {
+                // Not drawn; a water exclusion surface (still clickable)
+                // unless worn or on the HUD.
+                if(!wearer && !hud)
+                {
+                    render::ObjectDraw draw{&mesh, transform, render::BlinnPhongMaterial{}};
+                    draw.pickOnly = true;
+                    draw.waterExclusion = true;
+                    draw.pickId = pickable ? pickBase | f : 0;
+                    scene.objects.push_back(draw);
+                }
                 continue;
             }
             const world::AnimatedTransform* faceAnimation =
