@@ -1,5 +1,9 @@
 #include "ViewerEffects.hpp"
 
+#include "viewer/protocol/Messages.hpp"
+
+#include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 
@@ -96,6 +100,68 @@ void ViewerEffects::update(const Send& send, Channel& channel, const std::option
     send(effect);
     channel.sent = want;
     channel.sentAt = seconds;
+}
+
+std::optional<std::pair<Uuid, ViewerEffects::Target>>
+ViewerEffects::unpack(std::span<const uint8_t> data)
+{
+    if(data.size() != 57)
+    {
+        return std::nullopt;
+    }
+    Uuid source;
+    std::copy(data.begin(), data.begin() + 16, source.bytes.begin());
+    Target t;
+    std::copy(data.begin() + 16, data.begin() + 32, t.object.bytes.begin());
+    for(size_t i = 0; i < 3; i++)
+    {
+        uint64_t bits = 0; // little-endian whatever the host is
+        for(size_t b = 0; b < 8; b++)
+        {
+            bits |= static_cast<uint64_t>(data[32 + i * 8 + b]) << (8 * b);
+        }
+        t.position[i] = std::bit_cast<double>(bits);
+    }
+    t.type = data[56];
+    return std::pair(source, t);
+}
+
+void ViewerEffects::receive(const protocol::CircuitEvent& event, const Uuid& self)
+{
+    const auto m = event.decode<protocol::msg::ViewerEffect>();
+    if(!m)
+    {
+        return;
+    }
+    for(const auto& effect : m->Effect)
+    {
+        const bool look = effect.Type == session::Session::kLookAtEffect;
+        if(!look && effect.Type != session::Session::kPointAtEffect)
+        {
+            continue; // beams, spirals and such: not drawn
+        }
+        const auto unpacked = unpack(effect.TypeData);
+        if(!unpacked || unpacked->first == self || unpacked->first.isNull() ||
+           effect.ID == look_.id || effect.ID == point_.id)
+        {
+            continue;
+        }
+        const auto& [source, target] = *unpacked;
+        Attention& a = received_[source];
+        std::optional<Target>& slot = look ? a.look : a.point;
+        if(target.type == 0)
+        {
+            slot.reset(); // none: cleared
+        }
+        else
+        {
+            slot = target;
+        }
+        if(!a.look && !a.point)
+        {
+            received_.erase(source);
+        }
+    }
 }
 
 } // namespace viewer

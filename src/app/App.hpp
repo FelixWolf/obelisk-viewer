@@ -207,6 +207,11 @@ private:
     // will give the headset's and controllers' poses instead.)
     void updateIk(const render::Scene& scene, const std::optional<PointerController::Ray>& ray);
     void releasePointer();
+    // Others' look-at and point-at, as their heads and arms move.
+    void updateOthersIk(const Uuid& self, float seconds);
+    // A look-at or point-at's target in the scene (nothing if what it's at
+    // isn't known here).
+    std::optional<glm::vec3> attentionPoint(const ViewerEffects::Target& target, bool look);
     // Our look-at and point-at to viewers nearby (ViewerEffects).
     void sendAttention(const Uuid& self, bool looking, double seconds,
                        const glm::vec3& cameraForward);
@@ -219,7 +224,18 @@ private:
         std::optional<world::ObjectKey> pressed;
         float pressDistance = 0.0f;
         glm::vec3 rayOrigin{0.0f};
-        ViewerEffects effects; // told to viewers nearby
+        ViewerEffects effects; // told to viewers nearby, and theirs
+        // Others' look-at and point-at, eased as ours.
+        struct Other
+        {
+            glm::vec3 lookPoint{0.0f};
+            float lookWeight = 0.0f;
+            glm::vec3 pointPoint{0.0f};
+            float pointWeight = 0.0f;
+        };
+        std::unordered_map<Uuid, Other> others;
+        // Targets' keys by id (looked up once, checked after).
+        std::unordered_map<Uuid, world::ObjectKey> targetKeys;
         glm::vec3 lookPoint{0.0f};
         float lookWeight = 0.0f;
         float handWeight = 0.0f;

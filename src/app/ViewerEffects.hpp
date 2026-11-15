@@ -7,11 +7,15 @@
 // would run out at the receivers, and cleared when it ends.
 
 #include "viewer/core/Uuid.hpp"
+#include "viewer/protocol/CircuitManager.hpp"
 #include "viewer/session/Session.hpp"
 
 #include <array>
 #include <functional>
 #include <optional>
+#include <span>
+#include <unordered_map>
+#include <utility>
 
 namespace viewer
 {
@@ -24,6 +28,7 @@ public:
     static constexpr uint8_t kLookIdle = 1;
     static constexpr uint8_t kLookFreeLook = 3;
     static constexpr uint8_t kLookSelect = 7;
+    static constexpr uint8_t kLookMouselook = 9;
     static constexpr uint8_t kLookClear = 10;
     static constexpr uint8_t kPointSelect = 1;
     static constexpr uint8_t kPointGrab = 2;
@@ -42,6 +47,21 @@ public:
     // (Session::sendAttention).
     void update(const Send& send, const std::optional<Target>& lookAt,
                 const std::optional<Target>& pointAt, double seconds);
+
+    // Others' look-at and point-at, from the region (ViewerEffect). As the
+    // official viewer's, each holds until its avatar sends another (none
+    // clears it); ours (`self`) are left out.
+    struct Attention
+    {
+        std::optional<Target> look;
+        std::optional<Target> point;
+    };
+    void receive(const protocol::CircuitEvent& event, const Uuid& self);
+    const std::unordered_map<Uuid, Attention>& received() const { return received_; }
+    void forget(const Uuid& avatar) { received_.erase(avatar); }
+    void clearReceived() { received_.clear(); }
+    // One effect's TypeData (57 bytes): its source avatar and target.
+    static std::optional<std::pair<Uuid, Target>> unpack(std::span<const uint8_t> data);
 
     // How long a look or point lasts at the receivers (the official
     // attention timeouts; "for ever" is a quarter of a float's range).
@@ -62,6 +82,7 @@ private:
 
     Channel look_{session::Session::kLookAtEffect};
     Channel point_{session::Session::kPointAtEffect};
+    std::unordered_map<Uuid, Attention> received_;
 };
 
 } // namespace viewer

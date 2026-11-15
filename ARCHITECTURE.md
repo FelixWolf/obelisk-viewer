@@ -1384,7 +1384,7 @@ morph masks and the physics-driven morphs (breast, belly and butt physics).
 ### Viewer-made motion (IK)
 
 Our own avatar gets motion on top of its animation that only this viewer
-sees (nothing goes to the simulator; others would see it only through
+sees directly (nothing goes to the simulator; others would see it only through
 something like puppetry): `avatar::applyIk` (`avatar/Ik.hpp`), given goals in
 avatar space, after the animation and rigged mesh's joint overrides and
 before the joints become matrices (so attachments and rigged mesh follow).
@@ -1416,6 +1416,14 @@ before the joints become matrices (so attachments and rigged mesh follow).
   receivers would turn to the global origin). Each is one effect (its own id) updated when its target changes
   or its point moves 5 cm (at most 4 a second), and sent again before it
   runs out.
+- Others' look-at and point-at (their ViewerEffects) move their heads and
+  arms the same way: each holds until that avatar sends another (none
+  clears it), as in the official viewer, whose receivers don't time them
+  out. Their targets resolve as calcTargetPosition: at an avatar, its head
+  plus the offset (in world axes for free looks and mouselook, turned by
+  the avatar otherwise); at a prim, its position plus the offset turned by
+  it; with no target, a global position. Eased as ours; a point-at moves
+  the left arm.
 - VR (to come with OpenXR): the goals are the headset's and controllers'
   poses: the spine (torso, chest, neck, head) reaching for the headset's
   position and the head taking its rotation, and each hand its controller's.

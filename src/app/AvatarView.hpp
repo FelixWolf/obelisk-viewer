@@ -69,11 +69,15 @@ public:
 
     const avatar::BaseAvatar& base() const { return base_; }
 
-    // Viewer-made motion for one avatar (ours): IK goals in scene
-    // coordinates (positions, and rotations for VR), applied on top of its
-    // animation from the next pose; none: just the animation. Only this
-    // viewer sees it.
+    // Viewer-made motion for an avatar (ours, and others' look-at and
+    // point-at): IK goals in scene coordinates (positions, and rotations
+    // for VR), applied on top of its animation from the next pose; none:
+    // just the animation.
     void setIk(const Uuid& avatar, std::optional<avatar::IkGoals> goals);
+    // A joint's position as posed (scene coordinates); nothing for an
+    // avatar not posed yet or an unknown joint.
+    std::optional<glm::vec3> jointPosition(const world::Object& avatar, const world::World& world,
+                                           std::string_view joint, uint64_t originHandle) const;
 
     // Where baked textures come from (the login reply's
     // agent_appearance_service); empty while logged out.
@@ -194,8 +198,7 @@ private:
 
     avatar::BaseAvatar base_;
     avatar::IkJoints ikJoints_;
-    Uuid ikAvatar_{};
-    std::optional<avatar::IkGoals> ikGoals_; // scene coordinates
+    std::unordered_map<Uuid, avatar::IkGoals> ikGoals_; // scene coordinates
     render::Renderer& renderer_;
     const ObjectMotion& motion_;
     std::shared_ptr<const Body> defaultBody_; // until an avatar's appearance arrives

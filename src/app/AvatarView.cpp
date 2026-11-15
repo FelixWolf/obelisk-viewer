@@ -110,8 +110,29 @@ AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer,
 
 void AvatarView::setIk(const Uuid& avatar, std::optional<avatar::IkGoals> goals)
 {
-    ikAvatar_ = avatar;
-    ikGoals_ = std::move(goals);
+    if(goals)
+    {
+        ikGoals_[avatar] = std::move(*goals);
+    }
+    else
+    {
+        ikGoals_.erase(avatar);
+    }
+}
+
+std::optional<glm::vec3> AvatarView::jointPosition(const world::Object& avatar,
+                                                   const world::World& world,
+                                                   std::string_view joint,
+                                                   uint64_t originHandle) const
+{
+    const int index = base_.skeleton.find(joint);
+    const auto it = avatars_.find(avatar.id);
+    if(index < 0 || it == avatars_.end() || static_cast<size_t>(index) >= it->second.joints.size())
+    {
+        return std::nullopt;
+    }
+    return glm::vec3(rootFrame(avatar, world, originHandle) *
+                     it->second.joints[static_cast<size_t>(index)][3]);
 }
 
 std::shared_ptr<const AvatarView::Body> AvatarView::build(const avatar::ParamWeights& weights) const
@@ -309,6 +330,7 @@ AvatarView::binding(const std::shared_ptr<const assets::MeshSkin>& skin) const
 void AvatarView::clear()
 {
     avatars_.clear();
+    ikGoals_.clear();
     overrides_.clear();
     bakesInUse_.clear();
     collectedAt_.reset();
@@ -436,11 +458,11 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
         }
     }
     // Viewer-made motion (ours only), from scene to avatar space.
-    if(ikGoals_ && id == ikAvatar_)
+    if(const auto ik = ikGoals_.find(id); ik != ikGoals_.end())
     {
         const glm::mat4 toAvatar = glm::inverse(root);
         const glm::quat toAvatarRotation = glm::quat_cast(glm::mat3(toAvatar));
-        avatar::IkGoals goals = *ikGoals_;
+        avatar::IkGoals goals = ik->second;
         auto local = [&](glm::vec3& p) { p = glm::vec3(toAvatar * glm::vec4(p, 1.0f)); };
         auto effector = [&](std::optional<avatar::IkGoals::Effector>& e)
         {

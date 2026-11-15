@@ -25,7 +25,6 @@ sound yet.
 - ★ IK for VR: feeding the headset's and controllers' poses to the IK
   (desktop look-at and hand reach are done; `avatar::applyIk` takes VR
   goals already)
-- Look-at and point-at, ours and other avatars'
 - ★ First person view, desktop and VR
 - ★ Hiding the head in first person: the head joint scaled to zero, which
   shrinks rigged and unrigged mesh alike

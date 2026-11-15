@@ -728,6 +728,13 @@ void App::updateSession()
         {
             localChat_.handle(m.event, *avatarNames_, LocalChat::Clock::now());
         }
+        else if(m.event.is<protocol::msg::ViewerEffect>())
+        {
+            if(const auto* login = session_->login())
+            {
+                ik_.effects.receive(m.event, login->agentId);
+            }
+        }
         else
         {
             worldThread_->post(m.regionHandle, std::move(m.event));
@@ -1562,8 +1569,160 @@ void App::updateIk(const render::Scene& scene, const std::optional<PointerContro
     }
     const bool any = goals.lookAt || goals.leftHand;
     avatars_->setIk(login->agentId, any ? std::optional(goals) : std::nullopt);
+    updateOthersIk(login->agentId, seconds);
     sendAttention(login->agentId, look.has_value(), static_cast<double>(now) * 1e-9,
                   scene.camera.target - scene.camera.position);
+}
+
+std::optional<glm::vec3> App::attentionPoint(const ViewerEffects::Target& target, bool look)
+{
+    const glm::dvec3 corner(static_cast<double>(*originHandle_ >> 32),
+                            static_cast<double>(*originHandle_ & 0xFFFFFFFFu), 0.0);
+    const glm::vec3 offset(static_cast<float>(target.position[0]),
+                           static_cast<float>(target.position[1]),
+                           static_cast<float>(target.position[2]));
+    if(target.object.isNull())
+    {
+        // Global.
+        return glm::vec3(glm::dvec3(target.position[0], target.position[1], target.position[2]) -
+                         corner);
+    }
+    // What it's at: found once, then checked.
+    const world::Object* object = nullptr;
+    if(const auto it = ik_.targetKeys.find(target.object); it != ik_.targetKeys.end())
+    {
+        object = world_->object(it->second.region, it->second.localId);
+        object = object && object->id == target.object ? object : nullptr;
+    }
+    if(!object)
+    {
+        for(const auto& [key, o] : world_->objects())
+        {
+            if(o.id == target.object)
+            {
+                ik_.targetKeys[target.object] = key;
+                object = &o;
+                break;
+            }
+        }
+    }
+    if(!object)
+    {
+        return std::nullopt;
+    }
+    if(object->type == world::ObjectType::Avatar)
+    {
+        // An avatar: its head, the offset in world axes for free looks and
+        // mouselook, turned by the avatar otherwise (llhudeffectlookat.cpp,
+        // llhudeffectpointat.cpp calcTargetPosition).
+        const auto head = avatars_->jointPosition(*object, *world_, "mHead", *originHandle_);
+        if(!head)
+        {
+            return std::nullopt;
+        }
+        const bool worldAxes = look && (target.type == ViewerEffects::kLookFreeLook ||
+                                        target.type == ViewerEffects::kLookMouselook);
+        const glm::quat turn =
+            worldAxes
+                ? glm::quat(1.0f, 0.0f, 0.0f, 0.0f)
+                : glm::quat_cast(glm::mat3(avatars_->rootFrame(*object, *world_, *originHandle_)));
+        return *head + turn * offset;
+    }
+    const auto frame = objects_->objectFrame(*object, *world_, *originHandle_, avatars_.get());
+    if(!frame || objects_->onHud(*object, *world_, avatars_.get()))
+    {
+        return std::nullopt;
+    }
+    return glm::vec3((*frame)[3]) + glm::quat_cast(glm::mat3(*frame)) * offset;
+}
+
+void App::updateOthersIk(const Uuid& self, float seconds)
+{
+    if(!world_ || !originHandle_ || !objects_ || !avatars_)
+    {
+        return;
+    }
+    auto towards = [&](float halfLife) { return 1.0f - std::exp2(-seconds / halfLife); };
+    // The avatars here, by id.
+    std::unordered_map<Uuid, const world::Object*> here;
+    for(const world::ObjectKey& key : world_->avatarKeys())
+    {
+        if(const world::Object* o = world_->object(key.region, key.localId))
+        {
+            here[o->id] = o;
+        }
+    }
+    const auto& received = ik_.effects.received();
+    for(const auto& [id, attention] : received)
+    {
+        if(id != self && here.contains(id))
+        {
+            ik_.others.try_emplace(id);
+        }
+    }
+    for(auto it = ik_.others.begin(); it != ik_.others.end();)
+    {
+        const Uuid& id = it->first;
+        App::Ik::Other& o = it->second;
+        const auto r = received.find(id);
+        std::optional<glm::vec3> look;
+        std::optional<glm::vec3> point;
+        if(r != received.end() && here.contains(id))
+        {
+            if(r->second.look)
+            {
+                look = attentionPoint(*r->second.look, true);
+            }
+            if(r->second.point)
+            {
+                point = attentionPoint(*r->second.point, false);
+            }
+        }
+        if(look)
+        {
+            o.lookPoint =
+                o.lookWeight <= 0.0f ? *look : glm::mix(o.lookPoint, *look, towards(0.15f));
+        }
+        o.lookWeight = glm::mix(o.lookWeight, look ? 1.0f : 0.0f, towards(0.15f));
+        if(point)
+        {
+            o.pointPoint =
+                o.pointWeight <= 0.0f ? *point : glm::mix(o.pointPoint, *point, towards(0.08f));
+        }
+        o.pointWeight = glm::mix(o.pointWeight, point ? 1.0f : 0.0f, towards(0.08f));
+        avatar::IkGoals goals;
+        if(o.lookWeight > 0.001f)
+        {
+            goals.lookAt = o.lookPoint;
+            goals.lookAtWeight = o.lookWeight;
+        }
+        if(o.pointWeight > 0.001f)
+        {
+            // The official editing motion points with the left arm.
+            goals.leftHand = avatar::IkGoals::Effector{o.pointPoint, std::nullopt, o.pointWeight};
+        }
+        if(!goals.lookAt && !goals.leftHand && !look && !point)
+        {
+            avatars_->setIk(id, std::nullopt);
+            it = ik_.others.erase(it);
+            continue;
+        }
+        avatars_->setIk(id, goals);
+        ++it;
+    }
+    // Avatars gone: their attention forgotten.
+    std::vector<Uuid> gone;
+    for(const auto& [id, attention] : received)
+    {
+        if(!here.contains(id))
+        {
+            gone.push_back(id);
+        }
+    }
+    for(const Uuid& id : gone)
+    {
+        ik_.effects.forget(id);
+    }
 }
 
 void App::sendAttention(const Uuid& self, bool looking, double seconds,

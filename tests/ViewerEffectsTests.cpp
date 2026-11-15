@@ -54,3 +54,20 @@ TEST_CASE("Viewer effects: sent when they change, throttled, kept alive and clea
     effects.update(send, std::nullopt, std::nullopt, 4.0); // cleared once
     CHECK(sent.size() == 7);
 }
+
+TEST_CASE("Viewer effects: others' look-at and point-at unpack as they're packed")
+{
+    const viewer::Uuid them = viewer::Uuid::random();
+    Effect e;
+    e.target = viewer::Uuid::random();
+    e.targetType = ViewerEffects::kLookFreeLook;
+    e.position = {1.25, -0.5, 2.0};
+    const auto data = viewer::session::Session::packAttention(them, e);
+    const auto unpacked = ViewerEffects::unpack(data);
+    REQUIRE(unpacked);
+    CHECK(unpacked->first == them);
+    CHECK(unpacked->second.object == e.target);
+    CHECK(unpacked->second.type == ViewerEffects::kLookFreeLook);
+    CHECK(unpacked->second.position == e.position);
+    CHECK_FALSE(ViewerEffects::unpack(std::span(data).first(56))); // the wrong size
+}
