@@ -319,6 +319,10 @@ public:
     static constexpr uint8_t kLookAtEffect = 14;  // LL_HUD_EFFECT_LOOKAT
     static constexpr uint8_t kPointAtEffect = 15; // LL_HUD_EFFECT_POINTAT
     void sendAttention(const AttentionEffect& effect);
+    // Any ViewerEffect to the main region (passed to viewers nearby): its
+    // own id, type, how long it lasts there and its TypeData.
+    void sendViewerEffect(const Uuid& id, uint8_t type, float duration,
+                          std::vector<uint8_t> typeData);
     // The effect's 57 TypeData bytes: our id, the target's, the position
     // (three little-endian doubles), the target type.
     static std::vector<uint8_t> packAttention(const Uuid& source, const AttentionEffect& effect);

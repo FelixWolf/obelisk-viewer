@@ -838,6 +838,16 @@ std::vector<uint8_t> Session::packAttention(const Uuid& source, const AttentionE
 
 void Session::sendAttention(const AttentionEffect& effect)
 {
+    if(login_)
+    {
+        sendViewerEffect(effect.id, effect.effectType, effect.duration,
+                         packAttention(login_->agentId, effect));
+    }
+}
+
+void Session::sendViewerEffect(const Uuid& id, uint8_t type, float duration,
+                               std::vector<uint8_t> typeData)
+{
     const Region* main = mainRegion();
     if(!main || !login_)
     {
@@ -847,12 +857,12 @@ void Session::sendAttention(const AttentionEffect& effect)
     message.AgentData.AgentID = login_->agentId;
     message.AgentData.SessionID = login_->sessionId;
     msg::ViewerEffect::EffectBlock block;
-    block.ID = effect.id;
+    block.ID = id;
     block.AgentID = login_->agentId;
-    block.Type = effect.effectType;
-    block.Duration = effect.duration;
+    block.Type = type;
+    block.Duration = duration;
     block.Color = {255, 255, 255, 255};
-    block.TypeData = packAttention(login_->agentId, effect);
+    block.TypeData = std::move(typeData);
     message.Effect.push_back(std::move(block));
     send(*main, message, false);
 }

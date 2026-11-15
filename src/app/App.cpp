@@ -1935,6 +1935,8 @@ void App::updateVrIk(const render::Scene& scene, const Uuid& self)
             {wrists[h], 3, {grip.position - fingers * kWristBehindGrip, wrist, 1.0f}});
     }
     avatars_->setIk(self, goals.chains.empty() ? std::nullopt : std::optional(goals));
+
+    // Send motion here: (boneid, position, rotation)
 }
 
 std::optional<glm::vec3> App::attentionPoint(const ViewerEffects::Target& target, bool look)

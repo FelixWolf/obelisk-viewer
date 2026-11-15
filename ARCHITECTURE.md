@@ -1459,9 +1459,16 @@ before the joints become matrices (so attachments and rigged mesh follow).
   the avatar otherwise); at a prim, its position plus the offset turned by
   it; with no target, a global position. Eased as ours; a point-at moves
   the left arm.
-- VR (to come with OpenXR): the goals are the headset's and controllers'
-  poses: the spine (torso, chest, neck, head) reaching for the headset's
-  position and the head taking its rotation, and each hand its controller's.
+- VR (`App::updateVrIk`): goals are chains (`IkGoals::chains`: a bone, how
+  many joints up to it FABRIK moves, where it goes and its rotation): the
+  head (a chain of 4: torso, chest, neck, head) placed so the avatar's
+  eyes are on the headset's and turned as it is, each wrist (3: shoulder,
+  elbow, wrist) 8 cm behind its controller's grip and turned from the
+  grip's axes. The view is anchored on the animated pelvis, at the eyes'
+  unanimated height and offset ahead along the headset's heading, so the
+  avatar's animation and IK don't move it. The body turns once the head
+  is 45 degrees round from it, and faces the head to walk (left stick);
+  the right stick turns 30 degrees a flick and recenters when clicked.
 - Reaching uses FABRIK (`avatar::fabrik`): the chain's joints moved
   backward from the target and forward from the root, keeping bone lengths,
   until the end is within 0.1 mm; a pole keeps the elbows bending down,
