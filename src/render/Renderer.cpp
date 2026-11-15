@@ -74,6 +74,7 @@ Renderer::~Renderer()
     }
     // Everything created on the device goes before the device itself.
     pipelines_.reset();
+    emptyStorage_.reset();
     white_.reset();
     black_.reset();
     flatNormal_.reset();

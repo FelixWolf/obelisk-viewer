@@ -408,8 +408,8 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
     depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-    ScenePass scenePass(commands, pass, *pipelines_, vs, fs, lightBuffer_.buffer.get(),
-                        probeBuffer_.buffer.get(), true);
+    ScenePass scenePass(commands, pass, *pipelines_, vs, fs, storageOr(lightBuffer_),
+                        storageOr(probeBuffer_), true);
     if(light.atmosphere.enabled)
     {
         drawSky(scenePass, light.atmosphere, view, projection);

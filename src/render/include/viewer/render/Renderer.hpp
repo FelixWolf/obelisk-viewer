@@ -182,6 +182,13 @@ private:
         GpuBuffer buffer;
         SDL_GPUTransferBuffer* transfer = nullptr; // same size as buffer
     };
+    // A storage buffer for a slot, or an empty one if it hasn't been made:
+    // shaders don't read it then (no lights or probes in use), but the slot
+    // can't be left unbound.
+    SDL_GPUBuffer* storageOr(const FrameBuffer& b) const
+    {
+        return b.buffer ? b.buffer.get() : emptyStorage_.get();
+    }
     // Makes `b` at least `bytes` large (contents lost when it grows).
     bool reserve(FrameBuffer& b, uint32_t bytes, SDL_GPUBufferUsageFlags usage);
     // Uploads every object draw's data (by index into scene.objects) and the
@@ -302,6 +309,12 @@ private:
     SDL_GPUTexture* luminance_ = nullptr;
     std::array<SDL_GPUTexture*, 2> exposureMaps_{};
     uint32_t exposureIndex_ = 0;
+    // The current exposure: before any is measured (or with dynamic exposure
+    // left out from the start), 1.
+    SDL_GPUTexture* exposureMap() const
+    {
+        return exposureMaps_[exposureIndex_] ? exposureMaps_[exposureIndex_] : white_.get();
+    }
     bool exposureHistory_ = false; // exposureMaps_ hold a valid exposure
     uint64_t lastExposureTicks_ = 0;
     // Sun shadows: one layer per cascade.
@@ -424,6 +437,7 @@ private:
     FrameBuffer probeBuffer_; // the local probes surfaces use this frame
     uint32_t probesShaded_ = 0;
 
+    GpuBuffer emptyStorage_; // stands in for storage buffers not made yet (storageOr)
     // Neutral stand-ins for missing material textures.
     GpuTexture white_;
     GpuTexture black_;

@@ -76,7 +76,8 @@ void printUsage()
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
-                 "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]]");
+                 "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
+                 "[--without shadows,lights,probes,glow,exposure]");
 }
 
 } // namespace
@@ -171,6 +172,18 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
             {
                 i++;
                 options.stereoSize = static_cast<uint32_t>(std::strtoul(args[i], nullptr, 10));
+            }
+        }
+        else if(arg == "--without" && hasValue)
+        {
+            i++;
+            std::string_view list = args[i];
+            while(!list.empty())
+            {
+                const size_t comma = list.find(',');
+                options.without.emplace_back(list.substr(0, comma));
+                list =
+                    comma == std::string_view::npos ? std::string_view() : list.substr(comma + 1);
             }
         }
         else if(arg == "--no-occlusion")
@@ -319,6 +332,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->say_ = options.say;
     app->occlusion_ = options.occlusion;
     app->stereoSize_ = options.stereoSize;
+    app->without_ = options.without;
     app->sayAt_ = options.sayAt;
     app->screenshotPath_ = options.screenshotPath;
     app->screenshotDelay_ = options.screenshotDelay;
@@ -1249,6 +1263,25 @@ void App::buildScene(render::Scene& scene)
         const glm::vec3 origin =
             originHandle_ ? camera_.target() + glm::vec3(0.0f, 30.0f, 0.0f) : glm::vec3(0.0f);
         sceneAssets_->addTestScene(scene, origin);
+    }
+
+    // --without: passes left out, to measure what they cost.
+    auto without = [&](std::string_view pass)
+    { return std::ranges::find(without_, pass) != without_.end(); };
+    if(!without_.empty())
+    {
+        scene.shadows.enabled = scene.shadows.enabled && !without("shadows");
+        if(without("lights"))
+        {
+            scene.lights.clear();
+        }
+        if(without("probes"))
+        {
+            scene.reflections.enabled = false;
+            scene.probes.clear();
+        }
+        scene.glow = !without("glow");
+        scene.dynamicExposure = !without("exposure");
     }
 }
 

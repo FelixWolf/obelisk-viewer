@@ -757,6 +757,17 @@ bool Renderer::createPipelines()
 
 bool Renderer::createDefaultTextures()
 {
+    {
+        SDL_GPUBufferCreateInfo info = {};
+        info.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
+        info.size = 256;
+        emptyStorage_ = GpuBuffer(device_, SDL_CreateGPUBuffer(device_, &info), info.size);
+        if(!emptyStorage_)
+        {
+            log::error("creating the empty storage buffer failed: {}", SDL_GetError());
+            return false;
+        }
+    }
     auto solid = [](uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
         image::TextureData t;
@@ -1127,8 +1138,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         const auto instanceBase = pushInstances(commands, instanceOrder_);
 
         SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-        ScenePass scenePass(commands, pass, p, frameVs, viewFs, lightBuffer_.buffer.get(),
-                            probeBuffer_.buffer.get());
+        ScenePass scenePass(commands, pass, p, frameVs, viewFs, storageOr(lightBuffer_),
+                            storageOr(probeBuffer_));
         if(atmo.enabled)
         {
             drawSky(scenePass, atmo, view, projection);
@@ -1148,7 +1159,10 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         if(v == 0)
         {
             drawOcclusion(commands, scene, projection * view);
-            updateExposure(commands, light);
+            if(scene.dynamicExposure)
+            {
+                updateExposure(commands, light);
+            }
         }
         drawGlow(commands, scene, light, width, height, frameVs, drawsReady);
         drawTonemap(commands, target, light, true);
@@ -1315,8 +1329,8 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
                                               jointBuffer_.buffer ? jointBuffer_.buffer.get()
                                                                   : drawBuffer_.buffer.get()};
             SDL_BindGPUVertexStorageBuffers(pass.pass(), 0, vertexStorage, 2);
-            SDL_GPUBuffer* fragmentStorage[] = {drawBuffer_.buffer.get(), lightBuffer_.buffer.get(),
-                                                probeBuffer_.buffer.get()};
+            SDL_GPUBuffer* fragmentStorage[] = {drawBuffer_.buffer.get(), storageOr(lightBuffer_),
+                                                storageOr(probeBuffer_)};
             SDL_BindGPUFragmentStorageBuffers(pass.pass(), 0, fragmentStorage, 3);
             const SDL_GPUBufferBinding instances = {
                 instanceBase ? instanceStream_.buffer.get() : instanceBuffer_.buffer.get(), 0};
@@ -1539,7 +1553,7 @@ void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targe
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->tonemap);
     const SDL_GPUTextureSamplerBinding inputs[] = {
         {hdrTarget_, pipelines_->clampSampler},
-        {exposureMaps_[exposureIndex_], pipelines_->clampSampler},
+        {exposureMap(), pipelines_->clampSampler},
         {glowResult_ ? glowResult_ : black_.get(), pipelines_->clampSampler}};
     SDL_BindGPUFragmentSamplers(pass, 0, inputs, 3);
     pushFragmentUniforms(commands, 0,

@@ -80,6 +80,9 @@ struct AppOptions
     // --stereo-benchmark [SIZE]: draw both eyes of a headset view, SIZE
     // pixels square each (2160), and log what it costs.
     uint32_t stereoSize = 0;
+    // --without shadows,lights,probes,glow,exposure: leave passes out, to
+    // measure what they cost.
+    std::vector<std::string> without;
 };
 
 // Parses command-line arguments; returns nullopt (after printing usage) on error.
@@ -180,10 +183,11 @@ private:
     std::optional<float> clickAt_;
     std::string say_; // --say, and when
     float sayAt_ = 0.0f;
-    int said_ = 0;                   // 1: typing, 2: said
-    bool occlusion_ = true;          // occlusion culling
-    uint32_t stereoSize_ = 0;        // --stereo-benchmark: eye size, 0 off
-    uint64_t stereoLoggedTicks_ = 0; // its last timing log
+    int said_ = 0;                     // 1: typing, 2: said
+    bool occlusion_ = true;            // occlusion culling
+    uint32_t stereoSize_ = 0;          // --stereo-benchmark: eye size, 0 off
+    std::vector<std::string> without_; // --without: passes left out
+    uint64_t stereoLoggedTicks_ = 0;   // its last timing log
     // The stats window's texture and mesh counts, refreshed now and then.
     TextureManager::Stats uiTextureStats_{};
     MeshManager::Stats uiMeshStats_{};

@@ -487,7 +487,11 @@ the screenshot. `--stereo-benchmark [SIZE]` (2160 by
 default) uses it with a square 90 degree view and logs every five seconds
 what a frame costs: frames a second, CPU time by stage, and time spent
 waiting for the GPU (the swapchain's acquire, which waits once the GPU is
-frames behind).
+frames behind). `--without shadows,lights,probes,glow,exposure` leaves those
+passes out (`Scene::glow`, `Scene::dynamicExposure`, and the scene's
+shadow, light and probe settings), to see what each costs; storage buffers
+not made yet are stood in for by an empty one (`Renderer::storageOr`), and
+the exposure is 1 until one is measured.
 
 ### Picking and touching
 

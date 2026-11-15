@@ -42,7 +42,7 @@ void Renderer::drawGlow(SDL_GPUCommandBuffer* commands, const Scene& scene, cons
                         uint32_t width, uint32_t height, const FrameVS& frameVs, bool drawsReady)
 {
     glowResult_ = nullptr;
-    if(!drawsReady || width == 0 || height == 0)
+    if(!scene.glow || !drawsReady || width == 0 || height == 0)
     {
         return;
     }
@@ -174,10 +174,9 @@ void Renderer::drawGlow(SDL_GPUCommandBuffer* commands, const Scene& scene, cons
     };
     pushFragmentUniforms(commands, 0,
                          GlowFS{glm::vec4(light.exposure, light.tonemapMix, 0.0f, 0.0f)});
-    const SDL_GPUTextureSamplerBinding extractInputs[] = {
-        {hdrTarget_, pipelines_->clampSampler},
-        {exposureMaps_[exposureIndex_], pipelines_->clampSampler},
-        {glowMask_, pipelines_->clampSampler}};
+    const SDL_GPUTextureSamplerBinding extractInputs[] = {{hdrTarget_, pipelines_->clampSampler},
+                                                          {exposureMap(), pipelines_->clampSampler},
+                                                          {glowMask_, pipelines_->clampSampler}};
     fullscreen(glowImages_[2], pipelines_->glowExtract, extractInputs);
 
     // Blurred across, down, across, down: from image 2 into 0, then back and
