@@ -4,6 +4,7 @@ add_executable(viewer_tests
   AvatarTests.cpp
   IkTests.cpp
   ViewerEffectsTests.cpp
+  OutfitAttachmentsTests.cpp
   LoginFlowTests.cpp
   CircuitTests.cpp
   DiskCacheTests.cpp
@@ -46,6 +47,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/ParticleView.cpp
   ${PROJECT_SOURCE_DIR}/src/app/TerrainOverrides.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ViewerEffects.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/OutfitAttachments.cpp
   ${PROJECT_SOURCE_DIR}/src/app/LoginFlow.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SavedLogins.cpp
 )

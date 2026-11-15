@@ -302,6 +302,24 @@ public:
     // tell others we started or stopped typing.
     void say(std::string_view text, int32_t channel = 0, uint8_t type = 1);
 
+    // Wears objects from inventory (RezMultipleAttachmentsFromInv), as the
+    // official viewer's LLAttachmentsMgr: each at the point it was last
+    // worn on, added to what's there (ATTACHMENT_ADD) rather than replacing
+    // it, so several can share a point. One compound request.
+    struct InventoryObject
+    {
+        Uuid itemId;
+        Uuid ownerId;
+        uint32_t flags = 0;
+        uint32_t groupMask = 0;
+        uint32_t everyoneMask = 0;
+        uint32_t nextOwnerMask = 0;
+        std::string name;
+        std::string description;
+    };
+    static constexpr uint8_t kAttachmentAdd = 0x80;
+    void attachFromInventory(std::span<const InventoryObject> items);
+
     // Our look-at and point-at (the official LLHUDEffectLookAt and
     // LLHUDEffectPointAt) as a ViewerEffect to the main region, which
     // passes it to viewers nearby: they turn our avatar's head and arm.

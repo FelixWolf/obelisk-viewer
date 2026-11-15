@@ -44,6 +44,7 @@ add_executable(viewer
   TerrainTextures.cpp
   TerrainOverrides.cpp
   ViewerEffects.cpp
+  OutfitAttachments.cpp
   TerrainView.cpp
   TextureManager.cpp
   TreeView.cpp

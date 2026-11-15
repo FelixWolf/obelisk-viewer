@@ -383,6 +383,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
     app->terrainOverrides_ = std::make_unique<TerrainOverrides>(*app->http_);
+    app->outfit_ = std::make_unique<OutfitAttachments>(*app->http_);
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
@@ -1088,6 +1089,7 @@ void App::updateSession()
         }
     }
     terrainOverrides_->update();
+    updateOutfit();
     if(animations_)
     {
         animations_->setViewerAssetUrl(viewerAsset);
@@ -1267,6 +1269,59 @@ void App::requestMissingAppearances()
     }
 }
 
+void App::updateOutfit()
+{
+    const auto* login = session_ ? session_->login() : nullptr;
+    if(!login || !world_)
+    {
+        return;
+    }
+    const auto descendents = session_->capability("FetchInventoryDescendents2");
+    const auto items = session_->capability("FetchInventory2");
+    if(!outfit_->started() && descendents && items)
+    {
+        const Uuid root = login->reply["inventory-root"][0]["folder_id"].asUuid();
+        outfit_->start(std::string(*descendents), std::string(*items), login->agentId, root);
+    }
+    if(!outfit_->busy())
+    {
+        return;
+    }
+    // What we wear now: our avatar's attachments' items.
+    const double now = static_cast<double>(SDL_GetTicksNS()) * 1e-9;
+    const bool look = now - wornAt_ >= 0.5;
+    std::optional<double> arrived;
+    if(agentKey_)
+    {
+        if(const world::Object* me = world_->object(agentKey_->region, agentKey_->localId))
+        {
+            if(!selfSeenAt_)
+            {
+                selfSeenAt_ = now;
+            }
+            arrived = now - *selfSeenAt_;
+            if(look)
+            {
+                wornAt_ = now;
+                worn_.clear();
+                for(const auto& [key, object] : world_->objects())
+                {
+                    if(key.region == agentKey_->region && object.parentId == me->localId &&
+                       !object.attachItemId.isNull())
+                    {
+                        worn_.insert(object.attachItemId);
+                    }
+                }
+            }
+        }
+    }
+    const auto wear = outfit_->update(now, arrived, worn_);
+    if(!wear.empty())
+    {
+        session_->attachFromInventory(wear);
+    }
+}
+
 void App::endSession()
 {
     setFirstPerson(false);
@@ -1291,6 +1346,10 @@ void App::endSession()
     worldThread_.reset();
     terrainView_.clear();
     terrainOverrides_->clear();
+    outfit_->clear();
+    selfSeenAt_.reset();
+    worn_.clear();
+    wornAt_ = -1e9;
     ik_ = Ik{};
     trees_->clear();
     if(avatars_)

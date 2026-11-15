@@ -13,6 +13,7 @@
 #include "MaterialManager.hpp"
 #include "ObjectProperties.hpp"
 #include "ObjectView.hpp"
+#include "OutfitAttachments.hpp"
 #include "PointerController.hpp"
 #include "SceneAssets.hpp"
 #include "TerrainTextures.hpp"
@@ -44,6 +45,7 @@
 #include <span>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace viewer
 {
@@ -121,6 +123,9 @@ private:
     void drawUi();
     void drawFpsOverlay();
     void handleLoginAction(LoginAction action);
+    // Wears the Current Outfit Folder's attachments the region didn't
+    // bring back (OutfitAttachments).
+    void updateOutfit();
     void loadTerrainBlendRamp();
     void updateSession();
     void logOutBeforeExit();
@@ -203,6 +208,12 @@ private:
     std::unique_ptr<MeshManager> meshes_;
     std::unique_ptr<MaterialManager> materials_;
     std::unique_ptr<TerrainOverrides> terrainOverrides_;
+    // The whole outfit worn (the Current Outfit Folder's attachments), and
+    // when our avatar was first seen this session.
+    std::unique_ptr<OutfitAttachments> outfit_;
+    std::optional<double> selfSeenAt_;
+    std::unordered_set<Uuid> worn_; // its items worn, as last looked (twice a second)
+    double wornAt_ = -1e9;
     std::unique_ptr<LegacyMaterialManager> legacyMaterials_;
     std::unique_ptr<AvatarNames> avatarNames_;     // display names, for name tags
     ObjectMotion motion_;                          // before the views that read it

@@ -314,6 +314,13 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
             {
                 o.groupTitle = std::move(value);
             }
+            else if(name == "AttachItemID")
+            {
+                if(const auto id = Uuid::parse(value))
+                {
+                    o.attachItemId = *id;
+                }
+            }
         }
         o.textureAnimation = decodeTextureAnimation(b.TextureAnim, true);
         o.particles = decodeParticleSystem(b.PSBlock);

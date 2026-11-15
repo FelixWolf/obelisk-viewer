@@ -1429,6 +1429,19 @@ Not yet: IK constraints, the official viewer's
 procedural motions (head and eye movement, breathing, hand poses), clothing
 morph masks and the physics-driven morphs (breast, belly and butt physics).
 
+### Wearing the whole outfit
+
+The simulator brings back one attachment a point after login; the rest
+of the outfit (a head and hair both on the skull, rigged clothes on a
+hand) is worn by the viewer, as the official one does from the Current
+Outfit Folder (`OutfitAttachments`): the folder of type 46 found among
+the inventory root's (FetchInventoryDescendents2), its links followed to
+their items (FetchInventory2), and the objects among them not worn (no
+attachment of ours with that `AttachItemID`) attached once our avatar
+has been in 8 seconds, five at a time (RezMultipleAttachmentsFromInv:
+point 0, where each was last, with ATTACHMENT_ADD so they share points),
+then once more 30 seconds later for any still missing.
+
 ### Viewer-made motion (IK)
 
 Our own avatar gets motion on top of its animation that only this viewer

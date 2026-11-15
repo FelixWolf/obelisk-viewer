@@ -197,6 +197,9 @@ struct Object
     std::string firstName{};
     std::string lastName{};
     std::string groupTitle{};
+    // An attachment: the inventory item it was attached from (NameValue
+    // AttachItemID).
+    Uuid attachItemId{};
     // When the latest update (full or terse) arrived, and the simulator's
     // time dilation then: motion is predicted from here (extrapolate()).
     // Default (epoch): never updated over the network; nothing to predict.

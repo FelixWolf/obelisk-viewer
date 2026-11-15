@@ -818,6 +818,43 @@ void Session::say(std::string_view text, int32_t channel, uint8_t type)
     send(*main, chat, true);
 }
 
+void Session::attachFromInventory(std::span<const InventoryObject> items)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_ || items.empty())
+    {
+        return;
+    }
+    // Four to a message, all under one id (as the official viewer).
+    constexpr size_t kPerMessage = 4;
+    const Uuid compound = Uuid::random();
+    for(size_t first = 0; first < items.size(); first += kPerMessage)
+    {
+        msg::RezMultipleAttachmentsFromInv m;
+        m.AgentData.AgentID = login_->agentId;
+        m.AgentData.SessionID = login_->sessionId;
+        m.HeaderData.CompoundMsgID = compound;
+        m.HeaderData.TotalObjects = static_cast<uint8_t>(std::min<size_t>(items.size(), 255));
+        m.HeaderData.FirstDetachAll = false;
+        for(size_t i = first; i < std::min(items.size(), first + kPerMessage); i++)
+        {
+            const InventoryObject& item = items[i];
+            msg::RezMultipleAttachmentsFromInv::ObjectDataBlock b;
+            b.ItemID = item.itemId;
+            b.OwnerID = item.ownerId;
+            b.AttachmentPt = kAttachmentAdd; // point 0: where it was last
+            b.ItemFlags = item.flags;
+            b.GroupMask = item.groupMask;
+            b.EveryoneMask = item.everyoneMask;
+            b.NextOwnerMask = item.nextOwnerMask;
+            b.Name = protocol::fromString(item.name);
+            b.Description = protocol::fromString(item.description);
+            m.ObjectData.push_back(std::move(b));
+        }
+        send(*main, m, true);
+    }
+}
+
 std::vector<uint8_t> Session::packAttention(const Uuid& source, const AttentionEffect& effect)
 {
     std::vector<uint8_t> data(57, 0);
