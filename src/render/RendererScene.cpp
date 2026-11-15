@@ -141,6 +141,13 @@ bool Renderer::createPipelines()
         createShader(device_, {kOutlineFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "outline.frag");
     SDL_GPUShader* labelVert =
         createShader(device_, {kLabelVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "label.vert");
+    // Particles' (kept: their pipelines are made as blends are needed).
+    p.particleVert =
+        createShader(device_, {kParticleVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "particle.vert");
+    p.particleFrag = createShader(device_, {kParticleFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1, 2},
+                                  "particle.frag");
+    p.particleGlowFrag = createShader(
+        device_, {kParticleGlowFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "particle_glow.frag");
     SDL_GPUShader* labelFrag =
         createShader(device_, {kLabelFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "label.frag");
     SDL_GPUShader* pickFrag =
@@ -817,6 +824,24 @@ bool Renderer::createDefaultTextures()
     }
     ramp.levels.push_back(std::move(rampLevel));
     const image::TextureData* rampPointer = &ramp;
+    // The default particle image: a soft white dot.
+    image::TextureData dot;
+    image::MipLevel dotLevel{32, 32, std::vector<uint8_t>(32 * 32 * 4)};
+    for(uint32_t y = 0; y < 32; y++)
+    {
+        for(uint32_t x = 0; x < 32; x++)
+        {
+            const glm::vec2 d =
+                (glm::vec2(static_cast<float>(x), static_cast<float>(y)) + 0.5f) / 16.0f - 1.0f;
+            const float falloff = std::max(1.0f - glm::dot(d, d), 0.0f);
+            uint8_t* px = &dotLevel.pixels[(y * 32 + x) * 4];
+            px[0] = px[1] = px[2] = 255;
+            px[3] = static_cast<uint8_t>(falloff * falloff * 255.0f);
+        }
+    }
+    dot.levels.push_back(std::move(dotLevel));
+    const image::TextureData* dotPointer = &dot;
+    particleImage_ = std::move(uploadTextures({&dotPointer, 1}, true)[0]);
     terrainBlendRamp_ = std::move(uploadTextures({&rampPointer, 1}, false)[0]);
     blackLayers_ = uploadTextureArray(blacks, false);
     flatNormalLayers_ = uploadTextureArray(flats, false);
@@ -979,6 +1004,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
     // Labels (the HUD's, and the first view's) up before the HUD is drawn.
     const Camera& first = *views[0].camera;
     uploadLabels(commands, scene, projectionOf(first) * viewOf(first), width, height);
+    uploadParticles(commands, scene, first.position);
     // HUD attachments into their own image, as big as the view, with their
     // labels.
     const bool hud = drawHud(commands, scene, width, height, drawsReady);
@@ -1183,6 +1209,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         drawTerrain(scenePass, scene);
 
         drawObjects(scenePass, scene, order, instanceBase);
+        drawParticles(scenePass);
         if(hud && scene.hud.placement == Hud::Placement::World)
         {
             drawHudPanel(scenePass, scene.hud, projection * view);

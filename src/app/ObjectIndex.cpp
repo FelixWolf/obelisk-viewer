@@ -42,6 +42,7 @@ void ObjectIndex::clear()
     moving_.clear();
     lights_.clear();
     probes_.clear();
+    particleSources_.clear();
     dirty_.clear();
     orphans_.clear();
 }
@@ -134,6 +135,7 @@ void ObjectIndex::changedPrim(const world::World& world, const world::ObjectKey&
     }
     lights_.erase(key);
     probes_.erase(key);
+    particleSources_.erase(key);
 
     const world::Object* object = world.object(key.region, key.localId);
     if(!object || object->type != world::ObjectType::Prim)
@@ -166,6 +168,10 @@ void ObjectIndex::changedPrim(const world::World& world, const world::ObjectKey&
     if(object->reflectionProbe)
     {
         probes_.insert(key);
+    }
+    if(object->particles)
+    {
+        particleSources_.insert(key);
     }
 }
 

@@ -8,8 +8,8 @@
 // stand still go into cells of kCellSize meters (global coordinates), each
 // with bounds and its link sets' spheres; ones that move (worn, moving or
 // spinning, rigged mesh, or with a parent not known yet) are kept apart,
-// to be looked at every frame. The prims that light or are reflection
-// probes are listed too: they matter even out of view.
+// to be looked at every frame. The prims that light, are reflection
+// probes or emit particles are listed too: they matter even out of view.
 
 #include "viewer/world/World.hpp"
 
@@ -84,6 +84,11 @@ public:
     {
         return probes_;
     }
+    // Prims with a particle system.
+    const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& particleSources() const
+    {
+        return particleSources_;
+    }
     size_t prims() const { return rootOf_.size(); }
 
 private:
@@ -105,6 +110,7 @@ private:
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> moving_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> lights_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> probes_;
+    std::unordered_set<world::ObjectKey, world::ObjectKeyHash> particleSources_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> dirty_;
     // Link sets whose root's parent wasn't known: placed again once it is.
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> orphans_;

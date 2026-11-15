@@ -487,7 +487,7 @@ the screenshot. `--stereo-benchmark [SIZE]` (2160 by
 default) uses it with a square 90 degree view and logs every five seconds
 what a frame costs: frames a second, CPU time by stage, and time spent
 waiting for the GPU (the swapchain's acquire, which waits once the GPU is
-frames behind). `--without shadows,lights,probes,glow,exposure,clusters` leaves those
+frames behind). `--without shadows,lights,probes,glow,exposure,clusters,particles` leaves those
 passes out (`Scene::glow`, `Scene::dynamicExposure`, and the scene's
 shadow, light and probe settings), to see what each costs; storage buffers
 not made yet are stood in for by an empty one (`Renderer::storageOr`), and
@@ -1032,9 +1032,38 @@ two patches coded as terrain patches are (the x velocities, then the y) on
 a 16 by 16 grid over the region (`world::decodeWindLayer`). `World` keeps
 each region's latest, apart from its terrain since it changes every few
 seconds, and `world::windVelocity` looks it up between the grid's points,
-times WIND_SCALE_HACK (2), as LLWind::getVelocity. Only flexible prims use
-it so far (the official viewer's trees don't: their trunk bend is never
-set); particles will.
+times WIND_SCALE_HACK (2), as LLWind::getVelocity. Flexible prims and
+particles use it (the official viewer's trees don't: their trunk bend is
+never set).
+
+Particles (llParticleSystem): a full update's PSBlock, or a compressed
+update's legacy 86 bytes (flag 0x08; 0x400 alone keeps the one there),
+decode into `world::ParticleSystem` (`decodeParticleSystem`, as
+LLPartSysData: fixed-point fields, the size-prefixed format's optional glow
+and blend factors; nothing for a checksum of 0 or a version it doesn't
+know). `ObjectIndex` lists the prims that have one, and `ParticleView`
+(owned by `ObjectView`) runs them as LLViewerPartSourceScript and
+LLViewerPartSim do: each source, every frame (in view or not, within draw
+distance; not on HUDs yet), emits a burst every burst rate seconds (dropped,
+exploding, or within its angles or cone, turned by the prim and by its
+angular velocity), skipping particles too small to ever show and thinning
+those too far to be seen before they die; particles move by velocity and
+acceleration (wind, steering to the target, following the source, bouncing
+off its height, a straight line to the target, as flagged), their color,
+scale and glow going from start to end, until their max age. A source
+outlives its own max age until its prim next updates (as the official
+viewer makes a new one then). At most 4096 live (RenderMaxPartCount): the
+official throttles slow bursts near that. Ribbon particles chain to the
+one emitted after them (the newest to the source). The renderer
+(`RendererParticles.cpp`) sorts this frame's particles far to near once,
+uploads their corners, and the vertex shader turns each quad to face each
+eye's camera (or along its velocity); they're drawn after the blended
+objects, depth tested, blended with their own blend factors (a pipeline
+per pair, made when first used), emissive ones unlit and the rest lit
+facing the camera (sun and its shadow, ambient, local lights); their glow
+adds to the glow mask. Particles without a texture use the official
+viewer's default image (pixiesmall, 168e6813-096e-07ea-97ae-fd416826f627,
+from the asset server); a soft white dot stands in while it loads.
 
 Texture animation (llSetTextureAnim; `world::TextureAnimation`, from the
 TextureAnim field or a compressed update's 0x40 block) runs as the

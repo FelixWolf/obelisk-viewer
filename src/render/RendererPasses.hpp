@@ -150,6 +150,13 @@ public:
     }
 
     SDL_GPUBuffer* clusters() const { return clusters_; }
+    SDL_GPUBuffer* lights() const { return lights_; }
+    // After binding buffers directly: drawMesh binds its own again.
+    void forgetBuffers()
+    {
+        boundVertices_ = nullptr;
+        boundIndices_ = nullptr;
+    }
 
     bool allAround() const { return allAround_; }
 

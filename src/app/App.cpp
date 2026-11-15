@@ -77,7 +77,7 @@ void printUsage()
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
-                 "[--without shadows,lights,probes,glow,exposure,clusters]");
+                 "[--without shadows,lights,probes,glow,exposure,clusters,particles]");
 }
 
 } // namespace
@@ -522,10 +522,10 @@ int App::run()
             const auto o = objects_->stats();
             log::info("stereo {}x{} per eye: {:.1f} FPS, {:.2f} ms a frame, {:.2f} ms CPU, "
                       "{:.2f} ms waiting for the GPU; {}; prims drawn {} ({} kept), {} culled, "
-                      "{} faces",
+                      "{} faces, {} particles from {} sources",
                       stereoSize_, stereoSize_, 1000.0f / average, average, cpu,
                       stages[FrameProfile::Acquire], FrameProfile::describe(stages), o.drawn,
-                      o.reused, o.culled, o.faces);
+                      o.reused, o.culled, o.faces, o.particles, o.particleSources);
         }
         // --click-at: press at the given time, let go a moment later.
         if(clickAt_ && !clickedTicks_ && static_cast<float>(now - startTicks_) * 1e-9f >= *clickAt_)
@@ -1068,6 +1068,7 @@ void App::buildScene(render::Scene& scene)
     scene.objects.clear();
     scene.lights.clear();
     scene.labels.clear();
+    scene.particles.clear();
     // What a recent frame hid behind what (occlusion culling).
     scene.occlusion = occlusion_ ? renderer_->occlusion() : nullptr;
     scene.terrain.clear();
@@ -1283,6 +1284,11 @@ void App::buildScene(render::Scene& scene)
         scene.glow = !without("glow");
         scene.dynamicExposure = !without("exposure");
         scene.clusters = !without("clusters");
+        objects_->setParticles(!without("particles")); // from the next frame
+        if(without("particles"))
+        {
+            scene.particles.clear();
+        }
     }
 }
 
@@ -1678,6 +1684,7 @@ void App::drawUi()
             ImGui::Text("Objects: %zu known, %zu prims drawn (%zu faces), %zu not drawable yet",
                         world_->objects().size(), o.drawn, o.faces, o.skipped);
             ImGui::Text("Prim meshes: %zu cached, %zu generating", o.meshes, o.pending);
+            ImGui::Text("Particles: %zu from %zu sources", o.particles, o.particleSources);
             const auto c = worldThread_->cacheStats();
             ImGui::Text("Object cache: %llu hits, %llu misses",
                         static_cast<unsigned long long>(c.hits),

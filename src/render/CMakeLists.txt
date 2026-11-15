@@ -31,6 +31,9 @@ set(shader_sources
   glow_extract.frag
   glow_blur.frag
   occlusion_reduce.frag
+  particle.vert
+  particle.frag
+  particle_glow.frag
 )
 set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
@@ -83,6 +86,7 @@ add_library(viewer_render STATIC
   RendererPick.cpp
   RendererText.cpp
   RendererGlow.cpp
+  RendererParticles.cpp
   RendererOcclusion.cpp
   OcclusionMap.cpp
   Clusters.cpp

@@ -22,6 +22,7 @@ add_executable(viewer_tests
   ObjectTests.cpp
   ClusterTests.cpp
   OcclusionTests.cpp
+  ParticleTests.cpp
   ProtocolTests.cpp
   SessionTests.cpp
   TerrainTests.cpp
@@ -39,6 +40,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/FlexibleView.cpp
   ${PROJECT_SOURCE_DIR}/src/app/FaceUpload.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ObjectIndex.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ParticleView.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

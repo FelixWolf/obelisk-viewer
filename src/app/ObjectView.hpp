@@ -20,6 +20,7 @@
 #include "MeshManager.hpp"
 #include "ObjectIndex.hpp"
 #include "ObjectMotion.hpp"
+#include "ParticleView.hpp"
 #include "TextureManager.hpp"
 
 #include "viewer/core/JobSystem.hpp"
@@ -71,11 +72,15 @@ public:
         size_t meshObjects = 0; // of drawn, how many are mesh
         size_t skipped = 0;     // sculpted/attached prims not drawn
         size_t palettes = 0;    // rigged meshes skinned last frame
-        size_t culled = 0;      // in range but out of view last frame
-        size_t pbrFaces = 0;    // faces drawn with their PBR material
-        size_t reused = 0;      // prims drawn from their kept draws last frame
+        size_t particles = 0;   // alive
+        size_t particleSources = 0;
+        size_t culled = 0;   // in range but out of view last frame
+        size_t pbrFaces = 0; // faces drawn with their PBR material
+        size_t reused = 0;   // prims drawn from their kept draws last frame
     };
     Stats stats() const { return stats_; }
+    // Particles simulated and drawn (off: --without particles).
+    void setParticles(bool on) { particlesOn_ = on; }
 
     // Every prim placed last frame (its center and half its size), for
     // automatic reflection probes (placeAutomaticProbes).
@@ -214,7 +219,14 @@ private:
     Stats stats_;
     std::vector<ProbeObject> probeObjects_;
     FlexibleView flexible_; // flexible prims' bent geometry
-    ObjectIndex index_;     // where prims are, to skip hidden ones a cell at a time
+    bool particlesOn_ = true;
+    ParticleView particles_;
+    std::chrono::steady_clock::time_point lastParticles_{};
+    // Particle targets by id, found by looking through the world (at most
+    // once a second for one not found).
+    std::unordered_map<Uuid, world::ObjectKey> targetKeys_;
+    std::unordered_map<Uuid, std::chrono::steady_clock::time_point> targetRetry_;
+    ObjectIndex index_; // where prims are, to skip hidden ones a cell at a time
     // A prim's face draws as last built, reused while nothing they depend on
     // has changed and everything in them had loaded: each frame only their
     // transform, whether they only cast shadows, and their textures' use

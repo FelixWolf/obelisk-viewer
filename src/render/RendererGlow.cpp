@@ -13,6 +13,7 @@
 
 #include <SDL3/SDL_error.h>
 
+#include <algorithm>
 #include <vector>
 
 namespace viewer::render
@@ -55,7 +56,8 @@ void Renderer::drawGlow(SDL_GPUCommandBuffer* commands, const Scene& scene, cons
             draws.push_back(&draw);
         }
     }
-    if(draws.empty())
+    const bool particlesGlow = std::ranges::any_of(particleBatches_, &ParticleBatch::glows);
+    if(draws.empty() && !particlesGlow)
     {
         return;
     }
@@ -156,6 +158,7 @@ void Renderer::drawGlow(SDL_GPUCommandBuffer* commands, const Scene& scene, cons
                                      static_cast<Sint32>(draw->mesh->firstVertex),
                                      static_cast<uint32_t>(draw - scene.objects.data()));
     }
+    drawParticleGlow(pass);
     SDL_EndGPURenderPass(pass);
 
     // The view as displayed, times the glow, into the glow image.

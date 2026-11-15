@@ -182,6 +182,10 @@ void ObjectView::clear()
     index_.clear();
     cache_.clear();
     flexible_.clear();
+    particles_.clear();
+    targetKeys_.clear();
+    targetRetry_.clear();
+    lastParticles_ = {};
 }
 
 std::optional<glm::mat4> ObjectView::frameOf(const world::Object& object, const world::World& world,
@@ -1359,6 +1363,90 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             }
         }
     }
+    static const std::unordered_set<world::ObjectKey, world::ObjectKeyHash> noSources;
+    // Particles: every source (they matter even unseen), then the
+    // particles move and are drawn. Not on HUDs yet.
+    const float pixelsPerMeter = textures.texelsFor(1.0f, 1.0f);
+    if(!particlesOn_)
+    {
+        particles_.clear();
+    }
+    for(const world::ObjectKey& key : particlesOn_ ? index_.particleSources() : noSources)
+    {
+        const world::Object* o = world.object(key.region, key.localId);
+        if(!o || !o->particles || onHud(*o, world, avatars))
+        {
+            continue;
+        }
+        const auto frame = frameOf(*o, world, originHandle, avatars);
+        if(!frame || glm::length(glm::vec3((*frame)[3]) - scene.camera.position) > drawDistance)
+        {
+            continue;
+        }
+        particles_.source(key, *o->particles, o->contentRevision, glm::vec3((*frame)[3]),
+                          glm::normalize(glm::quat_cast(glm::mat3(*frame))));
+    }
+    const ParticleView::Locate locate = [&](const Uuid& id) -> std::optional<glm::vec3>
+    {
+        auto at = [&](const world::ObjectKey& key) -> std::optional<glm::vec3>
+        {
+            const world::Object* o = world.object(key.region, key.localId);
+            if(!o || o->id != id)
+            {
+                return std::nullopt;
+            }
+            const auto frame = frameOf(*o, world, originHandle, avatars);
+            return frame ? std::optional(glm::vec3((*frame)[3])) : std::nullopt;
+        };
+        if(const auto it = targetKeys_.find(id); it != targetKeys_.end())
+        {
+            if(const auto p = at(it->second))
+            {
+                return p;
+            }
+            targetKeys_.erase(it);
+        }
+        // Avatars (the usual targets) first, then everything, not too often.
+        auto found = [&](const world::ObjectKey& key)
+        {
+            targetKeys_[id] = key;
+            return at(key);
+        };
+        for(const world::ObjectKey& key : world.avatarKeys())
+        {
+            const world::Object* o = world.object(key.region, key.localId);
+            if(o && o->id == id)
+            {
+                return found(key);
+            }
+        }
+        auto& retry = targetRetry_[id];
+        if(now < retry)
+        {
+            return std::nullopt;
+        }
+        retry = now + std::chrono::seconds(1);
+        for(const auto& [key, object] : world.objects())
+        {
+            if(object.id == id)
+            {
+                return found(key);
+            }
+        }
+        return std::nullopt;
+    };
+    const float particleSeconds = lastParticles_ == std::chrono::steady_clock::time_point{}
+                                      ? 0.0f
+                                      : std::chrono::duration<float>(now - lastParticles_).count();
+    lastParticles_ = now;
+    particles_.update(particleSeconds, originHandle, scene.camera.position, pixelsPerMeter, locate,
+                      windAt);
+    particles_.addTo(
+        scene, [&](const Uuid& id, float texels) { return textures.get(id, texels); },
+        pixelsPerMeter);
+    stats_.particles = particles_.count();
+    stats_.particleSources = particles_.sources();
+
     // Moving link sets: every member, every frame.
     for(const world::ObjectKey& root : index_.moving())
     {

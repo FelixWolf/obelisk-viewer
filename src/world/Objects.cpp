@@ -481,7 +481,14 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
     }
     if(flags & 0x08)
     {
-        r.skip(86); // particle system (legacy block: 68 system + 18 particle bytes)
+        // Particle system: the legacy block (68 system + 18 particle bytes).
+        std::array<uint8_t, 86> block{};
+        r.bytes(block.data(), block.size());
+        o.particles = decodeParticleSystem(block);
+    }
+    else if(flags & 0x400)
+    {
+        update.keepParticles = true; // the new format: unchanged, not sent here
     }
     {
         // Extra parameters, re-packed so applyExtraParams can read them.
@@ -611,7 +618,12 @@ bool applyUpdate(Object& object, const ObjectUpdateData& update)
     const uint32_t revision = object.revision;
     const uint32_t shapeRevision = object.shapeRevision;
     const uint32_t contentRevision = object.contentRevision;
+    std::optional<ParticleSystem> particles = std::move(object.particles);
     object = next;
+    if(update.keepParticles)
+    {
+        object.particles = std::move(particles);
+    }
     object.revision = revision;
     object.contentRevision = contentRevision;
     object.shapeRevision = shapeRevision + (shapeChanged ? 1 : 0);

@@ -283,6 +283,34 @@ struct LabelLine
     bool header = false; // NameTag: in the band across the bubble's top
 };
 
+// A particle (app's ParticleView simulates them), as the official viewer
+// draws it (llvopartgroup.cpp): a quad facing the camera (or, following
+// its velocity, turned to point along it), or a ribbon segment from it to
+// the particle emitted after it (or its source).
+struct ParticleDraw
+{
+    glm::vec3 position{0.0f}; // its center (a ribbon: this end's middle)
+    glm::vec2 size{0.0f};     // meters across and up (a ribbon: x its width)
+    glm::vec4 color{1.0f};
+    float glow = 0.0f;
+    const GpuTexture* texture = nullptr; // null: a soft white dot
+    // Blend factors (world::ParticleSystem::Blend: the official order).
+    uint8_t blendSource = 7;
+    uint8_t blendDest = 9;
+    bool fullbright = false; // emissive: unlit
+    // Facing its velocity (FOLLOW_VELOCITY): the velocity, else zero.
+    glm::vec3 velocity{0.0f};
+    // A ribbon segment: this end's width direction (scaled by size.x) and
+    // the other end's middle, width direction, width, color and glow.
+    bool ribbon = false;
+    glm::vec3 axis{0.0f};
+    glm::vec3 otherPosition{0.0f};
+    glm::vec3 otherAxis{0.0f};
+    float otherWidth = 0.0f;
+    glm::vec4 otherColor{1.0f};
+    float otherGlow = 0.0f;
+};
+
 // Text over a point, the same size on screen at any distance, centered
 // above it, with a drop shadow. Hidden where the scene is in front of the
 // point; HUD labels are drawn into the HUD image, never hidden. As the
@@ -333,6 +361,7 @@ struct Scene
     // (Renderer::kMaxLights).
     std::vector<LocalLight> lights;
     std::vector<Label> labels;
+    std::vector<ParticleDraw> particles;
     // Passes that can be left out (for measuring what they cost): glow,
     // measuring the view for dynamic exposure (the last exposure stays), and
     // the clusters (every pixel then looks at every light and probe).

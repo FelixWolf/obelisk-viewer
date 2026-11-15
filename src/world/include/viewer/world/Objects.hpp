@@ -7,6 +7,7 @@
 
 #include "viewer/core/Uuid.hpp"
 #include "viewer/volume/VolumeParams.hpp"
+#include "viewer/world/ParticleSystem.hpp"
 #include "viewer/world/TextureAnimation.hpp"
 
 #include <glm/glm.hpp>
@@ -190,6 +191,8 @@ struct Object
     std::optional<TextureAnimation> textureAnimation{};
     std::chrono::steady_clock::time_point textureAnimationSince{};
     float textureAnimationFrames = 0.0f;
+    // Its particle system (llParticleSystem), if it has one.
+    std::optional<ParticleSystem> particles{};
     // Avatars: their legacy name and group title (from NameValue).
     std::string firstName{};
     std::string lastName{};
@@ -220,6 +223,9 @@ struct ObjectUpdateData
     // not temporary) the block as received, for the object cache.
     uint32_t crc = 0;
     std::vector<uint8_t> compressed{};
+    // A compressed update that says the object's particle system is as it
+    // was (flag 0x400 without the legacy block): keep it.
+    bool keepParticles = false;
     // Terse:
     uint8_t state = 0;
     glm::vec3 position{0.0f};

@@ -6,6 +6,8 @@
 #include "viewer/render/Renderer.hpp"
 #include "viewer/render/ShadowCascades.hpp"
 
+#include <unordered_map>
+
 namespace viewer::render
 {
 
@@ -58,6 +60,13 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* shadowSkinned = nullptr;
     SDL_GPUGraphicsPipeline* shadowSkinnedMasked = nullptr;
     SDL_GPUGraphicsPipeline* shadowTerrain = nullptr;
+    // Particles: one pipeline per blend (made when first needed, from these
+    // shaders, kept), and their glow into the glow mask.
+    SDL_GPUShader* particleVert = nullptr;
+    SDL_GPUShader* particleFrag = nullptr;
+    SDL_GPUShader* particleGlowFrag = nullptr;
+    std::unordered_map<uint16_t, SDL_GPUGraphicsPipeline*> particle;
+    SDL_GPUGraphicsPipeline* particleGlow = nullptr;
     SDL_GPUSampler* repeatSampler = nullptr;
     SDL_GPUSampler* clampSampler = nullptr;
     SDL_GPUSampler* shadowSampler = nullptr; // compares depth, filters the results
@@ -99,11 +108,23 @@ struct Renderer::Pipelines
                                           shadowObjectMasked,
                                           shadowSkinned,
                                           shadowSkinnedMasked,
-                                          shadowTerrain})
+                                          shadowTerrain,
+                                          particleGlow})
         {
             if(p)
             {
                 SDL_ReleaseGPUGraphicsPipeline(device, p);
+            }
+        }
+        for(const auto& [key, pipeline] : particle)
+        {
+            SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+        }
+        for(SDL_GPUShader* s : {particleVert, particleFrag, particleGlowFrag})
+        {
+            if(s)
+            {
+                SDL_ReleaseGPUShader(device, s);
             }
         }
         for(auto& byBlend : pbrVariants)

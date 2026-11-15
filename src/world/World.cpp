@@ -316,6 +316,7 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
             }
         }
         o.textureAnimation = decodeTextureAnimation(b.TextureAnim, true);
+        o.particles = decodeParticleSystem(b.PSBlock);
         o.hoverTextColor = b.TextColor;
         o.hoverTextColor[3] = static_cast<uint8_t>(255 - o.hoverTextColor[3]); // sent flipped
         if(o.type == ObjectType::Prim)

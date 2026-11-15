@@ -283,6 +283,29 @@ private:
                       const glm::mat4& viewProjection, uint32_t width, uint32_t height);
     void drawLabels(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target, bool hud);
 
+    // Particles (RendererParticles.cpp): this frame's quads, far ones first
+    // (from `camera`), up to the GPU once; drawn into each view after the
+    // blended objects, blended as each asks, and their glow into the mask.
+    void uploadParticles(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                         const glm::vec3& camera);
+    void drawParticles(ScenePass& pass);
+    void drawParticleGlow(SDL_GPURenderPass* pass);
+    // The pipeline for a blend (world::ParticleSystem::Blend factors), made
+    // when first needed.
+    SDL_GPUGraphicsPipeline* particlePipeline(uint8_t source, uint8_t dest);
+    struct ParticleBatch
+    {
+        SDL_GPUTexture* texture = nullptr;
+        uint8_t blendSource = 0;
+        uint8_t blendDest = 0;
+        uint32_t firstIndex = 0;
+        uint32_t indexCount = 0;
+        bool glows = false;
+    };
+    std::vector<ParticleBatch> particleBatches_;
+    FrameBuffer particleVertices_;
+    GpuBuffer particleIndices_;
+
     // Glow (RendererGlow.cpp), as the official viewer's: how much each pixel
     // glows (the glowing faces, depth tested against the view), the view as
     // displayed times that into a small image, blurred; the tonemap pass
@@ -456,6 +479,9 @@ private:
     GpuTexture blackLayers_;
     GpuTexture flatNormalLayers_;
     GpuTexture terrainBlendRamp_;
+    // Particles whose texture is the default image while it loads: a soft
+    // white dot, as the official viewer's pixiesmall.
+    GpuTexture particleImage_;
 
     std::unique_ptr<MeshPool> meshPool_;
     std::vector<std::pair<uint64_t, const ObjectDraw*>> keyedDraws_; // drawScene's, kept

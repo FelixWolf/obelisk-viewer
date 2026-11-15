@@ -76,6 +76,7 @@ Renderer::~Renderer()
     pipelines_.reset();
     emptyStorage_.reset();
     white_.reset();
+    particleImage_.reset();
     black_.reset();
     flatNormal_.reset();
     loading_.reset();
@@ -96,6 +97,12 @@ Renderer::~Renderer()
             SDL_ReleaseGPUTexture(device_, t);
         }
     }
+    particleVertices_.buffer.reset();
+    if(particleVertices_.transfer)
+    {
+        SDL_ReleaseGPUTransferBuffer(device_, particleVertices_.transfer);
+    }
+    particleIndices_.reset();
     for(FrameBuffer& b : clusterBuffers_)
     {
         b.buffer.reset();

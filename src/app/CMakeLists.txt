@@ -35,6 +35,7 @@ add_executable(viewer
   ObjectIndex.cpp
   ObjectProperties.cpp
   ObjectView.cpp
+  ParticleView.cpp
   PointerController.cpp
   Procedural.cpp
   SceneAssets.cpp
