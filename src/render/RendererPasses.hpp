@@ -84,6 +84,14 @@ struct FrameFS
 struct SkyFS
 {
     glm::mat4 inverseViewProjection;
+    // The sun's and moon's quads (sky.frag): towards the middle (w: drawn),
+    // and half their width and height, at a distance of 1.
+    glm::vec4 sunCenter;
+    glm::vec4 sunRight;
+    glm::vec4 sunUp;
+    glm::vec4 moonCenter;
+    glm::vec4 moonRight;
+    glm::vec4 moonUp;
 };
 struct TerrainPbrFS
 {

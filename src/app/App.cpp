@@ -1095,6 +1095,8 @@ void App::buildScene(render::Scene& scene)
             1000.0,
         scene.camera.position.z);
     scene.lighting.atmosphere.clouds = textures_->get(environment_->cloudTexture());
+    scene.lighting.atmosphere.sunTexture = textures_->get(environment_->sunTexture(), 512.0f);
+    scene.lighting.atmosphere.moonTexture = textures_->get(environment_->moonTexture(), 512.0f);
     // Shadows from whichever light is up (none once it's down).
     scene.shadows.enabled = shadows_ && scene.lighting.sunDirection.z > 0.02f &&
                             scene.lighting.sunColor != glm::vec3(0.0f);

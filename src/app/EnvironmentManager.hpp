@@ -53,6 +53,9 @@ public:
     const Status& status() const { return status_; }
     // The cloud noise texture the current sky uses (after apply()).
     const Uuid& cloudTexture() const { return cloudTexture_; }
+    // The sun's and moon's textures (null: none).
+    const Uuid& sunTexture() const { return sunTexture_; }
+    const Uuid& moonTexture() const { return moonTexture_; }
     // The water at the time of the last apply().
     const environment::WaterSettings& water() const { return water_; }
 
@@ -78,6 +81,8 @@ private:
     glm::vec2 cloudScroll_{0.0f};
     double lastApply_ = 0.0;
     Uuid cloudTexture_{};
+    Uuid sunTexture_{};
+    Uuid moonTexture_{};
     environment::WaterSettings water_;
     Status status_;
 };

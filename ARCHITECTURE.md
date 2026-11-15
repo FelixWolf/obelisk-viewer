@@ -433,7 +433,18 @@ it never comes back to the CPU. Skies made for PBR (with
 as in the official viewer (RenderSkyAutoAdjustLegacy off). The tonemap
 dithers its output so the sky's slow gradients don't band. The Environment window shows the day cycle
 and can fix the time of day; `--day-time 0..1` does that from the command
-line. Not drawn yet: sun and moon textures, moon phases.
+line.
+
+The sun and moon are textured quads as the official viewer's heavenly
+bodies (llvosky.cpp updateHeavenlyBodyGeometry, sunDiscF.glsl, moonF.glsl),
+drawn in the sky pass: each pixel's view ray meets the quad's plane, 0.1 of
+the way out times the disc radius (sun 0.5, moon 0.45) times the sky's
+scale, enlarged nearer the horizon (30% across, 20% up). The sky's moon
+texture (DEFAULT_MOON_ID by default) is drawn times its brightness, fading
+in as it rises, and hides the stars behind it; the sun only if the sky
+names a texture (none by default: then only its glow, as the official
+viewer). The clouds go over both. Moon phases are the texture's own, as in
+the official viewer.
 
 ### Occlusion culling
 

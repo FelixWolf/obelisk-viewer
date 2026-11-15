@@ -129,7 +129,7 @@ bool Renderer::createPipelines()
     SDL_GPUShader* shadowMaskedFrag = createShader(
         device_, {kShadowMaskedFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "shadow_masked.frag");
     SDL_GPUShader* skyFrag =
-        createShader(device_, {kSkyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 2}, "sky.frag");
+        createShader(device_, {kSkyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 2}, "sky.frag");
     SDL_GPUShader* probeRadianceFrag = createShader(
         device_, {kProbeRadianceFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "probe_radiance.frag");
     SDL_GPUShader* probeIrradianceFrag =
@@ -1044,8 +1044,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         glm::vec4(atmo.blueDensity, atmo.hazeDensity),
         glm::vec4(atmo.densityMultiplier, atmo.distanceMultiplier, atmo.maxY, atmo.sunMoonGlow),
         glm::vec4(atmo.glow, atmo.starBrightness),
-        glm::vec4(atmo.sunDirection, atmo.sunRadius),
-        glm::vec4(atmo.moonDirection, atmo.moonRadius),
+        glm::vec4(atmo.sunDirection, 0.0f),
+        glm::vec4(atmo.moonDirection, 0.0f),
         glm::vec4(atmo.moonBrightness, 0.0f, 0.0f, 0.0f),
         glm::vec4(atmo.cloudColor, atmo.cloudScale),
         glm::vec4(atmo.cloudPosDensity1, atmo.cloudVariance),
@@ -1584,15 +1584,43 @@ void Renderer::drawSky(ScenePass& pass, const Atmosphere& atmo, const glm::mat4&
 {
     SDL_BindGPUGraphicsPipeline(pass.pass(), pipelines_->sky);
     pass.forgetPipeline();
-    const SDL_GPUTextureSamplerBinding clouds[] = {
-        {atmo.clouds && *atmo.clouds ? atmo.clouds->get() : white_.get(),
-         pipelines_->repeatSampler}};
-    pass.bindSamplers(clouds);
+    auto loaded = [](const GpuTexture* t) { return t && *t; };
+    const SDL_GPUTextureSamplerBinding samplers[] = {
+        {loaded(atmo.clouds) ? atmo.clouds->get() : white_.get(), pipelines_->repeatSampler},
+        {loaded(atmo.sunTexture) ? atmo.sunTexture->get() : white_.get(), pipelines_->clampSampler},
+        {loaded(atmo.moonTexture) ? atmo.moonTexture->get() : white_.get(),
+         pipelines_->clampSampler}};
+    pass.bindSamplers(samplers);
     pushFragmentUniforms(pass.commands(), 0, pass.frameFs());
     // Rotation only: the shader wants directions, which don't need the
     // camera's position (leaving it out keeps them precise).
-    pushFragmentUniforms(pass.commands(), 1,
-                         SkyFS{glm::inverse(projection * glm::mat4(glm::mat3(view)))});
+    SkyFS sky{};
+    sky.inverseViewProjection = glm::inverse(projection * glm::mat4(glm::mat3(view)));
+    // The quads as llvosky.cpp updateHeavenlyBodyGeometry makes them: 0.1
+    // of their distance times the disc radius (sun 0.5, moon 0.45) times
+    // the settings' scale, a little bigger nearer the horizon.
+    auto body = [](const glm::vec3& direction, float radius, float scale, bool drawn,
+                   glm::vec4& center, glm::vec4& right, glm::vec4& up)
+    {
+        const glm::vec3 to = glm::normalize(direction);
+        glm::vec3 r = glm::cross(to, glm::vec3(0.0f, 0.0f, 1.0f));
+        if(glm::dot(r, r) < 1e-6f || to.z > 0.99f)
+        {
+            r = glm::vec3(0.0f, -1.0f, 0.0f); // at the zenith
+        }
+        r = glm::normalize(r);
+        const glm::vec3 u = glm::normalize(glm::cross(r, to));
+        const float enlarge = 1.0f - to.z;
+        const float size = 0.1f * radius * scale;
+        center = glm::vec4(to, drawn ? 1.0f : 0.0f);
+        right = glm::vec4(r * size * (1.0f + enlarge * 0.3f), 0.0f);
+        up = glm::vec4(u * size * (1.0f + enlarge * 0.2f), 0.0f);
+    };
+    body(atmo.sunDirection, 0.5f, atmo.sunScale, loaded(atmo.sunTexture), sky.sunCenter,
+         sky.sunRight, sky.sunUp);
+    body(atmo.moonDirection, 0.45f, atmo.moonScale, loaded(atmo.moonTexture), sky.moonCenter,
+         sky.moonRight, sky.moonUp);
+    pushFragmentUniforms(pass.commands(), 1, sky);
     SDL_DrawGPUPrimitives(pass.pass(), 3, 1, 0, 0);
 }
 

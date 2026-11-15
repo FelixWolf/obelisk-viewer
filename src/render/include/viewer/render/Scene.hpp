@@ -57,8 +57,12 @@ struct Atmosphere
     // The discs and stars.
     glm::vec3 sunDirection{0.0f, 0.0f, 1.0f};
     glm::vec3 moonDirection{0.0f, 0.0f, -1.0f};
-    float sunRadius = 0.012f; // radians
-    float moonRadius = 0.02f;
+    // Their textures (as the official viewer, a sun only with one: none by
+    // default) and sizes (the settings' scales).
+    const GpuTexture* sunTexture = nullptr;
+    const GpuTexture* moonTexture = nullptr;
+    float sunScale = 1.0f;
+    float moonScale = 1.0f;
     float moonBrightness = 0.5f;
     float starBrightness = 0.0f; // 0..500ish, as the settings
     // Clouds: a noise texture (none: no clouds) and how it's used.

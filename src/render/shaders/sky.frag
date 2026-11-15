@@ -3,8 +3,8 @@
 #include "common.glsl"
 
 // The sky, behind everything: Second Life's windlight sky model (as the
-// official viewer's skyF.glsl, with Z up), then the sun and moon discs and
-// stars. One full-screen triangle; each pixel works out its view ray.
+// official viewer's skyF.glsl, with Z up), then the moon and sun (textured
+// quads, as llvosky.cpp's) and stars. One full-screen triangle; each pixel works out its view ray.
 
 layout(location = 0) in vec2 inUv;
 
@@ -13,11 +13,38 @@ FRAME_FS_BLOCK
 #include "atmosphere.glsl"
 
 layout(set = 2, binding = 0) uniform sampler2D cloudNoise;
+layout(set = 2, binding = 1) uniform sampler2D sunMap;
+layout(set = 2, binding = 2) uniform sampler2D moonMap;
 
 layout(set = 3, binding = 1) uniform SkyFS
 {
     mat4 inverseViewProjection; // of the camera's rotation only
+    // The sun's and moon's quads: towards the middle (w: drawn), half
+    // their width and height, at a distance of 1 (RendererScene.cpp drawSky).
+    vec4 sunCenter;
+    vec4 sunRight;
+    vec4 sunUp;
+    vec4 moonCenter;
+    vec4 moonRight;
+    vec4 moonUp;
 };
+
+// Where a view direction meets the plane of a quad of the sky (as the
+// official viewer's heavenly bodies, llvosky.cpp): its texture
+// coordinates, 0..1 on the quad. Worked out for every pixel (so their
+// derivatives, for the texture's level of detail, are right at its edges).
+vec2 quadUv(vec3 dir, vec4 center, vec4 right, vec4 up)
+{
+    const vec3 p = dir / max(dot(dir, center.xyz), 1e-4) - center.xyz;
+    return vec2(dot(p, right.xyz) / dot(right.xyz, right.xyz),
+                dot(p, up.xyz) / dot(up.xyz, up.xyz)) * 0.5 + 0.5;
+}
+
+bool onQuad(vec3 dir, vec4 center, vec2 uv)
+{
+    return center.w > 0.5 && dot(dir, center.xyz) > 0.0 && all(greaterThanEqual(uv, vec2(0.0))) &&
+           all(lessThanEqual(uv, vec2(1.0)));
+}
 
 layout(location = 0) out vec4 outColor;
 
@@ -208,7 +235,36 @@ void main()
     const float brightness = dot(sky, vec3(0.2126, 0.7152, 0.0722));
     const float clear = 1.0 - clouds.a; // the clouds hide what's behind them
 
-    if(dir.z > -0.02)
+    // The moon (moonF.glsl): its texture times its brightness, fading in
+    // as it rises; it hides the stars behind it.
+    bool moonCovers = false;
+    const vec2 moonUv = quadUv(dir, moonCenter, moonRight, moonUp);
+    const vec2 moonDx = dFdx(moonUv);
+    const vec2 moonDy = dFdy(moonUv);
+    const vec2 sunUv = quadUv(dir, sunCenter, sunRight, sunUp);
+    const vec2 sunDx = dFdx(sunUv);
+    const vec2 sunDy = dFdy(sunUv);
+    if(frame.moonDisc.z > -0.05 && onQuad(dir, moonCenter, moonUv))
+    {
+        vec4 moon = textureGrad(moonMap, moonUv, moonDx, moonDy);
+        if(moon.a > 2.0 / 255.0)
+        {
+            moonCovers = true;
+            const float fade =
+                frame.moonDisc.z > 0.0 ? clamp(frame.moonDisc.z * frame.moonDisc.z * 4.0, 0.0, 1.0)
+                                       : 1.0;
+            moon.rgb *= frame.moonInfo.x;
+            color = mix(color, moon.rgb, moon.a * fade * clear);
+        }
+    }
+    // The sun (sunDiscF.glsl): only with a texture.
+    if(frame.sunDisc.z > -0.05 && onQuad(dir, sunCenter, sunUv))
+    {
+        const vec4 sun = textureGrad(sunMap, sunUv, sunDx, sunDy);
+        color = mix(color, sun.rgb, sun.a * clear);
+    }
+
+    if(dir.z > -0.02 && !moonCovers)
     {
         // Stars: hashed points on a fine grid of directions, fading out as
         // the sky brightens.
@@ -221,26 +277,6 @@ void main()
             {
                 color += vec3(fract(h * 7919.0)) * stars * 0.5 * clear;
             }
-        }
-
-        // Sun and moon discs, soft at the edge.
-        const float sunCos = dot(dir, frame.sunDisc.xyz);
-        const float sunEdge = cos(frame.sunDisc.w);
-        if(frame.sunDisc.z > -0.05 && sunCos > sunEdge)
-        {
-            const float t = smoothstep(sunEdge, mix(sunEdge, 1.0, 0.3), sunCos);
-            const vec3 lightAtten = (frame.blueDensity.xyz + vec3(frame.blueDensity.w * 0.25)) *
-                                    (frame.atmoParams.x * frame.atmoParams.z);
-            const vec3 sunColor = frame.atmoSunlight.xyz *
-                                  exp(-lightAtten / max(0.02, frame.sunDisc.z));
-            color += srgbToLinear(sunColor) * 40.0 * t * clear;
-        }
-        const float moonCos = dot(dir, frame.moonDisc.xyz);
-        const float moonEdge = cos(frame.moonDisc.w);
-        if(frame.moonDisc.z > -0.05 && moonCos > moonEdge)
-        {
-            const float t = smoothstep(moonEdge, mix(moonEdge, 1.0, 0.15), moonCos);
-            color = mix(color, color + vec3(0.55, 0.56, 0.6) * (0.5 + frame.moonInfo.x), t * clear);
         }
     }
     // Under the water, looking down or across: nothing but its fog (the

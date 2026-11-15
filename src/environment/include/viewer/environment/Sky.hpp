@@ -44,8 +44,8 @@ struct SkySettings
     float moonScale = 1.0f;
     float moonBrightness = 0.5f;
     float starBrightness = 250.0f;
-    Uuid sunTexture{};
-    Uuid moonTexture{};
+    Uuid sunTexture{}; // none by default (llsettingssky.cpp GetDefaultSunTextureId)
+    Uuid moonTexture = *Uuid::parse("d07f6eed-b96a-47cd-b51d-400ad4a1c428"); // DEFAULT_MOON_ID
 
     // Clouds.
     glm::vec3 cloudColor{0.4099f};

@@ -148,6 +148,8 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
         cloudScroll_ = glm::mod(cloudScroll_, glm::vec2(1.0f)); // the noise tiles
     }
     cloudTexture_ = sky.cloudTexture;
+    sunTexture_ = sky.sunTexture;
+    moonTexture_ = sky.moonTexture;
 
     const environment::SkyLighting light = environment::computeLighting(sky);
     status_.sunDirection = light.sunDirection;
@@ -204,8 +206,8 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
     a.sunUp = light.sunUp;
     a.sunDirection = light.sunDirection;
     a.moonDirection = light.moonDirection;
-    a.sunRadius = 0.012f * sky.sunScale;
-    a.moonRadius = 0.02f * sky.moonScale;
+    a.sunScale = sky.sunScale;
+    a.moonScale = sky.moonScale;
     a.moonBrightness = sky.moonBrightness;
     a.starBrightness = sky.starBrightness;
     a.cloudColor = sky.cloudColor;
