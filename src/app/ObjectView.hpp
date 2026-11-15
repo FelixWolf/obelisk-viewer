@@ -170,10 +170,14 @@ private:
     std::unordered_map<const world::Object*, RiggedOwner> riggedOwners_;
     // A rigged mesh, skinned to the posed skeleton it follows (its avatar's
     // or its animated object's).
-    void addRigged(render::Scene& scene, const world::World& world, const world::Object& object,
-                   uint64_t originHandle, TextureManager& textures, MeshManager& meshes,
-                   MaterialManager& materials, LegacyMaterialManager& legacyMaterials,
-                   const AvatarView* avatars, float drawDistance);
+    // Its draws are kept in `record` as a still prim's are (all but where
+    // it is and its joints).
+    struct CachedDraws;
+    void addRigged(render::Scene& scene, const world::World& world, const world::ObjectKey& key,
+                   const world::Object& object, CachedDraws& record, uint64_t originHandle,
+                   TextureManager& textures, MeshManager& meshes, MaterialManager& materials,
+                   LegacyMaterialManager& legacyMaterials, const AvatarView* avatars,
+                   float drawDistance);
     // A face's PBR material, with its override, and its texture transform,
     // into `draw`. False if the face has none, or it hasn't loaded yet (the
     // legacy texture stands in).
@@ -236,6 +240,8 @@ private:
         size_t pbrFaces = 0;
         bool mesh = false;
         uint64_t usedFrame = 0;
+        // Rigged mesh: its skin.
+        std::shared_ptr<const assets::MeshSkin> skin;
     };
     std::unordered_map<world::ObjectKey, CachedDraws, world::ObjectKeyHash> drawCache_;
     std::vector<TextureManager::TextureUse> recordedUses_;

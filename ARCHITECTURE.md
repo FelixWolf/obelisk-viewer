@@ -1076,6 +1076,11 @@ gets its transform and shadow-only flag, and its textures are asked for
 again through handles recorded when the draws were built
 (`TextureManager::record`, `touch`), scaled to this frame's size; prims
 whose draws change every frame (texture animation, flexible) aren't kept.
+Rigged mesh is kept the same way (its skin too, checked against its
+attachment's root prim as well); each frame it gets its owner's
+frame, its joint palette (posed joints times the skin's bind matrices) and
+its draw order. A rigged mesh's faces share that palette, and the renderer
+uploads it once for them all.
 `TextureManager` chooses sizes only for the textures used last frame and
 checks its budget and retries now and then; `AvatarView` works out each
 avatar's root and attachment point frames once a frame, and rigged mesh

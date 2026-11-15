@@ -2105,10 +2105,17 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
     {
         return false;
     }
+    // Joints: a rigged mesh's faces share one palette (one after another
+    // in the draws), uploaded once.
     size_t jointCount = 0;
+    const glm::mat4* lastPalette = nullptr;
     for(const ObjectDraw& draw : scene.objects)
     {
-        jointCount += draw.joints.size();
+        if(!draw.joints.empty() && draw.joints.data() != lastPalette)
+        {
+            jointCount += draw.joints.size();
+            lastPalette = draw.joints.data();
+        }
     }
     const auto drawBytes = static_cast<uint32_t>(count * sizeof(DrawData));
     const auto jointBytes = static_cast<uint32_t>(jointCount * sizeof(glm::mat4));
@@ -2127,6 +2134,8 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
     auto* draws =
         static_cast<DrawData*>(SDL_MapGPUTransferBuffer(device_, drawBuffer_.transfer, true));
     uint32_t jointBase = 0;
+    uint32_t paletteBase = 0;
+    lastPalette = nullptr;
     for(size_t i = 0; i < count; i++)
     {
         const ObjectDraw& draw = scene.objects[i];
@@ -2152,7 +2161,14 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
         }
         // The joints' first matrix; the pick id (low, high) and whether the
         // draw is only for picking (pick.frag).
-        out.skin = glm::uvec4(jointBase, static_cast<uint32_t>(draw.pickId),
+        if(!draw.joints.empty() && draw.joints.data() != lastPalette)
+        {
+            paletteBase = jointBase;
+            jointBase += static_cast<uint32_t>(draw.joints.size());
+            lastPalette = draw.joints.data();
+        }
+        out.skin = glm::uvec4(draw.joints.empty() ? jointBase : paletteBase,
+                              static_cast<uint32_t>(draw.pickId),
                               static_cast<uint32_t>(draw.pickId >> 32), draw.pickOnly ? 1u : 0u);
         const auto* legacy = std::get_if<BlinnPhongMaterial>(&draw.material);
         if(legacy && legacy->mapTransforms)
@@ -2175,7 +2191,6 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
         // Glow (glow_mask.frag): how much, and whether the material is PBR.
         out.uvRow1.w = draw.glow;
         out.mapUv[0].w = legacy ? 0.0f : 1.0f;
-        jointBase += static_cast<uint32_t>(draw.joints.size());
     }
     SDL_UnmapGPUTransferBuffer(device_, drawBuffer_.transfer);
 
@@ -2183,10 +2198,15 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
     {
         auto* joints =
             static_cast<glm::mat4*>(SDL_MapGPUTransferBuffer(device_, jointBuffer_.transfer, true));
+        lastPalette = nullptr;
         for(const ObjectDraw& draw : scene.objects)
         {
-            std::memcpy(joints, draw.joints.data(), draw.joints.size_bytes());
-            joints += draw.joints.size();
+            if(!draw.joints.empty() && draw.joints.data() != lastPalette)
+            {
+                std::memcpy(joints, draw.joints.data(), draw.joints.size_bytes());
+                joints += draw.joints.size();
+                lastPalette = draw.joints.data();
+            }
         }
         SDL_UnmapGPUTransferBuffer(device_, jointBuffer_.transfer);
     }

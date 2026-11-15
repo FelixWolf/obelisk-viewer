@@ -556,10 +556,11 @@ ObjectView::RiggedOwner ObjectView::riggedOwner(const render::Scene& scene,
 }
 
 void ObjectView::addRigged(render::Scene& scene, const world::World& world,
-                           const world::Object& object, uint64_t originHandle,
-                           TextureManager& textures, MeshManager& meshes,
-                           MaterialManager& materials, LegacyMaterialManager& legacyMaterials,
-                           const AvatarView* avatars, float drawDistance)
+                           const world::ObjectKey& key, const world::Object& object,
+                           CachedDraws& record, uint64_t originHandle, TextureManager& textures,
+                           MeshManager& meshes, MaterialManager& materials,
+                           LegacyMaterialManager& legacyMaterials, const AvatarView* avatars,
+                           float drawDistance)
 {
     const SkeletonOwner owner = avatars ? skeletonOwner(world, object) : SkeletonOwner{};
     if(!owner.owner)
@@ -593,15 +594,32 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     // Textures as big as the skeleton shows (the least for shadows only).
     const float texels =
         seen == render::Visibility::ShadowOnly ? 0.0f : textures.texelsFor(2.0f * radius, distance);
-    const auto skin = meshes.skin(object.sculptTexture);
     // Rigged mesh is skeleton sized, whatever the object's scale says: as the
     // official viewer (LLVOVolume::calcLOD), its level of detail comes from
     // the skeleton's extent.
-    const auto* faces = meshes.get(object.sculptTexture, detailFor(radius, distance));
-    if(!skin || !faces)
+    const int detail = detailFor(radius, distance);
+    const world::Object& attached = owner.root ? *owner.root : object;
+    const void* overrides = world.materialOverrides(key);
+    const bool kept = record.drawsValid && record.skin &&
+                      record.contentRevision == object.contentRevision && record.detail == detail &&
+                      record.overrides == overrides && record.meshRevision == meshes.revision() &&
+                      record.materialRevision == materials.revision() &&
+                      record.legacyRevision == legacyMaterials.revision() &&
+                      record.appearanceRevision == world.appearanceRevision() &&
+                      record.root == world::ObjectKey{attached.region, attached.localId} &&
+                      record.rootRevision == attached.contentRevision;
+    std::shared_ptr<const assets::MeshSkin> fetched;
+    const std::vector<render::Mesh>* faces = nullptr;
+    if(!kept)
     {
-        return;
+        fetched = meshes.skin(object.sculptTexture);
+        faces = meshes.get(object.sculptTexture, detail);
+        if(!fetched || !faces)
+        {
+            return;
+        }
     }
+    const std::shared_ptr<const assets::MeshSkin>& skin = kept ? record.skin : fetched;
 
     // The matrices the vertices' joints refer to: from the mesh's bind pose
     // to the joint as posed now (joints the avatar doesn't have follow the
@@ -625,7 +643,6 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
 
     // Attachment draw order, as the official viewer's (llvoavatar.cpp):
     // by attachment point, then by when attached (local ids grow with it).
-    const world::Object& attached = owner.root ? *owner.root : object;
     const uint64_t layer =
         (owner.animated ? 0u
                         : static_cast<uint64_t>(avatar::attachmentPointFromState(attached.state)))
@@ -634,6 +651,41 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
 
     stats_.drawn++;
     stats_.meshObjects++;
+    const bool shadowOnly = seen == render::Visibility::ShadowOnly;
+    if(kept)
+    {
+        for(const TextureManager::TextureUse& u : record.uses)
+        {
+            textures.touch(u, u.texels / record.texels * texels);
+        }
+        for(render::ObjectDraw draw : record.draws)
+        {
+            draw.transform = root;
+            draw.joints = palette;
+            draw.wearer = owner.owner;
+            draw.layer = layer;
+            draw.shadowOnly = shadowOnly;
+            scene.objects.push_back(draw);
+        }
+        record.usedFrame = frame_;
+        stats_.reused++;
+        stats_.faces += record.faces;
+        stats_.pbrFaces += record.pbrFaces;
+        return;
+    }
+
+    // Kept for next frames if everything in them has loaded (as a still
+    // prim's; not with an animated texture, nor if only its shadow shows).
+    const bool keep = !object.textureAnimation && texels > 0.0f;
+    bool complete = true;
+    const size_t firstDraw = scene.objects.size();
+    const size_t facesBefore = stats_.faces;
+    const size_t pbrBefore = stats_.pbrFaces;
+    if(keep)
+    {
+        recordedUses_.clear();
+        textures.record(&recordedUses_);
+    }
     const auto animation = textureAnimation(object, std::chrono::steady_clock::now());
     for(size_t f = 0; f < faces->size() && f < world::kMaxFaces; f++)
     {
@@ -664,9 +716,14 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
             const auto m = material(face, textures, legacyMaterials, world,
                                     owner.animated ? nullptr : owner.owner, avatars, texels,
                                     faceAnimation, true);
-            if(!m || m->diffuseTint.a <= 0.0f)
+            if(!m)
             {
-                continue; // a bake still loading, or nothing shows
+                complete = false; // a bake still loading
+                continue;
+            }
+            if(m->diffuseTint.a <= 0.0f)
+            {
+                continue; // nothing shows
             }
             draw.material = *m;
             uvTransform(face, faceAnimation, draw.uvRow0, draw.uvRow1);
@@ -678,11 +735,45 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         draw.joints = palette;
         draw.wearer = owner.owner;
         draw.layer = layer;
-        draw.shadowOnly = seen == render::Visibility::ShadowOnly;
+        draw.shadowOnly = shadowOnly;
         draw.glow = face.glow;
         scene.objects.push_back(draw);
         stats_.faces++;
     }
+    if(keep)
+    {
+        textures.record(nullptr);
+        if(complete && std::ranges::all_of(recordedUses_, [](const auto& u) { return u.resident; }))
+        {
+            CachedDraws& c = record;
+            c.drawsValid = true;
+            c.contentRevision = object.contentRevision;
+            c.root = world::ObjectKey{attached.region, attached.localId};
+            c.rootRevision = attached.contentRevision;
+            c.detail = detail;
+            c.hud = false;
+            c.worn = true;
+            c.mesh = true;
+            c.meshRevision = meshes.revision();
+            c.materialRevision = materials.revision();
+            c.legacyRevision = legacyMaterials.revision();
+            c.appearanceRevision = world.appearanceRevision();
+            c.overrides = overrides;
+            c.texels = texels;
+            c.skin = skin;
+            c.draws.assign(scene.objects.begin() + static_cast<ptrdiff_t>(firstDraw),
+                           scene.objects.end());
+            c.uses = recordedUses_;
+            c.faces = stats_.faces - facesBefore;
+            c.pbrFaces = stats_.pbrFaces - pbrBefore;
+            c.usedFrame = frame_;
+            return;
+        }
+    }
+    record.drawsValid = false;
+    record.draws.clear();
+    record.uses.clear();
+    record.skin.reset();
 }
 
 const world::Object& ObjectView::linkRoot(const world::Object& object, const world::World& world)
@@ -889,7 +980,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             {
                 return; // rigged mesh on a HUD: not drawn
             }
-            addRigged(scene, world, object, originHandle, textures, meshes, materials,
+            addRigged(scene, world, key, object, record, originHandle, textures, meshes, materials,
                       legacyMaterials, avatars, drawDistance);
             return;
         }
