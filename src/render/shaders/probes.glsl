@@ -8,7 +8,7 @@
 // Define PROBE_RADIANCE_BINDING, PROBE_IRRADIANCE_BINDING and
 // BRDF_TABLE_BINDING (sampler bindings in set 2) and PROBES_BINDING (the
 // probe list, a storage buffer in set 2), and include after FRAME_FS_BLOCK
-// and common.glsl.
+// and common.glsl and clusters.glsl.
 
 layout(set = 2, binding = PROBE_RADIANCE_BINDING) uniform samplerCubeArray probeRadiance;
 layout(set = 2, binding = PROBE_IRRADIANCE_BINDING) uniform samplerCubeArray probeIrradiance;
@@ -86,9 +86,13 @@ ProbeLight sampleProbes(vec3 position, vec3 n, vec3 r, float roughness, bool wan
     float distanceWeights[2] = float[2](0.0, 0.0);
     bool inBox = false;
 
-    const int count = int(frame.lightInfo.y);
-    for(int i = 0; i < count; i++)
+    // Those reaching its cluster (all in use if there are no clusters).
+    const int cluster = clusterOf(position);
+    const int count = cluster < 0 ? int(frame.lightInfo.y) : int(clusterData[cluster * 4 + 3]);
+    const uint first = cluster < 0 ? 0u : clusterData[cluster * 4 + 2];
+    for(int k = 0; k < count; k++)
     {
+        const int i = cluster < 0 ? k : int(clusterData[first + uint(k)]);
         const ReflectionProbe p = probes[i];
         const int kind = int(p.params.w + 0.5);
         const vec3 center = p.sphere.xyz;

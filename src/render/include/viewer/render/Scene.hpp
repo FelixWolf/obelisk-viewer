@@ -333,10 +333,12 @@ struct Scene
     // (Renderer::kMaxLights).
     std::vector<LocalLight> lights;
     std::vector<Label> labels;
-    // Passes that can be left out (for measuring what they cost): glow, and
-    // measuring the view for dynamic exposure (the last exposure stays).
+    // Passes that can be left out (for measuring what they cost): glow,
+    // measuring the view for dynamic exposure (the last exposure stays), and
+    // the clusters (every pixel then looks at every light and probe).
     bool glow = true;
     bool dynamicExposure = true;
+    bool clusters = true;
 
     // What a recent frame hid (Renderer::occlusion); null: nothing known.
     // Only used if drawn at this scene's origin.

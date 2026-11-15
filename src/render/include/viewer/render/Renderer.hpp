@@ -1,6 +1,7 @@
 #pragma once
 
 #include "viewer/image/TextureData.hpp"
+#include "viewer/render/Clusters.hpp"
 #include "viewer/render/GpuBuffer.hpp"
 #include "viewer/render/GpuTexture.hpp"
 #include "viewer/render/Mesh.hpp"
@@ -435,6 +436,12 @@ private:
     };
     ProbeCapture capture_;
     FrameBuffer probeBuffer_; // the local probes surfaces use this frame
+    // Clusters (Clusters.hpp): the lights' and probes' spheres in the order
+    // the shaders have them, and each view's cluster lists, out to this far.
+    std::vector<ClusterSphere> clusterLights_;
+    std::vector<ClusterSphere> clusterProbes_;
+    std::vector<FrameBuffer> clusterBuffers_;
+    static constexpr float kClusterFar = 512.0f;
     uint32_t probesShaded_ = 0;
 
     GpuBuffer emptyStorage_; // stands in for storage buffers not made yet (storageOr)

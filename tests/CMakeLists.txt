@@ -20,6 +20,7 @@ add_executable(viewer_tests
   MeshTests.cpp
   ObjectIndexTests.cpp
   ObjectTests.cpp
+  ClusterTests.cpp
   OcclusionTests.cpp
   ProtocolTests.cpp
   SessionTests.cpp

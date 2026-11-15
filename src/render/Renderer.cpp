@@ -96,6 +96,14 @@ Renderer::~Renderer()
             SDL_ReleaseGPUTexture(device_, t);
         }
     }
+    for(FrameBuffer& b : clusterBuffers_)
+    {
+        b.buffer.reset();
+        if(b.transfer)
+        {
+            SDL_ReleaseGPUTransferBuffer(device_, b.transfer);
+        }
+    }
     meshPool_.reset();
     for(FrameBuffer* b : {&drawBuffer_, &jointBuffer_, &instanceBuffer_, &lightBuffer_,
                           &probeBuffer_, &labelBuffer_, &instanceStream_})

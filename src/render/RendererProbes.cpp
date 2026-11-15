@@ -221,6 +221,7 @@ void Renderer::updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene, 
     // Those with a capture to show, nearest first, go to the shaders.
     std::vector<ProbeData> data;
     data.reserve(kProbesShaded);
+    clusterProbes_.clear();
     for(const auto& [distance, probe] : nearest)
     {
         const auto c = cubeOf.find(probe->id);
@@ -238,6 +239,23 @@ void Renderer::updateProbes(SDL_GPUCommandBuffer* commands, const Scene& scene, 
                              static_cast<float>(c->second), kind);
         d.box = probe->box.value_or(glm::mat4(1.0f));
         data.push_back(d);
+        // Where it reaches, for clusters: its sphere, or around its box
+        // (`box` maps the scene to a cube from -1 to 1).
+        ClusterSphere reach{probe->origin, probe->radius};
+        if(probe->box)
+        {
+            const glm::mat4 toScene = glm::inverse(*probe->box);
+            reach.center = glm::vec3(toScene * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+            reach.radius = 0.0f;
+            for(int i = 0; i < 8; i++)
+            {
+                const glm::vec3 corner(toScene * glm::vec4((i & 1) ? 1.0f : -1.0f,
+                                                           (i & 2) ? 1.0f : -1.0f,
+                                                           (i & 4) ? 1.0f : -1.0f, 1.0f));
+                reach.radius = std::max(reach.radius, glm::length(corner - reach.center));
+            }
+        }
+        clusterProbes_.push_back(reach);
         if(data.size() == kProbesShaded)
         {
             break;
@@ -408,8 +426,9 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
     depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+    // No clusters here (a cube face, not the view): every light and probe.
     ScenePass scenePass(commands, pass, *pipelines_, vs, fs, storageOr(lightBuffer_),
-                        storageOr(probeBuffer_), true);
+                        storageOr(probeBuffer_), emptyStorage_.get(), true);
     if(light.atmosphere.enabled)
     {
         drawSky(scenePass, light.atmosphere, view, projection);

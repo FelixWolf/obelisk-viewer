@@ -76,6 +76,8 @@ struct FrameFS
     // Reflection probes (probes.glsl): x the sky's probe ambiance, y the
     // radiance's last mip level, z ready (1), w classic mode (1).
     glm::vec4 probeInfo;
+    glm::vec4 clusterGrid{0.0f};  // x, y a tile's size in pixels, z, w tiles across, down
+    glm::vec4 clusterDepth{0.0f}; // x slices, y near, z log(far / near), w on (1)
 };
 struct SkyFS
 {
@@ -137,13 +139,17 @@ void pushFragmentUniforms(SDL_GPUCommandBuffer* commands, uint32_t slot, const T
 class ScenePass
 {
 public:
+    // `clusters`: the view's cluster lists (Clusters.hpp), or any buffer if
+    // the pass has none (FrameFS::clusterDepth.w 0).
     ScenePass(SDL_GPUCommandBuffer* commands, SDL_GPURenderPass* pass, const Renderer::Pipelines& p,
               const FrameVS& frameVs, const FrameFS& frameFs, SDL_GPUBuffer* lights,
-              SDL_GPUBuffer* probes, bool allAround = false)
+              SDL_GPUBuffer* probes, SDL_GPUBuffer* clusters, bool allAround = false)
         : commands_(commands), pass_(pass), p_(p), frameVs_(frameVs), frameFs_(frameFs),
-          lights_(lights), probes_(probes), allAround_(allAround)
+          lights_(lights), probes_(probes), clusters_(clusters), allAround_(allAround)
     {
     }
+
+    SDL_GPUBuffer* clusters() const { return clusters_; }
 
     bool allAround() const { return allAround_; }
 
@@ -165,8 +171,8 @@ public:
         pushFragmentUniforms(commands_, 0, frameFs_);
         if(pipeline == p_.terrainBlinnPhong || pipeline == p_.terrainPbr)
         {
-            SDL_GPUBuffer* storage[] = {lights_, probes_};
-            SDL_BindGPUFragmentStorageBuffers(pass_, 0, storage, 2);
+            SDL_GPUBuffer* storage[] = {lights_, probes_, clusters_};
+            SDL_BindGPUFragmentStorageBuffers(pass_, 0, storage, 3);
         }
     }
 
@@ -232,6 +238,7 @@ private:
     const FrameFS& frameFs_;
     SDL_GPUBuffer* lights_;
     SDL_GPUBuffer* probes_;
+    SDL_GPUBuffer* clusters_;
     bool allAround_;
     SDL_GPUBuffer* boundVertices_ = nullptr;
     SDL_GPUBuffer* boundIndices_ = nullptr;

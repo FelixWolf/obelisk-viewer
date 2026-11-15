@@ -1,7 +1,7 @@
 // Local lights (Scene::lights, chosen per frame by the renderer). Define
 // LIGHTS_BINDING (the storage buffer's binding in set 2) and
 // PROJECTORS_BINDING (the projector textures' sampler), and include after
-// FRAME_FS_BLOCK.
+// FRAME_FS_BLOCK and clusters.glsl.
 
 struct LocalLight
 {
@@ -128,9 +128,13 @@ LocalLighting localLights(vec3 position, vec3 normal, vec3 v, bool pbr, float gl
 {
     LocalLighting sum = LocalLighting(vec3(0.0), vec3(0.0));
     const bool highlights = pbr || glossiness > 0.0;
-    const int count = int(frame.lightInfo.x);
-    for(int i = 0; i < count; i++)
+    // Those reaching its cluster (all in use if there are no clusters).
+    const int cluster = clusterOf(position);
+    const int count = cluster < 0 ? int(frame.lightInfo.x) : int(clusterData[cluster * 4 + 1]);
+    const uint first = cluster < 0 ? 0u : clusterData[cluster * 4];
+    for(int k = 0; k < count; k++)
     {
+        const int i = cluster < 0 ? k : int(clusterData[first + uint(k)]);
         const LocalLight light = lights[i];
         const vec3 toLight = light.positionRange.xyz - position;
         const float distance = length(toLight);

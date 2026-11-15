@@ -77,7 +77,7 @@ void printUsage()
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
-                 "[--without shadows,lights,probes,glow,exposure]");
+                 "[--without shadows,lights,probes,glow,exposure,clusters]");
 }
 
 } // namespace
@@ -1282,6 +1282,7 @@ void App::buildScene(render::Scene& scene)
         }
         scene.glow = !without("glow");
         scene.dynamicExposure = !without("exposure");
+        scene.clusters = !without("clusters");
     }
 }
 

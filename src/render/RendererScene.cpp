@@ -3,6 +3,7 @@
 
 #include "RendererPasses.hpp"
 #include "RendererPipelines.hpp"
+#include "viewer/render/Clusters.hpp"
 #include "viewer/render/Renderer.hpp"
 #include "viewer/render/ShadowCascades.hpp"
 
@@ -96,16 +97,16 @@ bool Renderer::createPipelines()
     SDL_GPUShader* skinnedVert =
         createShader(device_, {kSkinnedVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1, 2}, "skinned.vert");
     SDL_GPUShader* blinnPhongFrag = createShader(
-        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1, 3}, "blinnphong.frag");
+        device_, {kBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 1, 4}, "blinnphong.frag");
     SDL_GPUShader* pbrFrag =
-        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 3}, "pbr.frag");
+        createShader(device_, {kPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 4}, "pbr.frag");
     SDL_GPUShader* terrainVert =
         createShader(device_, {kTerrainVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 2}, "terrain.vert");
     SDL_GPUShader* terrainBlinnPhongFrag =
-        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 1, 2},
+        createShader(device_, {kTerrainBlinnphongFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 7, 1, 3},
                      "terrain_blinnphong.frag");
     SDL_GPUShader* terrainPbrFrag = createShader(
-        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 2, 2}, "terrain_pbr.frag");
+        device_, {kTerrainPbrFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 2, 3}, "terrain_pbr.frag");
     SDL_GPUShader* fullscreenVert = createShader(
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
@@ -1137,9 +1138,43 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         }
         const auto instanceBase = pushInstances(commands, instanceOrder_);
 
+        // This view's clusters: which lights and probes reach each part of it.
+        SDL_GPUBuffer* clusters = emptyStorage_.get();
+        if(clusterBuffers_.size() < views.size())
+        {
+            clusterBuffers_.resize(views.size());
+        }
+        if(scene.clusters && (!clusterLights_.empty() || !clusterProbes_.empty()))
+        {
+            const ClusterGrid grid = ClusterGrid::forView(width, height, camera.nearPlane,
+                                                          std::min(camera.farPlane, kClusterFar));
+            const std::vector<uint32_t> data =
+                buildClusters(grid, view, projection, clusterLights_, clusterProbes_);
+            FrameBuffer& b = clusterBuffers_[v];
+            const auto bytes = static_cast<uint32_t>(data.size() * sizeof(uint32_t));
+            if(reserve(b, bytes, SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ))
+            {
+                std::memcpy(SDL_MapGPUTransferBuffer(device_, b.transfer, true), data.data(),
+                            bytes);
+                SDL_UnmapGPUTransferBuffer(device_, b.transfer);
+                SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
+                const SDL_GPUTransferBufferLocation source = {b.transfer, 0};
+                const SDL_GPUBufferRegion destination = {b.buffer.get(), 0, bytes};
+                SDL_UploadToGPUBuffer(copy, &source, &destination, true);
+                SDL_EndGPUCopyPass(copy);
+                clusters = b.buffer.get();
+                viewFs.clusterGrid =
+                    glm::vec4(static_cast<float>(width) / static_cast<float>(grid.tilesX),
+                              static_cast<float>(height) / static_cast<float>(grid.tilesY),
+                              static_cast<float>(grid.tilesX), static_cast<float>(grid.tilesY));
+                viewFs.clusterDepth = glm::vec4(static_cast<float>(grid.slices), grid.near,
+                                                std::log(grid.far / grid.near), 1.0f);
+            }
+        }
+
         SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
         ScenePass scenePass(commands, pass, p, frameVs, viewFs, storageOr(lightBuffer_),
-                            storageOr(probeBuffer_));
+                            storageOr(probeBuffer_), clusters);
         if(atmo.enabled)
         {
             drawSky(scenePass, atmo, view, projection);
@@ -1330,8 +1365,8 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
                                                                   : drawBuffer_.buffer.get()};
             SDL_BindGPUVertexStorageBuffers(pass.pass(), 0, vertexStorage, 2);
             SDL_GPUBuffer* fragmentStorage[] = {drawBuffer_.buffer.get(), storageOr(lightBuffer_),
-                                                storageOr(probeBuffer_)};
-            SDL_BindGPUFragmentStorageBuffers(pass.pass(), 0, fragmentStorage, 3);
+                                                storageOr(probeBuffer_), pass.clusters()};
+            SDL_BindGPUFragmentStorageBuffers(pass.pass(), 0, fragmentStorage, 4);
             const SDL_GPUBufferBinding instances = {
                 instanceBase ? instanceStream_.buffer.get() : instanceBuffer_.buffer.get(), 0};
             SDL_BindGPUVertexBuffers(pass.pass(), 1, &instances, 1);
@@ -1931,6 +1966,7 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
 
 uint32_t Renderer::uploadLights(SDL_GPUCommandBuffer* commands, const Scene& scene)
 {
+    clusterLights_.clear();
     // The buffer always exists (the shaders bind it), with room for one.
     if(!reserve(lightBuffer_,
                 static_cast<uint32_t>(
@@ -1963,6 +1999,10 @@ uint32_t Renderer::uploadLights(SDL_GPUCommandBuffer* commands, const Scene& sce
     // Projector textures into their layers first (blits go outside passes).
     lightUploads_++;
     std::vector<LightData> data(count);
+    for(size_t i = 0; i < count; i++)
+    {
+        clusterLights_.push_back({chosen[i].second->position, chosen[i].second->range});
+    }
     for(size_t i = 0; i < count; i++)
     {
         const LocalLight& l = *chosen[i].second;

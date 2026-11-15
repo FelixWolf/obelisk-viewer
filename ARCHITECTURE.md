@@ -487,7 +487,7 @@ the screenshot. `--stereo-benchmark [SIZE]` (2160 by
 default) uses it with a square 90 degree view and logs every five seconds
 what a frame costs: frames a second, CPU time by stage, and time spent
 waiting for the GPU (the swapchain's acquire, which waits once the GPU is
-frames behind). `--without shadows,lights,probes,glow,exposure` leaves those
+frames behind). `--without shadows,lights,probes,glow,exposure,clusters` leaves those
 passes out (`Scene::glow`, `Scene::dynamicExposure`, and the scene's
 shadow, light and probe settings), to see what each costs; storage buffers
 not made yet are stood in for by an empty one (`Renderer::storageOr`), and
@@ -769,6 +769,22 @@ binding; a level of the array stands for the texture's own level of the
 same size, so the blur matches the official viewer's whatever the
 texture's size. Until its texture loads a projector shines the official
 viewer's default image, a flat 0x7f gray (white would flood its whole cone).
+
+Clusters (`render::buildClusters`, `clusters.glsl`): rather than every
+pixel looking at every light and probe, each view is split into 16 tiles
+across, as many down as keeps them square, and 24 slices in depth, each a
+constant factor deeper than the last (from the near plane to 512 m; anything
+further is in the last). Per view and frame, the CPU finds the clusters each
+light's reach and each probe's sphere (a box probe's bounding sphere) may
+touch (the slices its depth range covers; the tiles under its bounding
+box's corners on screen, or every tile if it reaches the near plane) and
+lays out one array: four uints per cluster (where its lights start, how
+many; where its probes start, how many), then the index lists. A fragment
+finds its cluster from its pixel and its depth along the view, and loops
+over just those. Probe captures don't use them (clusterDepth.w 0: every
+light and probe). `--without clusters` turns them off, to compare; at 3000
+by 3000 an eye, facing the busy west side of the test region, they cut the
+GPU's time about 8 ms a frame, for about 1 ms of CPU.
 
 ### PBR materials
 

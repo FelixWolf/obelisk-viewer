@@ -54,6 +54,10 @@ const float PI = 3.14159265359;
         /* Reflection probes (probes.glsl): x the sky's probe ambiance, y the radiance's */   \
         /* last mip level, z ready (1), w classic mode (1: the sky's ambient, not the probe's) */ \
         vec4 probeInfo;                                                                       \
+        /* Clusters (clusters.glsl): x, y a tile's size in pixels, z, w tiles across, down; */ \
+        /* x slices, y where the first starts, z log(far / near), w on (1) */                 \
+        vec4 clusterGrid;                                                                     \
+        vec4 clusterDepth;                                                                    \
     }                                                                                         \
     frame;
 

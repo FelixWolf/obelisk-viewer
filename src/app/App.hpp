@@ -80,7 +80,7 @@ struct AppOptions
     // --stereo-benchmark [SIZE]: draw both eyes of a headset view, SIZE
     // pixels square each (2160), and log what it costs.
     uint32_t stereoSize = 0;
-    // --without shadows,lights,probes,glow,exposure: leave passes out, to
+    // --without shadows,lights,probes,glow,exposure,clusters: leave passes out, to
     // measure what they cost.
     std::vector<std::string> without;
 };

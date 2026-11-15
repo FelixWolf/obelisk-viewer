@@ -56,7 +56,7 @@ foreach(source IN LISTS shader_sources)
             -o ${spirv} ${shader_dir}/${source}
     DEPENDS ${shader_dir}/${source} ${shader_dir}/common.glsl ${shader_dir}/atmosphere.glsl
             ${shader_dir}/shadow.glsl ${shader_dir}/lights.glsl ${shader_dir}/probes.glsl
-            ${shader_dir}/cubemap.glsl ${shader_dir}/tonemap.glsl
+            ${shader_dir}/cubemap.glsl ${shader_dir}/tonemap.glsl ${shader_dir}/clusters.glsl
             ${VIEWER_GLSLANG_DEPENDS}
     COMMENT "Compiling shader ${source}"
     VERBATIM
@@ -85,6 +85,7 @@ add_library(viewer_render STATIC
   RendererGlow.cpp
   RendererOcclusion.cpp
   OcclusionMap.cpp
+  Clusters.cpp
   Frustum.cpp
   Projector.cpp
   ShadowCascades.cpp

@@ -30,6 +30,8 @@ FRAME_FS_BLOCK
 #define BRDF_TABLE_BINDING 9
 #define LIGHTS_BINDING 10
 #define PROBES_BINDING 11
+#define CLUSTERS_BINDING 12
+#include "clusters.glsl"
 #include "lights.glsl"
 #include "probes.glsl"
 
