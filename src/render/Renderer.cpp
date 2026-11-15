@@ -177,7 +177,7 @@ const char* Renderer::driverName() const
     return SDL_GetGPUDeviceDriver(device_);
 }
 
-std::optional<Frame> Renderer::beginFrame(bool waitForWindow)
+std::optional<Frame> Renderer::beginFrame(bool waitForWindow, bool window)
 {
     assert(!currentCommands_ && "beginFrame called twice without endFrame");
 
@@ -192,8 +192,8 @@ std::optional<Frame> Renderer::beginFrame(bool waitForWindow)
     frame.commands = currentCommands_;
     if(!waitForWindow)
     {
-        if(!SDL_AcquireGPUSwapchainTexture(currentCommands_, window_, &frame.target, &frame.width,
-                                           &frame.height))
+        if(!window || !SDL_AcquireGPUSwapchainTexture(currentCommands_, window_, &frame.target,
+                                                      &frame.width, &frame.height))
         {
             frame.target = nullptr;
         }

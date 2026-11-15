@@ -122,15 +122,16 @@ AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer,
 }
 
 std::optional<glm::vec3> AvatarView::eyePosition(const world::Object& avatar,
-                                                 const world::World& world,
-                                                 uint64_t originHandle) const
+                                                 const world::World& world, uint64_t originHandle,
+                                                 bool steady) const
 {
     const auto it = avatars_.find(avatar.id);
     if(it == avatars_.end() || !it->second.hasEyes)
     {
         return std::nullopt;
     }
-    return glm::vec3(rootFrame(avatar, world, originHandle) * glm::vec4(it->second.eyes, 1.0f));
+    const glm::vec3& eyes = steady ? it->second.steadyEyes : it->second.eyes;
+    return glm::vec3(rootFrame(avatar, world, originHandle) * glm::vec4(eyes, 1.0f));
 }
 
 bool AvatarView::hiddenInFirstPerson(const world::Object& avatar, int point) const
@@ -529,9 +530,22 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
         const std::vector<avatar::JointFrame> frames = avatar::poseFrames(base_, shape, a.pose);
         if(ikJoints_.eyeLeft >= 0 && ikJoints_.eyeRight >= 0)
         {
-            a.eyes = (frames[static_cast<size_t>(ikJoints_.eyeLeft)].position +
-                      frames[static_cast<size_t>(ikJoints_.eyeRight)].position) *
-                     0.5f;
+            auto between = [&](const std::vector<avatar::JointFrame>& f)
+            {
+                return (f[static_cast<size_t>(ikJoints_.eyeLeft)].position +
+                        f[static_cast<size_t>(ikJoints_.eyeRight)].position) *
+                       0.5f;
+            };
+            a.eyes = between(frames);
+            // Steady: the unanimated eyes' offset from the pelvis, on the
+            // animated pelvis (sitting or crouching still lowers them).
+            a.steadyEyes = a.eyes;
+            if(ikJoints_.pelvis >= 0)
+            {
+                const auto pelvis = static_cast<size_t>(ikJoints_.pelvis);
+                const std::vector<avatar::JointFrame> rest = avatar::poseFrames(base_, shape);
+                a.steadyEyes = frames[pelvis].position + between(rest) - rest[pelvis].position;
+            }
             a.hasEyes = true;
         }
         if(a.pose.size() != base_.skeleton.joints.size())

@@ -77,7 +77,7 @@ void printUsage()
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
-                 "[--first-person] [--vr] "
+                 "[--first-person] [--vr] [--vr-overscan PERCENT] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -132,6 +132,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         else if(arg == "--vr")
         {
             options.vr = true;
+        }
+        else if(arg == "--vr-overscan" && hasValue)
+        {
+            i++;
+            options.vrOverscan = std::strtof(args[i], nullptr) / 100.0f;
         }
         else if(arg == "--pbr-terrain")
         {
@@ -293,7 +298,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     renderOptions.vsync = options.vsync;
     if(options.vr)
     {
-        app->headset_ = xr::Headset::prepare();
+        app->headset_ = xr::Headset::prepare(options.vrOverscan);
         renderOptions.deviceProperties = [headset = app->headset_.get()](SDL_PropertiesID props)
         { headset->addDeviceProperties(props); };
     }
@@ -593,6 +598,12 @@ int App::run()
                       headsetRunning ? headsetSize_.y : stereoSize_, 1000.0f / average, average,
                       cpu, stages[FrameProfile::Acquire], FrameProfile::describe(stages), o.drawn,
                       o.reused, o.culled, o.faces, o.particles, o.particleSources);
+            // Frames that missed the headset's (late by more than a
+            // quarter of one), and the slowest's stages.
+            const auto late =
+                std::ranges::count_if(frameTimes_, [&](float ms) { return ms > average * 1.25f; });
+            log::info("  {} of the last {} frames late; slowest: {}", late, frameTimes_.size(),
+                      FrameProfile::describe(profile_.worst()));
         }
         // --click-at: press at the given time, let go a moment later.
         if(clickAt_ && !clickedTicks_ && static_cast<float>(now - startTicks_) * 1e-9f >= *clickAt_)
@@ -648,7 +659,10 @@ int App::run()
         {
             // The eyes into the headset's images, the left one in the
             // window (when it has an image free), the UI over it.
-            if(auto frame = renderer_->beginFrame(false))
+            const bool windowShown =
+                !(SDL_GetWindowFlags(window_.get()) &
+                  (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED));
+            if(auto frame = renderer_->beginFrame(false, windowShown))
             {
                 profile_.mark(FrameProfile::Acquire);
                 xr::HeadsetFrame& h = *headsetFrame_;
@@ -907,7 +921,9 @@ void App::updateSession()
     {
         if(const world::Object* me = world_->object(agentKey_->region, agentKey_->localId))
         {
-            if(const auto eye = avatars_->eyePosition(*me, *world_, *originHandle_))
+            // In a headset, steady: the headset moves the view itself.
+            const bool steady = headset_ && headset_->running();
+            if(const auto eye = avatars_->eyePosition(*me, *world_, *originHandle_, steady))
             {
                 camera_.setEye(*eye);
             }

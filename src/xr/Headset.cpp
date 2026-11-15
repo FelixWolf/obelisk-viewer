@@ -146,6 +146,10 @@ struct Headset::Impl
     // xrBeginFrame for the frame waited for (once the last one has ended).
     void begin();
 
+    // How much wider than the display each eye is drawn, per side, as a
+    // fraction of its view (prepare).
+    float overscan = 0.0f;
+
     // The origin: where the head was, and its heading (radians, around +Z).
     bool recenterPending = true;
     glm::vec3 origin{0.0f};
@@ -201,9 +205,11 @@ Headset::Headset() : impl_(std::make_unique<Impl>()) {}
 
 Headset::~Headset() = default;
 
-std::unique_ptr<Headset> Headset::prepare()
+std::unique_ptr<Headset> Headset::prepare(float overscan)
 {
-    return std::unique_ptr<Headset>(new Headset());
+    std::unique_ptr<Headset> headset(new Headset());
+    headset->impl_->overscan = std::clamp(overscan, 0.0f, 0.5f);
+    return headset;
 }
 
 void Headset::addDeviceProperties(SDL_PropertiesID props)
@@ -273,9 +279,13 @@ bool Headset::Impl::createSwapchains()
         return false;
     }
     // Both eyes at one size (the renderer draws a frame's views alike): the
-    // larger of what's recommended.
+    // larger of what's recommended, bigger by the overscan (as many pixels
+    // to the degree).
     width = std::max(configs[0].recommendedImageRectWidth, configs[1].recommendedImageRectWidth);
     height = std::max(configs[0].recommendedImageRectHeight, configs[1].recommendedImageRectHeight);
+    const float grow = 1.0f + 2.0f * overscan;
+    width = static_cast<uint32_t>(std::lround(static_cast<float>(width) * grow));
+    height = static_cast<uint32_t>(std::lround(static_cast<float>(height) * grow));
 
     // 8-bit sRGB if there is one (the hardware encodes what we write), in
     // the runtime's order of preference; otherwise its first.
@@ -549,10 +559,19 @@ std::optional<HeadsetFrame> Headset::beginFrame()
     frame.head = m.relative(headPosition, headOrientation);
     for(size_t e = 0; e < 2; e++)
     {
-        const XrView& v = m.views[e];
+        XrView& v = m.views[e];
         frame.eyes[e].pose = m.relative(toViewer(v.pose.position), toViewer(v.pose.orientation));
-        frame.eyes[e].tangents = glm::vec4(std::tan(v.fov.angleLeft), std::tan(v.fov.angleRight),
-                                           std::tan(v.fov.angleDown), std::tan(v.fov.angleUp));
+        // Wider by the overscan on every side (in tangents, as the image's
+        // pixels are): what the view is drawn and handed back with, so the
+        // runtime has more than the display shows when it reprojects a late
+        // frame for a head that has turned.
+        glm::vec4 t(std::tan(v.fov.angleLeft), std::tan(v.fov.angleRight),
+                    std::tan(v.fov.angleDown), std::tan(v.fov.angleUp));
+        const float across = (t.y - t.x) * m.overscan;
+        const float up = (t.w - t.z) * m.overscan;
+        t += glm::vec4(-across, across, -up, up);
+        v.fov = {std::atan(t.x), std::atan(t.y), std::atan(t.w), std::atan(t.z)};
+        frame.eyes[e].tangents = t;
     }
 
     frame.render = true;

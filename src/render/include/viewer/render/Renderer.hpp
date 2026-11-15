@@ -75,8 +75,10 @@ public:
     // Returns nullopt if no swapchain image is available (e.g. minimized).
     // The frame must always be finished with endFrame(), even then.
     // Without waiting for the window (a headset sets the pace): the frame
-    // comes back anyway, its target null if the window has no image free.
-    std::optional<Frame> beginFrame(bool waitForWindow = true);
+    // comes back anyway, its target null if the window has no image free,
+    // or (`window` false) without asking it for one: the "no wait" acquire
+    // can still block in the driver while the window isn't shown.
+    std::optional<Frame> beginFrame(bool waitForWindow = true, bool window = true);
 
     // Draws the 3D scene (HDR, depth-tested) and tonemaps it into the frame's
     // target, replacing its contents. The UI is drawn on top afterwards.

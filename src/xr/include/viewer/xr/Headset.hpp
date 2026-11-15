@@ -63,7 +63,10 @@ struct HeadsetFrame
 class Headset
 {
 public:
-    static std::unique_ptr<Headset> prepare();
+    // `overscan`: each eye drawn wider than the display by this fraction of
+    // its view on every side (0 to 0.5), so the runtime's reprojection of a
+    // late frame has image to show at the edges when the head turns.
+    static std::unique_ptr<Headset> prepare(float overscan);
     ~Headset();
 
     Headset(const Headset&) = delete;

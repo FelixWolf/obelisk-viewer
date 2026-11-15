@@ -82,9 +82,12 @@ public:
     bool hiddenInFirstPerson(const world::Object& avatar, int point) const;
     bool anyFirstPerson() const { return firstPerson_.has_value(); }
     // Between the avatar's eyes as posed (before the head shrinks), scene
-    // coordinates: where a first person camera goes.
+    // coordinates: where a first person camera goes. Steady: where they'd
+    // be on the animated pelvis without the rest of the animation or IK
+    // moving the head (for a headset, which moves the view itself: the
+    // head's sway, or its IK following the view, would shake it).
     std::optional<glm::vec3> eyePosition(const world::Object& avatar, const world::World& world,
-                                         uint64_t originHandle) const;
+                                         uint64_t originHandle, bool steady = false) const;
     // A joint's position as posed (scene coordinates); nothing for an
     // avatar not posed yet or an unknown joint.
     std::optional<glm::vec3> jointPosition(const world::Object& avatar, const world::World& world,
@@ -170,7 +173,8 @@ private:
         std::vector<glm::mat4> joints; // posed this frame, relative to the root
         std::array<std::vector<glm::mat4>, std::size(avatar::kBodyParts)> palettes;
         float extent = 0.0f;
-        glm::vec3 eyes{0.0f}; // between the eyes, avatar space (before first person)
+        glm::vec3 eyes{0.0f};       // between the eyes, avatar space (before first person)
+        glm::vec3 steadyEyes{0.0f}; // as eyePosition's steady ones, avatar space
         bool hasEyes = false;
         uint64_t seen = 0; // frame last updated
     };

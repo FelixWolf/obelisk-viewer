@@ -514,6 +514,13 @@ headset's images, waits for it to be done (`xrBeginFrame` must come after
 the last frame's end). Before that, the CPU's and the GPU's time added up
 within the 11.1 ms; now the larger of the two has to fit.
 
+When a frame is late anyway, SteamVR reprojects the last one to where the
+head has turned. So that it has image to show at the edges then, each eye
+is drawn wider than the display (overscan: `--vr-overscan PERCENT` per
+side, 10 by default; the swapchains bigger to match, at the same pixels to
+the degree) and handed back with that wider field of view, which the
+runtime fits to the display.
+
 `Renderer::drawStereo` draws the scene once per eye, each into its own
 square image, from the scene's camera moved half the eye separation to
 each side, then shows the left eye in the window: what a headset needs,

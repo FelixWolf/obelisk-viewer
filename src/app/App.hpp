@@ -50,16 +50,17 @@ namespace viewer
 
 struct AppOptions
 {
-    std::filesystem::path cacheDirectory;       // empty = platform default
-    std::filesystem::path importDirectory;      // optional: texture browser import on startup
-    std::string loginUri;                       // empty = Second Life main grid
-    std::filesystem::path loginFile;            // optional: log in at startup (see Credentials.hpp)
-    bool testScene = false;                     // show the material test scene
-    bool pbrTerrain = false;                    // start with the PBR terrain shader
-    bool firstPerson = false;                   // go first person once in the world
-    bool vr = false;                            // --vr: show the world in a headset (OpenXR)
-    bool vsync = true;                          // --no-vsync: uncapped, for measuring
-    std::string start;                          // login start: last, home, Region[/x/y/z]
+    std::filesystem::path cacheDirectory;  // empty = platform default
+    std::filesystem::path importDirectory; // optional: texture browser import on startup
+    std::string loginUri;                  // empty = Second Life main grid
+    std::filesystem::path loginFile;       // optional: log in at startup (see Credentials.hpp)
+    bool testScene = false;                // show the material test scene
+    bool pbrTerrain = false;               // start with the PBR terrain shader
+    bool firstPerson = false;              // go first person once in the world
+    bool vr = false;                       // --vr: show the world in a headset (OpenXR)
+    float vrOverscan = 0.1f; // --vr-overscan PERCENT: each eye drawn this much wider per side
+    bool vsync = true;       // --no-vsync: uncapped, for measuring
+    std::string start;       // login start: last, home, Region[/x/y/z]
     std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
     float screenshotDelay = 3.0f;               // seconds after startup
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
