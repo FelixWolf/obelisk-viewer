@@ -2,10 +2,18 @@
 
 // Orbit camera: right-drag rotates around the target, the wheel zooms,
 // middle-drag pans, WASD moves the target, Q/E lowers and raises it.
+//
+// First person (the official viewer's mouselook): the camera at the eyes
+// (setEye), turned by the mouse's motion with no button held; the keys
+// move the avatar instead. The wheel all the way in asks for first person,
+// out of it for third (takeModeRequest): the app switches.
 
 #include "viewer/render/Scene.hpp"
 
 #include <SDL3/SDL_events.h>
+
+#include <optional>
+#include <utility>
 
 namespace viewer
 {
@@ -26,6 +34,14 @@ public:
     // world origin moving).
     void shift(glm::vec3 offset) { target_ += offset; }
     float yaw() const { return yaw_; }
+    float pitch() const { return pitch_; }
+
+    void setFirstPerson(bool on);
+    bool firstPerson() const { return firstPerson_; }
+    void setEye(glm::vec3 eye) { eye_ = eye; }
+    // What the wheel asked for since last time: first person (true),
+    // third (false), or nothing.
+    std::optional<bool> takeModeRequest() { return std::exchange(modeRequest_, std::nullopt); }
 
 private:
     glm::vec3 forward() const;
@@ -36,6 +52,9 @@ private:
     float pitch_ = 25.0f;
     bool rotating_ = false;
     bool panning_ = false;
+    bool firstPerson_ = false;
+    glm::vec3 eye_{0.0f};
+    std::optional<bool> modeRequest_;
 };
 
 } // namespace viewer

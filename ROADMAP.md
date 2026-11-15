@@ -12,8 +12,9 @@ lights and projectors, sun shadows, reflection probes, the windlight sky
 with clouds, sun and moon, terrain (texture and PBR), water, trees and
 grass, particles, and HUDs (over the screen or on a panel), picking and
 touching with a hover outline and touch text, floating text, name tags,
-chat bubbles, texture animation, glow, flexible prims, and IK for our
-avatar's head and hand (desktop). It has no chat window, IM, sitting or
+chat bubbles, texture animation, glow, flexible prims, IK for our
+avatar's head and hand (desktop) and others' look-at and point-at, and
+first person (desktop). It has no chat window, IM, sitting or
 sound yet.
 
 ## Rendering
@@ -25,9 +26,7 @@ sound yet.
 - ★ IK for VR: feeding the headset's and controllers' poses to the IK
   (desktop look-at and hand reach are done; `avatar::applyIk` takes VR
   goals already)
-- ★ First person view, desktop and VR
-- ★ Hiding the head in first person: the head joint scaled to zero, which
-  shrinks rigged and unrigged mesh alike
+- ★ First person in VR (desktop first person is done)
 - Sitting and standing (sit targets, the sit response, the seated camera)
 - Avatar physics (soft body bounce), optional
 - Complexity limits and "jelly dolls" for crowded places

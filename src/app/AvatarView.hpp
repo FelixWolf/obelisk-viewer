@@ -74,6 +74,17 @@ public:
     // for VR), applied on top of its animation from the next pose; none:
     // just the animation.
     void setIk(const Uuid& avatar, std::optional<avatar::IkGoals> goals);
+    // First person for an avatar (ours; none: nobody): its head (and every
+    // joint below it) scaled to nothing from the next pose, which shrinks
+    // the body's head and rigged mesh on it alike, and the attachments on
+    // points not visible in first person hidden.
+    void setFirstPerson(std::optional<Uuid> avatar) { firstPerson_ = avatar; }
+    bool hiddenInFirstPerson(const world::Object& avatar, int point) const;
+    bool anyFirstPerson() const { return firstPerson_.has_value(); }
+    // Between the avatar's eyes as posed (before the head shrinks), scene
+    // coordinates: where a first person camera goes.
+    std::optional<glm::vec3> eyePosition(const world::Object& avatar, const world::World& world,
+                                         uint64_t originHandle) const;
     // A joint's position as posed (scene coordinates); nothing for an
     // avatar not posed yet or an unknown joint.
     std::optional<glm::vec3> jointPosition(const world::Object& avatar, const world::World& world,
@@ -159,6 +170,8 @@ private:
         std::vector<glm::mat4> joints; // posed this frame, relative to the root
         std::array<std::vector<glm::mat4>, std::size(avatar::kBodyParts)> palettes;
         float extent = 0.0f;
+        glm::vec3 eyes{0.0f}; // between the eyes, avatar space (before first person)
+        bool hasEyes = false;
         uint64_t seen = 0; // frame last updated
     };
 
@@ -199,6 +212,8 @@ private:
     avatar::BaseAvatar base_;
     avatar::IkJoints ikJoints_;
     std::unordered_map<Uuid, avatar::IkGoals> ikGoals_; // scene coordinates
+    std::optional<Uuid> firstPerson_;
+    std::vector<int> headJoints_; // mHead and below
     render::Renderer& renderer_;
     const ObjectMotion& motion_;
     std::shared_ptr<const Body> defaultBody_; // until an avatar's appearance arrives

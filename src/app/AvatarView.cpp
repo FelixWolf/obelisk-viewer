@@ -106,6 +106,41 @@ AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer,
     defaultBody_ = build(avatar::ParamWeights(base_));
     defaultJoints_ = avatar::poseJoints(base_, defaultBody_->shape);
     ikJoints_ = avatar::IkJoints::find(base_.skeleton);
+    // The head and everything below it (parents come before children).
+    const int head = base_.skeleton.find("mHead");
+    std::vector<bool> under(base_.skeleton.joints.size(), false);
+    for(size_t i = 0; i < base_.skeleton.joints.size(); i++)
+    {
+        const int parent = base_.skeleton.joints[i].parent;
+        under[i] =
+            static_cast<int>(i) == head || (parent >= 0 && under[static_cast<size_t>(parent)]);
+        if(under[i])
+        {
+            headJoints_.push_back(static_cast<int>(i));
+        }
+    }
+}
+
+std::optional<glm::vec3> AvatarView::eyePosition(const world::Object& avatar,
+                                                 const world::World& world,
+                                                 uint64_t originHandle) const
+{
+    const auto it = avatars_.find(avatar.id);
+    if(it == avatars_.end() || !it->second.hasEyes)
+    {
+        return std::nullopt;
+    }
+    return glm::vec3(rootFrame(avatar, world, originHandle) * glm::vec4(it->second.eyes, 1.0f));
+}
+
+bool AvatarView::hiddenInFirstPerson(const world::Object& avatar, int point) const
+{
+    if(!firstPerson_ || *firstPerson_ != avatar.id)
+    {
+        return false;
+    }
+    const auto it = base_.attachmentPoints.find(point);
+    return it != base_.attachmentPoints.end() && !it->second.visibleInFirstPerson;
 }
 
 void AvatarView::setIk(const Uuid& avatar, std::optional<avatar::IkGoals> goals)
@@ -487,6 +522,26 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
             a.pose.resize(base_.skeleton.joints.size());
         }
         avatar::applyIk(base_, shape, ikJoints_, goals, a.pose);
+    }
+    // First person: the head shrunk to nothing (the eyes noted first).
+    if(firstPerson_ && *firstPerson_ == id)
+    {
+        const std::vector<avatar::JointFrame> frames = avatar::poseFrames(base_, shape, a.pose);
+        if(ikJoints_.eyeLeft >= 0 && ikJoints_.eyeRight >= 0)
+        {
+            a.eyes = (frames[static_cast<size_t>(ikJoints_.eyeLeft)].position +
+                      frames[static_cast<size_t>(ikJoints_.eyeRight)].position) *
+                     0.5f;
+            a.hasEyes = true;
+        }
+        if(a.pose.size() != base_.skeleton.joints.size())
+        {
+            a.pose.resize(base_.skeleton.joints.size());
+        }
+        for(const int j : headJoints_)
+        {
+            a.pose[static_cast<size_t>(j)].scale = glm::vec3(0.0f);
+        }
     }
     a.joints = avatar::poseJoints(base_, shape, a.pose);
     glm::vec3 low(a.joints.empty() ? 0.0f : std::numeric_limits<float>::max());

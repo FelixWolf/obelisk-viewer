@@ -33,6 +33,39 @@ void AgentController::update(float seconds, bool keyboardFree)
     const bool shift = held(SDL_SCANCODE_LSHIFT) || held(SDL_SCANCODE_RSHIFT);
 
     uint32_t flags = flying_ ? control::kFly : 0;
+    if(firstPerson_)
+    {
+        flags |= control::kMouselook;
+        flags |= mouselookDown_ ? control::kMouselookDown : 0;
+        flags |= mouselookUp_ ? control::kMouselookUp : 0;
+        mouselookUp_ = false; // once
+        if(held(SDL_SCANCODE_W) || held(SDL_SCANCODE_UP) || autoWalk_)
+        {
+            flags |= control::kAtPos | control::kFastAt;
+        }
+        if(held(SDL_SCANCODE_S) || held(SDL_SCANCODE_DOWN))
+        {
+            flags |= control::kAtNeg | control::kFastAt;
+        }
+        if(held(SDL_SCANCODE_A) || held(SDL_SCANCODE_LEFT))
+        {
+            flags |= control::kLeftPos | control::kFastLeft;
+        }
+        if(held(SDL_SCANCODE_D) || held(SDL_SCANCODE_RIGHT))
+        {
+            flags |= control::kLeftNeg | control::kFastLeft;
+        }
+        if(held(SDL_SCANCODE_E) || held(SDL_SCANCODE_PAGEUP))
+        {
+            flags |= control::kUpPos | control::kFastUp;
+        }
+        if(held(SDL_SCANCODE_Q) || held(SDL_SCANCODE_PAGEDOWN) || held(SDL_SCANCODE_C))
+        {
+            flags |= control::kUpNeg | control::kFastUp;
+        }
+        flags_ = flags;
+        return;
+    }
     if(held(SDL_SCANCODE_UP) || autoWalk_)
     {
         flags |= control::kAtPos | control::kFastAt;

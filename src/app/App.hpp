@@ -55,6 +55,7 @@ struct AppOptions
     std::filesystem::path loginFile;            // optional: log in at startup (see Credentials.hpp)
     bool testScene = false;                     // show the material test scene
     bool pbrTerrain = false;                    // start with the PBR terrain shader
+    bool firstPerson = false;                   // go first person once in the world
     bool vsync = true;                          // --no-vsync: uncapped, for measuring
     std::string start;                          // login start: last, home, Region[/x/y/z]
     std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
@@ -207,6 +208,9 @@ private:
     // will give the headset's and controllers' poses instead.)
     void updateIk(const render::Scene& scene, const std::optional<PointerController::Ray>& ray);
     void releasePointer();
+    // First person (the official viewer's mouselook) on or off: the camera
+    // at our eyes, our head hidden, the mouse captured.
+    void setFirstPerson(bool on);
     // Others' look-at and point-at, as their heads and arms move.
     void updateOthersIk(const Uuid& self, float seconds);
     // A look-at or point-at's target in the scene (nothing if what it's at
@@ -275,6 +279,7 @@ private:
     bool showDemoWindow_ = false;
     bool showTestScene_ = false;
     bool pbrTerrain_ = false;
+    bool wantFirstPerson_ = false;
     bool fixedCamera_ = false; // --camera given: don't move it to the agent
     std::filesystem::path screenshotPath_;
     float screenshotDelay_ = 0.0f;

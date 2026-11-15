@@ -31,6 +31,12 @@ public:
 
     void beginFrame();
 
+    // Whether the UI may use the mouse: not while it's captured for first
+    // person. Then it neither captures it (SDL_CaptureMouse; on X11
+    // releasing that also lets go of the pointer's grab) nor sets the
+    // cursor (on Wayland that shows it, and can undo the pointer's lock).
+    void setMouseCapture(bool allowed);
+
     // Finalizes the ImGui frame. Must be called once per beginFrame().
     void endFrame();
 

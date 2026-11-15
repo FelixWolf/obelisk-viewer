@@ -989,6 +989,21 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             record.rigged = sculptBits == world::SculptType::Mesh &&
                             meshes.isRigged(object.sculptTexture).value_or(false);
         }
+        // First person: unrigged prims worn where they aren't shown then
+        // (the head's points) aren't drawn. Rigged mesh is, wherever it's
+        // worn: what's weighted to the head shrinks with it, the rest (a
+        // whole body worn on the skull) stays.
+        if(!record.rigged && avatars && avatars->anyFirstPerson() && object.parentId != 0)
+        {
+            const world::Object& root = linkRoot(object, world);
+            const world::Object* wearer =
+                root.parentId != 0 ? world.object(root.region, root.parentId) : nullptr;
+            if(wearer && wearer->type == world::ObjectType::Avatar &&
+               avatars->hiddenInFirstPerson(*wearer, avatar::attachmentPointFromState(root.state)))
+            {
+                return;
+            }
+        }
         const bool hud = record.onHud;
         const uint8_t sculpt = object.sculptType & world::SculptType::Mask;
         const bool isMesh = sculpt == world::SculptType::Mesh;

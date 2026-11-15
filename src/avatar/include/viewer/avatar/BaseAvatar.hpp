@@ -78,6 +78,9 @@ struct AttachmentPoint
     // A HUD point (31 to 38, on the mScreen joint): in HUD space, not on the
     // body (see AvatarView::attachmentFrame).
     bool hud = false;
+    // Shown in first person (avatar_lad.xml visible_in_first_person): the
+    // head's points aren't.
+    bool visibleInFirstPerson = true;
 };
 
 // The meshes the body is drawn with, and the baked texture each uses

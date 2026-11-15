@@ -6,6 +6,8 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
+#include <string_view>
+
 namespace viewer::ui
 {
 
@@ -113,6 +115,35 @@ void ImGuiLayer::record(const render::Frame& frame)
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(frame.commands, &color, 1, nullptr);
     ImGui_ImplSDLGPU3_RenderDrawData(drawData, frame.commands, pass);
     SDL_EndGPURenderPass(pass);
+}
+
+void ImGuiLayer::setMouseCapture(bool allowed)
+{
+    // Not touching the cursor or reading the mouse either: the backend sets
+    // the cursor every frame, which (on Wayland) shows it and can undo the
+    // pointer's lock.
+    ImGuiIO& io = ImGui::GetIO();
+    const ImGuiConfigFlags hands = ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NoMouse;
+    io.ConfigFlags = allowed ? io.ConfigFlags & ~hands : io.ConfigFlags | hands;
+    if(!allowed)
+    {
+        ImGui_ImplSDL3_SetMouseCaptureMode(ImGui_ImplSDL3_MouseCaptureMode_Disabled);
+        return;
+    }
+    // Back to what the backend chose for this video driver (where it can
+    // capture at all; on X11 only once dragging).
+    const char* driver = SDL_GetCurrentVideoDriver();
+    const std::string_view name = driver ? driver : "";
+    for(const std::string_view item : {"windows", "cocoa", "x11", "DIVE", "VMAN"})
+    {
+        if(name.starts_with(item))
+        {
+            ImGui_ImplSDL3_SetMouseCaptureMode(
+                item == "x11" ? ImGui_ImplSDL3_MouseCaptureMode_EnabledAfterDrag
+                              : ImGui_ImplSDL3_MouseCaptureMode_Enabled);
+            return;
+        }
+    }
 }
 
 } // namespace viewer::ui

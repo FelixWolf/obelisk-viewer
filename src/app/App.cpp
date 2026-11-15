@@ -77,6 +77,7 @@ void printUsage()
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
+                 "[--first-person] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -123,6 +124,10 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         else if(arg == "--no-vsync")
         {
             options.vsync = false;
+        }
+        else if(arg == "--first-person")
+        {
+            options.firstPerson = true;
         }
         else if(arg == "--pbr-terrain")
         {
@@ -317,6 +322,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->loadTerrainBlendRamp();
     app->showTestScene_ = options.testScene;
     app->pbrTerrain_ = options.pbrTerrain;
+    app->wantFirstPerson_ = options.firstPerson;
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
     if(options.camera)
     {
@@ -452,9 +458,31 @@ int App::run()
             {
                 agent_.handleEvent(event);
             }
-            // The left button touches what the pointer is on.
-            if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-               event.button.button == SDL_BUTTON_LEFT && !uiConsumed)
+            // M: first person (the official viewer's mouselook key).
+            if(event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+               event.key.scancode == SDL_SCANCODE_M && !uiConsumed &&
+               !ImGui::GetIO().WantCaptureKeyboard)
+            {
+                setFirstPerson(!camera_.firstPerson());
+            }
+            // The left button touches what the pointer is on; in first
+            // person it's the mouselook button scripts take (as the
+            // official viewer's).
+            if(camera_.firstPerson())
+            {
+                if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                   event.button.button == SDL_BUTTON_LEFT && !uiConsumed)
+                {
+                    agent_.setMouselookButton(true);
+                }
+                if(event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
+                   event.button.button == SDL_BUTTON_LEFT)
+                {
+                    agent_.setMouselookButton(false);
+                }
+            }
+            else if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                    event.button.button == SDL_BUTTON_LEFT && !uiConsumed)
             {
                 pressPointer();
             }
@@ -776,6 +804,37 @@ void App::updateSession()
         handleArrival(session_->lastArrival());
     }
 
+    // The wheel asking for first or third person.
+    if(const auto request = camera_.takeModeRequest())
+    {
+        setFirstPerson(*request);
+    }
+    // --first-person: once we're in the world.
+    if(wantFirstPerson_ && agentKey_)
+    {
+        setFirstPerson(true);
+        wantFirstPerson_ = !camera_.firstPerson();
+    }
+    // First person: the camera at our eyes, the body facing where it looks.
+    if(camera_.firstPerson() && world_ && originHandle_ && avatars_ && agentKey_)
+    {
+        if(const world::Object* me = world_->object(agentKey_->region, agentKey_->localId))
+        {
+            if(const auto eye = avatars_->eyePosition(*me, *world_, *originHandle_))
+            {
+                camera_.setEye(*eye);
+            }
+        }
+        agent_.setYaw(camera_.yaw());
+        // Kept captured: something (the window losing focus, say) may have
+        // let go of it.
+        if(!SDL_GetWindowRelativeMouseMode(window_.get()) &&
+           SDL_GetKeyboardFocus() == window_.get())
+        {
+            SDL_SetWindowRelativeMouseMode(window_.get(), true);
+        }
+    }
+
     // The camera follows our avatar: it moves as the avatar does.
     if(world_ && originHandle_)
     {
@@ -1047,6 +1106,7 @@ void App::requestMissingAppearances()
 
 void App::endSession()
 {
+    setFirstPerson(false);
     appearanceDue_.clear();
     objectProperties_ = {};
     hoverKey_.reset();
@@ -1429,7 +1489,13 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
     }
     float x = 0.0f;
     float y = 0.0f;
-    if(pointerOverride_)
+    if(camera_.firstPerson())
+    {
+        // The crosshair, in the middle.
+        x = static_cast<float>(width) * 0.5f;
+        y = static_cast<float>(height) * 0.5f;
+    }
+    else if(pointerOverride_)
     {
         x = (*pointerOverride_)[0] * static_cast<float>(width);
         y = (*pointerOverride_)[1] * static_cast<float>(height);
@@ -1479,6 +1545,44 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
         }
     }
     return ray;
+}
+
+void App::setFirstPerson(bool on)
+{
+    const auto* login = session_ ? session_->login() : nullptr;
+    if(on && (!login || !agentKey_ || !avatars_))
+    {
+        return; // not logged in: nobody's eyes to look from
+    }
+    if(on == camera_.firstPerson())
+    {
+        return;
+    }
+    if(on)
+    {
+        // Facing the way the avatar does.
+        camera_.setFirstPerson(true);
+        camera_.lookAt(camera_.target(), 1.0f, agent_.yaw(), 0.0f);
+    }
+    else
+    {
+        // Behind the avatar again, the way it faces.
+        camera_.setFirstPerson(false);
+        const render::Camera c = camera_.camera();
+        const glm::vec3 eye = c.position;
+        camera_.lookAt(eye - glm::vec3(0.0f, 0.0f, 0.3f), 3.0f, agent_.yaw(), 12.0f);
+    }
+    agent_.setFirstPerson(on);
+    agent_.setMouselookButton(false);
+    avatars_->setFirstPerson(on ? std::optional(login->agentId) : std::nullopt);
+    // The UI mustn't capture and release the mouse meanwhile (on X11 that
+    // would let go of the pointer's grab, freeing it to the screen's edges).
+    ui_->setMouseCapture(!on);
+    if(!SDL_SetWindowRelativeMouseMode(window_.get(), on))
+    {
+        log::warn("first person: relative mouse mode failed: {}", SDL_GetError());
+    }
+    releasePointer();
 }
 
 void App::pressPointer()
@@ -1773,7 +1877,14 @@ void App::sendAttention(const Uuid& self, bool looking, double seconds,
         constexpr int kSkull = 2;
         const auto head = avatars_->attachmentFrame(*me, *world_, kSkull, *originHandle_);
         const glm::vec3 offset = head ? ik_.lookPoint - glm::vec3((*head)[3]) : glm::vec3(0.0f);
-        if(looking && ik_.lookWeight > 0.5f && glm::length(offset) > 0.01f)
+        if(camera_.firstPerson() && glm::length(cameraForward) > 1e-4f)
+        {
+            // First person: a mouselook look, the camera's direction in
+            // world axes (as llagentcamera.cpp updateLookAt).
+            const glm::vec3 d = glm::normalize(cameraForward);
+            lookAt = ViewerEffects::Target{ViewerEffects::kLookMouselook, self, {d.x, d.y, d.z}};
+        }
+        else if(looking && ik_.lookWeight > 0.5f && glm::length(offset) > 0.01f)
         {
             // The cursor: a free look at ourselves, an offset from our head
             // in world axes; only its direction, 2 m long, as the official
@@ -2004,6 +2115,18 @@ void App::drawTeleportWindow()
 void App::drawUi()
 {
     ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+
+    // First person: a crosshair (ImGui for now, until our own UI).
+    if(camera_.firstPerson())
+    {
+        ImDrawList* draw = ImGui::GetForegroundDrawList();
+        const ImVec2 c(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
+        const ImU32 color = IM_COL32(255, 255, 255, 200);
+        draw->AddLine(ImVec2(c.x - 8.0f, c.y), ImVec2(c.x - 3.0f, c.y), color, 2.0f);
+        draw->AddLine(ImVec2(c.x + 3.0f, c.y), ImVec2(c.x + 8.0f, c.y), color, 2.0f);
+        draw->AddLine(ImVec2(c.x, c.y - 8.0f), ImVec2(c.x, c.y - 3.0f), color, 2.0f);
+        draw->AddLine(ImVec2(c.x, c.y + 3.0f), ImVec2(c.x, c.y + 8.0f), color, 2.0f);
+    }
 
     // Over something a click does something to: a hand, and what it does.
     if(const auto& hover = pointer_.hover();

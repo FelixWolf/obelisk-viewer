@@ -428,6 +428,7 @@ std::expected<BaseAvatar, std::string> BaseAvatar::load(const std::filesystem::p
         // points, which aren't part of the world.
         const std::string_view joint = point->Attribute("joint") ? point->Attribute("joint") : "";
         a.hud = joint == "mScreen";
+        a.visibleInFirstPerson = point->BoolAttribute("visible_in_first_person", true);
         if(a.joint >= 0 || joint == "mRoot" || a.hud)
         {
             avatar.attachmentPoints[a.id] = a;

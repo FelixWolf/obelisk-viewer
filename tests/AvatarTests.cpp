@@ -22,6 +22,12 @@ TEST_CASE("Base avatar: skeleton, meshes and attachment points load")
     CHECK(avatar->attachmentPoints.size() == 55);
     CHECK(avatar->attachmentPoints.at(32).hud); // Top Right, on the screen
     CHECK(avatar->attachmentPoints.at(32).position == glm::vec3(0.0f, -0.5f, 0.5f));
+    // The head's points (skull, nose, jaw, ...) aren't shown in first person.
+    CHECK_FALSE(avatar->attachmentPoints.at(2).visibleInFirstPerson);  // Skull
+    CHECK_FALSE(avatar->attachmentPoints.at(17).visibleInFirstPerson); // Nose
+    CHECK_FALSE(avatar->attachmentPoints.at(47).visibleInFirstPerson); // Jaw
+    CHECK(avatar->attachmentPoints.at(1).visibleInFirstPerson);        // Chest
+    CHECK(avatar->attachmentPoints.at(6).visibleInFirstPerson);        // Right Hand
     CHECK_FALSE(avatar->attachmentPoints.at(2).hud);
     CHECK(avatar->attachmentPoints.at(40).joint == -1); // Avatar Center: the root
     CHECK(avatar->attachmentPoints.at(2).name == "Skull");

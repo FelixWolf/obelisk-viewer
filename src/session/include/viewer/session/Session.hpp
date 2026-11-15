@@ -109,6 +109,9 @@ inline constexpr uint32_t kFastUp = 1u << 12;
 inline constexpr uint32_t kFly = 1u << 13;
 inline constexpr uint32_t kStop = 1u << 14;
 inline constexpr uint32_t kStandUp = 1u << 16;
+inline constexpr uint32_t kMouselook = 1u << 18;     // first person
+inline constexpr uint32_t kMouselookDown = 1u << 30; // the left button, in first person
+inline constexpr uint32_t kMouselookUp = 1u << 31;
 } // namespace control
 
 // Capability names requested from each region's seed. Regions grant a subset.

@@ -1433,3 +1433,26 @@ before the joints become matrices (so attachments and rigged mesh follow).
   back and out. The new positions become rotations joint by joint (each
   turned the least from the animated pose), blended with the animation by
   the goal's weight; a goal rotation sets the end joint's.
+
+### First person
+
+First person is the official viewer's mouselook (`App::setFirstPerson`). M
+toggles it; zooming all the way in enters it and zooming out leaves it;
+`--first-person` starts in it.
+- The camera sits between our eyes (`AvatarView::eyePosition`, taken
+  before the head shrinks), 5 cm near plane. The mouse is captured and turns
+  it with no button held, and the body faces where it looks.
+- W/S (and up/down) walk, A/D (and left/right) step sideways, E/Q fly up and
+  down. The MOUSELOOK control flag is set throughout, and the left button
+  sends ML_LBUTTON_DOWN and ML_LBUTTON_UP (as LLToolCompGun) for scripts
+  that take controls, instead of touching.
+- The head is hidden by scaling `mHead` and every joint below it to
+  nothing, which shrinks the body's head, Bento face bones and rigged mesh
+  on them alike. Unrigged attachments on points not visible in first
+  person (`avatar_lad.xml` visible_in_first_person: skull, eyes, ears,
+  nose, mouth, chin, jaw, tongue) aren't drawn. Rigged mesh is drawn
+  wherever it's worn: what's weighted to the head shrinks with it, the
+  rest stays (a whole body worn on the skull still shows its body).
+- Clicks and the look-at go through the middle of the view, marked by a
+  crosshair (ImGui for now). Others are told as a mouselook look-at
+  (type 9) along the camera's direction.

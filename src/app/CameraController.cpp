@@ -32,13 +32,46 @@ glm::vec3 CameraController::forward() const
 render::Camera CameraController::camera() const
 {
     render::Camera camera;
+    if(firstPerson_)
+    {
+        // From the eyes, near enough not to cut through hands held close.
+        camera.position = eye_;
+        camera.target = eye_ + forward();
+        camera.nearPlane = 0.05f;
+        return camera;
+    }
     camera.target = target_;
     camera.position = target_ - forward() * distance_;
     return camera;
 }
 
+void CameraController::setFirstPerson(bool on)
+{
+    firstPerson_ = on;
+    rotating_ = false;
+    panning_ = false;
+    if(on)
+    {
+        pitch_ = 0.0f; // level, the way the avatar faces (set by the app)
+    }
+}
+
 void CameraController::handleEvent(const SDL_Event& event)
 {
+    if(firstPerson_)
+    {
+        // The mouse turns the view; the wheel out goes back to third person.
+        if(event.type == SDL_EVENT_MOUSE_MOTION)
+        {
+            yaw_ = std::remainder(yaw_ - event.motion.xrel * 0.15f, 360.0f);
+            pitch_ = std::clamp(pitch_ + event.motion.yrel * 0.15f, -85.0f, 85.0f);
+        }
+        else if(event.type == SDL_EVENT_MOUSE_WHEEL && event.wheel.y < 0.0f)
+        {
+            modeRequest_ = false;
+        }
+        return;
+    }
     switch(event.type)
     {
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -71,6 +104,11 @@ void CameraController::handleEvent(const SDL_Event& event)
         }
         break;
     case SDL_EVENT_MOUSE_WHEEL:
+        // All the way in, and in again: first person.
+        if(event.wheel.y > 0.0f && distance_ <= 1.0f)
+        {
+            modeRequest_ = true;
+        }
         distance_ = std::clamp(distance_ * std::pow(0.9f, event.wheel.y), 1.0f, 600.0f);
         break;
     default:
@@ -80,6 +118,10 @@ void CameraController::handleEvent(const SDL_Event& event)
 
 void CameraController::update(float seconds)
 {
+    if(firstPerson_)
+    {
+        return; // the keys move the avatar
+    }
     const bool* keys = SDL_GetKeyboardState(nullptr);
     glm::vec3 flat = forward();
     flat.z = 0.0f;
