@@ -133,19 +133,27 @@ vec4 cloudLayer(vec3 dir)
     const float sunMoonGlow = frame.atmoParams.w;
     const float cloudShadow = frame.atmoAmbient.w;
 
-    // Where the view ray meets the dome.
+    // Where the view ray meets the dome: a sphere whose center is `offset`
+    // of its radius below the eye (lldrawpoolwlsky.cpp renderDome), so the
+    // eye is near its top. |t dir - c|^2 = r^2 with c = (0, 0, -offset r):
+    // t^2 + 2 t offset r dir.z - r^2 (1 - offset^2) = 0.
     const float radius = frame.cloudDome.x;
     const float offset = frame.cloudDome.y;
-    const float b = -offset * radius * dir.z;
+    const float b = offset * radius * dir.z;
     const float t = -b + sqrt(b * b + radius * radius * (1.0 - offset * offset));
     const vec3 onDome = dir * t;
 
-    // Planar texture coordinates across the dome (north and west), scaled
-    // about the middle.
-    vec2 uv1 = vec2(-(1.0 + onDome.y / radius) * 0.5, (1.0 - onDome.x / radius) * 0.5);
+    // Planar texture coordinates across the dome, scaled about the middle.
+    // The official dome is built Y up and turned into the world by 120
+    // degrees about (1, 1, 1) (renderDome): its x is north, z east. Its
+    // texture coordinates ((1 - z) / 2, (1 - x) / 2, llvowlsky.cpp), with u
+    // negated (cloudsV.glsl), make u follow east and v north.
+    vec2 uv1 = vec2(-(1.0 - onDome.x / radius) * 0.5, (1.0 - onDome.y / radius) * 0.5);
     uv1 = (uv1 - 0.5) / scale + 0.5;
-    // Shifted towards the light: the clouds' shaded side.
-    vec2 uv2 = uv1 + vec2(-lightDir.y, -lightDir.x) * 0.0125;
+    // Shifted towards the light for the clouds' shaded side: by the
+    // light's (north, east), as cloudsV.glsl adds lightnorm's x and z (the
+    // official light norm is (north, up, east)).
+    vec2 uv2 = uv1 + vec2(lightDir.y, lightDir.x) * 0.0125;
     vec2 uv3 = uv1 * 16.0;
     vec2 uv4 = uv2 * 16.0;
 
