@@ -20,6 +20,8 @@ struct Uuid
 
     // Parses "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" (case-insensitive).
     static std::optional<Uuid> parse(std::string_view text);
+    // A new random (version 4) id.
+    static Uuid random();
 
     // Lowercase, hyphenated, 36 characters.
     std::string toString() const;

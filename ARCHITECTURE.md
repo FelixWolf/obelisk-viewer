@@ -1380,3 +1380,48 @@ them (AnimatedObjectsMaxLegalOffset and MaxLegalSize).
 Not yet: IK constraints, the official viewer's
 procedural motions (head and eye movement, breathing, hand poses), clothing
 morph masks and the physics-driven morphs (breast, belly and butt physics).
+
+### Viewer-made motion (IK)
+
+Our own avatar gets motion on top of its animation that only this viewer
+sees (nothing goes to the simulator; others would see it only through
+something like puppetry): `avatar::applyIk` (`avatar/Ik.hpp`), given goals in
+avatar space, after the animation and rigged mesh's joint overrides and
+before the joints become matrices (so attachments and rigged mesh follow).
+
+- Desktop (`App::updateIk`): the head looks where the pointer is (what it's
+  on, or 10 m along its ray), following with the official look-at's lag
+  (0.15 s half-life) and easing out when the pointer leaves the view. As
+  llheadrotmotion.cpp LLHeadRotMotion: the head turned upright towards the
+  point, at most 72 degrees from the body, the torso taking 35% and the neck
+  and head half each of the rest; the eyes turn the rest of the way, at
+  most 27 degrees (LLEyeMotion). Composed with what's animated rather than
+  replacing it. While pressing on something in the world (touching), the
+  left hand reaches for the point pressed (the arm the official viewer
+  points with, lleditingmotion.cpp) (easing in and out, 0.08 s
+  half-life), following the drag: the pointer's point on what was pressed,
+  or off it, along the pointer's ray as far as the press was; out of
+  reach, the arm points at it.
+- Others see it as the official viewer's look-at and point-at
+  (`ViewerEffects`, ViewerEffect messages, `Session::sendAttention`; 57
+  bytes each: our id, the target's, a position as three little-endian
+  doubles, the target type): the cursor as a free look (type 3, 2 s) at
+  ourselves, its direction 2 m long from our head (no further, like the
+  official limit); with no cursor in the view, an idle look (type 1, 3 s)
+  2 m ahead the way the camera looks, in the avatar's own frame (as
+  llagentcamera.cpp updateLookAt); a press as a grab point-at and a select
+  look-at at the pressed prim, the point in its own frame, lasting until
+  cleared on release. A clear goes out as the official one does: type
+  "none", no target or position, lasting no time (as the clear type itself,
+  receivers would turn to the global origin). Each is one effect (its own id) updated when its target changes
+  or its point moves 5 cm (at most 4 a second), and sent again before it
+  runs out.
+- VR (to come with OpenXR): the goals are the headset's and controllers'
+  poses: the spine (torso, chest, neck, head) reaching for the headset's
+  position and the head taking its rotation, and each hand its controller's.
+- Reaching uses FABRIK (`avatar::fabrik`): the chain's joints moved
+  backward from the target and forward from the root, keeping bone lengths,
+  until the end is within 0.1 mm; a pole keeps the elbows bending down,
+  back and out. The new positions become rotations joint by joint (each
+  turned the least from the animated pose), blended with the animation by
+  the goal's weight; a goal rotation sets the end joint's.

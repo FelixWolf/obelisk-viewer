@@ -105,6 +105,13 @@ AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer,
 {
     defaultBody_ = build(avatar::ParamWeights(base_));
     defaultJoints_ = avatar::poseJoints(base_, defaultBody_->shape);
+    ikJoints_ = avatar::IkJoints::find(base_.skeleton);
+}
+
+void AvatarView::setIk(const Uuid& avatar, std::optional<avatar::IkGoals> goals)
+{
+    ikAvatar_ = avatar;
+    ikGoals_ = std::move(goals);
 }
 
 std::shared_ptr<const AvatarView::Body> AvatarView::build(const avatar::ParamWeights& weights) const
@@ -406,7 +413,8 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
 }
 
 void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World& world,
-                      const Uuid& id, AnimationManager& animations, double now)
+                      const Uuid& id, AnimationManager& animations, double now,
+                      const glm::mat4& root)
 {
     animate(a, world, id, animations, now);
     a.animator.evaluate(now, base_.skeleton.joints.size(), a.pose);
@@ -426,6 +434,37 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
                 p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
             }
         }
+    }
+    // Viewer-made motion (ours only), from scene to avatar space.
+    if(ikGoals_ && id == ikAvatar_)
+    {
+        const glm::mat4 toAvatar = glm::inverse(root);
+        const glm::quat toAvatarRotation = glm::quat_cast(glm::mat3(toAvatar));
+        avatar::IkGoals goals = *ikGoals_;
+        auto local = [&](glm::vec3& p) { p = glm::vec3(toAvatar * glm::vec4(p, 1.0f)); };
+        auto effector = [&](std::optional<avatar::IkGoals::Effector>& e)
+        {
+            if(e)
+            {
+                local(e->position);
+                if(e->rotation)
+                {
+                    e->rotation = glm::normalize(toAvatarRotation * *e->rotation);
+                }
+            }
+        };
+        if(goals.lookAt)
+        {
+            local(*goals.lookAt);
+        }
+        effector(goals.head);
+        effector(goals.leftHand);
+        effector(goals.rightHand);
+        if(a.pose.size() != base_.skeleton.joints.size())
+        {
+            a.pose.resize(base_.skeleton.joints.size());
+        }
+        avatar::applyIk(base_, shape, ikJoints_, goals, a.pose);
     }
     a.joints = avatar::poseJoints(base_, shape, a.pose);
     glm::vec3 low(a.joints.empty() ? 0.0f : std::numeric_limits<float>::max());
@@ -525,7 +564,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         if(!unseen || a.joints.empty() ||
            (frame_ + std::hash<Uuid>()(object.id)) % kUnseenPosePeriod == 0)
         {
-            pose(a, body.shape, world, object.id, animations, now);
+            pose(a, body.shape, world, object.id, animations, now, root);
         }
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
            seen == render::Visibility::Hidden)
@@ -579,7 +618,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const world::Object& object = *found;
         Avatar& a = avatars_[object.id];
         a.seen = frame_;
-        pose(a, defaultBody_->shape, world, object.id, animations, now);
+        pose(a, defaultBody_->shape, world, object.id, animations, now, glm::mat4(1.0f));
         animatedObjects_++;
     }
 

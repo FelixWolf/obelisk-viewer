@@ -9,23 +9,22 @@ As of November 2026 the viewer has: login, movement and camera,
 teleports and region crossings, avatars (appearance, animation, attachments,
 rigged mesh), prims, sculpts and mesh, legacy and PBR materials, local
 lights and projectors, sun shadows, reflection probes, the windlight sky
-and clouds, terrain, trees and grass, and HUDs (over the screen or on a
-panel), picking and touching with a hover outline and touch text,
-floating text, name tags, chat bubbles, texture animation, glow and
-flexible prims. It has no chat window, IM, sitting, sound, particles or
-water yet.
+with clouds, sun and moon, terrain (texture and PBR), water, trees and
+grass, particles, and HUDs (over the screen or on a panel), picking and
+touching with a hover outline and touch text, floating text, name tags,
+chat bubbles, texture animation, glow, flexible prims, and IK for our
+avatar's head and hand (desktop). It has no chat window, IM, sitting or
+sound yet.
 
 ## Rendering
 
-- Water: the surface with reflections and refraction, underwater fog
-- Particles (`llParticleSystem`)
-- Sun and moon textures, moon phases
 - Anti-aliasing (FXAA or SMAA)
 
 ## Avatars and animation
 
-- ★ IK (FABRIK) for viewer-made motion (hands, head following the cursor)
-  and for VR hand tracking
+- ★ IK for VR: feeding the headset's and controllers' poses to the IK
+  (desktop look-at and hand reach are done; `avatar::applyIk` takes VR
+  goals already)
 - Look-at and point-at, ours and other avatars'
 - ★ First person view, desktop and VR
 - ★ Hiding the head in first person: the head joint scaled to zero, which

@@ -226,6 +226,42 @@ Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights)
     return shape;
 }
 
+std::vector<JointFrame> poseFrames(const BaseAvatar& base, const Shape& shape,
+                                   std::span<const JointPose> pose)
+{
+    // As llxform.cpp: a child's offset is scaled by its parent's scale, but
+    // scale doesn't carry down otherwise.
+    const auto& joints = base.skeleton.joints;
+    std::vector<JointFrame> out(joints.size());
+    for(size_t i = 0; i < joints.size(); i++)
+    {
+        const Joint& j = joints[i];
+        glm::vec3 position = shape.jointPositions[i];
+        glm::quat rotation = j.rotation;
+        glm::vec3 scale = i < shape.jointScales.size() ? shape.jointScales[i] : glm::vec3(1.0f);
+        if(i < pose.size())
+        {
+            position = pose[i].position.value_or(position);
+            rotation = pose[i].rotation.value_or(rotation);
+            scale = pose[i].scale.value_or(scale);
+        }
+        JointFrame& f = out[i];
+        f.scale = scale;
+        if(j.parent < 0)
+        {
+            f.position = position;
+            f.rotation = rotation;
+        }
+        else
+        {
+            const JointFrame& p = out[static_cast<size_t>(j.parent)];
+            f.position = p.position + p.rotation * (p.scale * position);
+            f.rotation = p.rotation * rotation;
+        }
+    }
+    return out;
+}
+
 std::vector<glm::mat4> poseJoints(const BaseAvatar& base, const Shape& shape,
                                   std::span<const JointPose> pose)
 {

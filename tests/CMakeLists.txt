@@ -2,6 +2,8 @@ add_executable(viewer_tests
   main.cpp
   AvatarNameTests.cpp
   AvatarTests.cpp
+  IkTests.cpp
+  ViewerEffectsTests.cpp
   CircuitTests.cpp
   DiskCacheTests.cpp
   HttpClientTests.cpp
@@ -42,6 +44,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/ObjectIndex.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ParticleView.cpp
   ${PROJECT_SOURCE_DIR}/src/app/TerrainOverrides.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ViewerEffects.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

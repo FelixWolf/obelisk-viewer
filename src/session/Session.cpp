@@ -6,6 +6,7 @@
 
 #include <bit>
 #include <cctype>
+#include <cstring>
 #include <format>
 
 namespace viewer::session
@@ -815,6 +816,45 @@ void Session::say(std::string_view text, int32_t channel, uint8_t type)
     chat.ChatData.Type = type;
     chat.ChatData.Channel = channel;
     send(*main, chat, true);
+}
+
+std::vector<uint8_t> Session::packAttention(const Uuid& source, const AttentionEffect& effect)
+{
+    std::vector<uint8_t> data(57, 0);
+    std::copy(source.bytes.begin(), source.bytes.end(), data.begin());
+    std::copy(effect.target.bytes.begin(), effect.target.bytes.end(), data.begin() + 16);
+    for(size_t i = 0; i < 3; i++)
+    {
+        // Little-endian whatever the host is (as htolememcpy).
+        const auto bits = std::bit_cast<uint64_t>(effect.position[i]);
+        for(size_t b = 0; b < 8; b++)
+        {
+            data[32 + i * 8 + b] = static_cast<uint8_t>(bits >> (8 * b));
+        }
+    }
+    data[56] = effect.targetType;
+    return data;
+}
+
+void Session::sendAttention(const AttentionEffect& effect)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    msg::ViewerEffect message;
+    message.AgentData.AgentID = login_->agentId;
+    message.AgentData.SessionID = login_->sessionId;
+    msg::ViewerEffect::EffectBlock block;
+    block.ID = effect.id;
+    block.AgentID = login_->agentId;
+    block.Type = effect.effectType;
+    block.Duration = effect.duration;
+    block.Color = {255, 255, 255, 255};
+    block.TypeData = packAttention(login_->agentId, effect);
+    message.Effect.push_back(std::move(block));
+    send(*main, message, false);
 }
 
 void Session::teleportHome()

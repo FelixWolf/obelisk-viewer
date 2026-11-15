@@ -10,6 +10,9 @@
 
 #include <doctest/doctest.h>
 
+#include <bit>
+#include <cstdint>
+
 #include <atomic>
 
 using namespace viewer::session;
@@ -797,4 +800,36 @@ TEST_CASE("Session: the throttle backs off while packets are lost, and recovers"
     CHECK(t.current() == doctest::Approx(900.0f));
     t.setBandwidth(1500.0f); // a new setting starts at the most again
     CHECK(t.current() == doctest::Approx(2250.0f));
+}
+
+TEST_CASE("Session: look-at and point-at effects pack as the official 57 bytes")
+{
+    const viewer::Uuid me = *viewer::Uuid::parse("11111111-1111-1111-1111-111111111111");
+    viewer::session::Session::AttentionEffect effect;
+    effect.target = *viewer::Uuid::parse("22222222-2222-2222-2222-222222222222");
+    effect.targetType = 3;
+    effect.position = {1.5, -2.0, 1024.25};
+    const auto data = viewer::session::Session::packAttention(me, effect);
+    REQUIRE(data.size() == 57);
+    CHECK(data[0] == 0x11);
+    CHECK(data[15] == 0x11);
+    CHECK(data[16] == 0x22);
+    CHECK(data[31] == 0x22);
+    // Little-endian whatever the host is (as htolememcpy).
+    auto readDouble = [&](size_t at)
+    {
+        uint64_t bits = 0;
+        for(size_t b = 0; b < 8; b++)
+        {
+            bits |= static_cast<uint64_t>(data[at + b]) << (8 * b);
+        }
+        return std::bit_cast<double>(bits);
+    };
+    CHECK(readDouble(32) == 1.5);
+    CHECK(readDouble(40) == -2.0);
+    CHECK(readDouble(48) == 1024.25);
+    // 1024.25 is 0x4090 0100 0000 0000: its last byte is the high one.
+    CHECK(data[55] == 0x40);
+    CHECK(data[54] == 0x90);
+    CHECK(data[56] == 3);
 }

@@ -29,6 +29,7 @@
 
 #include "viewer/avatar/Animation.hpp"
 #include "viewer/avatar/BaseAvatar.hpp"
+#include "viewer/avatar/Ik.hpp"
 #include "viewer/avatar/Shape.hpp"
 #include "viewer/core/Uuid.hpp"
 #include "viewer/render/Renderer.hpp"
@@ -67,6 +68,12 @@ public:
     AvatarView(avatar::BaseAvatar base, render::Renderer& renderer, const ObjectMotion& motion);
 
     const avatar::BaseAvatar& base() const { return base_; }
+
+    // Viewer-made motion for one avatar (ours): IK goals in scene
+    // coordinates (positions, and rotations for VR), applied on top of its
+    // animation from the next pose; none: just the animation. Only this
+    // viewer sees it.
+    void setIk(const Uuid& avatar, std::optional<avatar::IkGoals> goals);
 
     // Where baked textures come from (the login reply's
     // agent_appearance_service); empty while logged out.
@@ -181,10 +188,14 @@ private:
     void animate(Avatar& a, const world::World& world, const Uuid& id, AnimationManager& animations,
                  double now);
     // Animates and poses a skeleton (an avatar's or an animated object's).
+    // `root` is the avatar's frame (rootFrame), for IK goals.
     void pose(Avatar& a, const avatar::Shape& shape, const world::World& world, const Uuid& id,
-              AnimationManager& animations, double now);
+              AnimationManager& animations, double now, const glm::mat4& root);
 
     avatar::BaseAvatar base_;
+    avatar::IkJoints ikJoints_;
+    Uuid ikAvatar_{};
+    std::optional<avatar::IkGoals> ikGoals_; // scene coordinates
     render::Renderer& renderer_;
     const ObjectMotion& motion_;
     std::shared_ptr<const Body> defaultBody_; // until an avatar's appearance arrives

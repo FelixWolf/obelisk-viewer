@@ -20,6 +20,7 @@
 #include "TextureBrowser.hpp"
 #include "TextureManager.hpp"
 #include "TreeView.hpp"
+#include "ViewerEffects.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
 #include "viewer/core/DiskCache.hpp"
@@ -200,6 +201,30 @@ private:
     // The regions' water and the water beyond them, with the day's water
     // settings, into the scene.
     void addWater(render::Scene& scene, float seconds);
+    // Our avatar's viewer-made motion (avatar::IkGoals). Desktop: the head
+    // looks where the pointer is; while pressing on something, the left
+    // hand reaches for it (the arm the official viewer points with). (VR
+    // will give the headset's and controllers' poses instead.)
+    void updateIk(const render::Scene& scene, const std::optional<PointerController::Ray>& ray);
+    void releasePointer();
+    // Our look-at and point-at to viewers nearby (ViewerEffects).
+    void sendAttention(const Uuid& self, bool looking, double seconds,
+                       const glm::vec3& cameraForward);
+    struct Ik
+    {
+        std::optional<glm::vec3> reachPoint; // what was pressed on (scene coordinates)
+        bool reaching = false;
+        // What was pressed, and how far from the camera: dragging off it,
+        // the hand follows the pointer's ray at that distance.
+        std::optional<world::ObjectKey> pressed;
+        float pressDistance = 0.0f;
+        glm::vec3 rayOrigin{0.0f};
+        ViewerEffects effects; // told to viewers nearby
+        glm::vec3 lookPoint{0.0f};
+        float lookWeight = 0.0f;
+        float handWeight = 0.0f;
+        uint64_t lastTicks = 0;
+    } ik_;
     void pressPointer();
     std::unique_ptr<TreeView> trees_;
     TerrainTextures terrainTextures_;

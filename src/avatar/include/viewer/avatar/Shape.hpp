@@ -81,6 +81,17 @@ struct JointPose
 std::vector<glm::mat4> poseJoints(const BaseAvatar& base, const Shape& shape,
                                   std::span<const JointPose> pose = {});
 
+// The same as positions, rotations and scales (relative to the avatar
+// root), for IK.
+struct JointFrame
+{
+    glm::vec3 position{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec3 scale{1.0f};
+};
+std::vector<JointFrame> poseFrames(const BaseAvatar& base, const Shape& shape,
+                                   std::span<const JointPose> pose = {});
+
 // The matrices a body part's vertex influences refer to, for joints posed by
 // poseJoints: each takes a vertex from where the mesh was made to where its
 // joint is now.

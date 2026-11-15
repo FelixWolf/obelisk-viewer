@@ -299,6 +299,27 @@ public:
     // tell others we started or stopped typing.
     void say(std::string_view text, int32_t channel = 0, uint8_t type = 1);
 
+    // Our look-at and point-at (the official LLHUDEffectLookAt and
+    // LLHUDEffectPointAt) as a ViewerEffect to the main region, which
+    // passes it to viewers nearby: they turn our avatar's head and arm.
+    struct AttentionEffect
+    {
+        Uuid id;               // the effect's own id (the same for every update)
+        uint8_t effectType;    // kLookAtEffect or kPointAtEffect
+        uint8_t targetType;    // what kind of look or point (the official enums)
+        float duration = 0.0f; // seconds it lasts at the receivers
+        Uuid target;           // what at (null: `position` is global)
+        // Global meters, or an offset from the target (in its frame; for an
+        // avatar, from its head).
+        std::array<double, 3> position{};
+    };
+    static constexpr uint8_t kLookAtEffect = 14;  // LL_HUD_EFFECT_LOOKAT
+    static constexpr uint8_t kPointAtEffect = 15; // LL_HUD_EFFECT_POINTAT
+    void sendAttention(const AttentionEffect& effect);
+    // The effect's 57 TypeData bytes: our id, the target's, the position
+    // (three little-endian doubles), the target type.
+    static std::vector<uint8_t> packAttention(const Uuid& source, const AttentionEffect& effect);
+
     // Selecting prims (ObjectSelect) makes their region send their
     // ObjectProperties (name, description, touch and sit text, ...);
     // deselect them once those are in.

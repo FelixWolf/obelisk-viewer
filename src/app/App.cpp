@@ -458,10 +458,9 @@ int App::run()
             {
                 pressPointer();
             }
-            if(event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT &&
-               session_)
+            if(event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT)
             {
-                pointer_.release(*session_);
+                releasePointer();
             }
 
             if(event.type == SDL_EVENT_QUIT)
@@ -536,7 +535,7 @@ int App::run()
         }
         else if(clickedTicks_ && now - clickedTicks_ > 200'000'000ull && session_)
         {
-            pointer_.release(*session_);
+            releasePointer();
         }
         // --say: typing, then saying it.
         if(!say_.empty() && session_ && said_ < 2)
@@ -1062,6 +1061,7 @@ void App::endSession()
     worldThread_.reset();
     terrainView_.clear();
     terrainOverrides_->clear();
+    ik_ = Ik{};
     trees_->clear();
     if(avatars_)
     {
@@ -1152,7 +1152,9 @@ void App::buildScene(render::Scene& scene)
             }
         }
     }
-    pointer_.aim(scene, pointerRay(scene));
+    const auto ray = pointerRay(scene);
+    pointer_.aim(scene, ray);
+    updateIk(scene, ray);
     // Resting on something clickable for a moment: its properties (touch
     // text, name), selecting it to get them. Not physical objects: selecting
     // stops them.
@@ -1479,6 +1481,160 @@ void App::pressPointer()
         pointer_.press(*session_, *world_, *objects_, avatars_.get(), *originHandle_,
                        *session_->agentRegion());
     }
+    // Pressing on something in the world: the hand reaches for it.
+    if(const auto& hover = pointer_.hover(); hover && !hover->hud)
+    {
+        ik_.reachPoint = hover->hit.position;
+        ik_.reaching = true;
+        ik_.pressed = hover->key;
+        ik_.pressDistance = glm::length(hover->hit.position - ik_.rayOrigin);
+    }
+}
+
+void App::releasePointer()
+{
+    if(session_)
+    {
+        pointer_.release(*session_);
+    }
+    ik_.reaching = false; // eases back to the animation
+    ik_.pressed.reset();
+}
+
+void App::updateIk(const render::Scene& scene, const std::optional<PointerController::Ray>& ray)
+{
+    const auto* login = session_ ? session_->login() : nullptr;
+    if(!avatars_ || !login)
+    {
+        return;
+    }
+    const uint64_t now = SDL_GetTicksNS();
+    const float seconds =
+        ik_.lastTicks == 0 ? 0.0f : std::min(static_cast<float>(now - ik_.lastTicks) * 1e-9f, 0.1f);
+    ik_.lastTicks = now;
+    // How far towards a value in `seconds`, by half-life.
+    auto towards = [&](float halfLife) { return 1.0f - std::exp2(-seconds / halfLife); };
+
+    // The head: at what the pointer's on, or along its ray; following it
+    // with the official look-at's lag (HEAD_LOOKAT_LAG_HALF_LIFE).
+    std::optional<glm::vec3> look;
+    if(const auto& hover = pointer_.hover(); hover && !hover->hud && ray)
+    {
+        look = hover->hit.position;
+    }
+    else if(ray)
+    {
+        look = ray->origin + ray->direction * 10.0f;
+    }
+    if(look)
+    {
+        ik_.lookPoint =
+            ik_.lookWeight <= 0.0f ? *look : glm::mix(ik_.lookPoint, *look, towards(0.15f));
+    }
+    ik_.lookWeight = glm::mix(ik_.lookWeight, look ? 1.0f : 0.0f, towards(0.15f));
+
+    // The left hand (as the official editing motion, lleditingmotion.cpp):
+    // reaching while pressing (following the drag: on what
+    // was pressed, or along the pointer's ray as far as it was), easing
+    // back after.
+    if(ray)
+    {
+        ik_.rayOrigin = ray->origin;
+    }
+    if(ik_.reaching && ray)
+    {
+        const auto& hover = pointer_.hover();
+        ik_.reachPoint = hover && !hover->hud && ik_.pressed && hover->key == *ik_.pressed
+                             ? hover->hit.position
+                             : ray->origin + ray->direction * ik_.pressDistance;
+    }
+    ik_.handWeight = glm::mix(ik_.handWeight, ik_.reaching ? 1.0f : 0.0f, towards(0.08f));
+
+    avatar::IkGoals goals;
+    if(ik_.lookWeight > 0.001f)
+    {
+        goals.lookAt = ik_.lookPoint;
+        goals.lookAtWeight = ik_.lookWeight;
+    }
+    if(ik_.reachPoint && ik_.handWeight > 0.001f)
+    {
+        goals.leftHand = avatar::IkGoals::Effector{*ik_.reachPoint, std::nullopt, ik_.handWeight};
+    }
+    const bool any = goals.lookAt || goals.leftHand;
+    avatars_->setIk(login->agentId, any ? std::optional(goals) : std::nullopt);
+    sendAttention(login->agentId, look.has_value(), static_cast<double>(now) * 1e-9,
+                  scene.camera.target - scene.camera.position);
+}
+
+void App::sendAttention(const Uuid& self, bool looking, double seconds,
+                        const glm::vec3& cameraForward)
+{
+    if(!session_ || !world_ || !originHandle_ || !objects_)
+    {
+        return;
+    }
+    const glm::dvec3 corner(static_cast<double>(*originHandle_ >> 32),
+                            static_cast<double>(*originHandle_ & 0xFFFFFFFFu), 0.0);
+    auto global = [&](const glm::vec3& p)
+    {
+        const glm::dvec3 g = corner + glm::dvec3(p);
+        return std::array<double, 3>{g.x, g.y, g.z};
+    };
+    std::optional<ViewerEffects::Target> lookAt;
+    std::optional<ViewerEffects::Target> pointAt;
+    if(ik_.reaching && ik_.reachPoint)
+    {
+        // Pressing: pointing at it and looking at it (as lltoolgrab.cpp):
+        // the point in the object's own frame, so it moves with it; for
+        // anything else (an avatar), where it is.
+        ViewerEffects::Target target;
+        target.position = global(*ik_.reachPoint);
+        const world::Object* object =
+            ik_.pressed ? world_->object(ik_.pressed->region, ik_.pressed->localId) : nullptr;
+        if(object && object->type == world::ObjectType::Prim)
+        {
+            if(const auto frame =
+                   objects_->objectFrame(*object, *world_, *originHandle_, avatars_.get()))
+            {
+                const glm::vec3 local = glm::inverse(glm::quat_cast(glm::mat3(*frame))) *
+                                        (*ik_.reachPoint - glm::vec3((*frame)[3]));
+                target.object = object->id;
+                target.position = {local.x, local.y, local.z};
+            }
+        }
+        target.type = ViewerEffects::kPointGrab;
+        pointAt = target;
+        target.type = ViewerEffects::kLookSelect;
+        lookAt = target;
+    }
+    else if(const world::Object* me = avatars_ && agentKey_
+                                          ? world_->object(agentKey_->region, agentKey_->localId)
+                                          : nullptr)
+    {
+        constexpr int kSkull = 2;
+        const auto head = avatars_->attachmentFrame(*me, *world_, kSkull, *originHandle_);
+        const glm::vec3 offset = head ? ik_.lookPoint - glm::vec3((*head)[3]) : glm::vec3(0.0f);
+        if(looking && ik_.lookWeight > 0.5f && glm::length(offset) > 0.01f)
+        {
+            // The cursor: a free look at ourselves, an offset from our head
+            // in world axes; only its direction, 2 m long, as the official
+            // one (it doesn't tell where we're looking further off).
+            const glm::vec3 d = glm::normalize(offset) * 2.0f;
+            lookAt = ViewerEffects::Target{ViewerEffects::kLookFreeLook, self, {d.x, d.y, d.z}};
+        }
+        else if(glm::length(cameraForward) > 1e-4f)
+        {
+            // No cursor in the view: idle, looking 2 m ahead the way the
+            // camera does, an offset in our avatar's own frame (as
+            // llagentcamera.cpp updateLookAt with the mouse still).
+            const glm::quat body =
+                glm::quat_cast(glm::mat3(avatars_->rootFrame(*me, *world_, *originHandle_)));
+            const glm::vec3 d = glm::inverse(body) * (glm::normalize(cameraForward) * 2.0f);
+            lookAt = ViewerEffects::Target{ViewerEffects::kLookIdle, self, {d.x, d.y, d.z}};
+        }
+    }
+    ik_.effects.update([&](const session::Session::AttentionEffect& e)
+                       { session_->sendAttention(e); }, lookAt, pointAt, seconds);
 }
 
 void App::placeHud(render::Scene& scene)
