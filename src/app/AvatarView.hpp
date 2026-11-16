@@ -103,6 +103,12 @@ public:
     // agent_appearance_service); empty while logged out.
     void setAppearanceServiceUrl(std::string url) { appearanceUrl_ = std::move(url); }
 
+    // Whether an avatar can be placed: not sitting on something that isn't
+    // known yet (its seat, or a link parent of it).
+    bool placed(const world::Object& avatar, const world::World& world, uint64_t originHandle) const
+    {
+        return avatar.parentId == 0 || seatFrame(avatar, world, originHandle).has_value();
+    }
     // The avatar root's frame (no scale), in scene coordinates.
     glm::mat4 rootFrame(const world::Object& avatar, const world::World& world,
                         uint64_t originHandle) const;
@@ -264,6 +270,10 @@ private:
     };
     mutable std::unordered_map<Uuid, glm::mat4> rootFrames_;
     mutable std::unordered_map<PointKey, std::optional<glm::mat4>, PointKeyHash> attachmentFrames_;
+    // The frame of the prim an avatar sits on, in the scene; nothing if the
+    // seat (or one of its link parents) isn't known yet.
+    std::optional<glm::mat4> seatFrame(const world::Object& avatar, const world::World& world,
+                                       uint64_t originHandle) const;
     glm::mat4 computeRootFrame(const world::Object& avatar, const world::World& world,
                                uint64_t originHandle) const;
     std::optional<glm::mat4> computeAttachmentFrame(const world::Object& avatar,

@@ -234,19 +234,53 @@ glm::mat4 AvatarView::computeRootFrame(const world::Object& avatar, const world:
                                        uint64_t originHandle) const
 {
     const avatar::Shape& shape = bodyOf(avatar).shape;
+    // Sitting, the avatar's place is relative to its seat (a prim, maybe a
+    // child of a link set), as the official viewer's getRenderPosition; the
+    // hover it asked for doesn't apply then, the shape's still does.
+    const std::optional<glm::mat4> seat =
+        avatar.parentId != 0 ? seatFrame(avatar, world, originHandle) : std::nullopt;
     const world::World::Appearance* appearance = world.appearance(avatar.id);
-    const glm::vec3 hover =
-        (appearance ? appearance->hover : glm::vec3(0.0f)) + glm::vec3(0.0f, 0.0f, shape.hover);
+    const glm::vec3 hover = (appearance && !seat ? appearance->hover : glm::vec3(0.0f)) +
+                            glm::vec3(0.0f, 0.0f, shape.hover);
     // A rigged attachment's pelvis offset moves where the avatar is drawn
     // (llvoavatar.cpp getRenderPosition).
     const auto overrides = overrides_.find(avatar.id);
     const float pelvisOffset =
         overrides != overrides_.end() ? overrides->second.pelvisOffset : 0.0f;
     const world::Pose pose = motion_.pose(avatar);
-    const glm::vec3 root =
-        regionOffset(avatar.region, originHandle) + pose.position + hover -
-        glm::vec3(0.0f, 0.0f, 0.5f * shape.bodyHeight - shape.pelvisToFoot - pelvisOffset);
+    const glm::vec3 lowered =
+        hover - glm::vec3(0.0f, 0.0f, 0.5f * shape.bodyHeight - shape.pelvisToFoot - pelvisOffset);
+    if(seat)
+    {
+        const glm::mat4 placed = *seat * motion_.local(avatar);
+        return glm::translate(glm::mat4(1.0f), lowered) * placed;
+    }
+    const glm::vec3 root = regionOffset(avatar.region, originHandle) + pose.position + lowered;
     return glm::translate(glm::mat4(1.0f), root) * glm::mat4_cast(pose.rotation);
+}
+
+std::optional<glm::mat4> AvatarView::seatFrame(const world::Object& avatar,
+                                               const world::World& world,
+                                               uint64_t originHandle) const
+{
+    // Up through the seat's link parents to the root prim.
+    glm::mat4 frame(1.0f);
+    const world::Object* o = &avatar;
+    for(int depth = 0; depth < 16 && o->parentId != 0; depth++)
+    {
+        const world::Object* parent = world.object(o->region, o->parentId);
+        if(!parent || parent->type != world::ObjectType::Prim)
+        {
+            return std::nullopt;
+        }
+        frame = motion_.local(*parent) * frame;
+        o = parent;
+    }
+    if(o->parentId != 0)
+    {
+        return std::nullopt;
+    }
+    return glm::translate(glm::mat4(1.0f), regionOffset(o->region, originHandle)) * frame;
 }
 
 bool AvatarView::isHudPoint(int point) const
@@ -282,6 +316,10 @@ std::optional<glm::mat4> AvatarView::computeAttachmentFrame(const world::Object&
     {
         return glm::translate(glm::mat4(1.0f), a.position * glm::vec3(1.0f, hudAspect_, 1.0f)) *
                glm::mat4_cast(a.rotation);
+    }
+    if(!placed(avatar, world, originHandle))
+    {
+        return std::nullopt;
     }
     glm::mat4 joint(1.0f);
     if(a.joint >= 0)
@@ -678,6 +716,10 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
         const world::Object& object = *found;
+        if(!placed(object, world, originHandle))
+        {
+            continue; // sitting on something not here yet
+        }
         Avatar& a = avatars_[object.id];
         a.seen = frame_;
 

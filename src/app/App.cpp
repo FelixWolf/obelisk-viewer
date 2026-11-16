@@ -1171,14 +1171,19 @@ std::optional<glm::dvec3> App::agentGlobalPosition()
         return std::nullopt;
     }
     glm::vec3 local = motion_.pose(*self).position;
-    if(self->parentId != 0)
+    // Sitting: relative to what it sits on, up through the seat's link
+    // parents.
+    const world::Object* o = self;
+    for(int depth = 0; depth < 16 && o->parentId != 0; depth++)
     {
-        // Sitting: relative to what it sits on.
-        if(const world::Object* seat = world_->object(self->region, self->parentId))
+        const world::Object* parent = world_->object(o->region, o->parentId);
+        if(!parent)
         {
-            const world::Pose seatPose = motion_.pose(*seat);
-            local = seatPose.position + seatPose.rotation * local;
+            break;
         }
+        const world::Pose pose = motion_.pose(*parent);
+        local = pose.position + pose.rotation * local;
+        o = parent;
     }
     return glm::dvec3(static_cast<double>(self->region >> 32) + local.x,
                       static_cast<double>(self->region & 0xFFFFFFFFu) + local.y, local.z);

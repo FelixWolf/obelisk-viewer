@@ -154,7 +154,8 @@ void addNameTags(render::Scene& scene, const world::World& world, const AvatarVi
     for(const auto& [key, object] : world.objects())
     {
         if(object.type != world::ObjectType::Avatar ||
-           (object.firstName.empty() && object.lastName.empty()))
+           (object.firstName.empty() && object.lastName.empty()) ||
+           !avatars.placed(object, world, originHandle))
         {
             continue;
         }
