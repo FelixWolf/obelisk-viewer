@@ -534,6 +534,14 @@ side, 10 by default; the swapchains bigger to match, at the same pixels to
 the degree) and handed back with that wider field of view, which the
 runtime fits to the display.
 
+The headset's movements are scaled to the avatar's size: by its standing
+eye height (unanimated, rigged mesh joint positions included) over the
+wearer's, which is the highest the head has been above the stage space's
+floor (heights under 1 m or over 2.3 m, a headset on a desk or a shelf,
+not counted), or `--vr-eye-height METRES` (0: not scaled). The head's and
+eyes' positions (so their distance apart: a smaller avatar sees the world
+bigger) and the controllers' are scaled about the headset's origin.
+
 `Renderer::drawStereo` draws the scene once per eye, each into its own
 square image, from the scene's camera moved half the eye separation to
 each side, then shows the left eye in the window: what a headset needs,

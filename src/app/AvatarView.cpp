@@ -150,6 +150,16 @@ float AvatarView::eyesForward(const world::Object& avatar) const
     return it == avatars_.end() ? 0.0f : it->second.eyesForward;
 }
 
+std::optional<float> AvatarView::eyeHeight(const world::Object& avatar) const
+{
+    const auto it = avatars_.find(avatar.id);
+    if(it == avatars_.end() || !it->second.hasEyes || it->second.eyeHeight <= 0.0f)
+    {
+        return std::nullopt;
+    }
+    return it->second.eyeHeight;
+}
+
 bool AvatarView::hiddenInFirstPerson(const world::Object& avatar, int point) const
 {
     if(!firstPerson_ || *firstPerson_ != avatar.id)
@@ -629,6 +639,11 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
                 const glm::vec3 offset = between(rest) - rest[pelvis].position;
                 a.steadyEyes = frames[pelvis].position + glm::vec3(0.0f, 0.0f, offset.z);
                 a.eyesForward = offset.x;
+                // Above the ground: the pelvis is its height off the feet
+                // (and a rigged mesh's pelvis offset) above it.
+                const auto o = overrides_.find(id);
+                a.eyeHeight = offset.z + shape.pelvisToFoot +
+                              (o != overrides_.end() ? o->second.pelvisOffset : 0.0f);
                 if(ikJoints_.head >= 0)
                 {
                     a.eyesFromHead =

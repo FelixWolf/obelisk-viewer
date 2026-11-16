@@ -94,6 +94,9 @@ public:
     // Unanimated, how far ahead of the pelvis the eyes are (the steady
     // eyePosition is straight above it).
     float eyesForward(const world::Object& avatar) const;
+    // Unanimated, how high its eyes are above its feet (standing); known
+    // in first person only, as the eyes are.
+    std::optional<float> eyeHeight(const world::Object& avatar) const;
     // A joint's position as posed (scene coordinates); nothing for an
     // avatar not posed yet or an unknown joint.
     std::optional<glm::vec3> jointPosition(const world::Object& avatar, const world::World& world,
@@ -189,6 +192,7 @@ private:
         glm::vec3 steadyEyes{0.0f};   // as eyePosition's steady ones, avatar space
         glm::vec3 eyesFromHead{0.0f}; // unanimated: between the eyes, from mHead
         float eyesForward = 0.0f;     // unanimated: how far the eyes are ahead of the pelvis
+        float eyeHeight = 0.0f;       // unanimated: how high the eyes are above the feet
         bool hasEyes = false;
         uint64_t seen = 0; // frame last updated
     };

@@ -61,8 +61,12 @@ struct AppOptions
     bool firstPerson = false;              // go first person once in the world
     bool vr = false;                       // --vr: show the world in a headset (OpenXR)
     float vrOverscan = 0.1f; // --vr-overscan PERCENT: each eye drawn this much wider per side
-    bool vsync = true;       // --no-vsync: uncapped, for measuring
-    std::string start;       // login start: last, home, Region[/x/y/z]
+    // --vr-eye-height METRES: the wearer's eye height standing, which the
+    // headset's movements are scaled from to the avatar's (0: not scaled;
+    // unset: measured from the floor).
+    std::optional<float> vrEyeHeight;
+    bool vsync = true;                          // --no-vsync: uncapped, for measuring
+    std::string start;                          // login start: last, home, Region[/x/y/z]
     std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
     float screenshotDelay = 3.0f;               // seconds after startup
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
@@ -186,12 +190,22 @@ private:
         bool walking = false;
         bool snapped = false;
         bool recentering = false; // the right stick held down
+        // The avatar's eye height over the wearer's: the headset's
+        // movements (and the eyes' distance apart) scaled by it, so a
+        // smaller avatar sees the world bigger and its arms reach as far
+        // as the wearer's do, in proportion.
+        float scale = 1.0f;
+        float loggedScale = 1.0f;
     };
     Vr vr_;
+    std::optional<float> vrEyeHeight_; // --vr-eye-height
+    // How much the headset's movements are scaled this frame (Vr::scale).
+    float vrScale(const xr::HeadsetFrame& frame) const;
     // A pose from the headset's origin into the scene.
     xr::Pose vrToScene(const xr::Pose& pose) const
     {
-        return {vr_.base + vr_.heading * pose.position, vr_.heading * pose.orientation};
+        return {vr_.base + vr_.heading * (pose.position * vr_.scale),
+                vr_.heading * pose.orientation};
     }
     // Our avatar's IK from the headset and controllers.
     void updateVrIk(const render::Scene& scene, const Uuid& self);

@@ -73,6 +73,8 @@ const char* stateName(XrSessionState state)
 // How far the head can lean (horizontally) from the origin before the
 // origin follows it.
 constexpr float kLeash = 0.35f;
+// Higher than anyone's eyes are (above it, a headset isn't being worn).
+constexpr float kTallestEyes = 2.3f;
 
 } // namespace
 
@@ -84,6 +86,7 @@ struct Headset::Impl
     XrSession session = XR_NULL_HANDLE;
     XrSpace local = XR_NULL_HANDLE; // the room, around where the head started
     XrSpace view = XR_NULL_HANDLE;  // the head
+    XrSpace stage = XR_NULL_HANDLE; // the play area, its floor at 0 (if the runtime has one)
     XrSessionState state = XR_SESSION_STATE_UNKNOWN;
     bool running = false;
     bool ended = false;
@@ -187,6 +190,9 @@ struct Headset::Impl
     glm::vec3 origin{0.0f};
     float originYaw = 0.0f;
 
+    // The eyes' highest above the floor so far (standing up straight).
+    float eyeHeight = 0.0f;
+
     bool load();
     bool createSwapchains();
     void releaseImages();
@@ -218,7 +224,8 @@ struct Headset::Impl
                 SDL_DestroyGPUXRSwapchain(device, s.handle, s.images);
             }
         }
-        for(XrSpace space : {gripSpaces[0], gripSpaces[1], aimSpaces[0], aimSpaces[1], view, local})
+        for(XrSpace space :
+            {gripSpaces[0], gripSpaces[1], aimSpaces[0], aimSpaces[1], view, local, stage})
         {
             if(space && destroySpace)
             {
@@ -420,6 +427,13 @@ bool Headset::start(SDL_GPUDevice* device)
         log::error("OpenXR: no view space");
         return false;
     }
+    // The floor, for how tall the wearer is (none: their height unknown).
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+    if(XR_FAILED(m.createReferenceSpace(m.session, &spaceInfo, &m.stage)))
+    {
+        m.stage = XR_NULL_HANDLE;
+        log::info("OpenXR: no stage space; the wearer's height unknown");
+    }
     if(!m.createSwapchains())
     {
         return false;
@@ -618,6 +632,25 @@ std::optional<HeadsetFrame> Headset::beginFrame()
         }
     }
     frame.head = m.relative(headPosition, headOrientation);
+    // The wearer's eye height: the highest the head has been (an
+    // implausible height, as of a headset on a shelf, not counted).
+    if(m.stage)
+    {
+        XrSpaceLocation above = make<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
+        if(XR_SUCCEEDED(m.locateSpace(m.view, m.stage, m.displayTime, &above)) &&
+           (above.locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT))
+        {
+            const float height = toViewer(above.pose.position).z;
+            if(height < kTallestEyes)
+            {
+                m.eyeHeight = std::max(m.eyeHeight, height);
+            }
+        }
+        if(m.eyeHeight > 0.0f)
+        {
+            frame.eyeHeight = m.eyeHeight;
+        }
+    }
     for(size_t e = 0; e < 2; e++)
     {
         XrView& v = m.views[e];

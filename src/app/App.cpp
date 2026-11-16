@@ -77,7 +77,7 @@ void printUsage()
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
-                 "[--first-person] [--vr] [--vr-overscan PERCENT] "
+                 "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -137,6 +137,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.vrOverscan = std::strtof(args[i], nullptr) / 100.0f;
+        }
+        else if(arg == "--vr-eye-height" && hasValue)
+        {
+            i++;
+            options.vrEyeHeight = std::strtof(args[i], nullptr);
         }
         else if(arg == "--pbr-terrain")
         {
@@ -345,6 +350,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->pbrTerrain_ = options.pbrTerrain;
     // In a headset, the view is from the avatar's eyes.
     app->wantFirstPerson_ = options.firstPerson || app->headset_ != nullptr;
+    app->vrEyeHeight_ = options.vrEyeHeight;
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
     if(options.camera)
     {
@@ -1800,11 +1806,19 @@ void App::placeEyes(render::Camera& camera, const xr::HeadsetFrame& frame)
     vr_.placed = true;
     vr_.base = base.position;
     vr_.heading = heading;
+    const float scale = vrScale(frame);
+    if(std::abs(scale - vr_.loggedScale) > 0.05f)
+    {
+        vr_.loggedScale = scale;
+        log::info("VR: movements scaled by {:.2f} (the avatar's eye height over the wearer's)",
+                  scale);
+    }
+    vr_.scale = scale;
     auto place = [&](const xr::Pose& pose)
     {
         render::Camera c = base;
         const glm::quat orientation = heading * pose.orientation;
-        c.position = base.position + heading * pose.position;
+        c.position = base.position + heading * (pose.position * scale);
         c.target = c.position + orientation * glm::vec3(1.0f, 0.0f, 0.0f);
         c.up = orientation * glm::vec3(0.0f, 0.0f, 1.0f);
         return c;
@@ -1823,6 +1837,26 @@ void App::placeEyes(render::Camera& camera, const xr::HeadsetFrame& frame)
                           std::max(l.w, r.w));
     camera.edges = edges;
     camera.verticalFov = std::atan(edges.w) - std::atan(edges.z);
+}
+
+float App::vrScale(const xr::HeadsetFrame& frame) const
+{
+    // The wearer's eyes as told, or as measured once they're plausibly
+    // someone's (not a headset on the desk).
+    constexpr float kLowestEyes = 1.0f;
+    const std::optional<float> wearer = vrEyeHeight_ ? vrEyeHeight_ : frame.eyeHeight;
+    if(!wearer || *wearer < (vrEyeHeight_ ? 0.1f : kLowestEyes) || !world_ || !agentKey_ ||
+       !avatars_)
+    {
+        return 1.0f;
+    }
+    const world::Object* me = world_->object(agentKey_->region, agentKey_->localId);
+    const std::optional<float> avatar = me ? avatars_->eyeHeight(*me) : std::nullopt;
+    if(!avatar)
+    {
+        return vr_.scale;
+    }
+    return std::clamp(*avatar / *wearer, 0.25f, 4.0f);
 }
 
 void App::setFirstPerson(bool on)
@@ -2008,7 +2042,9 @@ void App::updateVrIk(const render::Scene& scene, const Uuid& self)
         const glm::quat wrist = glm::normalize(grip.orientation * kGripToWrist[h]);
         const glm::vec3 fingers = wrist * glm::vec3(0.0f, h == 0 ? 1.0f : -1.0f, 0.0f);
         goals.chains.push_back(
-            {wrists[h], 3, {grip.position - fingers * kWristBehindGrip, wrist, 1.0f}});
+            {wrists[h],
+             3,
+             {grip.position - fingers * (kWristBehindGrip * vr_.scale), wrist, 1.0f}});
     }
     avatars_->setIk(self, goals.chains.empty() ? std::nullopt : std::optional(goals));
 

@@ -44,6 +44,9 @@ struct HeadsetFrame
     // if there are none.
     bool render = false;
     Pose head;
+    // How high the wearer's eyes are standing (the highest above the floor
+    // they've been); nothing if the runtime doesn't know where the floor is.
+    std::optional<float> eyeHeight;
     struct Eye
     {
         Pose pose;
