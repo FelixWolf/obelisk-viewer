@@ -146,6 +146,7 @@ std::vector<std::string> defaultCapabilityNames()
         "EventQueueGet",
         "ExtEnvironment",
         "FetchInventory2",
+        "InventoryAPIv3",
         "FetchInventoryDescendents2",
         "FetchLib2",
         "FetchLibDescendents2",

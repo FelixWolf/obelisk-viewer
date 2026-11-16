@@ -210,6 +210,10 @@ private:
     std::unique_ptr<TerrainOverrides> terrainOverrides_;
     // The whole outfit worn (the Current Outfit Folder's attachments), and
     // when our avatar was first seen this session.
+    // The inventory as fetched (per session: cleared when one ends) and the
+    // AISv3 client filling it; before outfit_, whose requests it carries.
+    std::unique_ptr<inventory::Model> inventory_;
+    std::unique_ptr<inventory::Ais> ais_;
     std::unique_ptr<OutfitAttachments> outfit_;
     std::optional<double> selfSeenAt_;
     std::unordered_set<Uuid> worn_; // its items worn, as last looked (twice a second)

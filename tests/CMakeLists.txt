@@ -5,6 +5,7 @@ add_executable(viewer_tests
   IkTests.cpp
   ViewerEffectsTests.cpp
   OutfitAttachmentsTests.cpp
+  InventoryTests.cpp
   LoginFlowTests.cpp
   CircuitTests.cpp
   DiskCacheTests.cpp
@@ -61,6 +62,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::net
   viewer::protocol
   viewer::session
+  viewer::inventory
   viewer::world
   viewer::environment
   viewer::avatar

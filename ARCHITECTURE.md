@@ -1429,18 +1429,37 @@ Not yet: IK constraints, the official viewer's
 procedural motions (head and eye movement, breathing, hand poses), clothing
 morph masks and the physics-driven morphs (breast, belly and butt physics).
 
+### Inventory
+
+`inventory::Model` (src/inventory) holds the agent's inventory as far as
+it has been fetched: folders and items by id, links included (`linkedId`:
+an item's or a folder's), children by folder. `inventory::Ais` is the
+AISv3 client (the region's `InventoryAPIv3` capability, as the official
+viewer's AISAPI): GETs of a folder's children to a depth, a folder's links,
+an item, by id or by a system folder's alias (`current` for the Current
+Outfit Folder). Replies are LLSD whose contents come in `_embedded` maps
+keyed by id (`categories`, `items`, `links`, and a link's target as
+`item` or `category`); `Model::merge` takes in all of it, however deep, and
+each request's callback (on the main thread, from `Ais::update`) gets the
+ids it brought. Both are owned by the App and emptied when a session ends.
+Writes (links, moves, removal) are to come with outfit editing.
+
 ### Wearing the whole outfit
 
 The simulator brings back one attachment a point after login; the rest
 of the outfit (a head and hair both on the skull, rigged clothes on a
 hand) is worn by the viewer, as the official one does from the Current
-Outfit Folder (`OutfitAttachments`): the folder of type 46 found among
-the inventory root's (FetchInventoryDescendents2), its links followed to
-their items (FetchInventory2), and the objects among them not worn (no
-attachment of ours with that `AttachItemID`) attached once our avatar
-has been in 8 seconds, five at a time (RezMultipleAttachmentsFromInv:
-point 0, where each was last, with ATTACHMENT_ADD so they share points),
-then once more 30 seconds later for any still missing.
+Outfit Folder (`OutfitAttachments`). Through AISv3 that's one request,
+`category/current/links`, whose links carry their targets (any not
+embedded are fetched alone); without it (other grids), the older
+capabilities: the folder of type 46 among the root's
+(FetchInventoryDescendents2), its links, then their items
+(FetchInventory2). The objects not worn (no attachment of ours with that
+`AttachItemID`) are attached once our avatar has been in 3 seconds and no
+attachment has arrived for 2 (the simulator's own restores done), five a
+frame (RezMultipleAttachmentsFromInv: point 0, where each was last, with
+ATTACHMENT_ADD so they share points), then once more 30 seconds later for
+any still missing. An item attached twice is logged.
 
 ### Viewer-made motion (IK)
 

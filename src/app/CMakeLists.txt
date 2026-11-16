@@ -64,6 +64,7 @@ target_link_libraries(viewer PRIVATE
   viewer::assets
   viewer::net
   viewer::session
+  viewer::inventory
   viewer::world
   viewer::environment
   viewer::avatar

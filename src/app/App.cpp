@@ -383,6 +383,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
     app->terrainOverrides_ = std::make_unique<TerrainOverrides>(*app->http_);
+    app->inventory_ = std::make_unique<inventory::Model>();
+    app->ais_ = std::make_unique<inventory::Ais>(*app->http_, *app->inventory_);
     app->outfit_ = std::make_unique<OutfitAttachments>(*app->http_);
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
@@ -1278,10 +1280,14 @@ void App::updateOutfit()
     }
     const auto descendents = session_->capability("FetchInventoryDescendents2");
     const auto items = session_->capability("FetchInventory2");
-    if(!outfit_->started() && descendents && items)
+    ais_->setCapability(std::string(session_->capability("InventoryAPIv3").value_or("")));
+    ais_->update();
+    // (The capabilities come together, once the seed capability answers.)
+    if(!outfit_->started() && (ais_->available() || (descendents && items)))
     {
         const Uuid root = login->reply["inventory-root"][0]["folder_id"].asUuid();
-        outfit_->start(std::string(*descendents), std::string(*items), login->agentId, root);
+        outfit_->start(*ais_, *inventory_, std::string(descendents.value_or("")),
+                       std::string(items.value_or("")), login->agentId, root);
     }
     if(!outfit_->busy())
     {
@@ -1307,9 +1313,9 @@ void App::updateOutfit()
                 for(const auto& [key, object] : world_->objects())
                 {
                     if(key.region == agentKey_->region && object.parentId == me->localId &&
-                       !object.attachItemId.isNull())
+                       !object.attachItemId.isNull() && !worn_.insert(object.attachItemId).second)
                     {
-                        worn_.insert(object.attachItemId);
+                        log::warn("outfit: {} is attached twice", object.attachItemId.toString());
                     }
                 }
             }
@@ -1346,7 +1352,10 @@ void App::endSession()
     worldThread_.reset();
     terrainView_.clear();
     terrainOverrides_->clear();
+    ais_->cancel();
+    ais_->setCapability({});
     outfit_->clear();
+    inventory_->clear();
     selfSeenAt_.reset();
     worn_.clear();
     wornAt_ = -1e9;

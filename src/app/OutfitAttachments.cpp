@@ -31,10 +31,16 @@ void OutfitAttachments::clear()
     requests_ = std::make_unique<net::HttpRequestGroup>(http_);
     replies_ = std::make_shared<MessageQueue<net::HttpResponse>>();
     state_ = State::Idle;
+    ais_ = nullptr;
+    model_ = nullptr;
+    links_.clear();
+    targetsAwaited_ = 0;
     outfit_.clear();
     pending_.clear();
     passes_ = 0;
     nextPass_.reset();
+    wornCount_ = 0;
+    wornChanged_ = 0.0;
 }
 
 void OutfitAttachments::post(const std::string& url, const llsd::Value& body)
@@ -62,11 +68,22 @@ void OutfitAttachments::fetchFolder(const Uuid& folder, bool folders, bool items
     post(fetchDescendents_, body);
 }
 
-void OutfitAttachments::start(std::string fetchDescendents, std::string fetchItems,
+void OutfitAttachments::start(inventory::Ais& ais, const inventory::Model& model,
+                              std::string fetchDescendents, std::string fetchItems,
                               const Uuid& agent, const Uuid& inventoryRoot)
 {
     if(state_ != State::Idle)
     {
+        return;
+    }
+    if(ais.available())
+    {
+        ais_ = &ais;
+        model_ = &model;
+        agent_ = agent;
+        state_ = State::FetchingOutfit;
+        ais.fetchLinks("current", [this](bool ok, const inventory::Model::Merged& merged)
+                       { linksArrived(ok, merged); });
         return;
     }
     if(fetchDescendents.empty() || fetchItems.empty() || inventoryRoot.isNull())
@@ -153,6 +170,83 @@ std::vector<OutfitAttachments::Item> OutfitAttachments::objects(const llsd::Valu
     return out;
 }
 
+OutfitAttachments::Item OutfitAttachments::toAttach(const inventory::Item& item)
+{
+    Item o;
+    o.itemId = item.id;
+    o.ownerId = item.permissions.owner;
+    o.flags = item.flags;
+    o.groupMask = item.permissions.groupMask;
+    o.everyoneMask = item.permissions.everyoneMask;
+    o.nextOwnerMask = item.permissions.nextOwnerMask;
+    o.name = item.name;
+    o.description = item.description;
+    return o;
+}
+
+void OutfitAttachments::linksArrived(bool ok, const inventory::Model::Merged& merged)
+{
+    if(!ok)
+    {
+        log::warn("outfit: the Current Outfit Folder couldn't be fetched; attachments as the "
+                  "region has them");
+        state_ = State::Failed;
+        return;
+    }
+    // The links (their targets came embedded, mostly).
+    for(const Uuid& id : merged.items)
+    {
+        const inventory::Item* item = model_->item(id);
+        if(item && item->type == inventory::kLink)
+        {
+            links_.push_back(id);
+        }
+    }
+    // Targets not embedded: fetched on their own.
+    std::vector<Uuid> missing;
+    for(const Uuid& link : links_)
+    {
+        const inventory::Item* item = model_->item(link);
+        if(item && !model_->item(item->linkedId))
+        {
+            missing.push_back(item->linkedId);
+        }
+    }
+    targetsAwaited_ = static_cast<int>(missing.size());
+    for(const Uuid& id : missing)
+    {
+        ais_->fetchItem(id, [this](bool fetched, const inventory::Model::Merged&)
+                        { targetArrived(fetched); });
+    }
+    if(targetsAwaited_ == 0)
+    {
+        finishFromModel();
+    }
+}
+
+void OutfitAttachments::targetArrived(bool)
+{
+    if(--targetsAwaited_ == 0)
+    {
+        finishFromModel();
+    }
+}
+
+void OutfitAttachments::finishFromModel()
+{
+    for(const Uuid& link : links_)
+    {
+        const inventory::Item* target = model_->resolve(link);
+        if(target && target->type == inventory::kObject &&
+           std::ranges::find(outfit_, target->id, &Item::itemId) == outfit_.end())
+        {
+            outfit_.push_back(toAttach(*target));
+        }
+    }
+    log::info("outfit: {} objects in the Current Outfit Folder (AISv3)", outfit_.size());
+    state_ = State::Ready;
+}
+
 std::vector<OutfitAttachments::Item> OutfitAttachments::update(double now,
                                                                std::optional<double> arrived,
                                                                const std::unordered_set<Uuid>& worn)
@@ -226,8 +320,16 @@ std::vector<OutfitAttachments::Item> OutfitAttachments::update(double now,
     {
         return now_;
     }
+    // Settled: in a moment, and no attachments arriving for a while (the
+    // simulator's own restores done).
+    if(worn.size() != wornCount_)
+    {
+        wornCount_ = worn.size();
+        wornChanged_ = now;
+    }
+    const bool settled = *arrived >= kSettle && now - wornChanged_ >= kQuiet;
     // A pass: what isn't worn, once settled (then once more, later).
-    if(passes_ < 2 && pending_.empty() && *arrived >= kSettle && (!nextPass_ || now >= *nextPass_))
+    if(passes_ < 2 && pending_.empty() && settled && (!nextPass_ || now >= *nextPass_))
     {
         for(const Item& item : outfit_)
         {
@@ -244,9 +346,9 @@ std::vector<OutfitAttachments::Item> OutfitAttachments::update(double now,
         passes_++;
         nextPass_ = now + kRetry;
     }
-    // Five at a time, a moment apart; any worn meanwhile left out.
+    // Five a frame (at most ten a second); any worn meanwhile left out.
     std::erase_if(pending_, [&](const Item& item) { return worn.contains(item.itemId); });
-    if(!pending_.empty() && now - lastSent_ >= 0.5)
+    if(!pending_.empty() && now - lastSent_ >= 0.1)
     {
         const size_t count = std::min(pending_.size(), kPerRequest);
         now_.assign(pending_.begin(), pending_.begin() + static_cast<std::ptrdiff_t>(count));
