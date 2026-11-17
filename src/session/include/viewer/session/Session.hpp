@@ -265,6 +265,15 @@ public:
     void teleportHome();
     const TeleportStatus& teleport() const { return teleport_; }
 
+    // The world map. Its answers come with the world's messages
+    // (drainRegionMessages): MapBlockReply for regions whose names start
+    // with `name` (where they are), MapItemReply (ItemType kMapAgentLocations)
+    // for where everyone on the grid is, a few places a region with how
+    // many at each (Extra). Ignored unless Connected.
+    void requestMapRegion(std::string_view name);
+    void requestAgentLocations(uint64_t regionHandle);
+    static constexpr uint32_t kMapAgentLocations = 6; // MAP_ITEM_AGENT_LOCATIONS
+
     // How the agent wants to move: control::* flags and the direction the
     // body faces. Sent to the main region at once when they change, and
     // repeated while moving.

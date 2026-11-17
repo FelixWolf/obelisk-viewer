@@ -2,6 +2,7 @@
 
 #include "viewer/core/Log.hpp"
 #include "viewer/llsd/Serialization.hpp"
+#include "viewer/session/Login.hpp"
 
 #include <algorithm>
 #include <format>
@@ -28,6 +29,10 @@ std::vector<Destination> readPlaces(const llsd::Value& list)
         place.name = d["name"].asString();
         place.description = d["description"].asString();
         place.location = d["location"].asString();
+        if(const auto where = session::parseLocation(place.location))
+        {
+            place.region = where->region;
+        }
         place.maturity = d["maturity"].asString();
         const llsd::Value& assets = d["assets"];
         for(size_t a = 0; a < assets.size(); a++)

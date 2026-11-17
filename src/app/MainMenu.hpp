@@ -14,6 +14,7 @@
 // documents' (they can be reloaded while running: reload()).
 
 #include "Destinations.hpp"
+#include "GridPopulation.hpp"
 
 #include "viewer/gui/Gui.hpp"
 
@@ -35,7 +36,8 @@ public:
     static constexpr glm::ivec2 kSize{1280, 800};
 
     // Null if the page can't be made.
-    static std::unique_ptr<MainMenu> create(gui::Gui& gui, Destinations& destinations);
+    static std::unique_ptr<MainMenu> create(gui::Gui& gui, Destinations& destinations,
+                                            GridPopulation& population);
 
     bool isOpen() const { return open_; }
     void setOpen(bool open);
@@ -89,6 +91,7 @@ public:
         Rml::String rating;     // "g", "m", "a" (for its style)
         Rml::String image;      // image://..., empty until it's here
         Rml::String largeImage; // the full-sized picture, when the place is shown alone
+        Rml::String people;     // "12 people" (from the map), empty until known
         bool operator==(const Place&) const = default;
     };
     // A category of the Destination Guide, as the page shows it.
@@ -108,6 +111,10 @@ private:
     void updateDestinations(const Status& status);
 
     Destinations* destinations_ = nullptr;
+    GridPopulation* population_ = nullptr;
+    std::vector<std::string> placeRegions_;
+    uint64_t populationVersion_ = ~uint64_t{0};
+    double populationAt_ = -1.0; // when the numbers were last looked at (seconds)
     std::unique_ptr<gui::Surface> surface_;
     Rml::DataModelHandle model_;
     bool open_ = false;

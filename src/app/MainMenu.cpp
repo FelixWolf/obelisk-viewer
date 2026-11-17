@@ -67,10 +67,12 @@ Clocks clocks()
 
 } // namespace
 
-std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinations)
+std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinations,
+                                           GridPopulation& population)
 {
     std::unique_ptr<MainMenu> menu(new MainMenu);
     menu->destinations_ = &destinations;
+    menu->population_ = &population;
     menu->surface_ = gui.createSurface("main menu", kSize);
     if(!menu->surface_)
     {
@@ -122,6 +124,7 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
         place.RegisterMember("rating", &Place::rating);
         place.RegisterMember("image", &Place::image);
         place.RegisterMember("largeImage", &Place::largeImage);
+        place.RegisterMember("people", &Place::people);
     }
     model.RegisterArray<std::vector<Place>>();
     if(auto category = model.RegisterStruct<Category>())
@@ -315,6 +318,7 @@ void MainMenu::updateDestinations(const Status& status)
 
         std::vector<Place> places;
         placeLocations_.clear();
+        placeRegions_.clear();
         const int wasChosen = chosen_;
         chosen_ = -1;
         for(const Destination& place : d.places())
@@ -332,6 +336,7 @@ void MainMenu::updateDestinations(const Status& status)
             }
             places.push_back(std::move(p));
             placeLocations_.push_back(place.location);
+            placeRegions_.push_back(place.region);
         }
         put("places", places_, std::move(places));
         if(chosen_ != wasChosen)
@@ -340,6 +345,38 @@ void MainMenu::updateDestinations(const Status& status)
         }
         chosenChanged = true;
     }
+    // How many are at each place (the map's count of the region), looked
+    // at every second while the places are shown: asking is what has them
+    // counted again when the count's old.
+    const double seconds = static_cast<double>(SDL_GetTicks()) / 1000.0;
+    if(shown && !category_.empty() &&
+       (listsChanged || population_->version() != populationVersion_ ||
+        seconds - populationAt_ >= 1.0))
+    {
+        populationVersion_ = population_->version();
+        populationAt_ = seconds;
+        const auto now = GridPopulation::Clock::now();
+        bool changed = false;
+        for(size_t i = 0; i < places_.size() && i < placeRegions_.size(); i++)
+        {
+            const std::optional<int> n = population_->people(placeRegions_[i], now);
+            const Rml::String people = !n        ? ""
+                                       : *n == 0 ? "No one there"
+                                       : *n == 1 ? "1 person"
+                                                 : std::format("{} people", *n);
+            if(places_[i].people != people)
+            {
+                places_[i].people = people;
+                changed = true;
+            }
+        }
+        if(changed)
+        {
+            model_.DirtyVariable("places");
+            chosenChanged = true; // its count too
+        }
+    }
+
     // The category's name and description (when it's chosen, or once the
     // categories are here).
     if(category_ != shownCategory_ || listsChanged)

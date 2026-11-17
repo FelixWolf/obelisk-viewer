@@ -27,6 +27,7 @@ TEST_CASE("Destinations: a category's places, as the guide's API gives them")
     CHECK(peak.name == "Peak Lounge");
     CHECK(peak.description == "Music and dancing.");
     CHECK(peak.location == "PEAK%20Lounge/42/120/3001");
+    CHECK(peak.region == "PEAK Lounge");
     CHECK(peak.maturity == "M");
     CHECK(peak.imageUrl == "https://example.com/mid.jpg");
     CHECK(peak.largeImageUrl == "https://example.com/full.jpg");

@@ -32,6 +32,7 @@ struct Destination
     std::string name;
     std::string description;
     std::string location;      // "Region/x/y/z", URL-encoded (session::parseLocation)
+    std::string region;        // its region's name
     std::string maturity;      // "G", "M" or "A"
     std::string imageUrl;      // its picture (the mid-sized one)
     std::string image;         // "image://NAME" once it's here; empty until then

@@ -793,6 +793,36 @@ void Session::teleportTo(const Location& location)
     send(*main, request, true);
 }
 
+void Session::requestMapRegion(std::string_view name)
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || !main || name.empty())
+    {
+        return;
+    }
+    msg::MapNameRequest request;
+    request.AgentData.AgentID = login_->agentId;
+    request.AgentData.SessionID = login_->sessionId;
+    request.AgentData.Flags = kMapLayerFlag;
+    request.NameData.Name = protocol::fromString(name);
+    send(*main, request, true);
+}
+
+void Session::requestAgentLocations(uint64_t regionHandle)
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || !main)
+    {
+        return;
+    }
+    msg::MapItemRequest request;
+    request.AgentData.AgentID = login_->agentId;
+    request.AgentData.SessionID = login_->sessionId;
+    request.RequestData.ItemType = kMapAgentLocations;
+    request.RequestData.RegionHandle = regionHandle;
+    send(*main, request, true);
+}
+
 void Session::teleportTo(uint64_t regionHandle, protocol::Vector3 position)
 {
     if(state_ != SessionState::Connected || teleport_.state != TeleportState::None)

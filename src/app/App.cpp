@@ -463,7 +463,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     if(app->gui_)
     {
         app->destinations_ = std::make_unique<Destinations>(*app->http_, *app->jobs_, *app->gui_);
-        app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_);
+        app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_, app->population_);
         if(app->mainMenu_ && options.mainMenu)
         {
             app->mainMenu_->setOpen(true);
@@ -1023,6 +1023,20 @@ void App::updateSession()
     }
     session_->update();
 
+    // What the main menu wants of the map (people in places).
+    if(session_->state() == session::SessionState::Connected)
+    {
+        const auto wanted = population_.requests(GridPopulation::Clock::now());
+        for(const std::string& region : wanted.regions)
+        {
+            session_->requestMapRegion(region);
+        }
+        for(const uint64_t region : wanted.agents)
+        {
+            session_->requestAgentLocations(region);
+        }
+    }
+
     // Messages go to the world thread; this frame reads its latest snapshot
     // (the previous one is released over there).
     session_->drainRegionMessages(regionMessages_);
@@ -1039,6 +1053,31 @@ void App::updateSession()
         else if(m.event.is<protocol::msg::ChatFromSimulator>())
         {
             localChat_.handle(m.event, *avatarNames_, LocalChat::Clock::now());
+        }
+        else if(m.event.is<protocol::msg::MapBlockReply>())
+        {
+            if(const auto reply = m.event.decode<protocol::msg::MapBlockReply>())
+            {
+                std::vector<GridPopulation::MapBlock> blocks;
+                for(const auto& block : reply->Data)
+                {
+                    blocks.push_back({protocol::toString(block.Name), block.X, block.Y});
+                }
+                population_.mapBlocks(blocks);
+            }
+        }
+        else if(m.event.is<protocol::msg::MapItemReply>())
+        {
+            const auto reply = m.event.decode<protocol::msg::MapItemReply>();
+            if(reply && reply->RequestData.ItemType == session::Session::kMapAgentLocations)
+            {
+                std::vector<GridPopulation::Spot> spots;
+                for(const auto& block : reply->Data)
+                {
+                    spots.push_back({block.X, block.Y, block.Extra});
+                }
+                population_.agentLocations(spots, GridPopulation::Clock::now());
+            }
         }
         else if(m.event.is<protocol::msg::ViewerEffect>())
         {
@@ -1486,6 +1525,7 @@ void App::updateOutfit()
 
 void App::endSession()
 {
+    population_.clear(); // the next login may be another grid
     setFirstPerson(false);
     appearanceDue_.clear();
     objectProperties_ = {};

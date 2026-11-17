@@ -99,6 +99,7 @@
                     <div class="place-name">{{ p.name }}</div>
                     <div class="place-info">
                         <span data-attr-class="'rating ' + p.rating">{{ p.maturity }}</span>
+                        <span class="people">{{ p.people }}</span>
                     </div>
                 </div>
                 <div class="more" data-if="hasMore" data-event-click="more">Show more</div>
@@ -117,6 +118,7 @@
                         <div class="detail-name">{{ pick.name }}</div>
                         <div class="place-info">
                             <span data-attr-class="'rating ' + pick.rating">{{ pick.maturity }}</span>
+                            <span class="people">{{ pick.people }}</span>
                         </div>
                         <div class="spacer"></div>
                         <div class="teleport" data-if="inWorld" data-event-click="teleport">Teleport</div>

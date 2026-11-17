@@ -50,6 +50,7 @@ add_executable(viewer
   ViewerEffects.cpp
   OutfitAttachments.cpp
   Destinations.cpp
+  GridPopulation.cpp
   MainMenu.cpp
   RadialMenu.cpp
   VrControls.cpp

@@ -698,7 +698,19 @@ first, then by name), a category's places (a page of 100, "Show more" for
 the next), and one place alone (its full-sized picture, description and
 Teleport). Places are kept to the resident's maturity (the login's
 `agent_region_access`) here: the API answers every place whatever it's
-asked. It doesn't count people (always 0), so no counts are shown. Categories don't say their
+asked. It doesn't count people (always 0): the world map does
+(`GridPopulation`). A place's region is looked up by name (MapNameRequest,
+which ignores case; MapBlockReply has the regions as they're named and
+echoes what was asked at 0, 0, so the block of that name in any case not at
+0, 0 is the region, and none means there's no such region) and kept for
+the session; then the people in it (MapItemRequest for agent locations
+with its handle; handle 0 is the asking simulator's own region, not the
+grid). An answer doesn't say which region it's for: its spots' global
+positions do, each with how many are there; an empty region sends none, so
+one with no spots 5 s after asking is empty. A count is kept five minutes
+and asked again only when it's shown after that. Regions are
+taken as 256 m across (the message template's MapBlockReply has no Size
+block), so a var region's people beyond its first 256 m aren't counted. Categories don't say their
 maturity; those named "Adult..." are left out unless the resident's is
 Adult. Cards have a border always there, clear until pointed at, so
 nothing moves. Pictures no longer shown are let go when another list

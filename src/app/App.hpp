@@ -242,6 +242,7 @@ private:
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<Destinations> destinations_; // the main menu's (it goes after this)
+    GridPopulation population_;                  // people in regions, for the main menu
     std::unique_ptr<TextureManager> textures_;
     std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;
