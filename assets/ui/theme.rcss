@@ -26,3 +26,35 @@ h3 { font-size: 16dp; color: #9aa6bd; margin: 0 0 6dp 0; text-transform: upperca
 }
 
 .muted { color: #8b96ab; }
+
+/* Scrollbars: RmlUi gives them no size of their own (unstyled, one takes
+   the whole width of what scrolls). */
+scrollbarvertical
+{
+    width: 12dp;
+    margin-left: 6dp;
+}
+scrollbarhorizontal
+{
+    height: 12dp;
+    margin-top: 6dp;
+}
+scrollbarvertical slidertrack,
+scrollbarhorizontal slidertrack
+{
+    background-color: #ffffff0a;
+    border-radius: 6dp;
+}
+scrollbarvertical sliderbar,
+scrollbarhorizontal sliderbar
+{
+    background-color: #ffffff38;
+    border-radius: 6dp;
+}
+scrollbarvertical sliderbar { min-height: 40dp; }
+scrollbarhorizontal sliderbar { min-width: 40dp; }
+scrollbarvertical sliderbar:hover,
+scrollbarhorizontal sliderbar:hover { background-color: #ffffff60; }
+scrollbarvertical sliderbar:active,
+scrollbarhorizontal sliderbar:active { background-color: #5a86f0; }
+scrollbarcorner { background-color: transparent; }

@@ -103,7 +103,7 @@ bool Renderer::create(SDL_GPUTextureFormat windowFormat)
     SDL_GPUShader* colorFrag = shader(device_, shaders::kGuiColorFrag, SDL_GPU_SHADERSTAGE_FRAGMENT,
                                       0, 0, "gui_color.frag");
     SDL_GPUShader* textureFrag = shader(device_, shaders::kGuiTextureFrag,
-                                        SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, "gui_texture.frag");
+                                        SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1, "gui_texture.frag");
     SDL_GPUShader* gradientFrag = shader(device_, shaders::kGuiGradientFrag,
                                          SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 1, "gui_gradient.frag");
     SDL_GPUShader* blitVert =
@@ -161,7 +161,7 @@ bool Renderer::create(SDL_GPUTextureFormat windowFormat)
     SDL_GPUSamplerCreateInfo sampler = {};
     sampler.min_filter = SDL_GPU_FILTER_LINEAR;
     sampler.mag_filter = SDL_GPU_FILTER_LINEAR;
-    sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR; // the app's images have mips
     sampler.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     sampler.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
@@ -232,11 +232,31 @@ void Renderer::RenderGeometry(Rml::CompiledGeometryHandle geometry, Rml::Vector2
                               Rml::TextureHandle texture)
 {
     const auto* t = reinterpret_cast<const Texture*>(texture);
+    SDL_GPUTexture* gpu = t ? t->texture : nullptr;
+    TextureFS mode;
+    if(t && t->external)
+    {
+        // The app's image as it is this frame; nothing drawn until it's there.
+        const ExternalImage image = t->external();
+        if(!image.texture)
+        {
+            return;
+        }
+        gpu = image.texture;
+        mode.mode = glm::vec4(image.linear ? 1.0f : 0.0f, image.premultiplied ? 0.0f : 1.0f,
+                              image.bottomUp ? 1.0f : 0.0f, 0.0f);
+    }
+    if(t && !gpu)
+    {
+        return;
+    }
+    const size_t before = draws_.size();
     add(t ? Draw::Kind::Texture : Draw::Kind::Color, *reinterpret_cast<const Geometry*>(geometry),
         translation);
-    if(t && !draws_.empty())
+    if(t && draws_.size() > before)
     {
-        draws_.back().texture = t->texture;
+        draws_.back().texture = gpu;
+        draws_.back().textureFs = mode;
     }
 }
 
@@ -261,11 +281,32 @@ Renderer::Texture* Renderer::makeTexture(glm::ivec2 size, std::vector<uint8_t> p
         return nullptr;
     }
     uploads_.push_back({texture, size, std::move(pixels)});
-    return new Texture{texture, size};
+    return new Texture{texture, size, {}};
 }
 
 Rml::TextureHandle Renderer::LoadTexture(Rml::Vector2i& dimensions, const Rml::String& source)
 {
+    // SCHEME://REST: the app's.
+    if(const size_t split = source.find("://"); split != Rml::String::npos)
+    {
+        const auto scheme = schemes_.find(std::string_view(source).substr(0, split));
+        if(scheme == schemes_.end())
+        {
+            log::warn("interface image {}: nothing gives {}:// images", source,
+                      source.substr(0, split));
+            return {};
+        }
+        const std::optional<SchemeImage> image =
+            scheme->second(std::string_view(source).substr(split + 3));
+        if(!image)
+        {
+            log::warn("interface image {}: no such image", source);
+            return {};
+        }
+        dimensions = {image->size.x, image->size.y};
+        return reinterpret_cast<Rml::TextureHandle>(
+            new Texture{nullptr, image->size, image->image});
+    }
     int width = 0;
     int height = 0;
     int channels = 0;
@@ -303,10 +344,13 @@ void Renderer::ReleaseTexture(Rml::TextureHandle texture)
     {
         return;
     }
-    std::erase_if(uploads_, [&](const Upload& u) { return u.texture == t->texture; });
-    // The GPU lets go of it once frames using it are done.
-    SDL_ReleaseGPUTexture(device_, t->texture);
-    delete t;
+    if(t->texture)
+    {
+        std::erase_if(uploads_, [&](const Upload& u) { return u.texture == t->texture; });
+        // The GPU lets go of it once frames using it are done.
+        SDL_ReleaseGPUTexture(device_, t->texture);
+    }
+    delete t; // the app's images are the app's
 }
 
 void Renderer::EnableScissorRegion(bool enable)
@@ -530,6 +574,7 @@ void Renderer::record(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target)
             {
                 const SDL_GPUTextureSamplerBinding binding = {d.texture, sampler_};
                 SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+                SDL_PushGPUFragmentUniformData(commands, 0, &d.textureFs, sizeof(d.textureFs));
             }
             else if(d.kind == Draw::Kind::Gradient)
             {

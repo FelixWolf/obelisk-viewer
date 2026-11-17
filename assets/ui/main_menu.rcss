@@ -134,3 +134,43 @@ body
     padding-top: 160dp;
     color: #7c879c;
 }
+
+/* About: the licenses, a list of names and the chosen one's text. */
+.about p { margin-bottom: 8dp; }
+.licenses
+{
+    display: flex;
+    flex-direction: row;
+    height: 410dp;
+}
+.license-list
+{
+    width: 250dp;
+    overflow-y: auto;
+    margin-right: 16dp;
+}
+.license-name
+{
+    padding: 9dp 14dp;
+    border-radius: 10dp;
+    font-size: 17dp;
+    color: #b8c2d6;
+    cursor: pointer;
+}
+.license-name:hover { background-color: #263048; color: #ffffff; }
+.license-name.active { background-color: #2f5bd0; color: #ffffff; }
+.license-text
+{
+    flex: 1 1 0;
+    overflow-y: auto;
+    background-color: #0a0d14;
+    border-radius: 12dp;
+    border: 1dp #ffffff14;
+    padding: 14dp 18dp;
+}
+.license-text .text
+{
+    font-size: 14dp;
+    color: #c8d0e0;
+    white-space: pre-wrap;
+}

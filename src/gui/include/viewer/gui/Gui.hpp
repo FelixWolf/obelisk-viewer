@@ -6,6 +6,11 @@
 // a Surface: drawn into its own image, which goes over the window or onto a
 // panel in the scene (VR), and given the pointers' input in its pixels.
 //
+// Pages name files by path from where they are, or as URIs:
+//   res://PATH    a file in the documents folder (from its top),
+//   SCHEME://...  an image from the app (addImageScheme: asset://UUID is
+//                 a texture from the grid's asset servers).
+//
 // RmlUi keeps its interfaces (rendering, the system, fonts) process-wide,
 // so there's one Gui at a time: the app's, made and torn down with it.
 // Its surfaces must go before it does.
@@ -18,6 +23,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -33,6 +39,23 @@ namespace viewer::gui
 class Renderer;
 class System;
 class Surface;
+
+// An image from the app (not a file): what it is this frame.
+struct ExternalImage
+{
+    SDL_GPUTexture* texture = nullptr; // nothing yet: nothing drawn there
+    bool linear = false;               // sampled as linear light (an sRGB texture)
+    bool premultiplied = false;        // its colors already times its alpha
+    bool bottomUp = false;             // its first row is the image's bottom
+};
+// A scheme's image (addImageScheme): the size it's laid out at when the
+// page doesn't say (it may not be known yet: pages should give such
+// images a size), and what it is, asked each frame it's drawn.
+struct SchemeImage
+{
+    glm::ivec2 size{0};
+    std::function<ExternalImage()> image;
+};
 
 class Gui
 {
@@ -62,6 +85,11 @@ public:
     // The mouse cursor the page under the pointer asks for (CSS names:
     // "pointer", "text", ...; empty: the usual one).
     const std::string& cursor() const;
+
+    // Images named SCHEME://REST: `resolve` gets REST and says what the
+    // image is (nothing: there's no such image).
+    void addImageScheme(const std::string& scheme,
+                        std::function<std::optional<SchemeImage>(std::string_view)> resolve);
 
     // Forgets the style sheets and templates read, so pages loaded after
     // this read them again (Surface::reload).

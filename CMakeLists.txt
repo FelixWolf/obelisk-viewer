@@ -19,6 +19,12 @@ option(VIEWER_BUILD_TOOLS "Build developer tools (j2kbench, ...)" ON)
 option(VIEWER_BUILD_TESTS "Build unit tests" ON)
 
 include(cmake/CPM.cmake)
+include(cmake/Licenses.cmake)
+# Ours first (the About page lists them in this order), then the libraries'
+# (cmake/Dependencies.cmake).
+viewer_license("TestViewer" "${PROJECT_SOURCE_DIR}/LICENSE")
+viewer_license("Inter (the font)" "${PROJECT_SOURCE_DIR}/assets/fonts/LICENSE-Inter.txt")
+viewer_license("Second Life viewer artwork" "${PROJECT_SOURCE_DIR}/assets/LICENSE-artwork.txt")
 include(cmake/Dependencies.cmake)
 include(cmake/Shaders.cmake)
 

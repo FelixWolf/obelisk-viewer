@@ -1,11 +1,12 @@
 #pragma once
 
 // The main menu: tabs (Home, Destinations, Inventory, Outfits, Parcel,
-// Media, Options) and the chosen one's page, an interface page
+// Media, Options, About) and the chosen one's page, an interface page
 // (assets/ui/main_menu.rml) shown over the window on the desktop, or on a
 // panel in VR (and first person). Home shows the clocks (SLT and local),
-// the viewer's and the region's performance and where we are; the other
-// tabs are still to come.
+// the viewer's and the region's performance and where we are; About, the
+// version and the licenses of everything in the viewer (gathered by the
+// build: cmake/Licenses.cmake). The other tabs are still to come.
 //
 // The app gives it what it shows (update()); what it looks like is the
 // documents' (they can be reloaded while running: reload()).
@@ -64,6 +65,7 @@ public:
 private:
     MainMenu() = default;
     void set(const char* variable, std::string& field, std::string value);
+    void readLicenses();
 
     std::unique_ptr<gui::Surface> surface_;
     Rml::DataModelHandle model_;
@@ -86,6 +88,14 @@ private:
     std::string position_;
     std::string greeting_;
     double lastNumbers_ = -1.0; // when the numbers were last shown (seconds)
+    // About.
+    std::string version_;
+    std::string builtWith_;
+    std::vector<Rml::String> licenseNames_;
+    std::vector<std::string> licenses_;
+    int license_ = 0; // which is shown (the page picks it)
+    int shownLicense_ = -1;
+    std::string licenseText_;
 };
 
 } // namespace viewer

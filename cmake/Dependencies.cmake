@@ -274,3 +274,21 @@ CPMAddPackage(
     "RMLUI_THIRDPARTY_CONTAINERS OFF"
     "CMAKE_DISABLE_FIND_PACKAGE_Freetype ON"
 )
+
+# --- The licenses of the libraries above that ship in the viewer ------------
+# (cmake/Licenses.cmake; the About page lists them). Not glslang (a build
+# tool) or doctest (the tests').
+viewer_license("SDL" "${SDL3_SOURCE_DIR}/LICENSE.txt")
+viewer_license("Dear ImGui" "${imgui_SOURCE_DIR}/LICENSE.txt")
+viewer_license("RmlUi" "${RmlUi_SOURCE_DIR}/LICENSE.txt")
+# Dual-licensed: we take the FreeType License.
+viewer_license("FreeType" "${freetype_SOURCE_DIR}/docs/FTL.TXT")
+viewer_license("OpenJPEG" "${openjpeg_SOURCE_DIR}/LICENSE")
+# Dual-licensed (BSD or GPLv2): we take the BSD license.
+viewer_license("Zstandard" "${zstd_SOURCE_DIR}/LICENSE")
+viewer_license("zlib" "${zlib_SOURCE_DIR}/LICENSE")
+viewer_license("curl" "${curl_SOURCE_DIR}/COPYING")
+viewer_license("TinyXML-2" "${tinyxml2_SOURCE_DIR}/LICENSE.txt")
+viewer_license("GLM" "${glm_SOURCE_DIR}/copying.txt")
+viewer_license("stb" "${stb_SOURCE_DIR}/LICENSE")
+viewer_license("keychain" "${keychain_SOURCE_DIR}/LICENSE")

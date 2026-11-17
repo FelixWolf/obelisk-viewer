@@ -10,6 +10,8 @@
 // gradients. Not yet: clip masks, layers and filters (RmlUi leaves those
 // effects out when they aren't there).
 
+#include "viewer/gui/Gui.hpp"
+
 #include <RmlUi/Core/RenderInterface.h>
 
 #include <SDL3/SDL_gpu.h>
@@ -17,7 +19,10 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <functional>
+#include <map>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace viewer::gui
@@ -34,6 +39,12 @@ public:
 
     bool create(SDL_GPUTextureFormat windowFormat);
     SDL_GPUDevice* device() const { return device_; }
+    // Images whose source is SCHEME://... (Gui::addImageScheme).
+    using Scheme = std::function<std::optional<SchemeImage>(std::string_view)>;
+    void addScheme(const std::string& scheme, Scheme resolve)
+    {
+        schemes_[scheme] = std::move(resolve);
+    }
 
     // A page `size` pixels starts being drawn (RmlUi's Context::Render).
     void begin(glm::ivec2 size);
@@ -81,14 +92,20 @@ private:
     };
     struct Texture
     {
-        SDL_GPUTexture* texture = nullptr;
+        SDL_GPUTexture* texture = nullptr; // ours (a file's, RmlUi's)
         glm::ivec2 size{0};
+        std::function<ExternalImage()> external; // or the app's, asked each frame
     };
     struct Upload
     {
         SDL_GPUTexture* texture = nullptr;
         glm::ivec2 size{0};
         std::vector<uint8_t> pixels; // RGBA8, premultiplied
+    };
+    // gui_texture.frag's TextureFS: how to read the texture.
+    struct TextureFS
+    {
+        glm::vec4 mode{0.0f}; // x encode linear to sRGB, y premultiply, z flip v
     };
     // gui.vert's GuiVS.
     struct GuiVS
@@ -109,6 +126,7 @@ private:
         uint32_t indexCount = 0;
         GuiVS vs;
         SDL_GPUTexture* texture = nullptr;
+        TextureFS textureFs;
         int gradient = -1; // in gradients_
         std::optional<SDL_Rect> scissor;
     };
@@ -117,6 +135,7 @@ private:
     void add(Draw::Kind kind, const Geometry& geometry, Rml::Vector2f translation);
 
     SDL_GPUDevice* device_ = nullptr;
+    std::map<std::string, Scheme, std::less<>> schemes_;
     SDL_GPUGraphicsPipeline* colorPipeline_ = nullptr;
     SDL_GPUGraphicsPipeline* texturePipeline_ = nullptr;
     SDL_GPUGraphicsPipeline* gradientPipeline_ = nullptr;

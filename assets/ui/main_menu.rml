@@ -60,7 +60,28 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home'" class="soon">
+        <div data-if="tab == 'about'" class="about">
+            <div class="card banner">
+                <div class="headline">TestViewer</div>
+                <div>Version {{ version }}</div>
+            </div>
+            <div class="card">
+                <p>A Second Life viewer, written from scratch. It's free software under the
+                   GNU Lesser General Public License, version 2.1; the parts it's built
+                   with are under their own licenses, below.</p>
+                <p class="muted">{{ builtWith }}</p>
+            </div>
+            <div class="licenses">
+                <div class="license-list">
+                    <div class="license-name" data-for="l : licenses"
+                         data-class-active="it_index == license"
+                         data-event-click="license = it_index">{{ l }}</div>
+                </div>
+                <div class="license-text"><div class="text">{{ licenseText }}</div></div>
+            </div>
+        </div>
+
+        <div data-if="tab != 'home' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

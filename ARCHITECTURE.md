@@ -667,15 +667,29 @@ viewer runs.
   (`gui_gradient.frag`, as RmlUi's OpenGL 3 renderer reads their
   parameters); not yet clip masks, layers or filters (RmlUi leaves those
   effects out).
+- Pages name files by path from where they are, `res://PATH` from the
+  documents folder's top, and the app's images by URI: `asset://UUID`
+  is a texture from the grid's asset servers (through `TextureManager`,
+  asked for each frame it's drawn, `?size=N` texels across, 256 if not
+  said; nothing drawn until it's in). The size such an image has isn't
+  known when the page is laid out, so pages give them one. Other schemes
+  can be added (`Gui::addImageScheme`).
+- Unstyled, an RmlUi scrollbar takes the whole width of what scrolls;
+  `theme.rcss` gives scrollbars their size.
 - Data reaches pages through RmlUi's data models (bound C++ values, made
   dirty when they change); a data model goes on an element inside the
   body, not the body itself, or `data-for` isn't expanded.
 
 The main menu (`MainMenu`, `main_menu.rml`) has tabs: Home, Destinations,
-Inventory, Outfits, Parcel, Media and Options. Only Home shows anything
-yet: a greeting, SLT and local clocks, the viewer's frame rate, the
+Inventory, Outfits, Parcel, Media, Options and About. Only Home and About
+show anything yet. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
 region's (SimStats: `Region::stats`) and its time dilation, and the region
-we're in. Escape opens and closes it on the desktop (over the middle of
+we're in. About: the version, and the license of everything in the
+viewer, picked from a list: ours, the font's, the artwork's and each
+shipped library's, gathered by the build (`viewer_license` in the root
+CMakeLists.txt and cmake/Dependencies.cmake, written into one embedded
+text by cmake/Licenses.cmake). A library added to the viewer gets a
+`viewer_license` line. Escape opens and closes it on the desktop (over the middle of
 the window), as does a quick press of the menu button in first person and
 VR (on a panel ahead, moving with the avatar). `--main-menu` opens it at
 the start.

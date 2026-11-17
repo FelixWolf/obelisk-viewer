@@ -2,9 +2,12 @@
 
 #include "viewer/core/Log.hpp"
 
+#include "EmbeddedAssets.hpp"
+
 #include <RmlUi/Core.h>
 
 #include <SDL3/SDL_timer.h>
+#include <SDL3/SDL_version.h>
 
 #include <chrono>
 #include <exception>
@@ -75,7 +78,8 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui)
     menu->tabs_ = {{"home", "Home"},           {"destinations", "Destinations"},
                    {"inventory", "Inventory"}, {"outfits", "Outfits"},
                    {"parcel", "Parcel"},       {"media", "Media"},
-                   {"options", "Options"}};
+                   {"options", "Options"},     {"about", "About"}};
+    menu->readLicenses();
     menu->tabName_ = "Home";
 
     // The page's data (data-model="menu" in the document), before it's
@@ -109,6 +113,12 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui)
     model.Bind("region", &m->region_);
     model.Bind("position", &m->position_);
     model.Bind("greeting", &m->greeting_);
+    model.RegisterArray<std::vector<Rml::String>>();
+    model.Bind("version", &m->version_);
+    model.Bind("builtWith", &m->builtWith_);
+    model.Bind("licenses", &m->licenseNames_);
+    model.Bind("license", &m->license_);
+    model.Bind("licenseText", &m->licenseText_);
     model.BindEventCallback("close", [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
                             { m->setOpen(false); });
     menu->model_ = model.GetModelHandle();
@@ -142,8 +152,51 @@ void MainMenu::set(const char* variable, std::string& field, std::string value)
     }
 }
 
+void MainMenu::readLicenses()
+{
+    // Each starts with a record separator, its name and a newline
+    // (cmake/Licenses.cmake).
+    const std::string_view all(reinterpret_cast<const char*>(assets_embedded::kLicensesTxt),
+                               sizeof(assets_embedded::kLicensesTxt));
+    size_t at = all.find('\x1e');
+    while(at != std::string_view::npos)
+    {
+        const size_t nameEnd = all.find('\n', at);
+        if(nameEnd == std::string_view::npos)
+        {
+            break;
+        }
+        const size_t next = all.find('\x1e', nameEnd);
+        licenseNames_.emplace_back(all.substr(at + 1, nameEnd - at - 1));
+        licenses_.emplace_back(all.substr(nameEnd + 1, next == std::string_view::npos
+                                                           ? std::string_view::npos
+                                                           : next - nameEnd - 1));
+        at = next;
+    }
+    licenseText_ = licenses_.empty() ? std::string() : licenses_.front();
+    shownLicense_ = 0;
+
+    version_ = VIEWER_VERSION;
+#ifdef NDEBUG
+    version_ += " (release build)";
+#else
+    version_ += " (debug build)";
+#endif
+    const int sdl = SDL_GetVersion();
+    builtWith_ =
+        std::format("With SDL {}.{}.{}, RmlUi {}", SDL_VERSIONNUM_MAJOR(sdl),
+                    SDL_VERSIONNUM_MINOR(sdl), SDL_VERSIONNUM_MICRO(sdl), Rml::GetVersion());
+}
+
 void MainMenu::update(const Status& status)
 {
+    // The license picked on About.
+    if(license_ != shownLicense_ && license_ >= 0 && license_ < static_cast<int>(licenses_.size()))
+    {
+        shownLicense_ = license_;
+        licenseText_ = licenses_[static_cast<size_t>(license_)];
+        model_.DirtyVariable("licenseText");
+    }
     // The chosen tab's name (the page sets which).
     for(const Tab& t : tabs_)
     {

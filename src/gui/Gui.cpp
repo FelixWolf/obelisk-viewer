@@ -43,6 +43,24 @@ public:
         return true;
     }
 
+    // Pages' links: res://PATH from the documents folder's top, other URIs
+    // (asset://...) as they are, paths from the page's folder.
+    void JoinPath(Rml::String& joined, const Rml::String& documentPath,
+                  const Rml::String& path) override
+    {
+        if(path.starts_with("res://"))
+        {
+            joined = (documents / path.substr(6)).generic_string();
+            return;
+        }
+        if(path.find("://") != Rml::String::npos)
+        {
+            joined = path;
+            return;
+        }
+        Rml::SystemInterface::JoinPath(joined, documentPath, path);
+    }
+
     void SetMouseCursor(const Rml::String& name) override { cursor = name; }
     void SetClipboardText(const Rml::String& text) override { SDL_SetClipboardText(text.c_str()); }
     void GetClipboardText(Rml::String& text) override
@@ -66,6 +84,7 @@ public:
         }
     }
 
+    std::filesystem::path documents;
     std::string cursor;
     std::function<void(bool)> keyboard;
 };
@@ -150,6 +169,7 @@ std::unique_ptr<Gui> Gui::create(SDL_GPUDevice* device, const Options& options)
     std::unique_ptr<Gui> gui(new Gui);
     gui->documents_ = options.documents;
     gui->system_ = std::make_unique<System>();
+    gui->system_->documents = options.documents;
     gui->renderer_ = std::make_unique<Renderer>(device);
     if(!gui->renderer_->create(options.windowFormat))
     {
@@ -191,6 +211,12 @@ void Gui::setKeyboard(std::function<void(bool)> keyboard)
 const std::string& Gui::cursor() const
 {
     return system_->cursor;
+}
+
+void Gui::addImageScheme(const std::string& scheme,
+                         std::function<std::optional<SchemeImage>(std::string_view)> resolve)
+{
+    renderer_->addScheme(scheme, std::move(resolve));
 }
 
 void Gui::forgetStyles()

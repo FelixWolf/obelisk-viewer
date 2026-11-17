@@ -350,6 +350,44 @@ std::unique_ptr<App> App::create(const AppOptions& options)
             app->gui_->setKeyboard(
                 [window = app->window_.get()](bool on)
                 { on ? SDL_StartTextInput(window) : SDL_StopTextInput(window); });
+            // asset://UUID: a texture from the grid's asset servers, as the
+            // world's are (loading while it's shown; nothing drawn until
+            // it's in). ?size=N: how many texels across to load it at
+            // (256 if not said), and the size it's laid out at when the
+            // page gives it none.
+            app->gui_->addImageScheme(
+                "asset",
+                [app = app.get()](std::string_view rest) -> std::optional<gui::SchemeImage>
+                {
+                    int size = 256;
+                    if(const size_t query = rest.find('?'); query != std::string_view::npos)
+                    {
+                        const std::string_view params = rest.substr(query + 1);
+                        rest = rest.substr(0, query);
+                        if(params.starts_with("size="))
+                        {
+                            size = std::clamp(std::atoi(std::string(params.substr(5)).c_str()),
+                                              static_cast<int>(TextureManager::kMinSize),
+                                              static_cast<int>(TextureManager::kMaxSize));
+                        }
+                    }
+                    const std::optional<Uuid> id = Uuid::parse(rest);
+                    if(!id)
+                    {
+                        return std::nullopt;
+                    }
+                    return gui::SchemeImage{
+                        glm::ivec2(size), [app, id = *id, size]
+                        {
+                            const render::GpuTexture* texture =
+                                app->textures_ ? app->textures_->get(id, static_cast<float>(size))
+                                               : nullptr;
+                            // Sampled as sRGB, straight alpha, bottom-up
+                            // (TextureManager).
+                            return gui::ExternalImage{texture ? texture->get() : nullptr, true,
+                                                      false, true};
+                        }};
+                });
             app->mainMenu_ = MainMenu::create(*app->gui_);
             if(app->mainMenu_ && options.mainMenu)
             {
