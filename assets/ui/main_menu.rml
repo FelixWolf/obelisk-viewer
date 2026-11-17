@@ -150,6 +150,51 @@
             </div>
         </div>
 
+        <div data-if="tab == 'inventory'" class="destinations">
+            <!-- A folder's contents (kept, hidden, while an item's shown). -->
+            <div class="places" data-class-hidden="invItemShown">
+                <div class="places-head">
+                    <div class="button back" data-if="invCrumbs.size > 1" data-event-click="invBack">‹ Back</div>
+                    <div class="head-text crumbs">
+                        <span class="crumb" data-for="c : invCrumbs" data-event-click="invUp(it_index)"><span class="sep" data-if="it_index > 0">›</span>{{ c }}</span>
+                    </div>
+                    <div class="button" data-event-click="invRefresh">Refresh</div>
+                </div>
+                <div class="inv-row" data-for="e : invEntries" data-event-click="invOpen(it_index)">
+                    <div data-attr-class="'badge ' + e.style">{{ e.badge }}</div>
+                    <div class="inv-name">{{ e.name }}</div>
+                    <div class="worn" data-if="e.worn">Worn</div>
+                    <div class="inv-kind"><span data-if="e.link">Link · </span>{{ e.kind }}<span data-if="e.broken"> (missing)</span></div>
+                </div>
+                <div class="note" data-if="invNote != ''">{{ invNote }}</div>
+            </div>
+
+            <div class="place-page" data-if="invItemShown">
+                <div class="button back" data-event-click="invBack">‹ Back</div>
+                <div class="place-top">
+                    <div class="shot hero" data-if="invItem.image != ''"
+                         data-style-decorator="'image(' + invItem.image + ' contain)'"></div>
+                    <div data-if="invItem.image == ''" data-attr-class="'badge big ' + invItem.style">{{ invItem.badge }}</div>
+                    <div class="place-side">
+                        <div class="detail-name">{{ invItem.name }}</div>
+                        <div class="muted">{{ invItem.kind }}<span data-if="invItem.link != ''"> · {{ invItem.link }}</span></div>
+                        <div class="facts">
+                            <div class="stat"><span>Creator</span><span class="value">{{ invItem.creator }}</span></div>
+                            <div class="stat"><span>You may</span><span class="value">{{ invItem.permissions }}</span></div>
+                            <div class="stat" data-if="invItem.created != ''"><span>Made</span><span class="value">{{ invItem.created }}</span></div>
+                        </div>
+                        <div class="spacer"></div>
+                        <div data-if="invItem.attachable">
+                            <div class="teleport off" data-if="invItem.changing">Working...</div>
+                            <div class="teleport" data-if="!invItem.changing &amp;&amp; !invItem.worn" data-event-click="invAttach">Attach</div>
+                            <div class="teleport detach" data-if="!invItem.changing &amp;&amp; invItem.worn" data-event-click="invDetach">Detach</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="description"><div class="text">{{ invItem.description }}</div></div>
+            </div>
+        </div>
+
         <div data-if="tab == 'parcel'" class="parcel">
             <div data-if="!parcelKnown" class="soon">
                 <h2>Parcel</h2>
@@ -194,7 +239,7 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
+        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

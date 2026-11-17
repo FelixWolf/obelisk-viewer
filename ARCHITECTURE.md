@@ -688,7 +688,7 @@ viewer runs.
 
 The main menu (`MainMenu`, `main_menu.rml`) has tabs: Home, Destinations,
 Inventory, Outfits, Parcel, Media, Options and About. Home, Destinations,
-Parcel and About show something so far. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
+Inventory, Parcel and About show something so far. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
 region's (SimStats: `Region::stats`) and its time dilation, and the region
 we're in. Destinations: the Destination Guide (`Destinations`), in three
 views, each kept hidden behind the next so Back finds it where it was
@@ -714,7 +714,21 @@ block), so a var region's people beyond its first 256 m aren't counted. Categori
 maturity; those named "Adult..." are left out unless the resident's is
 Adult. Cards have a border always there, clear until pointed at, so
 nothing moves. Pictures no longer shown are let go when another list
-comes. Parcel: the one we're on (`ParcelInfo`): the
+comes. Inventory: browsed as a file explorer (`InventoryBrowser`): the root
+folder (AISv3's "root" alias; the reply's first folder), each folder's
+contents asked for the first time it's opened, folders then items by name,
+links as what they point at (a folder link opens its folder), crumbs of the
+folders opened, and an item alone (its picture for textures, creator,
+what we may do with it, when it was made, description). The list is kept
+hidden behind an item, as Destinations' views are. Objects can be attached
+(RezMultipleAttachmentsFromInv, added at their last point) and taken off
+(ObjectDetach), and what's worn is marked. `AttachmentLinks` keeps the
+Current Outfit Folder in step, as the official viewer does: a link made
+(AISv3, POST to the folder with a transaction id) once an attachment asked
+for arrives, and removed (DELETE) once one taken off has gone, so the next
+login wears what we chose. One taken off is also dropped from the login
+outfit's list (`OutfitAttachments::forget`), or its retry pass would put it
+back. Clothing and body parts, landmarks and the rest are still to come. Parcel: the one we're on (`ParcelInfo`): the
 region sends its properties on the event queue whenever we come onto one
 (ParcelProperties; sequence 0 or up, negative ones answer requests for
 others), which the session passes on (`drainRegionEvents`, the events it

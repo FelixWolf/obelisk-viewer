@@ -365,6 +365,9 @@ public:
     };
     static constexpr uint8_t kAttachmentAdd = 0x80;
     void attachFromInventory(std::span<const InventoryObject> items);
+    // Takes off our attachments (their objects in the main region; ObjectDetach):
+    // back into inventory.
+    void detach(std::span<const uint32_t> localIds);
 
     // Our look-at and point-at (the official LLHUDEffectLookAt and
     // LLHUDEffectPointAt) as a ViewerEffect to the main region, which

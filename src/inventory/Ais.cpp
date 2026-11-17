@@ -15,6 +15,11 @@ Ais::Ais(net::HttpClient& http, Model& model)
 
 void Ais::get(std::string path, Done done)
 {
+    send(net::HttpMethod::Get, std::move(path), nullptr, std::move(done));
+}
+
+void Ais::send(net::HttpMethod method, std::string path, const llsd::Value* body, Done done)
+{
     const uint64_t id = nextRequest_++;
     if(cap_.empty())
     {
@@ -23,8 +28,14 @@ void Ais::get(std::string path, Done done)
         pending_[id] = std::move(done);
         return;
     }
-    net::HttpRequest request{.url = url(path)};
+    net::HttpRequest request{.method = method, .url = url(path)};
     request.headers.add("Accept", std::string(llsd::kXmlContentType));
+    if(body)
+    {
+        request.headers.add("Content-Type", std::string(llsd::kXmlContentType));
+        const std::string xml = llsd::toXml(*body);
+        request.body.assign(xml.begin(), xml.end());
+    }
     pending_[id] = std::move(done);
     requests_->send(std::move(request), [replies = replies_, id](net::HttpResponse&& response)
                     { replies->push({id, std::move(response)}); });
@@ -43,6 +54,44 @@ void Ais::fetchLinks(std::string_view folder, Done done)
 void Ais::fetchItem(const Uuid& item, Done done)
 {
     get(std::format("/item/{}", item.toString()), std::move(done));
+}
+
+void Ais::createLinks(const Uuid& folder, std::span<const Link> links, Done done)
+{
+    // As the official viewer's link_inventory_array: a "transaction id" to
+    // the folder, the links in the body.
+    llsd::Value body;
+    llsd::Value& list = body["links"];
+    list = llsd::Value(llsd::Array{});
+    for(const Link& l : links)
+    {
+        llsd::Value link;
+        link["linked_id"] = l.target;
+        link["type"] = l.type;
+        link["inv_type"] = l.inventoryType;
+        link["name"] = l.name;
+        link["desc"] = l.description;
+        list.append(std::move(link));
+    }
+    send(net::HttpMethod::Post,
+         std::format("/category/{}?tid={}", folder.toString(), Uuid::random().toString()), &body,
+         std::move(done));
+}
+
+void Ais::removeItem(const Uuid& item, Done done)
+{
+    send(net::HttpMethod::Delete, std::format("/item/{}", item.toString()), nullptr,
+         [this, item, done = std::move(done)](bool ok, const Model::Merged& merged)
+         {
+             if(ok)
+             {
+                 model_.remove(item);
+             }
+             if(done)
+             {
+                 done(ok, merged);
+             }
+         });
 }
 
 void Ais::update()

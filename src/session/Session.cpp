@@ -881,6 +881,23 @@ void Session::say(std::string_view text, int32_t channel, uint8_t type)
     send(*main, chat, true);
 }
 
+void Session::detach(std::span<const uint32_t> localIds)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_ || localIds.empty())
+    {
+        return;
+    }
+    msg::ObjectDetach detach;
+    detach.AgentData.AgentID = login_->agentId;
+    detach.AgentData.SessionID = login_->sessionId;
+    for(const uint32_t id : localIds)
+    {
+        detach.ObjectData.push_back({id});
+    }
+    send(*main, detach, true);
+}
+
 void Session::attachFromInventory(std::span<const InventoryObject> items)
 {
     const Region* main = mainRegion();

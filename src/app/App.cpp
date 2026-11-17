@@ -459,11 +459,42 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->lastFrameTicks_ = app->startTicks_;
 
     app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
+    // A second texture cache on the same store: each instance has one
+    // results queue, and the texture browser drains its own.
+    app->worldTextureCache_ =
+        std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
+    app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
+    app->environment_->setDayPosition(options.dayTime);
+    app->shadows_ = options.shadows;
+    app->bandwidth_ = options.bandwidth;
+    app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
+                                                      *app->http_, *app->jobs_);
+    app->textures_->setBudget(uint64_t(options.textureMemory) << 20);
+    app->meshes_ =
+        std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
+    app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
+    app->terrainOverrides_ = std::make_unique<TerrainOverrides>(*app->http_);
+    app->inventory_ = std::make_unique<inventory::Model>();
+    app->ais_ = std::make_unique<inventory::Ais>(*app->http_, *app->inventory_);
+    app->inventoryBrowser_ = std::make_unique<InventoryBrowser>(*app->ais_, *app->inventory_);
+    app->attachmentLinks_ = std::make_unique<AttachmentLinks>(*app->ais_, *app->inventory_);
     // The main menu (with the workers and the web, for its pages' pictures).
     if(app->gui_)
     {
         app->destinations_ = std::make_unique<Destinations>(*app->http_, *app->jobs_, *app->gui_);
-        app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_, app->population_);
+        app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_, app->population_,
+                                          *app->inventoryBrowser_);
+        if(app->mainMenu_)
+        {
+            app->mainMenu_->setAvatarNames(
+                [app = app.get()](const Uuid& id)
+                {
+                    const AvatarName* name = app->avatarNames_->get(id);
+                    return name                             ? name->completeName()
+                           : app->avatarNames_->missing(id) ? std::string("Unknown")
+                                                            : std::string();
+                });
+        }
         if(app->mainMenu_ && options.mainMenu)
         {
             app->mainMenu_->setOpen(true);
@@ -502,23 +533,6 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
         app->controls_.setPage(std::move(page));
     }
-    // A second texture cache on the same store: each instance has one
-    // results queue, and the texture browser drains its own.
-    app->worldTextureCache_ =
-        std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
-    app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
-    app->environment_->setDayPosition(options.dayTime);
-    app->shadows_ = options.shadows;
-    app->bandwidth_ = options.bandwidth;
-    app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
-                                                      *app->http_, *app->jobs_);
-    app->textures_->setBudget(uint64_t(options.textureMemory) << 20);
-    app->meshes_ =
-        std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
-    app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
-    app->terrainOverrides_ = std::make_unique<TerrainOverrides>(*app->http_);
-    app->inventory_ = std::make_unique<inventory::Model>();
-    app->ais_ = std::make_unique<inventory::Ais>(*app->http_, *app->inventory_);
     app->outfit_ = std::make_unique<OutfitAttachments>(*app->http_);
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
@@ -1519,11 +1533,8 @@ void App::updateOutfit()
         outfit_->start(*ais_, *inventory_, std::string(descendents.value_or("")),
                        std::string(items.value_or("")), login->agentId, root);
     }
-    if(!outfit_->busy())
-    {
-        return;
-    }
-    // What we wear now: our avatar's attachments' items.
+    // What we wear now: our avatar's attachments' items (and their
+    // objects), looked at twice a second.
     const double now = static_cast<double>(SDL_GetTicksNS()) * 1e-9;
     const bool look = now - wornAt_ >= 0.5;
     std::optional<double> arrived;
@@ -1540,16 +1551,27 @@ void App::updateOutfit()
             {
                 wornAt_ = now;
                 worn_.clear();
+                wornObjects_.clear();
                 for(const auto& [key, object] : world_->objects())
                 {
-                    if(key.region == agentKey_->region && object.parentId == me->localId &&
-                       !object.attachItemId.isNull() && !worn_.insert(object.attachItemId).second)
+                    if(key.region != agentKey_->region || object.parentId != me->localId ||
+                       object.attachItemId.isNull())
+                    {
+                        continue;
+                    }
+                    if(!worn_.insert(object.attachItemId).second && outfit_->busy())
                     {
                         log::warn("outfit: {} is attached twice", object.attachItemId.toString());
                     }
+                    wornObjects_[object.attachItemId].push_back(key.localId);
                 }
+                attachmentLinks_->update(worn_, now);
             }
         }
+    }
+    if(!outfit_->busy())
+    {
+        return;
     }
     const auto wear = outfit_->update(now, arrived, worn_);
     if(!wear.empty())
@@ -1562,6 +1584,9 @@ void App::endSession()
 {
     population_.clear(); // the next login may be another grid
     parcel_.clear();
+    inventoryBrowser_->clear();
+    attachmentLinks_->clear();
+    wornObjects_.clear();
     setFirstPerson(false);
     appearanceDue_.clear();
     objectProperties_ = {};
@@ -2424,9 +2449,36 @@ void App::updateMainMenu()
             status.estate = &*estate;
             status.estateOwner = avatar(estate->owner);
         }
+        status.worn = &worn_;
+        status.changing = [this](const Uuid& item) { return attachmentLinks_->pending(item); };
     }
     destinations_->update();
     mainMenu_->update(status);
+    // Attaching from inventory, or taking off: the COF follows once the
+    // simulator has done it (AttachmentLinks).
+    if(const auto action = mainMenu_->takeInventoryAction(); action && session_)
+    {
+        const double now = static_cast<double>(SDL_GetTicksNS()) * 1e-9;
+        const inventory::Item* item = inventory_->item(action->item);
+        if(action->kind == MainMenu::InventoryAction::Kind::Attach && item &&
+           item->type == inventory::kObject)
+        {
+            log::info("attaching '{}' from inventory", item->name);
+            const OutfitAttachments::Item attach = OutfitAttachments::toAttach(*item);
+            session_->attachFromInventory(std::span(&attach, 1));
+            attachmentLinks_->attaching(item->id, now);
+        }
+        else if(action->kind == MainMenu::InventoryAction::Kind::Detach)
+        {
+            if(const auto objects = wornObjects_.find(action->item); objects != wornObjects_.end())
+            {
+                log::info("taking off '{}'", item ? item->name : action->item.toString());
+                session_->detach(objects->second);
+                attachmentLinks_->detaching(action->item, now);
+                outfit_->forget(action->item); // not put back by a later outfit pass
+            }
+        }
+    }
     if(const auto where = mainMenu_->takeTeleport(); where && session_)
     {
         if(const auto location = session::parseLocation(*where))

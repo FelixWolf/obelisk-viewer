@@ -61,6 +61,7 @@ struct Item
     Uuid assetId;  // what it is (a texture, an object, ...)
     Uuid linkedId; // a link's target (an item, or a folder for a folder link)
     Permissions permissions;
+    int64_t createdAt = 0; // seconds since 1970 (UTC)
 
     bool isLink() const { return type == kLink || type == kFolderLink; }
     static std::optional<Item> fromLlsd(const llsd::Value& map);
@@ -103,6 +104,8 @@ public:
 
     void put(Folder folder);
     void put(Item item);
+    // An item (or link) gone.
+    void remove(const Uuid& item);
     void clear();
     size_t folderCount() const { return folders_.size(); }
     size_t itemCount() const { return items_.size(); }

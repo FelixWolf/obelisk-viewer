@@ -26,6 +26,13 @@ OutfitAttachments::OutfitAttachments(net::HttpClient& http)
 {
 }
 
+void OutfitAttachments::forget(const Uuid& item)
+{
+    const auto is = [&](const Item& i) { return i.itemId == item; };
+    std::erase_if(outfit_, is);
+    std::erase_if(pending_, is);
+}
+
 void OutfitAttachments::clear()
 {
     requests_ = std::make_unique<net::HttpRequestGroup>(http_);

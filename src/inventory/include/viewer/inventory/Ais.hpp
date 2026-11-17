@@ -6,8 +6,8 @@
 // "root", "clothing", ...) and what's in it to a depth, a folder's links
 // with their targets, an item. Replies are merged into the Model; each
 // request's callback says what came (Model::Merged) once update() sees the
-// reply, on the thread calling update(). Writes (links, moves, removal)
-// come here as they're needed.
+// reply, on the thread calling update(). Writes: links made in a folder,
+// items removed (more as they're needed).
 
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/inventory/Model.hpp"
@@ -15,6 +15,7 @@
 
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -41,6 +42,19 @@ public:
     void fetchLinks(std::string_view folder, Done done);
     void fetchItem(const Uuid& item, Done done);
 
+    // Writes. Links in a folder (the reply, merged, has them).
+    struct Link
+    {
+        Uuid target;            // the item (or folder) linked to
+        int type = kLink;       // kLink, or kFolderLink
+        int inventoryType = -1; // the target's
+        std::string name;
+        std::string description;
+    };
+    void createLinks(const Uuid& folder, std::span<const Link> links, Done done);
+    // An item (or link) removed (and from the model once it is).
+    void removeItem(const Uuid& item, Done done);
+
     // Merges arrived replies and calls their callbacks.
     void update();
     // Forgets requests under way (their callbacks aren't called).
@@ -51,6 +65,7 @@ public:
 
 private:
     void get(std::string path, Done done);
+    void send(net::HttpMethod method, std::string path, const llsd::Value* body, Done done);
 
     struct Reply
     {

@@ -68,9 +68,10 @@ Clocks clocks()
 } // namespace
 
 std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinations,
-                                           GridPopulation& population)
+                                           GridPopulation& population, InventoryBrowser& inventory)
 {
     std::unique_ptr<MainMenu> menu(new MainMenu);
+    menu->inventory_ = &inventory;
     menu->destinations_ = &destinations;
     menu->population_ = &population;
     menu->surface_ = gui.createSurface("main menu", kSize);
@@ -172,6 +173,94 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
                             });
     model.BindEventCallback("more", [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
                             { m->destinations_->fetchMore(); });
+    if(auto entry = model.RegisterStruct<InvEntry>())
+    {
+        entry.RegisterMember("name", &InvEntry::name);
+        entry.RegisterMember("kind", &InvEntry::kind);
+        entry.RegisterMember("badge", &InvEntry::badge);
+        entry.RegisterMember("style", &InvEntry::style);
+        entry.RegisterMember("link", &InvEntry::link);
+        entry.RegisterMember("broken", &InvEntry::broken);
+        entry.RegisterMember("worn", &InvEntry::worn);
+    }
+    model.RegisterArray<std::vector<InvEntry>>();
+    if(auto item = model.RegisterStruct<InvItem>())
+    {
+        item.RegisterMember("name", &InvItem::name);
+        item.RegisterMember("kind", &InvItem::kind);
+        item.RegisterMember("badge", &InvItem::badge);
+        item.RegisterMember("style", &InvItem::style);
+        item.RegisterMember("description", &InvItem::description);
+        item.RegisterMember("creator", &InvItem::creator);
+        item.RegisterMember("permissions", &InvItem::permissions);
+        item.RegisterMember("created", &InvItem::created);
+        item.RegisterMember("image", &InvItem::image);
+        item.RegisterMember("link", &InvItem::link);
+        item.RegisterMember("attachable", &InvItem::attachable);
+        item.RegisterMember("worn", &InvItem::worn);
+        item.RegisterMember("changing", &InvItem::changing);
+    }
+    model.RegisterArray<std::vector<Rml::String>>();
+    model.Bind("invCrumbs", &m->invCrumbs_);
+    model.Bind("invEntries", &m->invEntries_);
+    model.Bind("invNote", &m->invNote_);
+    model.Bind("invItemShown", &m->invItemShown_);
+    model.Bind("invItem", &m->invItem_);
+    const auto index = [](const Rml::VariantList& arguments)
+    { return arguments.empty() ? -1 : arguments.front().Get<int>(-1); };
+    model.BindEventCallback(
+        "invOpen", [m, index](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& arguments)
+        { m->openInventoryEntry(index(arguments)); });
+    model.BindEventCallback(
+        "invUp",
+        [m, index](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& arguments)
+        {
+            // To a folder on the path (its crumb).
+            const int depth = index(arguments);
+            if(depth >= 0 && depth + 1 < static_cast<int>(m->invPath_.size()))
+            {
+                m->invPath_.resize(static_cast<size_t>(depth) + 1);
+            }
+            m->invShown_ = Uuid();
+        });
+    model.BindEventCallback("invBack",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            {
+                                if(!m->invShown_.isNull())
+                                {
+                                    m->invShown_ = Uuid();
+                                }
+                                else if(m->invPath_.size() > 1)
+                                {
+                                    m->invPath_.pop_back();
+                                }
+                            });
+    model.BindEventCallback("invAttach",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            {
+                                if(!m->invTarget_.isNull())
+                                {
+                                    m->inventoryAction_ = InventoryAction{
+                                        InventoryAction::Kind::Attach, m->invTarget_};
+                                }
+                            });
+    model.BindEventCallback("invDetach",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            {
+                                if(!m->invTarget_.isNull())
+                                {
+                                    m->inventoryAction_ = InventoryAction{
+                                        InventoryAction::Kind::Detach, m->invTarget_};
+                                }
+                            });
+    model.BindEventCallback("invRefresh",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            {
+                                if(!m->invPath_.empty())
+                                {
+                                    m->inventory_->refresh(m->invPath_.back());
+                                }
+                            });
     if(auto rule = model.RegisterStruct<Rule>())
     {
         rule.RegisterMember("name", &Rule::name);
@@ -194,7 +283,6 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     model.Bind("estateName", &m->estateName_);
     model.Bind("estateOwner", &m->estateOwner_);
     model.Bind("estateCovenant", &m->estateCovenant_);
-    model.RegisterArray<std::vector<Rml::String>>();
     model.Bind("version", &m->version_);
     model.Bind("builtWith", &m->builtWith_);
     model.Bind("licenses", &m->licenseNames_);
@@ -527,10 +615,178 @@ void MainMenu::updateParcel(const Status& status)
                                                        : "Has a covenant (not shown here yet)"));
 }
 
+void MainMenu::openInventoryEntry(int index)
+{
+    if(index < 0 || index >= static_cast<int>(invEntriesKnown_.size()))
+    {
+        return;
+    }
+    const InventoryEntry& e = invEntriesKnown_[static_cast<size_t>(index)];
+    if(e.folder)
+    {
+        // A folder link opens what it points at.
+        const inventory::Item* link = e.link ? inventory_->model().item(e.id) : nullptr;
+        const Uuid folder = link ? link->linkedId : e.id;
+        if(!e.broken)
+        {
+            invPath_.push_back(folder);
+        }
+        return;
+    }
+    invShown_ = e.id;
+}
+
+void MainMenu::updateInventory(const Status& status)
+{
+    const auto put = [&](const char* variable, auto& field, auto value)
+    {
+        if(field != value)
+        {
+            field = std::move(value);
+            model_.DirtyVariable(variable);
+        }
+    };
+    if(!status.inWorld)
+    {
+        invPath_.clear();
+        invShown_ = Uuid();
+        put("invNote", invNote_, Rml::String("Log in to see your inventory."));
+        put("invEntries", invEntries_, std::vector<InvEntry>());
+        put("invCrumbs", invCrumbs_, std::vector<Rml::String>());
+        put("invItemShown", invItemShown_, false);
+        invEntriesKnown_.clear();
+        invFolderShown_ = Uuid();
+        return;
+    }
+    const std::optional<Uuid> root = inventory_->root();
+    if(!root)
+    {
+        put("invNote", invNote_, Rml::String("Opening your inventory..."));
+        return;
+    }
+    if(invPath_.empty() || invPath_.front() != *root)
+    {
+        invPath_ = {*root};
+    }
+    const inventory::Model& model = inventory_->model();
+    const InventoryBrowser::State state = inventory_->open(invPath_.back());
+    if(inventory_->version() != invVersion_ || invPath_.size() != invPathShown_ ||
+       invPath_.back() != invFolderShown_)
+    {
+        invVersion_ = inventory_->version();
+        invPathShown_ = invPath_.size();
+        invFolderShown_ = invPath_.back();
+        // Where we are: the folders opened, the root as "Inventory".
+        std::vector<Rml::String> crumbs;
+        for(size_t i = 0; i < invPath_.size(); i++)
+        {
+            const inventory::Folder* f = model.folder(invPath_[i]);
+            crumbs.push_back(i == 0 ? Rml::String("Inventory") : f ? f->name : Rml::String("..."));
+        }
+        put("invCrumbs", invCrumbs_, std::move(crumbs));
+
+        invEntriesKnown_ = inventoryEntries(model, invPath_.back());
+        std::vector<InvEntry> entries;
+        for(const InventoryEntry& e : invEntriesKnown_)
+        {
+            entries.push_back({e.name, std::string(e.kind.name), std::string(e.kind.badge),
+                               std::string(e.kind.style), e.link, e.broken});
+        }
+        put("invEntries", invEntries_, std::move(entries));
+        invWornShown_.clear(); // marked again below
+        put("invNote", invNote_,
+            Rml::String(!invEntriesKnown_.empty()                   ? ""
+                        : state == InventoryBrowser::State::Loading ? "Opening..."
+                        : state == InventoryBrowser::State::Failed
+                            ? "This folder couldn't be opened (Refresh to try again)."
+                            : "This folder is empty."));
+    }
+
+    // What's worn, marked (an attachment, or a link to one).
+    if(status.worn && invWornShown_ != *status.worn)
+    {
+        invWornShown_ = *status.worn;
+        bool changed = false;
+        for(size_t i = 0; i < invEntriesKnown_.size() && i < invEntries_.size(); i++)
+        {
+            const inventory::Item* target =
+                invEntriesKnown_[i].folder ? nullptr : model.resolve(invEntriesKnown_[i].id);
+            const bool worn = target && status.worn->contains(target->id);
+            if(invEntries_[i].worn != worn)
+            {
+                invEntries_[i].worn = worn;
+                changed = true;
+            }
+        }
+        if(changed)
+        {
+            model_.DirtyVariable("invEntries");
+        }
+    }
+
+    // An item alone: what it is, who made it, what may be done with it.
+    InvItem item;
+    if(const inventory::Item* own = invShown_.isNull() ? nullptr : model.item(invShown_))
+    {
+        const inventory::Item* target = model.resolve(invShown_);
+        const inventory::Item& i = target ? *target : *own;
+        const InventoryKind kind = inventoryKind(i.type, i.inventoryType);
+        item.name = own->name;
+        item.kind = std::string(kind.name);
+        item.badge = std::string(kind.badge);
+        item.style = std::string(kind.style);
+        item.description = i.description.empty() ? "No description." : i.description;
+        const std::string creator = avatarNames_ && !i.permissions.creator.isNull()
+                                        ? avatarNames_(i.permissions.creator)
+                                        : std::string();
+        item.creator = i.permissions.creator.isNull() ? "Unknown"
+                       : creator.empty()              ? "..."
+                                                      : creator;
+        // What the owner (us) may do (llpermissionsflags.h's PERM_*).
+        constexpr uint32_t kCopy = 0x8000;
+        constexpr uint32_t kModify = 0x4000;
+        constexpr uint32_t kTransfer = 0x2000;
+        const uint32_t mask = i.permissions.ownerMask;
+        std::string perms;
+        for(const auto& [bit, name] : {std::pair{kCopy, "Copy"}, std::pair{kModify, "Modify"},
+                                       std::pair{kTransfer, "Transfer"}})
+        {
+            perms +=
+                std::format("{}{}{}", perms.empty() ? "" : " · ", mask & bit ? "" : "No ", name);
+        }
+        item.permissions = perms;
+        if(i.createdAt > 0)
+        {
+            const std::chrono::sys_seconds when{std::chrono::seconds(i.createdAt)};
+            item.created = std::format("{:%e %B %Y}", when);
+        }
+        item.image = i.type == 0 && !i.assetId.isNull()
+                         ? std::format("asset://{}?size=512", i.assetId.toString())
+                         : Rml::String();
+        item.link =
+            own->isLink() ? (target ? "A link to it" : "A link (to something not here)") : "";
+        invTarget_ = i.id;
+        item.attachable = i.type == inventory::kObject && (!own->isLink() || target);
+        item.worn = status.worn && status.worn->contains(i.id);
+        item.changing = status.changing && status.changing(i.id);
+    }
+    else
+    {
+        invShown_ = Uuid();
+        invTarget_ = Uuid();
+    }
+    put("invItemShown", invItemShown_, !invShown_.isNull());
+    put("invItem", invItem_, std::move(item));
+}
+
 void MainMenu::update(const Status& status)
 {
     updateDestinations(status);
     updateParcel(status);
+    if(tab_ == "inventory")
+    {
+        updateInventory(status);
+    }
     // The license picked on About.
     if(license_ != shownLicense_ && license_ >= 0 && license_ < static_cast<int>(licenses_.size()))
     {

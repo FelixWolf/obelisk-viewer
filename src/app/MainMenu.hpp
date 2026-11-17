@@ -7,7 +7,9 @@
 // the viewer's and the region's performance and where we are; Destinations,
 // the Destination Guide's categories (What's Hot Now first), a category's
 // places, and a place alone, to teleport to; Parcel, the one we're on (its
-// picture, owner, group, size, rules, description, and its estate); About, the
+// picture, owner, group, size, rules, description, and its estate);
+// Inventory, its folders as a file explorer shows them, and an item's
+// details; About, the
 // version and the licenses of everything in the viewer (gathered by the
 // build: cmake/Licenses.cmake). The other tabs are still to come.
 //
@@ -16,15 +18,18 @@
 
 #include "Destinations.hpp"
 #include "GridPopulation.hpp"
+#include "InventoryBrowser.hpp"
 #include "ParcelInfo.hpp"
 
 #include "viewer/gui/Gui.hpp"
 
 #include <RmlUi/Core/DataModelHandle.h>
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -39,7 +44,14 @@ public:
 
     // Null if the page can't be made.
     static std::unique_ptr<MainMenu> create(gui::Gui& gui, Destinations& destinations,
-                                            GridPopulation& population);
+                                            GridPopulation& population,
+                                            InventoryBrowser& inventory);
+    // Names of avatars (creators, ...): empty until known ("Unknown" if
+    // there's none).
+    void setAvatarNames(std::function<std::string(const Uuid&)> names)
+    {
+        avatarNames_ = std::move(names);
+    }
 
     bool isOpen() const { return open_; }
     void setOpen(bool open);
@@ -71,6 +83,10 @@ public:
         std::string parcelGroup;
         const ParcelInfo::Estate* estate = nullptr;
         std::string estateOwner;
+        // What we wear (attachments' items), and those being put on or
+        // taken off.
+        const std::unordered_set<Uuid>* worn = nullptr;
+        std::function<bool(const Uuid&)> changing;
     };
     // The page's values, then its layout and animations (once a frame
     // while open, before render()).
@@ -81,6 +97,21 @@ public:
     // A destination the page asked to teleport to ("Region/x/y/z",
     // URL-encoded), once.
     std::optional<std::string> takeTeleport() { return std::exchange(teleport_, std::nullopt); }
+    // An item the page asked to attach or take off, once.
+    struct InventoryAction
+    {
+        enum class Kind
+        {
+            Attach,
+            Detach,
+        };
+        Kind kind = Kind::Attach;
+        Uuid item; // the item itself (not a link to it)
+    };
+    std::optional<InventoryAction> takeInventoryAction()
+    {
+        return std::exchange(inventoryAction_, std::nullopt);
+    }
 
     gui::Surface& surface() { return *surface_; }
     // Reads the document and its style sheets again.
@@ -102,6 +133,36 @@ public:
         Rml::String largeImage; // the full-sized picture, when the place is shown alone
         Rml::String people;     // "12 people" (from the map), empty until known
         bool operator==(const Place&) const = default;
+    };
+    // A line of an inventory folder, as the page shows it.
+    struct InvEntry
+    {
+        Rml::String name;
+        Rml::String kind;  // "Texture", "Folder", ...
+        Rml::String badge; // a few letters
+        Rml::String style; // "folder", "texture", ...
+        bool link = false;
+        bool broken = false;
+        bool worn = false;
+        bool operator==(const InvEntry&) const = default;
+    };
+    // An item, shown alone.
+    struct InvItem
+    {
+        Rml::String name;
+        Rml::String kind;
+        Rml::String badge;
+        Rml::String style;
+        Rml::String description;
+        Rml::String creator;
+        Rml::String permissions; // "Copy · Modify · Transfer"
+        Rml::String created;
+        Rml::String image; // asset://... for textures; empty: none
+        Rml::String link;  // "A link" when it's one
+        bool attachable = false;
+        bool worn = false;
+        bool changing = false; // being put on or taken off
+        bool operator==(const InvItem&) const = default;
     };
     // One of a parcel's rules, as the page shows it.
     struct Rule
@@ -127,9 +188,13 @@ private:
     void readLicenses();
     void updateDestinations(const Status& status);
     void updateParcel(const Status& status);
+    void updateInventory(const Status& status);
+    void openInventoryEntry(int index);
 
     Destinations* destinations_ = nullptr;
     GridPopulation* population_ = nullptr;
+    InventoryBrowser* inventory_ = nullptr;
+    std::function<std::string(const Uuid&)> avatarNames_;
     std::vector<std::string> placeRegions_;
     uint64_t populationVersion_ = ~uint64_t{0};
     double populationAt_ = -1.0; // when the numbers were last looked at (seconds)
@@ -174,6 +239,22 @@ private:
     Place pick_; // the chosen one
     bool inWorld_ = false;
     std::optional<std::string> teleport_;
+    // Inventory: the folders opened from the root, and an item shown alone
+    // (null: none). The page asks (invOpen, invUp, invBack).
+    std::vector<Uuid> invPath_;
+    Uuid invShown_;
+    std::vector<InventoryEntry> invEntriesKnown_; // the lines, as the page has them
+    Uuid invFolderShown_;
+    uint64_t invVersion_ = ~uint64_t{0};
+    size_t invPathShown_ = 0;
+    std::vector<Rml::String> invCrumbs_;
+    std::vector<InvEntry> invEntries_;
+    Rml::String invNote_;
+    bool invItemShown_ = false;
+    InvItem invItem_;
+    Uuid invTarget_; // the item shown (a link's target)
+    std::unordered_set<Uuid> invWornShown_;
+    std::optional<InventoryAction> inventoryAction_;
     // Parcel.
     bool parcelKnown_ = false;
     Rml::String parcelName_;

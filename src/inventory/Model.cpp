@@ -50,6 +50,7 @@ std::optional<Item> Item::fromLlsd(const llsd::Value& m)
         item.linkedId = item.assetId; // older replies give the target as the asset
     }
     item.permissions = Permissions::fromLlsd(m["permissions"]);
+    item.createdAt = static_cast<int64_t>(m["created_at"].asReal());
     return item;
 }
 
@@ -157,6 +158,17 @@ void Model::put(Item i)
     }
     const Uuid id = i.id;
     items_[id] = std::move(i);
+}
+
+void Model::remove(const Uuid& item)
+{
+    const auto it = items_.find(item);
+    if(it == items_.end())
+    {
+        return;
+    }
+    childItems_[it->second.parent].erase(item);
+    items_.erase(it);
 }
 
 void Model::clear()

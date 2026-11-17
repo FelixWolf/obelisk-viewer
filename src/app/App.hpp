@@ -2,6 +2,7 @@
 
 #include "AgentController.hpp"
 #include "AnimationManager.hpp"
+#include "AttachmentLinks.hpp"
 #include "AvatarNames.hpp"
 #include "AvatarView.hpp"
 #include "CameraController.hpp"
@@ -255,9 +256,12 @@ private:
     // AISv3 client filling it; before outfit_, whose requests it carries.
     std::unique_ptr<inventory::Model> inventory_;
     std::unique_ptr<inventory::Ais> ais_;
+    std::unique_ptr<InventoryBrowser> inventoryBrowser_; // the main menu's
+    std::unique_ptr<AttachmentLinks> attachmentLinks_;   // the COF, as we attach and detach
     std::unique_ptr<OutfitAttachments> outfit_;
     std::optional<double> selfSeenAt_;
     std::unordered_set<Uuid> worn_; // its items worn, as last looked (twice a second)
+    std::unordered_map<Uuid, std::vector<uint32_t>> wornObjects_; // their objects (local ids)
     double wornAt_ = -1e9;
     std::unique_ptr<LegacyMaterialManager> legacyMaterials_;
     std::unique_ptr<AvatarNames> avatarNames_;     // display names, for name tags

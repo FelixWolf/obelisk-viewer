@@ -50,6 +50,9 @@ public:
     // What to attach now (at most five).
     std::vector<Item> update(double now, std::optional<double> arrived,
                              const std::unordered_set<Uuid>& worn);
+    // An item taken off since (the main menu): not put back on by a later
+    // pass.
+    void forget(const Uuid& item);
     bool started() const { return state_ != State::Idle; }
     // Still to do something with what's worn (attaching passes left).
     bool busy() const { return state_ != State::Failed && (passes_ < 2 || !pending_.empty()); }

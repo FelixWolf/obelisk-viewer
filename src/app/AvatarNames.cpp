@@ -109,6 +109,12 @@ const AvatarName* AvatarNames::get(const Uuid& id)
     return e.name ? &*e.name : nullptr;
 }
 
+bool AvatarNames::missing(const Uuid& id) const
+{
+    const auto it = entries_.find(id);
+    return it != entries_.end() && it->second.state == State::Missing;
+}
+
 void AvatarNames::update()
 {
     const auto now = std::chrono::steady_clock::now();

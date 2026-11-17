@@ -408,3 +408,71 @@ body
 .parcel-text { font-size: 17dp; color: #c8d0e0; }
 .music { margin-top: 10dp; font-size: 15dp; }
 .card.estate { flex: 0 0 300dp; }
+
+/* Inventory: where we are (crumbs), then a folder's lines: a badge for
+   what each is, its name, its kind. */
+.crumbs { font-size: 22dp; }
+.crumb { color: #b8c2d6; cursor: pointer; }
+.crumb:hover { color: #ffffff; }
+.crumb .sep { color: #5c6780; margin: 0 8dp; }
+.inv-row
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 10dp 12dp;
+    margin: 0 18dp 4dp 0;
+    border-radius: 10dp;
+    border: 2dp #00000000;
+    cursor: pointer;
+}
+.inv-row:hover { background-color: #232b40; border-color: #5a86f0; }
+.inv-name
+{
+    flex: 1 1 0;
+    margin-left: 14dp;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.inv-kind { font-size: 15dp; color: #8b96ab; margin-left: 14dp; }
+.badge
+{
+    width: 46dp;
+    height: 30dp;
+    line-height: 30dp;
+    border-radius: 7dp;
+    text-align: center;
+    font-size: 13dp;
+    color: #0e1219;
+    background-color: #9aa6bd;
+}
+.badge.folder { background-color: #e8b94a; border-radius: 3dp 9dp 7dp 7dp; }
+.badge.texture { background-color: #7fb8f0; }
+.badge.object { background-color: #a98ef0; }
+.badge.wearable { background-color: #f09ac0; }
+.badge.landmark { background-color: #7ee2a0; }
+.badge.notecard { background-color: #f1e3a0; }
+.badge.script { background-color: #f0a070; }
+.badge.sound { background-color: #70d0d0; }
+.badge.animation { background-color: #c0e070; }
+.badge.settings { background-color: #b0c0ff; }
+.badge.big
+{
+    width: 200dp;
+    height: 140dp;
+    line-height: 140dp;
+    font-size: 30dp;
+    border-radius: 18dp;
+}
+.worn
+{
+    padding: 2dp 8dp;
+    border-radius: 6dp;
+    font-size: 13dp;
+    color: #0e1219;
+    background-color: #7ee2a0;
+    margin-left: 10dp;
+}
+.teleport.detach { decorator: linear-gradient(180deg, #c05050, #a03c3c); }
+.teleport.detach:hover { decorator: linear-gradient(180deg, #d06060, #b04848); }

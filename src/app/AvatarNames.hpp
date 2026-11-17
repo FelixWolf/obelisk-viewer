@@ -51,6 +51,8 @@ public:
     void setCapabilityUrl(std::string url);
     // The name once it has arrived (null until then, or if it's unknown).
     const AvatarName* get(const Uuid& id);
+    // The service didn't know it (after a few tries).
+    bool missing(const Uuid& id) const;
     // Handles answers and sends what's queued.
     void update();
 
