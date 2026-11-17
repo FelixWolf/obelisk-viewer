@@ -1936,6 +1936,17 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
             return std::nullopt;
         }
         SDL_GetMouseState(&x, &y);
+        // Not through the main menu over the window.
+        if(mainMenuOverWindow())
+        {
+            const glm::vec4 rect = mainMenuRect();
+            const glm::vec2 pixel = glm::vec2(x, y) * SDL_GetWindowPixelDensity(window_.get());
+            if(pixel.x >= rect.x && pixel.y >= rect.y && pixel.x < rect.x + rect.z &&
+               pixel.y < rect.y + rect.w)
+            {
+                return std::nullopt;
+            }
+        }
     }
     // Through the view's projection, back from the window position.
     const glm::vec2 ndc(2.0f * x / static_cast<float>(width) - 1.0f,
