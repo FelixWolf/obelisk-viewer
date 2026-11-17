@@ -219,6 +219,16 @@ void Gui::addImageScheme(const std::string& scheme,
     renderer_->addScheme(scheme, std::move(resolve));
 }
 
+void Gui::setImage(const std::string& name, Pixels pixels)
+{
+    renderer_->setImage(name, std::move(pixels));
+}
+
+void Gui::removeImage(const std::string& name)
+{
+    renderer_->removeImage(name);
+}
+
 void Gui::forgetStyles()
 {
     Rml::Factory::ClearStyleSheetCache();

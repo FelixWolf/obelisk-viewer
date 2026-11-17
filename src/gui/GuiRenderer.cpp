@@ -8,6 +8,8 @@
 #include <RmlUi/Core/Math.h>
 
 #include <SDL3/SDL_error.h>
+#include <SDL3/SDL_iostream.h>
+#include <SDL3/SDL_stdinc.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -20,6 +22,31 @@
 
 namespace viewer::gui
 {
+
+std::optional<Pixels> decodeImage(std::span<const uint8_t> file)
+{
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_uc* data = stbi_load_from_memory(file.data(), static_cast<int>(file.size()), &width,
+                                          &height, &channels, 4);
+    if(!data)
+    {
+        return std::nullopt;
+    }
+    Pixels pixels{{width, height},
+                  std::vector<uint8_t>(data, data + static_cast<size_t>(width) * height * 4)};
+    stbi_image_free(data);
+    for(size_t i = 0; i < pixels.rgba.size(); i += 4)
+    {
+        const unsigned alpha = pixels.rgba[i + 3];
+        for(size_t c = 0; c < 3; c++)
+        {
+            pixels.rgba[i + c] = static_cast<uint8_t>((pixels.rgba[i + c] * alpha + 127) / 255);
+        }
+    }
+    return pixels;
+}
 
 namespace
 {
@@ -286,6 +313,20 @@ Renderer::Texture* Renderer::makeTexture(glm::ivec2 size, std::vector<uint8_t> p
 
 Rml::TextureHandle Renderer::LoadTexture(Rml::Vector2i& dimensions, const Rml::String& source)
 {
+    // image://NAME: decoded by the app.
+    constexpr std::string_view kImage = "image://";
+    if(source.starts_with(kImage))
+    {
+        const auto image = images_.find(std::string_view(source).substr(kImage.size()));
+        if(image == images_.end())
+        {
+            log::warn("interface image {}: not given (yet)", source);
+            return {};
+        }
+        dimensions = {image->second.size.x, image->second.size.y};
+        return reinterpret_cast<Rml::TextureHandle>(
+            makeTexture(image->second.size, image->second.rgba));
+    }
     // SCHEME://REST: the app's.
     if(const size_t split = source.find("://"); split != Rml::String::npos)
     {
@@ -307,27 +348,23 @@ Rml::TextureHandle Renderer::LoadTexture(Rml::Vector2i& dimensions, const Rml::S
         return reinterpret_cast<Rml::TextureHandle>(
             new Texture{nullptr, image->size, image->image});
     }
-    int width = 0;
-    int height = 0;
-    int channels = 0;
-    stbi_uc* data = stbi_load(source.c_str(), &width, &height, &channels, 4);
-    if(!data)
+    std::optional<Pixels> pixels;
+    if(SDL_IOStream* file = SDL_IOFromFile(source.c_str(), "rb"))
     {
-        log::warn("interface image {}: {}", source, stbi_failure_reason());
-        return {};
-    }
-    std::vector<uint8_t> pixels(data, data + static_cast<size_t>(width) * height * 4);
-    stbi_image_free(data);
-    for(size_t i = 0; i < pixels.size(); i += 4)
-    {
-        const unsigned alpha = pixels[i + 3];
-        for(size_t c = 0; c < 3; c++)
+        size_t length = 0;
+        if(void* data = SDL_LoadFile_IO(file, &length, true))
         {
-            pixels[i + c] = static_cast<uint8_t>((pixels[i + c] * alpha + 127) / 255);
+            pixels = decodeImage({static_cast<const uint8_t*>(data), length});
+            SDL_free(data);
         }
     }
-    dimensions = {width, height};
-    return reinterpret_cast<Rml::TextureHandle>(makeTexture({width, height}, std::move(pixels)));
+    if(!pixels)
+    {
+        log::warn("interface image {} can't be read", source);
+        return {};
+    }
+    dimensions = {pixels->size.x, pixels->size.y};
+    return reinterpret_cast<Rml::TextureHandle>(makeTexture(pixels->size, std::move(pixels->rgba)));
 }
 
 Rml::TextureHandle Renderer::GenerateTexture(Rml::Span<const Rml::byte> source,

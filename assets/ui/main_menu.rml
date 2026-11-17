@@ -9,7 +9,7 @@
     <nav id="tabs">
         <div class="title">TestViewer</div>
         <div class="tab" data-for="t : tabs" data-class-active="t.id == tab"
-             data-event-click="tab = t.id"><span>{{ t.name }}</span></div>
+             data-event-click="tab = t.id; category = ''; chosen = -1"><span>{{ t.name }}</span></div>
         <div class="spacer"></div>
         <div class="close" data-event-click="close">Close</div>
     </nav>
@@ -60,6 +60,73 @@
             </div>
         </div>
 
+        <div data-if="tab == 'destinations'" class="destinations">
+            <!-- Three views: the categories, a category's places, a place.
+                 Each stays (hidden) while the next is shown, so going back
+                 finds it where it was scrolled to. -->
+            <div class="places" data-class-hidden="category != ''">
+                <div class="places-head">
+                    <div>
+                        <h2>Destinations</h2>
+                    </div>
+                    <div class="button" data-event-click="refresh">Refresh</div>
+                </div>
+                <div class="category" data-for="c : categories"
+                     data-event-click="category = c.id; chosen = -1">
+                    <div class="shot" data-if="c.image != ''"
+                         data-style-decorator="'image(' + c.image + ' cover)'"></div>
+                    <div class="shot empty" data-if="c.image == ''"></div>
+                    <div class="place-name">{{ c.name }}</div>
+                    <div class="people">{{ c.places }}</div>
+                </div>
+                <div class="note" data-if="categoriesNote != ''">{{ categoriesNote }}</div>
+            </div>
+
+            <div class="places" data-if="category != ''" data-class-hidden="chosen >= 0">
+                <div class="places-head">
+                    <div class="button back" data-event-click="category = ''; chosen = -1">‹ Back</div>
+                    <div class="head-text">
+                        <h2>{{ categoryName }}</h2>
+                        <div class="muted">{{ categoryText }}</div>
+                    </div>
+                    <div class="button" data-event-click="refresh">Refresh</div>
+                </div>
+                <div class="note" data-if="placesNote != ''">{{ placesNote }}</div>
+                <div class="place" data-for="p : places" data-event-click="chosen = it_index">
+                    <div class="shot" data-if="p.image != ''"
+                         data-style-decorator="'image(' + p.image + ' cover)'"></div>
+                    <div class="shot empty" data-if="p.image == ''"></div>
+                    <div class="place-name">{{ p.name }}</div>
+                    <div class="place-info">
+                        <span data-attr-class="'rating ' + p.rating">{{ p.maturity }}</span>
+                    </div>
+                </div>
+                <div class="more" data-if="hasMore" data-event-click="more">Show more</div>
+                <div class="note" data-if="loadingMore">Finding more...</div>
+            </div>
+
+            <div class="place-page" data-if="category != '' &amp;&amp; chosen >= 0">
+                <div class="button back" data-event-click="chosen = -1">‹ Back</div>
+                <div class="place-top">
+                    <div class="shot hero" data-if="pick.largeImage != ''"
+                         data-style-decorator="'image(' + pick.largeImage + ' cover)'"></div>
+                    <div class="shot hero" data-if="pick.largeImage == '' &amp;&amp; pick.image != ''"
+                         data-style-decorator="'image(' + pick.image + ' cover)'"></div>
+                    <div class="shot hero empty" data-if="pick.largeImage == '' &amp;&amp; pick.image == ''"></div>
+                    <div class="place-side">
+                        <div class="detail-name">{{ pick.name }}</div>
+                        <div class="place-info">
+                            <span data-attr-class="'rating ' + pick.rating">{{ pick.maturity }}</span>
+                        </div>
+                        <div class="spacer"></div>
+                        <div class="teleport" data-if="inWorld" data-event-click="teleport">Teleport</div>
+                        <div class="teleport off" data-if="!inWorld">Log in to teleport</div>
+                    </div>
+                </div>
+                <div class="description"><div class="text">{{ pick.description }}</div></div>
+            </div>
+        </div>
+
         <div data-if="tab == 'about'" class="about">
             <div class="card banner">
                 <div class="headline">TestViewer</div>
@@ -81,7 +148,7 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'about'" class="soon">
+        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

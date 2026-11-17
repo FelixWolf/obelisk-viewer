@@ -61,6 +61,7 @@ struct AppOptions
     std::filesystem::path uiDirectory;
     bool developer = false;          // --developer: ImGui's windows (stats, textures, ...)
     bool mainMenu = false;           // --main-menu: open it at the start
+    std::string mainMenuTab;         // on this tab (--main-menu TAB)
     std::string loginUri;            // empty = Second Life main grid
     std::filesystem::path loginFile; // optional: log in at startup (see Credentials.hpp)
     bool testScene = false;          // show the material test scene
@@ -240,6 +241,7 @@ private:
     std::unique_ptr<assets::TextureCache> worldTextureCache_; // textures of the world
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
+    std::unique_ptr<Destinations> destinations_; // the main menu's (it goes after this)
     std::unique_ptr<TextureManager> textures_;
     std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;

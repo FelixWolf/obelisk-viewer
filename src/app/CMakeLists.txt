@@ -49,6 +49,7 @@ add_executable(viewer
   TerrainOverrides.cpp
   ViewerEffects.cpp
   OutfitAttachments.cpp
+  Destinations.cpp
   MainMenu.cpp
   RadialMenu.cpp
   VrControls.cpp

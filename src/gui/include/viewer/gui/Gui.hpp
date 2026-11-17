@@ -8,6 +8,8 @@
 //
 // Pages name files by path from where they are, or as URIs:
 //   res://PATH    a file in the documents folder (from its top),
+//   image://NAME  an image the app decoded and gave (setImage: pictures
+//                 from the web),
 //   SCHEME://...  an image from the app (addImageScheme: asset://UUID is
 //                 a texture from the grid's asset servers).
 //
@@ -24,8 +26,10 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Rml
 {
@@ -56,6 +60,16 @@ struct SchemeImage
     glm::ivec2 size{0};
     std::function<ExternalImage()> image;
 };
+
+// An image's pixels: RGBA8, premultiplied, sRGB-encoded, top row first.
+struct Pixels
+{
+    glm::ivec2 size{0};
+    std::vector<uint8_t> rgba;
+};
+// A PNG, JPEG or TGA file's pixels (from any thread); nothing if it can't
+// be read.
+std::optional<Pixels> decodeImage(std::span<const uint8_t> file);
 
 class Gui
 {
@@ -90,6 +104,13 @@ public:
     // image is (nothing: there's no such image).
     void addImageScheme(const std::string& scheme,
                         std::function<std::optional<SchemeImage>(std::string_view)> resolve);
+
+    // The image image://NAME is (replacing one of that name; pages already
+    // showing that one keep it until they load it again), or no longer is.
+    // Pages should show one only once it's here (data-if): its size is
+    // known from then, so it can be laid out (and fitted: cover, contain).
+    void setImage(const std::string& name, Pixels pixels);
+    void removeImage(const std::string& name);
 
     // Forgets the style sheets and templates read, so pages loaded after
     // this read them again (Surface::reload).

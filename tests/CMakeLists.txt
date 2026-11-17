@@ -9,6 +9,7 @@ add_executable(viewer_tests
   LoginFlowTests.cpp
   VrControlsTests.cpp
   CircuitTests.cpp
+  DestinationsTests.cpp
   DiskCacheTests.cpp
   HttpClientTests.cpp
   JobSystemTests.cpp
@@ -55,6 +56,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/RadialMenu.cpp
   ${PROJECT_SOURCE_DIR}/src/app/VrKeyboard.cpp
   ${PROJECT_SOURCE_DIR}/src/app/VrControls.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/Destinations.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE
@@ -73,6 +75,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::volume
   viewer::render
   viewer::text
+  viewer::gui
   viewer::zlib
   viewer_warnings
 )

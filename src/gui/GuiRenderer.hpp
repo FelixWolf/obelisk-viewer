@@ -45,6 +45,9 @@ public:
     {
         schemes_[scheme] = std::move(resolve);
     }
+    // image://NAME (Gui::setImage).
+    void setImage(const std::string& name, Pixels pixels) { images_[name] = std::move(pixels); }
+    void removeImage(const std::string& name) { images_.erase(name); }
 
     // A page `size` pixels starts being drawn (RmlUi's Context::Render).
     void begin(glm::ivec2 size);
@@ -136,6 +139,7 @@ private:
 
     SDL_GPUDevice* device_ = nullptr;
     std::map<std::string, Scheme, std::less<>> schemes_;
+    std::map<std::string, Pixels, std::less<>> images_;
     SDL_GPUGraphicsPipeline* colorPipeline_ = nullptr;
     SDL_GPUGraphicsPipeline* texturePipeline_ = nullptr;
     SDL_GPUGraphicsPipeline* gradientPipeline_ = nullptr;

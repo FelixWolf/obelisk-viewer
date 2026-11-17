@@ -78,7 +78,7 @@ void printUsage()
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
                  "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
-                 "[--ui-dir DIR] [--main-menu] [--developer] "
+                 "[--ui-dir DIR] [--main-menu [TAB]] [--developer] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -146,6 +146,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         else if(arg == "--main-menu")
         {
             options.mainMenu = true;
+            // And a tab to show ("destinations", ...).
+            if(hasValue && !std::string_view(args[i + 1]).starts_with("--"))
+            {
+                options.mainMenuTab = args[++i];
+            }
         }
         else if(arg == "--ui-dir" && hasValue)
         {
@@ -392,15 +397,6 @@ std::unique_ptr<App> App::create(const AppOptions& options)
                                                       false, true};
                         }};
                 });
-            app->mainMenu_ = MainMenu::create(*app->gui_);
-            if(app->mainMenu_ && options.mainMenu)
-            {
-                app->mainMenu_->setOpen(true);
-            }
-        }
-        if(!app->mainMenu_)
-        {
-            log::warn("no main menu: the interface couldn't be set up");
         }
     }
 
@@ -432,31 +428,6 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->wantFirstPerson_ = options.firstPerson || app->headset_ != nullptr;
     app->vrEyeHeight_ = options.vrEyeHeight;
     app->controls_.setMenu(app->radialMenu());
-    if(app->mainMenu_)
-    {
-        // The main menu on a panel (first person, VR): the menu button's
-        // press opens and closes it, the pointers use it.
-        app->controls_.setMainMenu([app = app.get()] { app->mainMenu_->toggle(); });
-        gui::Surface& surface = app->mainMenu_->surface();
-        VrControls::Page page;
-        page.size = glm::vec2(MainMenu::kSize);
-        page.metersPerPixel = 0.00045f; // about 58 cm across
-        page.image = surface.texture();
-        page.point = [&surface](std::optional<glm::vec2> pixel)
-        {
-            if(pixel)
-            {
-                surface.pointerMove(*pixel);
-            }
-            else
-            {
-                surface.pointerLeave();
-            }
-        };
-        page.button = [&surface](bool down) { surface.pointerButton(0, down); };
-        page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
-        app->controls_.setPage(std::move(page));
-    }
     app->controls_.setSubmit(
         [app = app.get()](const std::string& text)
         {
@@ -488,6 +459,49 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->lastFrameTicks_ = app->startTicks_;
 
     app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
+    // The main menu (with the workers and the web, for its pages' pictures).
+    if(app->gui_)
+    {
+        app->destinations_ = std::make_unique<Destinations>(*app->http_, *app->jobs_, *app->gui_);
+        app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_);
+        if(app->mainMenu_ && options.mainMenu)
+        {
+            app->mainMenu_->setOpen(true);
+            if(!options.mainMenuTab.empty())
+            {
+                app->mainMenu_->showTab(options.mainMenuTab);
+            }
+        }
+    }
+    if(!app->mainMenu_)
+    {
+        log::warn("no main menu: the interface couldn't be set up");
+    }
+    if(app->mainMenu_)
+    {
+        // The main menu on a panel (first person, VR): the menu button's
+        // press opens and closes it, the pointers use it.
+        app->controls_.setMainMenu([app = app.get()] { app->mainMenu_->toggle(); });
+        gui::Surface& surface = app->mainMenu_->surface();
+        VrControls::Page page;
+        page.size = glm::vec2(MainMenu::kSize);
+        page.metersPerPixel = 0.00045f; // about 58 cm across
+        page.image = surface.texture();
+        page.point = [&surface](std::optional<glm::vec2> pixel)
+        {
+            if(pixel)
+            {
+                surface.pointerMove(*pixel);
+            }
+            else
+            {
+                surface.pointerLeave();
+            }
+        };
+        page.button = [&surface](bool down) { surface.pointerButton(0, down); };
+        page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
+        app->controls_.setPage(std::move(page));
+    }
     // A second texture cache on the same store: each instance has one
     // results queue, and the texture browser drains its own.
     app->worldTextureCache_ =
@@ -2270,6 +2284,24 @@ bool App::mainMenuEvent(const SDL_Event& event)
     }
 }
 
+namespace
+{
+
+// The places the resident wants to see ("g", "gm" or "gma"), from the
+// login's agent_region_access (PG, M or A: the preference), else
+// agent_access_max (what they may see).
+std::string maturityPreference(const session::LoginSuccess& login)
+{
+    std::string access = login.reply["agent_region_access"].asString();
+    if(access.empty())
+    {
+        access = login.reply["agent_access_max"].asString();
+    }
+    return access.starts_with('A') ? "gma" : access.starts_with('M') ? "gm" : "g";
+}
+
+} // namespace
+
 void App::updateMainMenu()
 {
     if(!mainMenu_ || !mainMenu_->isOpen())
@@ -2295,9 +2327,21 @@ void App::updateMainMenu()
         if(const session::LoginSuccess* login = session_->login())
         {
             status.name = login->name.first;
+            status.maturity = maturityPreference(*login);
+        }
+        status.inWorld = session_->state() == session::SessionState::Connected;
+    }
+    destinations_->update();
+    mainMenu_->update(status);
+    if(const auto where = mainMenu_->takeTeleport(); where && session_)
+    {
+        if(const auto location = session::parseLocation(*where))
+        {
+            log::info("teleporting to {} (from Destinations)", location->region);
+            session_->teleportTo(*location);
+            mainMenu_->setOpen(false);
         }
     }
-    mainMenu_->update(status);
 }
 
 bool App::cursorFree() const

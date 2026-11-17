@@ -67,9 +67,10 @@ Clocks clocks()
 
 } // namespace
 
-std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui)
+std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinations)
 {
     std::unique_ptr<MainMenu> menu(new MainMenu);
+    menu->destinations_ = &destinations;
     menu->surface_ = gui.createSurface("main menu", kSize);
     if(!menu->surface_)
     {
@@ -113,6 +114,61 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui)
     model.Bind("region", &m->region_);
     model.Bind("position", &m->position_);
     model.Bind("greeting", &m->greeting_);
+    if(auto place = model.RegisterStruct<Place>())
+    {
+        place.RegisterMember("name", &Place::name);
+        place.RegisterMember("description", &Place::description);
+        place.RegisterMember("maturity", &Place::maturity);
+        place.RegisterMember("rating", &Place::rating);
+        place.RegisterMember("image", &Place::image);
+        place.RegisterMember("largeImage", &Place::largeImage);
+    }
+    model.RegisterArray<std::vector<Place>>();
+    if(auto category = model.RegisterStruct<Category>())
+    {
+        category.RegisterMember("id", &Category::id);
+        category.RegisterMember("name", &Category::name);
+        category.RegisterMember("places", &Category::places);
+        category.RegisterMember("image", &Category::image);
+    }
+    model.RegisterArray<std::vector<Category>>();
+    model.Bind("categories", &m->categories_);
+    model.Bind("categoriesNote", &m->categoriesNote_);
+    model.Bind("category", &m->category_);
+    model.Bind("categoryName", &m->categoryName_);
+    model.Bind("categoryText", &m->categoryText_);
+    model.Bind("hasMore", &m->hasMore_);
+    model.Bind("loadingMore", &m->loadingMore_);
+    model.Bind("places", &m->places_);
+    model.Bind("placesNote", &m->placesNote_);
+    model.Bind("chosen", &m->chosen_);
+    model.Bind("pick", &m->pick_);
+    model.Bind("inWorld", &m->inWorld_);
+    model.BindEventCallback("teleport",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            {
+                                if(m->inWorld_ && m->chosen_ >= 0 &&
+                                   m->chosen_ < static_cast<int>(m->placeLocations_.size()))
+                                {
+                                    m->teleport_ =
+                                        m->placeLocations_[static_cast<size_t>(m->chosen_)];
+                                }
+                            });
+    model.BindEventCallback("refresh",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            {
+                                Destinations& d = *m->destinations_;
+                                if(m->category_.empty())
+                                {
+                                    d.fetchCategories();
+                                }
+                                else
+                                {
+                                    d.fetch(m->category_, d.maturity());
+                                }
+                            });
+    model.BindEventCallback("more", [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            { m->destinations_->fetchMore(); });
     model.RegisterArray<std::vector<Rml::String>>();
     model.Bind("version", &m->version_);
     model.Bind("builtWith", &m->builtWith_);
@@ -188,8 +244,137 @@ void MainMenu::readLicenses()
                     SDL_VERSIONNUM_MINOR(sdl), SDL_VERSIONNUM_MICRO(sdl), Rml::GetVersion());
 }
 
+void MainMenu::updateDestinations(const Status& status)
+{
+    if(inWorld_ != status.inWorld)
+    {
+        inWorld_ = status.inWorld;
+        model_.DirtyVariable("inWorld");
+    }
+    Destinations& d = *destinations_;
+    const bool shown = tab_ == "destinations";
+    // The categories, when the tab is first shown (Refresh: again).
+    if(shown && !d.categoriesFetched() && !d.categoriesLoading())
+    {
+        d.fetchCategories();
+    }
+    // A category's places when it's chosen, and for another maturity.
+    if(shown && !category_.empty() &&
+       (d.category() != category_ || (!d.loading() && d.maturity() != status.maturity)))
+    {
+        d.fetch(category_, status.maturity);
+    }
+    const auto put = [&](const char* variable, auto& field, auto value)
+    {
+        if(field != value)
+        {
+            field = std::move(value);
+            model_.DirtyVariable(variable);
+        }
+    };
+    put("categoriesNote", categoriesNote_,
+        Rml::String(d.categoriesLoading() && d.categories().empty()
+                        ? "Finding the guide's categories..."
+                    : d.categoriesFetched() && d.categories().empty()
+                        ? "The guide's categories couldn't be had (Refresh to try again)."
+                        : ""));
+    put("placesNote", placesNote_,
+        Rml::String(d.loading() && d.places().empty()          ? "Finding places..."
+                    : !d.error().empty() && d.places().empty() ? d.error()
+                    : !d.loading() && d.places().empty()
+                        ? "Nowhere here your maturity setting allows."
+                        : ""));
+    put("hasMore", hasMore_, d.hasMore() && !d.loading());
+    put("loadingMore", loadingMore_, d.loading() && !d.places().empty());
+
+    bool chosenChanged = chosen_ != shownChosen_;
+    const bool listsChanged = d.version() != placesVersion_ || status.maturity != maturity_;
+    if(listsChanged)
+    {
+        maturity_ = status.maturity;
+        // The chosen one stays chosen if it's still there.
+        const std::string was = chosen_ >= 0 && chosen_ < static_cast<int>(placeLocations_.size())
+                                    ? placeLocations_[static_cast<size_t>(chosen_)]
+                                    : std::string();
+        placesVersion_ = d.version();
+        std::vector<Category> categories;
+        // The categories don't say their maturity: those for adults say so
+        // in their names.
+        const bool adult = maturity_.find('a') != std::string::npos;
+        for(const DestinationCategory& c : d.categories())
+        {
+            if(!adult && c.name.starts_with("Adult"))
+            {
+                continue;
+            }
+            categories.push_back({c.id, c.name,
+                                  std::format("{} {}", c.count, c.count == 1 ? "place" : "places"),
+                                  c.image});
+        }
+        put("categories", categories_, std::move(categories));
+
+        std::vector<Place> places;
+        placeLocations_.clear();
+        const int wasChosen = chosen_;
+        chosen_ = -1;
+        for(const Destination& place : d.places())
+        {
+            Place p;
+            p.name = place.name;
+            p.description = place.description;
+            p.rating = place.maturity == "A" ? "a" : place.maturity == "M" ? "m" : "g";
+            p.maturity = p.rating == "a" ? "Adult" : p.rating == "m" ? "Moderate" : "General";
+            p.image = place.image;
+            p.largeImage = place.largeImage;
+            if(place.location == was)
+            {
+                chosen_ = static_cast<int>(places.size());
+            }
+            places.push_back(std::move(p));
+            placeLocations_.push_back(place.location);
+        }
+        put("places", places_, std::move(places));
+        if(chosen_ != wasChosen)
+        {
+            model_.DirtyVariable("chosen");
+        }
+        chosenChanged = true;
+    }
+    // The category's name and description (when it's chosen, or once the
+    // categories are here).
+    if(category_ != shownCategory_ || listsChanged)
+    {
+        shownCategory_ = category_;
+        Rml::String name;
+        Rml::String text;
+        for(const DestinationCategory& c : d.categories())
+        {
+            if(c.id == category_)
+            {
+                name = c.name;
+                text = c.description;
+            }
+        }
+        put("categoryName", categoryName_, name);
+        put("categoryText", categoryText_, text);
+    }
+    if(chosenChanged)
+    {
+        if(chosen_ >= 0)
+        {
+            d.wantLargeImage(static_cast<size_t>(chosen_));
+        }
+        shownChosen_ = chosen_;
+        pick_ = chosen_ >= 0 && chosen_ < static_cast<int>(places_.size())
+                    ? places_[static_cast<size_t>(chosen_)]
+                    : Place{};
+        model_.DirtyVariable("pick");
+    }
+}
+
 void MainMenu::update(const Status& status)
 {
+    updateDestinations(status);
     // The license picked on About.
     if(license_ != shownLicense_ && license_ >= 0 && license_ < static_cast<int>(licenses_.size()))
     {

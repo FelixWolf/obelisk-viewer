@@ -676,7 +676,10 @@ viewer runs.
   asked for each frame it's drawn, `?size=N` texels across, 256 if not
   said; nothing drawn until it's in). The size such an image has isn't
   known when the page is laid out, so pages give them one. Other schemes
-  can be added (`Gui::addImageScheme`).
+  can be added (`Gui::addImageScheme`). `image://NAME` is an image the app
+  decoded and gave (`Gui::setImage`, `gui::decodeImage` on the workers):
+  pictures from the web. Pages show one only once it's there (`data-if`
+  on its name), so its size is known and it can be fitted (`cover`).
 - Unstyled, an RmlUi scrollbar takes the whole width of what scrolls;
   `theme.rcss` gives scrollbars their size.
 - Data reaches pages through RmlUi's data models (bound C++ values, made
@@ -684,18 +687,30 @@ viewer runs.
   body, not the body itself, or `data-for` isn't expanded.
 
 The main menu (`MainMenu`, `main_menu.rml`) has tabs: Home, Destinations,
-Inventory, Outfits, Parcel, Media, Options and About. Only Home and About
-show anything yet. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
+Inventory, Outfits, Parcel, Media, Options and About. Home, Destinations
+and About show something so far. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
 region's (SimStats: `Region::stats`) and its time dilation, and the region
-we're in. About: the version, and the license of everything in the
+we're in. Destinations: the Destination Guide (`Destinations`), in three
+views, each kept hidden behind the next so Back finds it where it was
+scrolled to: its categories (the guide's v2 API; those of its
+`secondlife_dg` channel with places in them, What's Hot Now, the busiest,
+first, then by name), a category's places (a page of 100, "Show more" for
+the next), and one place alone (its full-sized picture, description and
+Teleport). Places are kept to the resident's maturity (the login's
+`agent_region_access`) here: the API answers every place whatever it's
+asked. It doesn't count people (always 0), so no counts are shown. Categories don't say their
+maturity; those named "Adult..." are left out unless the resident's is
+Adult. Cards have a border always there, clear until pointed at, so
+nothing moves. Pictures no longer shown are let go when another list
+comes. About: the version, and the license of everything in the
 viewer, picked from a list: ours, the font's, the artwork's and each
 shipped library's, gathered by the build (`viewer_license` in the root
 CMakeLists.txt and cmake/Dependencies.cmake, written into one embedded
 text by cmake/Licenses.cmake). A library added to the viewer gets a
 `viewer_license` line. Escape opens and closes it on the desktop (over the middle of
 the window), as does a quick press of the menu button in first person and
-VR (on a panel ahead, moving with the avatar). `--main-menu` opens it at
-the start.
+VR (on a panel ahead, moving with the avatar). `--main-menu [TAB]` opens it at
+the start (on that tab).
 
 ### Glow
 
