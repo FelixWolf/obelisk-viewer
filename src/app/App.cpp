@@ -78,7 +78,7 @@ void printUsage()
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
                  "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
-                 "[--ui-dir DIR] [--main-menu] "
+                 "[--ui-dir DIR] [--main-menu] [--developer] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -138,6 +138,10 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.vrOverscan = std::strtof(args[i], nullptr) / 100.0f;
+        }
+        else if(arg == "--developer")
+        {
+            options.developer = true;
         }
         else if(arg == "--main-menu")
         {
@@ -421,6 +425,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
 
     app->sceneAssets_ = std::make_unique<SceneAssets>(*app->renderer_);
     app->loadTerrainBlendRamp();
+    app->developer_ = options.developer;
     app->showTestScene_ = options.testScene;
     app->pbrTerrain_ = options.pbrTerrain;
     // In a headset, the view is from the avatar's eyes.
@@ -3065,7 +3070,10 @@ void App::drawTeleportWindow()
 
 void App::drawUi()
 {
-    ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+    if(developer_)
+    {
+        ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+    }
 
     // First person: a crosshair (ImGui for now, until our own UI).
     if(camera_.firstPerson())
@@ -3112,6 +3120,17 @@ void App::drawUi()
         }
     }
 
+    // Logging in is ImGui's until the interface has its own.
+    loginFlow_->observe(session_.get());
+    handleLoginAction(loginPanel_->draw(session_.get()));
+    if(developer_)
+    {
+        drawDeveloperWindows();
+    }
+}
+
+void App::drawDeveloperWindows()
+{
     if(ImGui::Begin("Stats"))
     {
         const ImGuiIO& io = ImGui::GetIO();
@@ -3192,9 +3211,6 @@ void App::drawUi()
     textureBrowser_->draw();
     drawTeleportWindow();
     drawEnvironmentWindow();
-    loginFlow_->observe(session_.get());
-    handleLoginAction(loginPanel_->draw(session_.get()));
-
     if(showDemoWindow_)
     {
         ImGui::ShowDemoWindow(&showDemoWindow_);

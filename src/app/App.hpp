@@ -59,6 +59,7 @@ struct AppOptions
     // --ui-dir: the interface's documents (empty: assets/ui next to the
     // program; the source folder's, to edit them while running).
     std::filesystem::path uiDirectory;
+    bool developer = false;          // --developer: ImGui's windows (stats, textures, ...)
     bool mainMenu = false;           // --main-menu: open it at the start
     std::string loginUri;            // empty = Second Life main grid
     std::filesystem::path loginFile; // optional: log in at startup (see Credentials.hpp)
@@ -156,6 +157,10 @@ private:
     // Our avatar's position, in global meters; nothing until we see it.
     std::optional<glm::dvec3> agentGlobalPosition();
     void drawTeleportWindow();
+    // --developer: the debugging windows (stats, the FPS overlay, the
+    // texture browser, teleport, environment).
+    void drawDeveloperWindows();
+    bool developer_ = false;
     void drawEnvironmentWindow();
 
     struct SdlRuntime

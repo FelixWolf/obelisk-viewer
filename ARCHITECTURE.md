@@ -643,7 +643,10 @@ the cursor; it's free while the menu is open).
 
 ### The viewer's own interface (RmlUi)
 
-The interface people use (not the ImGui debug windows) is made with RmlUi
+The interface people use (not the ImGui debug windows, shown only with
+`--developer`: stats, the FPS overlay, the texture browser, teleport and
+environment; ImGui still draws the login window, the first-person crosshair
+and the hover tooltip until there are our own) is made with RmlUi
 (`viewer::gui`, src/gui): pages written as documents (RML, like HTML) and
 style sheets (RCSS, like CSS) in `assets/ui`, read at run time and copied
 next to the program. `--ui-dir assets/ui` reads them from the source
