@@ -197,6 +197,8 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
         item.RegisterMember("image", &InvItem::image);
         item.RegisterMember("link", &InvItem::link);
         item.RegisterMember("attachable", &InvItem::attachable);
+        item.RegisterMember("clothing", &InvItem::clothing);
+        item.RegisterMember("bodyPart", &InvItem::bodyPart);
         item.RegisterMember("worn", &InvItem::worn);
         item.RegisterMember("changing", &InvItem::changing);
     }
@@ -253,6 +255,20 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
                                         InventoryAction::Kind::Detach, m->invTarget_};
                                 }
                             });
+    for(const auto& [event, kind] : {std::pair{"invWear", InventoryAction::Kind::Wear},
+                                     std::pair{"invAdd", InventoryAction::Kind::Add},
+                                     std::pair{"invTakeOff", InventoryAction::Kind::TakeOff}})
+    {
+        model.BindEventCallback(
+            event,
+            [m, kind](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+            {
+                if(!m->invTarget_.isNull())
+                {
+                    m->inventoryAction_ = InventoryAction{kind, m->invTarget_};
+                }
+            });
+    }
     model.BindEventCallback("invRefresh",
                             [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
                             {
@@ -703,15 +719,19 @@ void MainMenu::updateInventory(const Status& status)
     }
 
     // What's worn, marked (an attachment, or a link to one).
-    if(status.worn && invWornShown_ != *status.worn)
+    const double seconds = static_cast<double>(SDL_GetTicks()) / 1000.0;
+    if(status.worn && (invWornShown_ != *status.worn || seconds - invWornAt_ >= 0.5))
     {
         invWornShown_ = *status.worn;
+        invWornAt_ = seconds;
         bool changed = false;
         for(size_t i = 0; i < invEntriesKnown_.size() && i < invEntries_.size(); i++)
         {
             const inventory::Item* target =
                 invEntriesKnown_[i].folder ? nullptr : model.resolve(invEntriesKnown_[i].id);
-            const bool worn = target && status.worn->contains(target->id);
+            const bool worn = target && (status.worn->contains(target->id) ||
+                                         (CurrentOutfit::isWearable(*target) && status.wearing &&
+                                          status.wearing(target->id)));
             if(invEntries_[i].worn != worn)
             {
                 invEntries_[i].worn = worn;
@@ -767,7 +787,10 @@ void MainMenu::updateInventory(const Status& status)
             own->isLink() ? (target ? "A link to it" : "A link (to something not here)") : "";
         invTarget_ = i.id;
         item.attachable = i.type == inventory::kObject && (!own->isLink() || target);
-        item.worn = status.worn && status.worn->contains(i.id);
+        item.clothing = i.type == CurrentOutfit::kClothing;
+        item.bodyPart = i.type == CurrentOutfit::kBodyPart;
+        item.worn = (status.worn && status.worn->contains(i.id)) ||
+                    ((item.clothing || item.bodyPart) && status.wearing && status.wearing(i.id));
         item.changing = status.changing && status.changing(i.id);
     }
     else

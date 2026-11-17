@@ -12,7 +12,7 @@ add_executable(viewer_tests
   DestinationsTests.cpp
   GridPopulationTests.cpp
   InventoryBrowserTests.cpp
-  AttachmentLinksTests.cpp
+  CurrentOutfitTests.cpp
   ParcelInfoTests.cpp
   DiskCacheTests.cpp
   HttpClientTests.cpp
@@ -63,7 +63,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/Destinations.cpp
   ${PROJECT_SOURCE_DIR}/src/app/GridPopulation.cpp
   ${PROJECT_SOURCE_DIR}/src/app/InventoryBrowser.cpp
-  ${PROJECT_SOURCE_DIR}/src/app/AttachmentLinks.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/CurrentOutfit.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ParcelInfo.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)

@@ -168,6 +168,9 @@ std::vector<std::string> defaultCapabilityNames()
         "RenderMaterials",
         "SimulatorFeatures",
         "UpdateAgentLanguage",
+        // Asking the simulator to make our look from the Current Outfit
+        // Folder (CurrentOutfit, after we change what's worn).
+        "UpdateAvatarAppearance",
         "ViewerAsset",
     };
 }

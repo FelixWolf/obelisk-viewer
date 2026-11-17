@@ -722,13 +722,20 @@ folders opened, and an item alone (its picture for textures, creator,
 what we may do with it, when it was made, description). The list is kept
 hidden behind an item, as Destinations' views are. Objects can be attached
 (RezMultipleAttachmentsFromInv, added at their last point) and taken off
-(ObjectDetach), and what's worn is marked. `AttachmentLinks` keeps the
+(ObjectDetach), and what's worn is marked. `CurrentOutfit` keeps the
 Current Outfit Folder in step, as the official viewer does: a link made
 (AISv3, POST to the folder with a transaction id) once an attachment asked
 for arrives, and removed (DELETE) once one taken off has gone, so the next
 login wears what we chose. One taken off is also dropped from the login
 outfit's list (`OutfitAttachments::forget`), or its retry pass would put it
-back. Clothing and body parts, landmarks and the rest are still to come. Parcel: the one we're on (`ParcelInfo`): the
+back. Clothing and body parts are worn through the COF itself: Wear links
+one instead of the others of its kind (wearable type: the item's flags' low
+byte; a body part always replaces), Add layers clothing over them, Take off
+removes clothing's links; once the writes are answered, the COF is fetched
+again for its version and the region asked to make our look from it
+(UpdateAvatarAppearance, `cof_version`; asked again with the version it
+says it "expected" when ours is stale). The new look comes as
+AvatarAppearance. Landmarks and the rest are still to come. Parcel: the one we're on (`ParcelInfo`): the
 region sends its properties on the event queue whenever we come onto one
 (ParcelProperties; sequence 0 or up, negative ones answer requests for
 others), which the session passes on (`drainRegionEvents`, the events it

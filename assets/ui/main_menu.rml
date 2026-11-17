@@ -184,6 +184,15 @@
                             <div class="stat" data-if="invItem.created != ''"><span>Made</span><span class="value">{{ invItem.created }}</span></div>
                         </div>
                         <div class="spacer"></div>
+                        <div data-if="invItem.clothing || invItem.bodyPart">
+                            <div class="teleport off" data-if="invItem.changing">Working...</div>
+                            <div class="teleport off" data-if="!invItem.changing &amp;&amp; invItem.bodyPart &amp;&amp; invItem.worn">Worn</div>
+                            <div class="actions" data-if="!invItem.changing &amp;&amp; !invItem.worn">
+                                <div class="teleport" data-event-click="invWear">Wear</div>
+                                <div class="teleport add" data-if="invItem.clothing" data-event-click="invAdd">Add</div>
+                            </div>
+                            <div class="teleport detach" data-if="!invItem.changing &amp;&amp; invItem.clothing &amp;&amp; invItem.worn" data-event-click="invTakeOff">Take off</div>
+                        </div>
                         <div data-if="invItem.attachable">
                             <div class="teleport off" data-if="invItem.changing">Working...</div>
                             <div class="teleport" data-if="!invItem.changing &amp;&amp; !invItem.worn" data-event-click="invAttach">Attach</div>

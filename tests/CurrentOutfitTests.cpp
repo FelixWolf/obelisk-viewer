@@ -1,4 +1,4 @@
-#include "AttachmentLinks.hpp"
+#include "CurrentOutfit.hpp"
 
 #include "viewer/llsd/Serialization.hpp"
 
@@ -45,14 +45,14 @@ Uuid id(int n)
     return *Uuid::parse(std::format("00000000-0000-0000-0000-{:012}", n));
 }
 
-std::string folderReply(const Uuid& cof, const std::string& links)
+std::string folderReply(const Uuid& cof, const std::string& links, int version = 3)
 {
     return std::format(R"(<llsd><map>
         <key>category_id</key><uuid>{}</uuid><key>name</key><string>Current Outfit</string>
-        <key>type_default</key><integer>46</integer><key>version</key><integer>3</integer>
+        <key>type_default</key><integer>46</integer><key>version</key><integer>{}</integer>
         <key>_embedded</key><map><key>links</key><map>{}</map></map>
         </map></llsd>)",
-                       cof.toString(), links);
+                       cof.toString(), version, links);
 }
 
 std::string linkXml(const Uuid& link, const Uuid& cof, const Uuid& target)
@@ -65,13 +65,13 @@ std::string linkXml(const Uuid& link, const Uuid& cof, const Uuid& target)
 
 } // namespace
 
-TEST_CASE("Attachment links: the COF follows what we attach and take off")
+TEST_CASE("Current outfit: the COF follows what we attach and take off")
 {
     FakeHttp http;
     inventory::Model model;
     inventory::Ais ais(http, model);
     ais.setCapability("https://ais.example/agent");
-    AttachmentLinks links(ais, model);
+    CurrentOutfit links(http, ais, model);
 
     const Uuid cof = id(1);
     const Uuid hat = id(10);
@@ -135,6 +135,96 @@ TEST_CASE("Attachment links: the COF follows what we attach and take off")
 
     // Never arriving: given up on.
     links.attaching(hat, 10.0);
-    links.update({}, 10.0 + AttachmentLinks::kTimeout + 1.0);
+    links.update({}, 10.0 + CurrentOutfit::kTimeout + 1.0);
     CHECK_FALSE(links.pending(hat));
+}
+
+TEST_CASE("Current outfit: wearing clothing, then asking for our look")
+{
+    FakeHttp http;
+    inventory::Model model;
+    inventory::Ais ais(http, model);
+    ais.setCapability("https://ais.example/agent");
+    CurrentOutfit outfit(http, ais, model);
+    outfit.setAppearanceCapability("https://sim.example/appearance");
+
+    const Uuid cof = id(1);
+    const auto put = [&](int n, int type, int wearable, const char* name)
+    {
+        inventory::Item item;
+        item.id = id(n);
+        item.parent = id(2);
+        item.name = name;
+        item.type = type;
+        item.inventoryType = 18;
+        item.flags = static_cast<uint32_t>(wearable);
+        model.put(item);
+    };
+    put(10, CurrentOutfit::kClothing, 4, "Old shirt");
+    put(11, CurrentOutfit::kClothing, 4, "New shirt");
+    put(12, CurrentOutfit::kClothing, 5, "Pants");
+
+    // The COF: the old shirt and the pants worn.
+    outfit.wear(id(11), CurrentOutfit::How::Replace);
+    CHECK(outfit.pending(id(11)));
+    outfit.update({}, 0.0);
+    REQUIRE(http.sent.size() == 1);
+    http.answer(0, folderReply(cof, linkXml(id(20), cof, id(10)) + linkXml(id(21), cof, id(12))));
+    ais.update();
+    CHECK(outfit.wearing(id(10)));
+    CHECK_FALSE(outfit.wearing(id(11)));
+
+    // Worn instead of the old shirt (not the pants): a link made, the old
+    // one's removed.
+    outfit.update({}, 0.1);
+    REQUIRE(http.sent.size() == 3);
+    CHECK(http.sent[1].request.method == net::HttpMethod::Post);
+    CHECK(http.sent[2].request.method == net::HttpMethod::Delete);
+    CHECK(http.sent[2].request.url.ends_with(id(20).toString()));
+    outfit.update({}, 0.2); // not asked for our look until both are done
+    CHECK(http.sent.size() == 3);
+    http.answer(1, folderReply(cof, linkXml(id(22), cof, id(11))));
+    http.answer(2, "<llsd><map/></llsd>");
+    ais.update();
+    CHECK(outfit.wearing(id(11)));
+    CHECK_FALSE(outfit.wearing(id(10)));
+    CHECK(outfit.wearing(id(12)));
+
+    // Then the COF's version after the changes, and our look asked for.
+    outfit.update({}, 0.3);
+    REQUIRE(http.sent.size() == 4);
+    CHECK(http.sent[3].request.url ==
+          "https://ais.example/agent/category/current/children?depth=1");
+    http.answer(3,
+                folderReply(cof, linkXml(id(21), cof, id(12)) + linkXml(id(22), cof, id(11)), 7));
+    ais.update();
+    REQUIRE(http.sent.size() == 5);
+    CHECK(http.sent[4].request.url == "https://sim.example/appearance");
+    const auto asked = [&](size_t i)
+    {
+        const auto& body = http.sent[i].request.body;
+        return llsd::parse(
+                   std::string_view(reinterpret_cast<const char*>(body.data()), body.size()))
+            .value_or(llsd::Value())["cof_version"]
+            .asInteger();
+    };
+    CHECK(asked(4) == 7);
+    CHECK(outfit.pending(id(11)));
+
+    // A stale version: asked again with the one expected; then done.
+    http.answer(4, "<llsd><map><key>success</key><boolean>0</boolean>"
+                   "<key>expected</key><integer>8</integer></map></llsd>");
+    outfit.update({}, 0.4);
+    REQUIRE(http.sent.size() == 6);
+    CHECK(asked(5) == 8);
+    http.answer(5, "<llsd><map><key>success</key><boolean>1</boolean></map></llsd>");
+    outfit.update({}, 0.5);
+    CHECK_FALSE(outfit.pending(id(11)));
+
+    // Taking off: its link removed, our look asked for again.
+    outfit.takeOff(id(11));
+    outfit.update({}, 1.0);
+    REQUIRE(http.sent.size() == 7);
+    CHECK(http.sent[6].request.method == net::HttpMethod::Delete);
+    CHECK(http.sent[6].request.url.ends_with(id(22).toString()));
 }

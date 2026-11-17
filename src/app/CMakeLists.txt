@@ -52,7 +52,7 @@ add_executable(viewer
   Destinations.cpp
   GridPopulation.cpp
   InventoryBrowser.cpp
-  AttachmentLinks.cpp
+  CurrentOutfit.cpp
   ParcelInfo.cpp
   MainMenu.cpp
   RadialMenu.cpp

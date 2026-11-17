@@ -2,10 +2,10 @@
 
 #include "AgentController.hpp"
 #include "AnimationManager.hpp"
-#include "AttachmentLinks.hpp"
 #include "AvatarNames.hpp"
 #include "AvatarView.hpp"
 #include "CameraController.hpp"
+#include "CurrentOutfit.hpp"
 #include "EnvironmentManager.hpp"
 #include "FrameProfile.hpp"
 #include "LegacyMaterialManager.hpp"
@@ -257,7 +257,7 @@ private:
     std::unique_ptr<inventory::Model> inventory_;
     std::unique_ptr<inventory::Ais> ais_;
     std::unique_ptr<InventoryBrowser> inventoryBrowser_; // the main menu's
-    std::unique_ptr<AttachmentLinks> attachmentLinks_;   // the COF, as we attach and detach
+    std::unique_ptr<CurrentOutfit> currentOutfit_;       // the COF, as we attach and detach
     std::unique_ptr<OutfitAttachments> outfit_;
     std::optional<double> selfSeenAt_;
     std::unordered_set<Uuid> worn_; // its items worn, as last looked (twice a second)

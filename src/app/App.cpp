@@ -477,7 +477,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->inventory_ = std::make_unique<inventory::Model>();
     app->ais_ = std::make_unique<inventory::Ais>(*app->http_, *app->inventory_);
     app->inventoryBrowser_ = std::make_unique<InventoryBrowser>(*app->ais_, *app->inventory_);
-    app->attachmentLinks_ = std::make_unique<AttachmentLinks>(*app->ais_, *app->inventory_);
+    app->currentOutfit_ =
+        std::make_unique<CurrentOutfit>(*app->http_, *app->ais_, *app->inventory_);
     // The main menu (with the workers and the web, for its pages' pictures).
     if(app->gui_)
     {
@@ -1320,6 +1321,8 @@ void App::updateSession()
         std::string(session_->capability("RenderMaterials").value_or("")));
     avatarNames_->setCapabilityUrl(
         std::string(session_->capability("GetDisplayNames").value_or("")));
+    currentOutfit_->setAppearanceCapability(
+        std::string(session_->capability("UpdateAvatarAppearance").value_or("")));
     // PBR terrain overrides: each region's, once its capabilities are in.
     for(const auto& [circuit, region] : session_->regions())
     {
@@ -1565,7 +1568,7 @@ void App::updateOutfit()
                     }
                     wornObjects_[object.attachItemId].push_back(key.localId);
                 }
-                attachmentLinks_->update(worn_, now);
+                currentOutfit_->update(worn_, now);
             }
         }
     }
@@ -1585,7 +1588,7 @@ void App::endSession()
     population_.clear(); // the next login may be another grid
     parcel_.clear();
     inventoryBrowser_->clear();
-    attachmentLinks_->clear();
+    currentOutfit_->clear();
     wornObjects_.clear();
     setFirstPerson(false);
     appearanceDue_.clear();
@@ -2450,12 +2453,13 @@ void App::updateMainMenu()
             status.estateOwner = avatar(estate->owner);
         }
         status.worn = &worn_;
-        status.changing = [this](const Uuid& item) { return attachmentLinks_->pending(item); };
+        status.changing = [this](const Uuid& item) { return currentOutfit_->pending(item); };
+        status.wearing = [this](const Uuid& item) { return currentOutfit_->wearing(item); };
     }
     destinations_->update();
     mainMenu_->update(status);
     // Attaching from inventory, or taking off: the COF follows once the
-    // simulator has done it (AttachmentLinks).
+    // simulator has done it (CurrentOutfit).
     if(const auto action = mainMenu_->takeInventoryAction(); action && session_)
     {
         const double now = static_cast<double>(SDL_GetTicksNS()) * 1e-9;
@@ -2466,7 +2470,21 @@ void App::updateMainMenu()
             log::info("attaching '{}' from inventory", item->name);
             const OutfitAttachments::Item attach = OutfitAttachments::toAttach(*item);
             session_->attachFromInventory(std::span(&attach, 1));
-            attachmentLinks_->attaching(item->id, now);
+            currentOutfit_->attaching(item->id, now);
+        }
+        else if((action->kind == MainMenu::InventoryAction::Kind::Wear ||
+                 action->kind == MainMenu::InventoryAction::Kind::Add) &&
+                item && CurrentOutfit::isWearable(*item))
+        {
+            log::info("wearing '{}'", item->name);
+            currentOutfit_->wear(item->id, action->kind == MainMenu::InventoryAction::Kind::Add
+                                               ? CurrentOutfit::How::Add
+                                               : CurrentOutfit::How::Replace);
+        }
+        else if(action->kind == MainMenu::InventoryAction::Kind::TakeOff && item)
+        {
+            log::info("taking off '{}'", item->name);
+            currentOutfit_->takeOff(item->id);
         }
         else if(action->kind == MainMenu::InventoryAction::Kind::Detach)
         {
@@ -2474,7 +2492,7 @@ void App::updateMainMenu()
             {
                 log::info("taking off '{}'", item ? item->name : action->item.toString());
                 session_->detach(objects->second);
-                attachmentLinks_->detaching(action->item, now);
+                currentOutfit_->detaching(action->item, now);
                 outfit_->forget(action->item); // not put back by a later outfit pass
             }
         }

@@ -476,3 +476,11 @@ body
 }
 .teleport.detach { decorator: linear-gradient(180deg, #c05050, #a03c3c); }
 .teleport.detach:hover { decorator: linear-gradient(180deg, #d06060, #b04848); }
+.actions
+{
+    display: flex;
+    flex-direction: row;
+}
+.actions .teleport { flex: 1 1 0; }
+.actions .teleport + .teleport { margin-left: 10dp; }
+.teleport.add { decorator: linear-gradient(180deg, #4a5a80, #3a4a6e); }

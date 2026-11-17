@@ -16,6 +16,7 @@
 // The app gives it what it shows (update()); what it looks like is the
 // documents' (they can be reloaded while running: reload()).
 
+#include "CurrentOutfit.hpp"
 #include "Destinations.hpp"
 #include "GridPopulation.hpp"
 #include "InventoryBrowser.hpp"
@@ -87,6 +88,8 @@ public:
         // taken off.
         const std::unordered_set<Uuid>* worn = nullptr;
         std::function<bool(const Uuid&)> changing;
+        // Clothing and body parts worn (linked in the Current Outfit Folder).
+        std::function<bool(const Uuid&)> wearing;
     };
     // The page's values, then its layout and animations (once a frame
     // while open, before render()).
@@ -104,6 +107,9 @@ public:
         {
             Attach,
             Detach,
+            Wear,    // clothing or a body part, instead of others of its kind
+            Add,     // clothing, over what's worn
+            TakeOff, // clothing
         };
         Kind kind = Kind::Attach;
         Uuid item; // the item itself (not a link to it)
@@ -160,6 +166,8 @@ public:
         Rml::String image; // asset://... for textures; empty: none
         Rml::String link;  // "A link" when it's one
         bool attachable = false;
+        bool clothing = false; // can be added over others, and taken off
+        bool bodyPart = false;
         bool worn = false;
         bool changing = false; // being put on or taken off
         bool operator==(const InvItem&) const = default;
@@ -254,6 +262,7 @@ private:
     InvItem invItem_;
     Uuid invTarget_; // the item shown (a link's target)
     std::unordered_set<Uuid> invWornShown_;
+    double invWornAt_ = -1.0; // when the lines' worn marks were last looked at (seconds)
     std::optional<InventoryAction> inventoryAction_;
     // Parcel.
     bool parcelKnown_ = false;
