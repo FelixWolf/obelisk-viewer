@@ -42,12 +42,18 @@ public:
     // A controller's stick (first person): x right, y forward, -1..1.
     void setStick(glm::vec2 stick) { stick_ = stick; }
 
+    bool flying() const { return flying_; }
+    void setFlying(bool on) { flying_ = on; }
+    // Stands up from what we sit on (the stand up flag, sent for a moment).
+    void standUp() { standUpFor_ = 0.3f; }
+
     uint32_t controlFlags() const { return flags_; }
     protocol::Quaternion bodyRotation() const;
 
 private:
     float yaw_ = 0.0f;
     bool flying_ = false;
+    float standUpFor_ = 0.0f; // seconds the stand up flag is still sent
     bool autoWalk_ = false;
     bool firstPerson_ = false;
     bool mouselookDown_ = false;

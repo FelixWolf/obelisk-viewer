@@ -351,6 +351,15 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     // In a headset, the view is from the avatar's eyes.
     app->wantFirstPerson_ = options.firstPerson || app->headset_ != nullptr;
     app->vrEyeHeight_ = options.vrEyeHeight;
+    app->controls_.setMenu(app->radialMenu());
+    app->controls_.setSubmit(
+        [app = app.get()](const std::string& text)
+        {
+            if(app->session_)
+            {
+                app->session_->say(text);
+            }
+        });
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
     if(options.camera)
     {
@@ -484,7 +493,9 @@ int App::run()
         {
             const bool uiConsumed = ui_->processEvent(event);
             const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
-            if(!uiConsumed || releasing)
+            // A free cursor (first person) points; it doesn't turn the view.
+            const bool pointing = event.type == SDL_EVENT_MOUSE_MOTION && cursorFree();
+            if((!uiConsumed || releasing) && !pointing)
             {
                 camera_.handleEvent(event);
             }
@@ -499,30 +510,21 @@ int App::run()
             {
                 setFirstPerson(!camera_.firstPerson());
             }
-            // The left button touches what the pointer is on; in first
-            // person it's the mouselook button scripts take (as the
-            // official viewer's).
-            if(camera_.firstPerson())
+            // The left button touches what the pointer is on. In first
+            // person (and in a headset) the buttons go through the VR
+            // controls each frame (updateControls).
+            if(!camera_.firstPerson())
             {
                 if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
                    event.button.button == SDL_BUTTON_LEFT && !uiConsumed)
                 {
-                    agent_.setMouselookButton(true);
+                    pressPointer();
                 }
                 if(event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
                    event.button.button == SDL_BUTTON_LEFT)
                 {
-                    agent_.setMouselookButton(false);
+                    releasePointer();
                 }
-            }
-            else if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-                    event.button.button == SDL_BUTTON_LEFT && !uiConsumed)
-            {
-                pressPointer();
-            }
-            if(event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT)
-            {
-                releasePointer();
             }
 
             // Home: the headset's origin where the head is now.
@@ -662,7 +664,8 @@ int App::run()
             vr_.headYaw = glm::degrees(std::atan2(look.y, look.x));
             // The right stick turns in steps (pushed past most of the way,
             // then let back), the left one walks.
-            const float turn = f.hands[1].stick.x;
+            const std::optional<int> menuHand = controls_.menuPointer();
+            const float turn = menuHand == 1 ? 0.0f : f.hands[1].stick.x;
             if(!vr_.snapped && std::abs(turn) > 0.7f)
             {
                 camera_.turn(turn > 0.0f ? -30.0f : 30.0f);
@@ -678,8 +681,9 @@ int App::run()
                 headset_->recenter();
             }
             vr_.recentering = f.hands[1].stickClick;
-            agent_.setStick(f.hands[0].stick);
-            vr_.walking = glm::length(f.hands[0].stick) > 0.5f;
+            const glm::vec2 walk = menuHand == 0 ? glm::vec2(0.0f) : f.hands[0].stick;
+            agent_.setStick(walk);
+            vr_.walking = glm::length(walk) > 0.5f;
         }
         else
         {
@@ -1000,10 +1004,12 @@ void App::updateSession()
         }
         // Kept captured: something (the window losing focus, say) may have
         // let go of it.
-        if(!SDL_GetWindowRelativeMouseMode(window_.get()) &&
+        // A free cursor (Tab held, or the radial menu open) let go of.
+        const bool capture = !cursorFree();
+        if(SDL_GetWindowRelativeMouseMode(window_.get()) != capture &&
            SDL_GetKeyboardFocus() == window_.get())
         {
-            SDL_SetWindowRelativeMouseMode(window_.get(), true);
+            SDL_SetWindowRelativeMouseMode(window_.get(), capture);
         }
     }
 
@@ -1389,6 +1395,8 @@ void App::buildScene(render::Scene& scene)
     scene.objects.clear();
     scene.lights.clear();
     scene.labels.clear();
+    scene.panels.clear();
+    scene.pointerLines.clear();
     scene.particles.clear();
     // What a recent frame hid behind what (occlusion culling).
     scene.occlusion = occlusion_ ? renderer_->occlusion() : nullptr;
@@ -1471,6 +1479,7 @@ void App::buildScene(render::Scene& scene)
             }
         }
     }
+    updateControls(scene);
     const auto ray = pointerRay(scene);
     pointer_.aim(scene, ray);
     updateIk(scene, ray);
@@ -1739,9 +1748,56 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
         }
         return std::nullopt;
     }
+    // On the VR controls, it isn't on the world.
+    if(camera_.firstPerson() && controlsPointed_[1].onControls)
+    {
+        return std::nullopt;
+    }
+    const render::Hud& hud = scene.hud;
+    const float unit = 0.5f / std::max(hud.zoom, 0.01f);
+    // Where a ray meets the HUD when it's a panel in the scene.
+    auto onHudPanel = [&](PointerController::Ray& ray)
+    {
+        if(hud.placement == render::Hud::Placement::Screen)
+        {
+            return;
+        }
+        const glm::mat4 toPanel = glm::inverse(hud.panel);
+        const glm::vec3 o(toPanel * glm::vec4(ray.origin, 1.0f));
+        const glm::vec3 d(toPanel * glm::vec4(ray.direction, 0.0f));
+        if(std::abs(d.x) > 1e-6f)
+        {
+            const glm::vec3 p = o + d * (-o.x / d.x);
+            const float half = 0.5f * hud.panelHeight;
+            if(-o.x / d.x > 0.0f && std::abs(p.y) <= half * hud.aspect && std::abs(p.z) <= half)
+            {
+                ray.hudPoint = glm::vec2(p.y, p.z) / hud.panelHeight * (2.0f * unit);
+            }
+        }
+    };
+    // In a headset: the right controller's ray.
+    if(vr_.placed && headsetFrame_ && headsetFrame_->render)
+    {
+        if(!vrAim_)
+        {
+            return std::nullopt;
+        }
+        PointerController::Ray ray = *vrAim_;
+        onHudPanel(ray);
+        return ray;
+    }
     float x = 0.0f;
     float y = 0.0f;
-    if(camera_.firstPerson())
+    if(camera_.firstPerson() && cursorFree())
+    {
+        // The cursor, let go of to point with.
+        if(ImGui::GetIO().WantCaptureMouse || SDL_GetMouseFocus() != window_.get())
+        {
+            return std::nullopt;
+        }
+        SDL_GetMouseState(&x, &y);
+    }
+    else if(camera_.firstPerson())
     {
         // The crosshair, in the middle.
         x = static_cast<float>(width) * 0.5f;
@@ -1773,27 +1829,11 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
     ray.direction = glm::normalize(glm::vec3(far) / far.w - camera.position);
     // Where it meets the HUD: over the view, straight from the window
     // position; on a panel, where the ray crosses it.
-    const render::Hud& hud = scene.hud;
-    const float unit = 0.5f / std::max(hud.zoom, 0.01f);
     if(hud.placement == render::Hud::Placement::Screen)
     {
         ray.hudPoint = glm::vec2(-ndc.x * unit * hud.aspect, ndc.y * unit);
     }
-    else
-    {
-        const glm::mat4 toPanel = glm::inverse(hud.panel);
-        const glm::vec3 o(toPanel * glm::vec4(ray.origin, 1.0f));
-        const glm::vec3 d(toPanel * glm::vec4(ray.direction, 0.0f));
-        if(std::abs(d.x) > 1e-6f)
-        {
-            const glm::vec3 p = o + d * (-o.x / d.x);
-            const float half = 0.5f * hud.panelHeight;
-            if(-o.x / d.x > 0.0f && std::abs(p.y) <= half * hud.aspect && std::abs(p.z) <= half)
-            {
-                ray.hudPoint = glm::vec2(p.y, p.z) / hud.panelHeight * (2.0f * unit);
-            }
-        }
-    }
+    onHudPanel(ray);
     return ray;
 }
 
@@ -1844,6 +1884,10 @@ float App::vrScale(const xr::HeadsetFrame& frame) const
     // The wearer's eyes as told, or as measured once they're plausibly
     // someone's (not a headset on the desk).
     constexpr float kLowestEyes = 1.0f;
+    if(!vrScaling_)
+    {
+        return 1.0f;
+    }
     const std::optional<float> wearer = vrEyeHeight_ ? vrEyeHeight_ : frame.eyeHeight;
     if(!wearer || *wearer < (vrEyeHeight_ ? 0.1f : kLowestEyes) || !world_ || !agentKey_ ||
        !avatars_)
@@ -1912,6 +1956,231 @@ void App::pressPointer()
         ik_.pressed = hover->key;
         ik_.pressDistance = glm::length(hover->hit.position - ik_.rayOrigin);
     }
+}
+
+MenuItem App::radialMenu()
+{
+    // The radial menu, top level first. An item is an action
+    // (MenuItem::run) or a submenu (MenuItem::submenu); .when() greys it
+    // out unless it holds, .named() works its label out when shown,
+    // .staying() keeps the menu open after it. More than
+    // RadialMenu::kSlices to a level page.
+    return MenuItem::submenu(
+        "",
+        {
+            MenuItem::run("Fly", [this] { agent_.setFlying(!agent_.flying()); })
+                .named([this] { return std::string(agent_.flying() ? "Land" : "Fly"); })
+                .when([this] { return !sitting(); }),
+            MenuItem::run("Stand up", [this] { agent_.standUp(); })
+                .when([this] { return sitting(); }),
+            MenuItem::run("Chat", [this] { controls_.openKeyboard(); }),
+            MenuItem::submenu(
+                "VR",
+                {
+                    MenuItem::run("Recenter",
+                                  [this]
+                                  {
+                                      if(headset_)
+                                      {
+                                          headset_->recenter();
+                                      }
+                                  })
+                        .when([this] { return headset_ && headset_->running(); }),
+                    MenuItem::run("Avatar scale", [this] { vrScaling_ = !vrScaling_; })
+                        .named(
+                            [this]
+                            {
+                                return std::string(vrScaling_ ? "Avatar scale: on"
+                                                              : "Avatar scale: off");
+                            })
+                        .staying(),
+                }),
+        });
+}
+
+bool App::cursorFree() const
+{
+    if(!camera_.firstPerson() || (headset_ && headset_->running()))
+    {
+        return false;
+    }
+    const bool* keys = SDL_GetKeyboardState(nullptr);
+    const bool tab = keys[SDL_SCANCODE_TAB] && !ImGui::GetIO().WantCaptureKeyboard;
+    return tab || controls_.menuPointer().has_value();
+}
+
+bool App::sitting() const
+{
+    if(!world_ || !agentKey_)
+    {
+        return false;
+    }
+    const world::Object* me = world_->object(agentKey_->region, agentKey_->localId);
+    return me && me->parentId != 0;
+}
+
+void App::updateControls(render::Scene& scene)
+{
+    VrControls::Input input;
+    input.eye = scene.camera.position;
+    input.forward = glm::normalize(scene.camera.target - scene.camera.position);
+    input.anchor = vr_.placed ? vr_.base : scene.camera.position;
+    input.now = static_cast<double>(SDL_GetTicks()) / 1000.0;
+    vrAim_.reset();
+    const bool headset = vr_.placed && headsetFrame_ && headsetFrame_->render;
+    if(headset)
+    {
+        // The controllers: their aim rays, triggers (pressed past most of
+        // the way, let go past half), menu buttons (B, Y; a Vive's menu
+        // button) and sticks; the menu opens at the hand and follows it.
+        for(size_t h = 0; h < 2; h++)
+        {
+            const xr::HeadsetFrame::Hand& hand = headsetFrame_->hands[h];
+            VrControls::Pointer& p = input.pointers[h];
+            if(!hand.tracked)
+            {
+                vrTrigger_[h] = false;
+                continue;
+            }
+            const xr::Pose aim = vrToScene(hand.aim);
+            p.active = true;
+            p.origin = aim.position;
+            p.direction = glm::normalize(aim.orientation * glm::vec3(1.0f, 0.0f, 0.0f));
+            vrTrigger_[h] = hand.trigger > (vrTrigger_[h] ? 0.4f : 0.7f);
+            p.button = vrTrigger_[h];
+            p.menu = hand.secondary;
+            p.stick = hand.stick;
+            p.menuAt = vrToScene(hand.grip).position + glm::vec3(0.0f, 0.0f, 0.12f);
+        }
+        if(input.pointers[1].active)
+        {
+            vrAim_ = PointerController::Ray{input.pointers[1].origin, input.pointers[1].direction,
+                                            std::nullopt};
+        }
+    }
+    else if(camera_.firstPerson())
+    {
+        // The mouse: through the crosshair, or the cursor while it's free;
+        // the left button presses, the right one (held) opens the menu.
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSize(window_.get(), &width, &height);
+        float x = 0.0f;
+        float y = 0.0f;
+        const SDL_MouseButtonFlags buttons = SDL_GetMouseState(&x, &y);
+        if(!cursorFree())
+        {
+            x = static_cast<float>(width) * 0.5f;
+            y = static_cast<float>(height) * 0.5f;
+        }
+        const bool overUi = cursorFree() && ImGui::GetIO().WantCaptureMouse;
+        if(width > 0 && height > 0 && SDL_GetKeyboardFocus() == window_.get() && !overUi)
+        {
+            const glm::vec2 ndc(2.0f * x / static_cast<float>(width) - 1.0f,
+                                1.0f - 2.0f * y / static_cast<float>(height));
+            const float aspect = static_cast<float>(width) / static_cast<float>(height);
+            const glm::mat4 inverse =
+                glm::inverse(scene.camera.projection(aspect) * scene.camera.view());
+            const glm::vec4 far = inverse * glm::vec4(ndc, 1.0f, 1.0f);
+            VrControls::Pointer& p = input.pointers[1];
+            p.active = true;
+            p.origin = scene.camera.position;
+            p.direction = glm::normalize(glm::vec3(far) / far.w - scene.camera.position);
+            p.button = (buttons & SDL_BUTTON_LMASK) != 0;
+            p.menu = (buttons & SDL_BUTTON_RMASK) != 0;
+        }
+    }
+    controlsPointed_ = controls_.update(input);
+
+    // The right pointer's presses not on the controls: the world's. On the
+    // desktop with the crosshair, the mouselook button scripts take.
+    const VrControls::Pointed& right = controlsPointed_[1];
+    if(right.pressed)
+    {
+        if(headset || cursorFree())
+        {
+            primaryPress();
+        }
+        else if(camera_.firstPerson())
+        {
+            agent_.setMouselookButton(true);
+            mouselookPressed_ = true;
+        }
+    }
+    if(right.released)
+    {
+        if(mouselookPressed_)
+        {
+            agent_.setMouselookButton(false);
+            mouselookPressed_ = false;
+        }
+        else
+        {
+            primaryRelease();
+        }
+    }
+    // Held on something that isn't touched: sit on it.
+    constexpr uint64_t kSitHold = 600'000'000ull;
+    if(sitHold_ && SDL_GetTicksNS() - sitHold_->sinceTicks > kSitHold)
+    {
+        const auto& hover = pointer_.hover();
+        if(hover && !hover->hud && hover->key == sitHold_->key)
+        {
+            sitOn(*hover);
+        }
+        sitHold_.reset();
+    }
+
+    std::array<std::optional<glm::vec3>, VrControls::kPointers> worldHits{};
+    if(const auto& hover = pointer_.hover(); hover && !hover->hud && headset)
+    {
+        worldHits[1] = hover->hit.position;
+    }
+    controls_.addTo(scene, headset, worldHits);
+}
+
+void App::primaryPress()
+{
+    const auto& hover = pointer_.hover();
+    if(hover && !hover->hud && hover->clickAction == world::ClickAction::Sit && !sitting())
+    {
+        sitOn(*hover);
+        return;
+    }
+    pressPointer();
+    if(hover && !hover->hud && !hover->touchable && !sitting())
+    {
+        sitHold_ = SitHold{hover->key, SDL_GetTicksNS()};
+    }
+}
+
+void App::primaryRelease()
+{
+    sitHold_.reset();
+    releasePointer();
+}
+
+void App::sitOn(const PointerController::Hover& hover)
+{
+    if(!session_ || !world_ || !objects_ || !originHandle_)
+    {
+        return;
+    }
+    const world::Object* object = world_->object(hover.key.region, hover.key.localId);
+    if(!object || object->type != world::ObjectType::Prim)
+    {
+        return;
+    }
+    // Where on it, in its frame (as the official viewer's "Sit Here").
+    glm::vec3 offset(0.0f);
+    if(const auto frame = objects_->objectFrame(*object, *world_, *originHandle_, avatars_.get()))
+    {
+        const glm::mat3 rotation(*frame);
+        offset = glm::transpose(rotation) * (hover.hit.position - glm::vec3((*frame)[3]));
+    }
+    log::info("sitting on {}", object->id.toString());
+    session_->requestSit(object->region, object->id, {offset.x, offset.y, offset.z});
+    releasePointer();
 }
 
 void App::releasePointer()

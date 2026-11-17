@@ -1,9 +1,9 @@
 #version 450
 
-// Labels (Scene::labels): glyph quads already placed in clip space, at
-// whole pixels, with their label's depth.
+// Labels (Scene::labels), panels and pointer lines: quads already placed
+// in clip space (labels' at whole pixels, with their label's depth).
 
-layout(location = 0) in vec3 inPosition; // x, y clip space; z depth
+layout(location = 0) in vec4 inPosition; // clip space
 layout(location = 1) in vec2 inUv;
 layout(location = 2) in vec4 inColor; // sRGB, alpha
 layout(location = 0) out vec2 outUv;
@@ -13,5 +13,5 @@ void main()
 {
     outUv = inUv;
     outColor = inColor;
-    gl_Position = vec4(inPosition, 1.0);
+    gl_Position = inPosition;
 }

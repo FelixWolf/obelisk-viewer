@@ -391,6 +391,47 @@ struct Label
     bool hud = false;
 };
 
+// A flat panel in the scene (the VR controls: menus, the keyboard): boxes
+// and text laid out in its own pixels (y down from its top left), placed by
+// `frame` (its middle; x right, y up, facing +Z) at `metersPerPixel`. Drawn
+// over everything, after the labels, in list order.
+struct Panel
+{
+    glm::mat4 frame{1.0f};
+    glm::vec2 size{0.0f}; // pixels
+    float metersPerPixel = 0.001f;
+    struct Box
+    {
+        glm::vec2 topLeft{0.0f};
+        glm::vec2 extent{0.0f};
+        glm::vec4 color{1.0f}; // sRGB, and alpha
+        float corner = 0.0f;   // its corners' radius (pixels)
+    };
+    struct Text
+    {
+        std::string text;
+        glm::vec2 center{0.0f}; // the middle of its block
+        float pixels = 24.0f;   // pixels per em
+        glm::vec4 color{1.0f};
+        float maxWidth = 0.0f; // wraps wider lines (0: never)
+    };
+    std::vector<Box> boxes;
+    std::vector<Text> texts; // over the boxes
+    std::vector<Box> over;   // over the text (a cursor)
+};
+
+// A pointer's ray (a VR controller's): a line `pixels` wide on screen from
+// one point to another, with a dot at its end if it's on something. Over
+// everything, as panels.
+struct PointerLine
+{
+    glm::vec3 from{0.0f};
+    glm::vec3 to{0.0f};
+    glm::vec4 color{1.0f};
+    float pixels = 2.0f;
+    float dot = 0.0f; // the end's dot across (pixels; 0: none)
+};
+
 struct Scene
 {
     // Global position (meters) of the scene's origin. Terrain textures are
@@ -416,6 +457,8 @@ struct Scene
     // (Renderer::kMaxLights).
     std::vector<LocalLight> lights;
     std::vector<Label> labels;
+    std::vector<Panel> panels;
+    std::vector<PointerLine> pointerLines;
     std::vector<ParticleDraw> particles;
     Water water;
     // Passes that can be left out (for measuring what they cost): glow,

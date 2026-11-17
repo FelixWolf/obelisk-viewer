@@ -33,6 +33,11 @@ void AgentController::update(float seconds, bool keyboardFree)
     const bool shift = held(SDL_SCANCODE_LSHIFT) || held(SDL_SCANCODE_RSHIFT);
 
     uint32_t flags = flying_ ? control::kFly : 0;
+    if(standUpFor_ > 0.0f)
+    {
+        flags |= control::kStandUp;
+        standUpFor_ -= seconds;
+    }
     if(firstPerson_)
     {
         flags |= control::kMouselook;

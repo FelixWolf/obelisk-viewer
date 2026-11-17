@@ -609,6 +609,38 @@ viewer does for its pie menu and inspector). They're kept a minute, then
 asked again; physical objects aren't asked (selecting stops them). Not yet:
 outlines on HUDs, dragging physical objects, avatars.
 
+### VR controls
+
+The radial menu and the keyboard (`VrControls`, `RadialMenu`,
+`VrKeyboard`) are flat panels in the scene, pointed at with up to two
+pointers: the controllers' aim rays in a headset; the mouse in first
+person on the desktop, so they can be tried without one (Tab held frees
+the cursor; it's free while the menu is open).
+- The menu button (B/Y; the right mouse button) held half a second opens
+  the radial menu at that hand, following it and facing the eyes (on the
+  desktop, half a metre ahead); a quick press closes it, or, closed, calls
+  the main-menu hook (`setMainMenu`, nothing yet). It's chosen from by
+  that hand's stick, pushed to a slice and let go, or by the other hand's
+  ray and its trigger (a click on the desktop). A cursor shows where it's
+  pointed; the middle is a resting place (a submenu's name), not a choice.
+- What's in it is data, written in `App::radialMenu()`: `MenuItem::run`
+  and `MenuItem::submenu`, with `.when` (enabled only then), `.named` (a
+  label worked out when shown) and `.staying` (stays open: toggles). A
+  level holds 8 slices; a submenu gives one to "< Back", and a level with
+  more items pages, its last slice "More p/N".
+- The keyboard (Chat) opens ahead and below the eyes; Send says the line in
+  local chat. Both panels move with the avatar.
+- Presses not on the controls are the world's: the right hand's trigger
+  (or, with the cursor free, the left button) is the primary action: the
+  object's sit click action sits, a touchable object is touched, and held
+  0.6 s on anything else sits on it there (AgentRequestSit with the offset
+  in the object's frame; asked to walk there, we ask AgentSit at once).
+  With the crosshair the left button stays the mouselook button.
+- Panels (`render::Panel`: boxes, text, boxes over the text) and pointer
+  rays (`render::PointerLine`) are drawn by the label pass over everything,
+  in panel pixels mapped through the panel's frame into each eye's clip
+  space (label vertices are clip-space positions).
+
 ### Glow
 
 As the official viewer's (LLPipeline::generateGlow, combineGlow, at its

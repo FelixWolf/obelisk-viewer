@@ -45,11 +45,12 @@ constexpr float kHeaderPadding = 4.0f;
 
 struct LabelVertex
 {
-    glm::vec3 position; // clip space x, y; depth
+    glm::vec4 position; // clip space
     glm::vec2 uv;
     uint32_t color; // RGBA8
+    uint32_t padding = 0;
 };
-static_assert(sizeof(LabelVertex) == 24);
+static_assert(sizeof(LabelVertex) == 32);
 
 uint32_t packColor(const glm::vec4& c)
 {
@@ -82,7 +83,8 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
 {
     labelVertices_ = 0;
     hudLabelVertices_ = 0;
-    if(scene.labels.empty() || width == 0 || height == 0)
+    if((scene.labels.empty() && scene.panels.empty() && scene.pointerLines.empty()) || width == 0 ||
+       height == 0)
     {
         return;
     }
@@ -159,24 +161,41 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
     // pixels to clip space. Should the atlas fill up, it's cleared and every
     // label laid out again.
     std::vector<LabelVertex> vertices;
+    // Where a pixel goes in clip space: on screen (labels), or on the panel
+    // being laid out (over everything: at the near depth).
+    const Panel* panel = nullptr;
+    glm::mat4 panelToClip(1.0f);
+    auto toClip = [&](glm::vec2 pixel, float depth)
+    {
+        if(!panel)
+        {
+            const glm::vec2 ndc = pixel / size * 2.0f - 1.0f;
+            return glm::vec4(ndc.x, -ndc.y, depth, 1.0f); // clip space y is up
+        }
+        const glm::vec2 local =
+            glm::vec2(pixel.x - panel->size.x * 0.5f, panel->size.y * 0.5f - pixel.y) *
+            panel->metersPerPixel;
+        glm::vec4 clip = panelToClip * glm::vec4(local, 0.0f, 1.0f);
+        clip.z = 0.0f;
+        return clip;
+    };
     auto quad = [&](glm::vec2 topLeft, glm::vec2 extent, glm::vec2 uv0, glm::vec2 uv1,
                     uint32_t color, float depth)
     {
-        const glm::vec2 a = topLeft / size * 2.0f - 1.0f;
-        const glm::vec2 b = (topLeft + extent) / size * 2.0f - 1.0f;
-        // Clip space y is up.
-        const LabelVertex v00{{a.x, -a.y, depth}, uv0, color};
-        const LabelVertex v10{{b.x, -a.y, depth}, {uv1.x, uv0.y}, color};
-        const LabelVertex v01{{a.x, -b.y, depth}, {uv0.x, uv1.y}, color};
-        const LabelVertex v11{{b.x, -b.y, depth}, uv1, color};
+        const LabelVertex v00{toClip(topLeft, depth), uv0, color};
+        const LabelVertex v10{
+            toClip({topLeft.x + extent.x, topLeft.y}, depth), {uv1.x, uv0.y}, color};
+        const LabelVertex v01{
+            toClip({topLeft.x, topLeft.y + extent.y}, depth), {uv0.x, uv1.y}, color};
+        const LabelVertex v11{toClip(topLeft + extent, depth), uv1, color};
         vertices.insert(vertices.end(), {v00, v10, v11, v00, v11, v01});
     };
     // A rounded box: the disc's quarters at the corners (the bottom ones
     // square if not `roundBottom`), its middle texel stretched over the rest.
-    auto box =
-        [&](glm::vec2 topLeft, glm::vec2 extent, uint32_t color, float depth, bool roundBottom)
+    auto box = [&](glm::vec2 topLeft, glm::vec2 extent, uint32_t color, float depth,
+                   bool roundBottom, float radius = kTagCorner)
     {
-        const text::Glyph* disc = glyphs_->disc(kTagCorner);
+        const text::Glyph* disc = glyphs_->disc(radius);
         if(!disc)
         {
             return false;
@@ -214,6 +233,125 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
     {
         text::TextLayout layout;
         const LabelLine* line = nullptr;
+    };
+    // Panels (their boxes, then their text, each block centered where it
+    // says, then what's over it), then the pointers' lines; all over the scene.
+    // A panel's box: rounded (as name tags), or square.
+    auto panelBox = [&](const Panel::Box& b)
+    {
+        const uint32_t color = packColor(b.color);
+        if(b.corner >= 1.0f)
+        {
+            return box(b.topLeft, b.extent, color, 0.0f, true, b.corner);
+        }
+        if(const text::Glyph* disc = glyphs_->disc(kTagCorner))
+        {
+            const glm::vec2 mid = (disc->uv0 + disc->uv1) * 0.5f;
+            quad(b.topLeft, b.extent, mid, mid, color, 0.0f);
+            return true;
+        }
+        return false;
+    };
+    auto drawPanels = [&]
+    {
+        bool done = true;
+        for(const Panel& p : scene.panels)
+        {
+            panel = &p;
+            panelToClip = viewProjection * p.frame;
+            for(const Panel::Box& b : p.boxes)
+            {
+                done = panelBox(b) && done;
+            }
+            for(const Panel::Text& t : p.texts)
+            {
+                text::LayoutOptions options;
+                options.pixelSize = t.pixels;
+                options.align = text::Align::Center;
+                if(t.maxWidth > 0.0f)
+                {
+                    options.maxWidth = t.maxWidth;
+                }
+                const text::TextLayout layout = text::layoutText(*glyphs_, *font_, t.text, options);
+                done = done && layout.complete;
+                const uint32_t color = packColor(t.color);
+                const glm::vec2 origin = t.center - layout.size * 0.5f;
+                for(const text::PlacedGlyph& g : layout.glyphs)
+                {
+                    quad(origin + g.position, g.size, g.uv0, g.uv1, color, 0.0f);
+                }
+            }
+            for(const Panel::Box& b : p.over)
+            {
+                done = panelBox(b) && done;
+            }
+        }
+        panel = nullptr;
+        const text::Glyph* disc = glyphs_->disc(kTagCorner);
+        if(!disc)
+        {
+            return false;
+        }
+        const glm::vec2 mid = (disc->uv0 + disc->uv1) * 0.5f;
+        for(const PointerLine& l : scene.pointerLines)
+        {
+            glm::vec4 a = viewProjection * glm::vec4(l.from, 1.0f);
+            glm::vec4 b = viewProjection * glm::vec4(l.to, 1.0f);
+            // Cut at a little in front of the eye.
+            constexpr float kNear = 0.01f;
+            if(a.w < kNear && b.w < kNear)
+            {
+                continue;
+            }
+            const bool endSeen = b.w >= kNear;
+            if(a.w < kNear)
+            {
+                a = glm::mix(a, b, (kNear - a.w) / (b.w - a.w));
+            }
+            else if(b.w < kNear)
+            {
+                b = glm::mix(b, a, (kNear - b.w) / (a.w - b.w));
+            }
+            const glm::vec2 pa = glm::vec2(a) / a.w * size * 0.5f;
+            const glm::vec2 pb = glm::vec2(b) / b.w * size * 0.5f;
+            const glm::vec2 along = pb - pa;
+            const uint32_t color = packColor(l.color);
+            if(glm::length(along) > 1e-3f)
+            {
+                // Across it, half its width, from pixels to clip space (by w).
+                const glm::vec2 across = glm::vec2(-along.y, along.x) / glm::length(along) *
+                                         l.pixels * 0.5f / size * 2.0f;
+                auto at = [&](const glm::vec4& c, float side)
+                {
+                    return glm::vec4(c.x + across.x * side * c.w, c.y + across.y * side * c.w, 0.0f,
+                                     c.w);
+                };
+                const LabelVertex a0{at(a, -1.0f), mid, color};
+                const LabelVertex a1{at(a, 1.0f), mid, color};
+                const LabelVertex b0{at(b, -1.0f), mid, color};
+                const LabelVertex b1{at(b, 1.0f), mid, color};
+                vertices.insert(vertices.end(), {a0, a1, b1, a0, b1, b0});
+            }
+            if(l.dot > 0.0f && endSeen)
+            {
+                // A disc, its size in pixels, around the end.
+                const text::Glyph* d = glyphs_->disc(std::round(l.dot * 0.5f));
+                if(!d)
+                {
+                    done = false;
+                    continue;
+                }
+                const glm::vec2 half = glm::vec2(l.dot * 0.5f) / size * 2.0f;
+                auto corner = [&](float x, float y)
+                { return glm::vec4(b.x + half.x * x * b.w, b.y + half.y * y * b.w, 0.0f, b.w); };
+                const LabelVertex c00{corner(-1, 1), d->uv0, color};
+                const LabelVertex c10{corner(1, 1), {d->uv1.x, d->uv0.y}, color};
+                const LabelVertex c01{corner(-1, -1), {d->uv0.x, d->uv1.y}, color};
+                const LabelVertex c11{corner(1, -1), d->uv1, color};
+                vertices.insert(vertices.end(), {c00, c10, c11, c00, c11, c01});
+            }
+        }
+        return done;
     };
     std::vector<Laid> laid;
     bool complete = true;
@@ -352,6 +490,7 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
             }
             if(list == &world)
             {
+                complete = drawPanels() && complete;
                 labelVertices_ = static_cast<uint32_t>(vertices.size());
             }
         }

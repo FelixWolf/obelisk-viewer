@@ -45,6 +45,9 @@ add_executable(viewer
   TerrainOverrides.cpp
   ViewerEffects.cpp
   OutfitAttachments.cpp
+  RadialMenu.cpp
+  VrControls.cpp
+  VrKeyboard.cpp
   TerrainView.cpp
   TextureManager.cpp
   TreeView.cpp

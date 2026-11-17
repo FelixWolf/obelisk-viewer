@@ -22,6 +22,7 @@
 #include "TextureManager.hpp"
 #include "TreeView.hpp"
 #include "ViewerEffects.hpp"
+#include "VrControls.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
 #include "viewer/core/DiskCache.hpp"
@@ -262,6 +263,36 @@ private:
     uint64_t uiStatsTicks_ = 0;
     LocalChat localChat_;
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
+
+    // The VR controls (radial menu, keyboard): the controllers point at
+    // them; on the desktop, in first person, the mouse does (the right
+    // button holds the menu open; Tab, held, frees the cursor to point
+    // with).
+    VrControls controls_;
+    // What the radial menu holds: written here, all of it.
+    MenuItem radialMenu();
+    // The pointers this frame (before the pointer's ray is aimed), and what
+    // they're on.
+    void updateControls(render::Scene& scene);
+    std::array<VrControls::Pointed, VrControls::kPointers> controlsPointed_{};
+    std::optional<PointerController::Ray> vrAim_; // the right controller's ray
+    std::array<bool, 2> vrTrigger_{};             // held (with some slack)
+    bool cursorFree() const; // first person, the cursor let go of to point with
+    bool vrScaling_ = true;  // the radial menu's "Avatar scale"
+    // The primary action (a controller's trigger, a click): on what the
+    // pointer's on, sit if that's what it does, else touch; held a moment
+    // on something that isn't touched, sit on it.
+    void primaryPress();
+    void primaryRelease();
+    void sitOn(const PointerController::Hover& hover);
+    bool sitting() const;
+    struct SitHold
+    {
+        world::ObjectKey key;
+        uint64_t sinceTicks = 0;
+    };
+    std::optional<SitHold> sitHold_;
+    bool mouselookPressed_ = false; // the left button went to scripts (mouselook)
     // The pointer's ray this frame (none over the UI or while dragging).
     std::optional<PointerController::Ray> pointerRay(const render::Scene& scene) const;
     // The regions' water and the water beyond them, with the day's water

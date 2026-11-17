@@ -1078,6 +1078,22 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
                       static_cast<double>(m->Info.Position.z));
         }
     }
+    else if(event.is<msg::AvatarSitResponse>())
+    {
+        // Seated by the region already, unless it wants us to walk there
+        // first (the official viewer's autopilot, then AgentSit): we don't
+        // walk, but ask to sit all the same (near enough, it seats us).
+        if(const auto m = event.decode<msg::AvatarSitResponse>(); m && login_)
+        {
+            if(m->SitTransform.AutoPilot)
+            {
+                msg::AgentSit sit;
+                sit.AgentData.AgentID = login_->agentId;
+                sit.AgentData.SessionID = login_->sessionId;
+                send(*region, sit, true);
+            }
+        }
+    }
     else if(event.is<msg::LogoutReply>())
     {
         if(state_ == SessionState::LoggingOut && region->isMain)
@@ -1199,6 +1215,25 @@ Block surfaceBlock(const Session::TouchSurface& s)
 }
 
 } // namespace
+
+void Session::requestSit(uint64_t regionHandle, const Uuid& object, protocol::Vector3 offset)
+{
+    const Region* target = nullptr;
+    for(const auto& [id, region] : regions_)
+    {
+        target = region->handle == regionHandle ? region.get() : target;
+    }
+    if(!target || !login_)
+    {
+        return;
+    }
+    msg::AgentRequestSit sit;
+    sit.AgentData.AgentID = login_->agentId;
+    sit.AgentData.SessionID = login_->sessionId;
+    sit.TargetObject.TargetID = object;
+    sit.TargetObject.Offset = offset;
+    send(*target, sit, true);
+}
 
 void Session::touchObject(uint64_t regionHandle, uint32_t localId, protocol::Vector3 grabOffset,
                           const TouchSurface& surface)

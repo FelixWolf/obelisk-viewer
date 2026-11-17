@@ -7,6 +7,7 @@ add_executable(viewer_tests
   OutfitAttachmentsTests.cpp
   InventoryTests.cpp
   LoginFlowTests.cpp
+  VrControlsTests.cpp
   CircuitTests.cpp
   DiskCacheTests.cpp
   HttpClientTests.cpp
@@ -51,6 +52,9 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/OutfitAttachments.cpp
   ${PROJECT_SOURCE_DIR}/src/app/LoginFlow.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SavedLogins.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/RadialMenu.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/VrKeyboard.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/VrControls.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

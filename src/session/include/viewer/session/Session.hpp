@@ -297,6 +297,12 @@ public:
                      const TouchSurface& surface);
     void releaseObject(uint64_t regionHandle, uint32_t localId, const TouchSurface& surface);
 
+    // Sits on an object (AgentRequestSit), `offset` where on it (the
+    // object's frame), as the official viewer's "Sit Here"; the region
+    // answers (AvatarSitResponse), and is told to go ahead (AgentSit).
+    // Standing up is a control flag (control::kStandUp).
+    void requestSit(uint64_t regionHandle, const Uuid& object, protocol::Vector3 offset);
+
     // Local chat (ChatFromViewer) to the main region: on a channel (0 is
     // what people hear), whispered (0), said (1) or shouted (2); 4 and 5
     // tell others we started or stopped typing.

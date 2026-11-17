@@ -644,15 +644,15 @@ bool Renderer::createPipelines()
         log::error("creating the glow pipelines failed: {}", SDL_GetError());
     }
 
-    // Labels: glyph quads (clip space position and depth, atlas coordinates,
-    // color), premultiplied.
+    // Labels (and panels, pointer lines): glyph quads (clip space position,
+    // atlas coordinates, color), premultiplied.
     if(labelVert && labelFrag)
     {
-        const SDL_GPUVertexBufferDescription buffer = {0, 24, SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+        const SDL_GPUVertexBufferDescription buffer = {0, 32, SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
         const SDL_GPUVertexAttribute attributes[] = {
-            {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0},
-            {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 12},
-            {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, 20},
+            {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, 0},
+            {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, 16},
+            {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, 24},
         };
         SDL_GPUGraphicsPipelineCreateInfo info = {};
         info.vertex_shader = labelVert;
