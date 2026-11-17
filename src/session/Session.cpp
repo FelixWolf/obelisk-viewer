@@ -1078,6 +1078,31 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
                       static_cast<double>(m->Info.Position.z));
         }
     }
+    else if(event.is<msg::SimStats>())
+    {
+        if(const auto m = event.decode<msg::SimStats>())
+        {
+            Region::Stats stats = region->stats.value_or(Region::Stats{});
+            for(const auto& stat : m->Stat)
+            {
+                switch(stat.StatID)
+                {
+                case 0:
+                    stats.timeDilation = stat.StatValue;
+                    break;
+                case 1:
+                    stats.fps = stat.StatValue;
+                    break;
+                case 2:
+                    stats.physicsFps = stat.StatValue;
+                    break;
+                default:
+                    break;
+                }
+            }
+            region->stats = stats;
+        }
+    }
     else if(event.is<msg::AvatarSitResponse>())
     {
         // Seated by the region already, unless it wants us to walk there

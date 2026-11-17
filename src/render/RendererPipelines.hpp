@@ -54,6 +54,7 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* occlusionReduce = nullptr; // the depth made small
     SDL_GPUGraphicsPipeline* label = nullptr;
     SDL_GPUGraphicsPipeline* hudLabel = nullptr;
+    SDL_GPUGraphicsPipeline* panelImage = nullptr; // a Panel's image, over the view
     // Shadow maps (depth only): opaque casters, and ones with see-through parts.
     SDL_GPUGraphicsPipeline* shadowObject = nullptr;
     SDL_GPUGraphicsPipeline* shadowObjectMasked = nullptr;
@@ -113,6 +114,7 @@ struct Renderer::Pipelines
                                           glowExtract,
                                           glowBlur,
                                           hudLabel,
+                                          panelImage,
                                           shadowObject,
                                           shadowObjectMasked,
                                           shadowSkinned,

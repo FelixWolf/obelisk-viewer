@@ -1,4 +1,4 @@
-# --- Shaders: GLSL -> SPIR-V at build time, embedded as byte arrays ----------
+# --- Shaders: GLSL -> SPIR-V at build time, embedded (cmake/Shaders.cmake) ---
 set(shader_sources
   object.vert
   skinned.vert
@@ -27,6 +27,7 @@ set(shader_sources
   outline.frag
   label.vert
   label.frag
+  panel_image.frag
   glow_mask.frag
   glow_extract.frag
   glow_blur.frag
@@ -40,47 +41,13 @@ set(shader_sources
   water_mask_object.vert
   eye_copy.frag
 )
-set(shader_dir ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
-set(shader_out ${CMAKE_CURRENT_BINARY_DIR}/shaders)
-set(shader_spirv)
-set(shader_entries)
-foreach(source IN LISTS shader_sources)
-  set(spirv ${shader_out}/${source}.spv)
-  # object.vert -> kObjectVert, terrain_pbr.frag -> kTerrainPbrFrag
-  string(REGEX REPLACE "[._]" ";" parts ${source})
-  set(name "k")
-  foreach(part IN LISTS parts)
-    if(part)
-      string(SUBSTRING ${part} 0 1 first)
-      string(TOUPPER ${first} first)
-      string(SUBSTRING ${part} 1 -1 rest)
-      string(APPEND name ${first}${rest})
-    endif()
-  endforeach()
-  add_custom_command(
-    OUTPUT ${spirv}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${shader_out}
-    COMMAND ${VIEWER_GLSLANG_EXECUTABLE} -V --target-env vulkan1.0 -I${shader_dir}
-            -o ${spirv} ${shader_dir}/${source}
-    DEPENDS ${shader_dir}/${source} ${shader_dir}/common.glsl ${shader_dir}/atmosphere.glsl
-            ${shader_dir}/shadow.glsl ${shader_dir}/lights.glsl ${shader_dir}/probes.glsl
-            ${shader_dir}/cubemap.glsl ${shader_dir}/tonemap.glsl ${shader_dir}/clusters.glsl
-            ${VIEWER_GLSLANG_DEPENDS}
-    COMMENT "Compiling shader ${source}"
-    VERBATIM
-  )
-  list(APPEND shader_spirv ${spirv})
-  list(APPEND shader_entries "${name}=${spirv}")
-endforeach()
-
 set(shader_header ${CMAKE_CURRENT_BINARY_DIR}/generated/viewer/render/ShaderBytecode.hpp)
-add_custom_command(
-  OUTPUT ${shader_header}
-  COMMAND ${CMAKE_COMMAND} -DOUTPUT=${shader_header} -DNAMESPACE=viewer::render::shaders
-          "-DENTRIES=${shader_entries}" -P ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
-  DEPENDS ${shader_spirv} ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
-  COMMENT "Embedding SPIR-V shaders"
-  VERBATIM
+viewer_embed_shaders(${shader_header}
+  NAMESPACE viewer::render::shaders
+  DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shaders
+  SOURCES ${shader_sources}
+  INCLUDES common.glsl atmosphere.glsl shadow.glsl lights.glsl probes.glsl cubemap.glsl
+           tonemap.glsl clusters.glsl
 )
 
 add_library(viewer_render STATIC

@@ -1,0 +1,70 @@
+<rml>
+<head>
+    <title>Main menu</title>
+    <link type="text/rcss" href="theme.rcss"/>
+    <link type="text/rcss" href="main_menu.rcss"/>
+</head>
+<body>
+<div id="menu" data-model="menu">
+    <nav id="tabs">
+        <div class="title">TestViewer</div>
+        <div class="tab" data-for="t : tabs" data-class-active="t.id == tab"
+             data-event-click="tab = t.id"><span>{{ t.name }}</span></div>
+        <div class="spacer"></div>
+        <div class="close" data-event-click="close">Close</div>
+    </nav>
+
+    <div id="page">
+        <div data-if="tab == 'home'">
+            <div class="card banner">
+                <div class="headline">Welcome back</div>
+                <div>{{ greeting }}</div>
+            </div>
+
+            <div class="row">
+                <div class="card">
+                    <h3>Time</h3>
+                    <div class="clock">
+                        <div>
+                            <div class="time">{{ slt }}</div>
+                            <div class="zone">SLT (Pacific)</div>
+                            <div class="date">{{ sltDate }}</div>
+                        </div>
+                        <div>
+                            <div class="time">{{ local }}</div>
+                            <div class="zone">Local</div>
+                            <div class="date">{{ localDate }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Performance</h3>
+                    <div class="stat" data-class-good="viewerFps >= 45" data-class-fair="viewerFps >= 25 && viewerFps < 45" data-class-poor="viewerFps < 25">
+                        <span>Viewer FPS</span><span class="value">{{ viewerFpsText }}</span>
+                    </div>
+                    <div class="stat" data-class-good="regionFps >= 40" data-class-fair="regionFps >= 20 && regionFps < 40" data-class-poor="regionFps < 20">
+                        <span>Region FPS</span><span class="value">{{ regionFpsText }}</span>
+                    </div>
+                    <div class="stat" data-class-good="dilation >= 0.95" data-class-fair="dilation >= 0.8 && dilation < 0.95" data-class-poor="dilation < 0.8">
+                        <span>Time dilation</span><span class="value">{{ dilationText }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Region</h3>
+                <div class="region-name">{{ region }}</div>
+                <div class="muted">{{ position }}</div>
+                <div class="placeholder">The map of the region and its neighbours goes here</div>
+            </div>
+        </div>
+
+        <div data-if="tab != 'home'" class="soon">
+            <h2>{{ tabName }}</h2>
+            <p>Not built yet.</p>
+        </div>
+    </div>
+</div>
+</body>
+</rml>

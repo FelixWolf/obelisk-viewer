@@ -83,6 +83,7 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
 {
     labelVertices_ = 0;
     hudLabelVertices_ = 0;
+    labelImages_.clear();
     if((scene.labels.empty() && scene.panels.empty() && scene.pointerLines.empty()) || width == 0 ||
        height == 0)
     {
@@ -259,6 +260,12 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
         {
             panel = &p;
             panelToClip = viewProjection * p.frame;
+            if(p.image)
+            {
+                const uint32_t first = static_cast<uint32_t>(vertices.size());
+                quad(glm::vec2(0.0f), p.size, glm::vec2(0.0f), glm::vec2(1.0f), 0xffffffffu, 0.0f);
+                labelImages_.push_back({first, 6, p.image});
+            }
             for(const Panel::Box& b : p.boxes)
             {
                 done = panelBox(b) && done;
@@ -442,6 +449,7 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
     auto build = [&]
     {
         vertices.clear();
+        labelImages_.clear();
         complete = true;
         for(const auto* list : {&world, &hud})
         {
@@ -563,12 +571,36 @@ void Renderer::drawLabels(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target
     depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, hud ? nullptr : &depth);
-    SDL_BindGPUGraphicsPipeline(pass, hud ? pipelines_->hudLabel : pipelines_->label);
-    const SDL_GPUTextureSamplerBinding glyphs = {glyphTexture_, pipelines_->clampSampler};
-    SDL_BindGPUFragmentSamplers(pass, 0, &glyphs, 1);
     const SDL_GPUBufferBinding vertices = {labelBuffer_.buffer.get(), 0};
     SDL_BindGPUVertexBuffers(pass, 0, &vertices, 1);
-    SDL_DrawGPUPrimitives(pass, count, 1, hud ? labelVertices_ : 0, 0);
+    // The glyphs (and boxes) from `first` up to `end`.
+    auto glyphRun = [&](uint32_t first, uint32_t end)
+    {
+        if(end <= first)
+        {
+            return;
+        }
+        SDL_BindGPUGraphicsPipeline(pass, hud ? pipelines_->hudLabel : pipelines_->label);
+        const SDL_GPUTextureSamplerBinding glyphs = {glyphTexture_, pipelines_->clampSampler};
+        SDL_BindGPUFragmentSamplers(pass, 0, &glyphs, 1);
+        SDL_DrawGPUPrimitives(pass, end - first, 1, first, 0);
+    };
+    const uint32_t start = hud ? labelVertices_ : 0;
+    uint32_t at = start;
+    if(!hud)
+    {
+        // Panels' images (only among the view's), each in its place.
+        for(const LabelImage& image : labelImages_)
+        {
+            glyphRun(at, image.first);
+            SDL_BindGPUGraphicsPipeline(pass, pipelines_->panelImage);
+            const SDL_GPUTextureSamplerBinding binding = {image.texture, pipelines_->clampSampler};
+            SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+            SDL_DrawGPUPrimitives(pass, image.count, 1, image.first, 0);
+            at = image.first + image.count;
+        }
+    }
+    glyphRun(at, start + count);
     SDL_EndGPURenderPass(pass);
 }
 

@@ -460,6 +460,15 @@ private:
     FrameBuffer labelBuffer_;
     uint32_t labelVertices_ = 0;
     uint32_t hudLabelVertices_ = 0;
+    // Panels' images among the labels' vertices (drawn with their own
+    // pipeline and texture, in order).
+    struct LabelImage
+    {
+        uint32_t first = 0;
+        uint32_t count = 0;
+        SDL_GPUTexture* texture = nullptr;
+    };
+    std::vector<LabelImage> labelImages_;
 
     // The eye images (the window's format, as the views' passes draw into),
     // made or remade at this size; false if they couldn't be.

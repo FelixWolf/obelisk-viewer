@@ -233,6 +233,8 @@ bool Renderer::createPipelines()
         device_, {kParticleGlowFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "particle_glow.frag");
     SDL_GPUShader* labelFrag =
         createShader(device_, {kLabelFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "label.frag");
+    SDL_GPUShader* panelImageFrag = createShader(
+        device_, {kPanelImageFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "panel_image.frag");
     SDL_GPUShader* pickFrag =
         createShader(device_, {kPickFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 1}, "pick.frag");
     SDL_GPUShader* hudLegacyFrag = createShader(
@@ -674,6 +676,12 @@ bool Renderer::createPipelines()
         info.target_info.has_depth_stencil_target = true;
         info.target_info.depth_stencil_format = depthFormat_;
         p.label = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(panelImageFrag)
+        {
+            info.fragment_shader = panelImageFrag;
+            p.panelImage = SDL_CreateGPUGraphicsPipeline(device_, &info);
+            info.fragment_shader = labelFrag;
+        }
 
         SDL_GPUColorTargetDescription hudColor = premultiplied;
         hudColor.format = kHudFormat;
@@ -704,7 +712,7 @@ bool Renderer::createPipelines()
         p.outline = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
     if(!p.hudComposite || !p.hudPanel || !p.pick || !p.outlineMask || !p.outline || !p.label ||
-       !p.hudLabel)
+       !p.hudLabel || !p.panelImage)
     {
         log::error("creating the HUD pipelines failed: {}", SDL_GetError());
     }
@@ -794,22 +802,22 @@ bool Renderer::createPipelines()
         }
     }
 
-    for(SDL_GPUShader* s : {objectVert,         skinnedVert,
-                            blinnPhongFrag,     pbrFrag,
-                            terrainVert,        terrainBlinnPhongFrag,
-                            terrainPbrFrag,     fullscreenVert,
-                            tonemapFrag,        luminanceFrag,
-                            exposureFrag,       skyFrag,
-                            shadowFrag,         shadowMaskedFrag,
-                            probeRadianceFrag,  probeIrradianceFrag,
-                            brdfTableFrag,      hudLegacyFrag,
-                            hudPbrFrag,         hudCompositeFrag,
-                            hudPanelVert,       hudPanelFrag,
-                            pickFrag,           outlineMaskFrag,
-                            outlineFrag,        labelVert,
-                            labelFrag,          glowMaskFrag,
-                            glowExtractFrag,    glowBlurFrag,
-                            occlusionReduceFrag})
+    for(SDL_GPUShader* s : {objectVert,        skinnedVert,
+                            blinnPhongFrag,    pbrFrag,
+                            terrainVert,       terrainBlinnPhongFrag,
+                            terrainPbrFrag,    fullscreenVert,
+                            tonemapFrag,       luminanceFrag,
+                            exposureFrag,      skyFrag,
+                            shadowFrag,        shadowMaskedFrag,
+                            probeRadianceFrag, probeIrradianceFrag,
+                            brdfTableFrag,     hudLegacyFrag,
+                            hudPbrFrag,        hudCompositeFrag,
+                            hudPanelVert,      hudPanelFrag,
+                            pickFrag,          outlineMaskFrag,
+                            outlineFrag,       labelVert,
+                            labelFrag,         panelImageFrag,
+                            glowMaskFrag,      glowExtractFrag,
+                            glowBlurFrag,      occlusionReduceFrag})
     {
         if(s)
         {

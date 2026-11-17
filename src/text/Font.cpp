@@ -49,6 +49,11 @@ std::shared_ptr<const Font> Font::builtin()
                                      std::end(embedded::kInterRegularTtf)));
 }
 
+std::span<const uint8_t> Font::builtinData()
+{
+    return embedded::kInterRegularTtf;
+}
+
 Font::Metrics Font::metrics(float pixelSize) const
 {
     const float scale = stbtt_ScaleForMappingEmToPixels(&impl_->info, pixelSize);

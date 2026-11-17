@@ -239,3 +239,38 @@ CPMAddPackage(
   GIT_TAG v1.3.1
   OPTIONS "BUILD_TESTS OFF"
 )
+
+# --- FreeType: RmlUi's font engine rasterizes with it -----------------------
+CPMAddPackage(
+  NAME freetype
+  GITHUB_REPOSITORY freetype/freetype
+  GIT_TAG VER-2-13-3
+  OPTIONS
+    "FT_DISABLE_ZLIB ON"
+    "FT_DISABLE_BZIP2 ON"
+    "FT_DISABLE_PNG ON"
+    "FT_DISABLE_HARFBUZZ ON"
+    "FT_DISABLE_BROTLI ON"
+    "BUILD_SHARED_LIBS OFF"
+    "SKIP_INSTALL_ALL ON"
+)
+
+# --- RmlUi: the viewer's own interface (HTML/CSS-like documents) -------------
+# Its font engine takes FreeType as the target above (not an installed one).
+if(TARGET freetype AND NOT TARGET Freetype::Freetype)
+  add_library(Freetype::Freetype ALIAS freetype)
+endif()
+CPMAddPackage(
+  NAME RmlUi
+  GITHUB_REPOSITORY mikke89/RmlUi
+  GIT_TAG 6.1
+  SYSTEM YES # its headers aren't held to our warnings
+  OPTIONS
+    "BUILD_SHARED_LIBS OFF"
+    "RMLUI_FONT_ENGINE freetype"
+    "RMLUI_SAMPLES OFF"
+    "RMLUI_PRECOMPILED_HEADERS OFF"
+    # Its bundled hash map (robin_hood.h) lacks <cstdint> for current GCC.
+    "RMLUI_THIRDPARTY_CONTAINERS OFF"
+    "CMAKE_DISABLE_FIND_PACKAGE_Freetype ON"
+)

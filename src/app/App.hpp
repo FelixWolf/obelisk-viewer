@@ -10,6 +10,7 @@
 #include "LegacyMaterialManager.hpp"
 #include "LocalChat.hpp"
 #include "LoginPanel.hpp"
+#include "MainMenu.hpp"
 #include "MaterialManager.hpp"
 #include "ObjectProperties.hpp"
 #include "ObjectView.hpp"
@@ -55,12 +56,16 @@ struct AppOptions
 {
     std::filesystem::path cacheDirectory;  // empty = platform default
     std::filesystem::path importDirectory; // optional: texture browser import on startup
-    std::string loginUri;                  // empty = Second Life main grid
-    std::filesystem::path loginFile;       // optional: log in at startup (see Credentials.hpp)
-    bool testScene = false;                // show the material test scene
-    bool pbrTerrain = false;               // start with the PBR terrain shader
-    bool firstPerson = false;              // go first person once in the world
-    bool vr = false;                       // --vr: show the world in a headset (OpenXR)
+    // --ui-dir: the interface's documents (empty: assets/ui next to the
+    // program; the source folder's, to edit them while running).
+    std::filesystem::path uiDirectory;
+    bool mainMenu = false;           // --main-menu: open it at the start
+    std::string loginUri;            // empty = Second Life main grid
+    std::filesystem::path loginFile; // optional: log in at startup (see Credentials.hpp)
+    bool testScene = false;          // show the material test scene
+    bool pbrTerrain = false;         // start with the PBR terrain shader
+    bool firstPerson = false;        // go first person once in the world
+    bool vr = false;                 // --vr: show the world in a headset (OpenXR)
     float vrOverscan = 0.1f; // --vr-overscan PERCENT: each eye drawn this much wider per side
     // --vr-eye-height METRES: the wearer's eye height standing, which the
     // headset's movements are scaled from to the avatar's (0: not scaled;
@@ -211,6 +216,18 @@ private:
     // Our avatar's IK from the headset and controllers.
     void updateVrIk(const render::Scene& scene, const Uuid& self);
     std::unique_ptr<ui::ImGuiLayer> ui_;
+    // The viewer's own interface (RmlUi), and its main menu (before it goes).
+    std::unique_ptr<gui::Gui> gui_;
+    std::unique_ptr<MainMenu> mainMenu_;
+    // The main menu: shown over the window (the desktop, third person) or
+    // on a panel (first person, VR); its values each frame, its input from
+    // the window's events (true: the event was its), and where it's drawn
+    // over the window (pixels: x, y, width, height).
+    void updateMainMenu();
+    bool mainMenuEvent(const SDL_Event& event);
+    bool mainMenuOverWindow() const;
+    glm::vec4 mainMenuRect() const;
+    bool mainMenuPressed_ = false; // the mouse button went down on it
     std::unique_ptr<JobSystem> jobs_;
     std::unique_ptr<image::J2kDecoder> j2kDecoder_;
     std::unique_ptr<DiskCache> diskCache_;                    // before everything using it

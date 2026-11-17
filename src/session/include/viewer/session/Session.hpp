@@ -172,6 +172,16 @@ struct Region
     std::string name{};
     Uuid regionId{};
 
+    // From SimStats (the official LL_SIM_STAT_*: 0, 1, 2), about every
+    // second; nothing before the first.
+    struct Stats
+    {
+        float timeDilation = 1.0f;
+        float fps = 0.0f;
+        float physicsFps = 0.0f;
+    };
+    std::optional<Stats> stats{};
+
     std::string seedCapability{}; // empty until the region gives us one
     Capabilities capabilities{};
     bool capabilitiesReceived = false;

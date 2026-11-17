@@ -353,3 +353,58 @@ TEST_CASE("VrControls: the menu follows the hand that opened it; its stick, let 
     CHECK(ran == 1);
     CHECK_FALSE(controls.menuOpen());
 }
+
+TEST_CASE("VrControls: a page on a panel: pointed at, pressed, not the world's")
+{
+    VrControls controls;
+    std::vector<std::optional<glm::vec2>> points;
+    std::vector<bool> buttons;
+    VrControls::Page page;
+    page.size = glm::vec2(1000.0f, 500.0f);
+    page.metersPerPixel = 0.001f;
+    page.point = [&](std::optional<glm::vec2> pixel) { points.push_back(pixel); };
+    page.button = [&](bool down) { buttons.push_back(down); };
+    controls.setPage(std::move(page));
+
+    VrControls::Input input;
+    input.eye = glm::vec3(0.0f);
+    input.forward = glm::vec3(1.0f, 0.0f, 0.0f);
+    VrControls::Pointer& mouse = input.pointers[1];
+    mouse.active = true;
+    mouse.direction = glm::vec3(1.0f, 0.0f, 0.0f);
+    controls.update(input);
+    controls.openPage();
+    REQUIRE(controls.pageOpen());
+
+    // Straight ahead (a little above its middle: it's placed below the
+    // eyes): on it.
+    auto pointed = controls.update(input);
+    CHECK(pointed[1].onControls);
+    REQUIRE_FALSE(points.empty());
+    REQUIRE(points.back());
+    CHECK(points.back()->x == doctest::Approx(500.0f).epsilon(0.01));
+    CHECK(points.back()->y < 250.0f);
+
+    // A press on it is the page's.
+    mouse.button = true;
+    pointed = controls.update(input);
+    CHECK_FALSE(pointed[1].pressed);
+    REQUIRE(buttons.size() == 1);
+    CHECK(buttons[0]);
+    mouse.button = false;
+    pointed = controls.update(input);
+    CHECK_FALSE(pointed[1].released);
+    REQUIRE(buttons.size() == 2);
+    CHECK_FALSE(buttons[1]);
+
+    // Off it: told so once; presses are the world's again.
+    mouse.direction = glm::vec3(0.0f, 1.0f, 0.0f);
+    controls.update(input);
+    CHECK_FALSE(points.back());
+    const size_t told = points.size();
+    controls.update(input);
+    CHECK(points.size() == told);
+    mouse.button = true;
+    pointed = controls.update(input);
+    CHECK(pointed[1].pressed);
+}

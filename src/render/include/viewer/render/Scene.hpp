@@ -10,6 +10,8 @@
 #include "viewer/render/Mesh.hpp"
 #include "viewer/render/OcclusionMap.hpp"
 
+#include <SDL3/SDL_gpu.h>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -418,6 +420,9 @@ struct Panel
     std::vector<Box> boxes;
     std::vector<Text> texts; // over the boxes
     std::vector<Box> over;   // over the text (a cursor)
+    // An image filling the panel, under its boxes (an interface page:
+    // premultiplied, sRGB-encoded values); its owner keeps it.
+    SDL_GPUTexture* image = nullptr;
 };
 
 // A pointer's ray (a VR controller's): a line `pixels` wide on screen from

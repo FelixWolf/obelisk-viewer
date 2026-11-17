@@ -45,6 +45,7 @@ add_executable(viewer
   TerrainOverrides.cpp
   ViewerEffects.cpp
   OutfitAttachments.cpp
+  MainMenu.cpp
   RadialMenu.cpp
   VrControls.cpp
   VrKeyboard.cpp
@@ -74,6 +75,7 @@ target_link_libraries(viewer PRIVATE
   viewer::volume
   viewer::render
   viewer::ui
+  viewer::gui
   viewer::xr
   viewer_warnings
 )
@@ -88,11 +90,14 @@ target_compile_definitions(viewer PRIVATE
   VIEWER_VERSION="${PROJECT_VERSION}"
 )
 
-# Data files the viewer loads at runtime (the default avatar), next to the
-# binary.
+# Data files the viewer loads at runtime (the default avatar, the
+# interface's documents), next to the binary.
 add_custom_command(TARGET viewer POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
           ${PROJECT_SOURCE_DIR}/assets/character
           $<TARGET_FILE_DIR:viewer>/assets/character
+  COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+          ${PROJECT_SOURCE_DIR}/assets/ui
+          $<TARGET_FILE_DIR:viewer>/assets/ui
   VERBATIM
 )

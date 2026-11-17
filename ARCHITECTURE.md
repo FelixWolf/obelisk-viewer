@@ -641,6 +641,45 @@ the cursor; it's free while the menu is open).
   in panel pixels mapped through the panel's frame into each eye's clip
   space (label vertices are clip-space positions).
 
+### The viewer's own interface (RmlUi)
+
+The interface people use (not the ImGui debug windows) is made with RmlUi
+(`viewer::gui`, src/gui): pages written as documents (RML, like HTML) and
+style sheets (RCSS, like CSS) in `assets/ui`, read at run time and copied
+next to the program. `--ui-dir assets/ui` reads them from the source
+folder instead, and F5 reads them again, so they can be edited while the
+viewer runs.
+- `gui::Gui` sets RmlUi up: its system interface (time, log, clipboard,
+  the keyboard a text field asks for), its renderer, and the built-in font
+  (Inter, through FreeType). RmlUi keeps these process-wide, so there's one
+  Gui (the app's).
+- A `gui::Surface` is a page: an RmlUi context drawn into its own image
+  (RGBA8, premultiplied, sRGB-encoded values, as the window's), given the
+  pointer's input in its pixels. On the desktop the image goes over the
+  window (`Gui::drawOver`); in first person and VR it's a `render::Panel`'s
+  image, drawn in the label pass over the scene, and the pointers use it
+  through `VrControls::Page` (the controllers' rays, a trigger to click,
+  a stick to scroll).
+- The renderer (`gui::Renderer`, GuiRenderer.cpp) collects a page's draws
+  while RmlUi renders it, copying the geometry, then records them in one
+  go: new textures and the vertices up, then one render pass. It does
+  geometry, textures, scissor rectangles, transforms and gradients
+  (`gui_gradient.frag`, as RmlUi's OpenGL 3 renderer reads their
+  parameters); not yet clip masks, layers or filters (RmlUi leaves those
+  effects out).
+- Data reaches pages through RmlUi's data models (bound C++ values, made
+  dirty when they change); a data model goes on an element inside the
+  body, not the body itself, or `data-for` isn't expanded.
+
+The main menu (`MainMenu`, `main_menu.rml`) has tabs: Home, Destinations,
+Inventory, Outfits, Parcel, Media and Options. Only Home shows anything
+yet: a greeting, SLT and local clocks, the viewer's frame rate, the
+region's (SimStats: `Region::stats`) and its time dilation, and the region
+we're in. Escape opens and closes it on the desktop (over the middle of
+the window), as does a quick press of the menu button in first person and
+VR (on a panel ahead, moving with the avatar). `--main-menu` opens it at
+the start.
+
 ### Glow
 
 As the official viewer's (LLPipeline::generateGlow, combineGlow, at its

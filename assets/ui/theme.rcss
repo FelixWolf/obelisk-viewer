@@ -1,0 +1,28 @@
+/* The viewer's interface: shared look. RmlUi has no built-in styles for
+   HTML's elements, so blocks are said to be blocks here. */
+
+body, div, h1, h2, h3, p, section, header, nav, footer
+{
+    display: block;
+}
+
+body
+{
+    font-family: Inter;
+    font-size: 20dp;
+    color: #e8ecf4;
+}
+
+h1 { font-size: 30dp; margin: 0 0 12dp 0; }
+h2 { font-size: 24dp; margin: 0 0 10dp 0; }
+h3 { font-size: 16dp; color: #9aa6bd; margin: 0 0 6dp 0; text-transform: uppercase; letter-spacing: 1dp; }
+
+.card
+{
+    background-color: #1a2030e0;
+    border-radius: 14dp;
+    padding: 18dp 22dp;
+    border: 1dp #ffffff14;
+}
+
+.muted { color: #8b96ab; }

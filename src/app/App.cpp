@@ -78,6 +78,7 @@ void printUsage()
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
                  "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
+                 "[--ui-dir DIR] [--main-menu] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -137,6 +138,15 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.vrOverscan = std::strtof(args[i], nullptr) / 100.0f;
+        }
+        else if(arg == "--main-menu")
+        {
+            options.mainMenu = true;
+        }
+        else if(arg == "--ui-dir" && hasValue)
+        {
+            i++;
+            options.uiDirectory = args[i];
         }
         else if(arg == "--vr-eye-height" && hasValue)
         {
@@ -324,6 +334,33 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     {
         return nullptr;
     }
+    {
+        // The viewer's own interface; without it, there's no main menu.
+        const char* base = SDL_GetBasePath();
+        gui::Gui::Options guiOptions;
+        guiOptions.documents = options.uiDirectory.empty()
+                                   ? fs::path(base ? base : "") / "assets" / "ui"
+                                   : options.uiDirectory;
+        guiOptions.windowFormat = app->renderer_->swapchainFormat();
+        app->gui_ = gui::Gui::create(app->renderer_->device(), guiOptions);
+        if(app->gui_)
+        {
+            // A text field on a page takes the keyboard: the window's text
+            // input on (and off again after).
+            app->gui_->setKeyboard(
+                [window = app->window_.get()](bool on)
+                { on ? SDL_StartTextInput(window) : SDL_StopTextInput(window); });
+            app->mainMenu_ = MainMenu::create(*app->gui_);
+            if(app->mainMenu_ && options.mainMenu)
+            {
+                app->mainMenu_->setOpen(true);
+            }
+        }
+        if(!app->mainMenu_)
+        {
+            log::warn("no main menu: the interface couldn't be set up");
+        }
+    }
 
     app->jobs_ = std::make_unique<JobSystem>();
     app->j2kDecoder_ = image::createJ2kDecoder();
@@ -352,6 +389,31 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->wantFirstPerson_ = options.firstPerson || app->headset_ != nullptr;
     app->vrEyeHeight_ = options.vrEyeHeight;
     app->controls_.setMenu(app->radialMenu());
+    if(app->mainMenu_)
+    {
+        // The main menu on a panel (first person, VR): the menu button's
+        // press opens and closes it, the pointers use it.
+        app->controls_.setMainMenu([app = app.get()] { app->mainMenu_->toggle(); });
+        gui::Surface& surface = app->mainMenu_->surface();
+        VrControls::Page page;
+        page.size = glm::vec2(MainMenu::kSize);
+        page.metersPerPixel = 0.00045f; // about 58 cm across
+        page.image = surface.texture();
+        page.point = [&surface](std::optional<glm::vec2> pixel)
+        {
+            if(pixel)
+            {
+                surface.pointerMove(*pixel);
+            }
+            else
+            {
+                surface.pointerLeave();
+            }
+        };
+        page.button = [&surface](bool down) { surface.pointerButton(0, down); };
+        page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
+        app->controls_.setPage(std::move(page));
+    }
     app->controls_.setSubmit(
         [app = app.get()](const std::string& text)
         {
@@ -491,7 +553,9 @@ int App::run()
         SDL_Event event;
         while(SDL_PollEvent(&event))
         {
-            const bool uiConsumed = ui_->processEvent(event);
+            // ImGui (the debug windows) first, then the main menu.
+            const bool imguiConsumed = ui_->processEvent(event);
+            const bool uiConsumed = imguiConsumed || mainMenuEvent(event);
             const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
             // A free cursor (first person) points; it doesn't turn the view.
             const bool pointing = event.type == SDL_EVENT_MOUSE_MOTION && cursorFree();
@@ -547,6 +611,7 @@ int App::run()
         profile_.beginFrame();
         // Keep the session going even while minimized.
         updateSession();
+        updateMainMenu();
         profile_.mark(FrameProfile::Session);
 
         // The headset's news (its session starting, stopping, ending).
@@ -664,8 +729,12 @@ int App::run()
             vr_.headYaw = glm::degrees(std::atan2(look.y, look.x));
             // The right stick turns in steps (pushed past most of the way,
             // then let back), the left one walks.
+            // Not a hand whose stick points at the radial menu or scrolls
+            // the main menu.
             const std::optional<int> menuHand = controls_.menuPointer();
-            const float turn = menuHand == 1 ? 0.0f : f.hands[1].stick.x;
+            auto onPage = [&](size_t hand)
+            { return controls_.pageOpen() && controlsPointed_[hand].onControls; };
+            const float turn = menuHand == 1 || onPage(1) ? 0.0f : f.hands[1].stick.x;
             if(!vr_.snapped && std::abs(turn) > 0.7f)
             {
                 camera_.turn(turn > 0.0f ? -30.0f : 30.0f);
@@ -681,7 +750,7 @@ int App::run()
                 headset_->recenter();
             }
             vr_.recentering = f.hands[1].stickClick;
-            const glm::vec2 walk = menuHand == 0 ? glm::vec2(0.0f) : f.hands[0].stick;
+            const glm::vec2 walk = menuHand == 0 || onPage(0) ? glm::vec2(0.0f) : f.hands[0].stick;
             agent_.setStick(walk);
             vr_.walking = glm::length(walk) > 0.5f;
         }
@@ -710,6 +779,10 @@ int App::run()
             {
                 profile_.mark(FrameProfile::Acquire);
                 xr::HeadsetFrame& h = *headsetFrame_;
+                if(mainMenu_ && mainMenu_->isOpen())
+                {
+                    mainMenu_->render(frame->commands); // before the panel shows it
+                }
                 if(h.render)
                 {
                     renderer_->drawEyes(*frame, scene_, eyeCameras_, h.width, h.height);
@@ -740,6 +813,10 @@ int App::run()
         else if(auto frame = renderer_->beginFrame())
         {
             profile_.mark(FrameProfile::Acquire);
+            if(mainMenu_ && mainMenu_->isOpen())
+            {
+                mainMenu_->render(frame->commands);
+            }
             if(stereoSize_ > 0)
             {
                 renderer_->drawStereo(*frame, scene_, stereoSize_, 0.064f);
@@ -747,6 +824,11 @@ int App::run()
             else
             {
                 renderer_->drawScene(*frame, scene_);
+            }
+            if(mainMenuOverWindow())
+            {
+                gui_->drawOver(frame->commands, frame->target, {frame->width, frame->height},
+                               mainMenu_->surface(), mainMenuRect());
             }
             ui_->record(*frame);
             profile_.mark(FrameProfile::Render);
@@ -1998,6 +2080,172 @@ MenuItem App::radialMenu()
         });
 }
 
+bool App::mainMenuOverWindow() const
+{
+    return mainMenu_ && mainMenu_->isOpen() && !camera_.firstPerson() &&
+           !(headset_ && headset_->running());
+}
+
+glm::vec4 App::mainMenuRect() const
+{
+    // In the middle of the window: at the display's scale, or smaller to
+    // fit.
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
+    const glm::vec2 window(static_cast<float>(width), static_cast<float>(height));
+    const glm::vec2 page(MainMenu::kSize);
+    const float scale = std::min({SDL_GetWindowDisplayScale(window_.get()),
+                                  window.x * 0.92f / page.x, window.y * 0.92f / page.y});
+    const glm::vec2 size = glm::floor(page * scale);
+    const glm::vec2 topLeft = glm::floor((window - size) * 0.5f);
+    return glm::vec4(topLeft, size);
+}
+
+bool App::mainMenuEvent(const SDL_Event& event)
+{
+    if(!mainMenu_)
+    {
+        return false;
+    }
+    gui::Surface& surface = mainMenu_->surface();
+    const bool keyboardFree = !ImGui::GetIO().WantCaptureKeyboard;
+    if(event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && keyboardFree)
+    {
+        // Escape opens and closes it (as other worlds' main menus); F5
+        // reads its documents again (after editing them: --ui-dir).
+        if(event.key.scancode == SDL_SCANCODE_ESCAPE)
+        {
+            mainMenu_->toggle();
+            return true;
+        }
+        if(event.key.scancode == SDL_SCANCODE_F5)
+        {
+            gui_->forgetStyles();
+            mainMenu_->reload();
+            log::info("the interface's documents read again");
+            return true;
+        }
+    }
+    if(!mainMenuOverWindow())
+    {
+        return false;
+    }
+    // Typing into a field on it.
+    if(surface.typing() && keyboardFree)
+    {
+        if(event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
+        {
+            surface.key(event.key.key, event.key.mod, event.type == SDL_EVENT_KEY_DOWN);
+            return true;
+        }
+        if(event.type == SDL_EVENT_TEXT_INPUT)
+        {
+            surface.text(event.text.text);
+            return true;
+        }
+    }
+    // The mouse: window coordinates to the page's pixels.
+    const glm::vec4 rect = mainMenuRect();
+    const float density = SDL_GetWindowPixelDensity(window_.get());
+    auto toPage = [&](float x, float y, bool& inside)
+    {
+        const glm::vec2 pixel = glm::vec2(x, y) * density;
+        const glm::vec2 local = (pixel - glm::vec2(rect.x, rect.y)) / glm::vec2(rect.z, rect.w);
+        inside = local.x >= 0.0f && local.y >= 0.0f && local.x < 1.0f && local.y < 1.0f;
+        return local * glm::vec2(MainMenu::kSize);
+    };
+    bool inside = false;
+    switch(event.type)
+    {
+    case SDL_EVENT_MOUSE_MOTION:
+    {
+        const glm::vec2 at = toPage(event.motion.x, event.motion.y, inside);
+        if(inside || mainMenuPressed_)
+        {
+            surface.pointerMove(at);
+        }
+        else
+        {
+            surface.pointerLeave();
+        }
+        return inside || mainMenuPressed_;
+    }
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    {
+        const glm::vec2 at = toPage(event.button.x, event.button.y, inside);
+        if(!inside)
+        {
+            return false;
+        }
+        surface.pointerMove(at);
+        const int button = event.button.button == SDL_BUTTON_LEFT    ? 0
+                           : event.button.button == SDL_BUTTON_RIGHT ? 1
+                                                                     : 2;
+        surface.pointerButton(button, true);
+        mainMenuPressed_ = true;
+        return true;
+    }
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+    {
+        if(!mainMenuPressed_)
+        {
+            return false;
+        }
+        const int button = event.button.button == SDL_BUTTON_LEFT    ? 0
+                           : event.button.button == SDL_BUTTON_RIGHT ? 1
+                                                                     : 2;
+        surface.pointerButton(button, false);
+        mainMenuPressed_ = (SDL_GetMouseState(nullptr, nullptr) &
+                            (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK | SDL_BUTTON_MMASK)) != 0;
+        return true;
+    }
+    case SDL_EVENT_MOUSE_WHEEL:
+    {
+        toPage(event.wheel.mouse_x, event.wheel.mouse_y, inside);
+        if(!inside)
+        {
+            return false;
+        }
+        // The wheel turned away from us scrolls up.
+        surface.scroll(glm::vec2(event.wheel.x, -event.wheel.y));
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+void App::updateMainMenu()
+{
+    if(!mainMenu_ || !mainMenu_->isOpen())
+    {
+        return;
+    }
+    MainMenu::Status status;
+    status.viewerFps = ImGui::GetIO().Framerate;
+    if(session_)
+    {
+        if(const session::Region* main = session_->mainRegion())
+        {
+            status.region = main->name;
+            if(main->stats)
+            {
+                status.regionFps = main->stats->fps;
+                status.timeDilation = main->stats->timeDilation;
+            }
+            const protocol::Vector3 at = session_->agentPosition();
+            status.position = std::format("{:.0f}, {:.0f}, {:.0f}", static_cast<double>(at.x),
+                                          static_cast<double>(at.y), static_cast<double>(at.z));
+        }
+        if(const session::LoginSuccess* login = session_->login())
+        {
+            status.name = login->name.first;
+        }
+    }
+    mainMenu_->update(status);
+}
+
 bool App::cursorFree() const
 {
     if(!camera_.firstPerson() || (headset_ && headset_->running()))
@@ -2006,7 +2254,7 @@ bool App::cursorFree() const
     }
     const bool* keys = SDL_GetKeyboardState(nullptr);
     const bool tab = keys[SDL_SCANCODE_TAB] && !ImGui::GetIO().WantCaptureKeyboard;
-    return tab || controls_.menuPointer().has_value();
+    return tab || controls_.menuPointer().has_value() || controls_.pageOpen();
 }
 
 bool App::sitting() const
@@ -2091,6 +2339,18 @@ void App::updateControls(render::Scene& scene)
         }
     }
     controlsPointed_ = controls_.update(input);
+    // The main menu on a panel while it's open in first person or VR (placed
+    // from where the eyes are now); over the window otherwise.
+    const bool menuOnPanel = mainMenu_ && mainMenu_->isOpen() &&
+                             (camera_.firstPerson() || (headset_ && headset_->running()));
+    if(menuOnPanel && !controls_.pageOpen())
+    {
+        controls_.openPage();
+    }
+    else if(!menuOnPanel && controls_.pageOpen())
+    {
+        controls_.closePage();
+    }
 
     // The right pointer's presses not on the controls: the world's. On the
     // desktop with the crosshair, the mouselook button scripts take.

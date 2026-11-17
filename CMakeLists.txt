@@ -20,6 +20,7 @@ option(VIEWER_BUILD_TESTS "Build unit tests" ON)
 
 include(cmake/CPM.cmake)
 include(cmake/Dependencies.cmake)
+include(cmake/Shaders.cmake)
 
 # Put our binaries in build/<preset>/bin regardless of what dependencies set.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)

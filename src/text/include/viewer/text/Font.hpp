@@ -19,6 +19,8 @@ public:
     static std::shared_ptr<const Font> load(std::vector<uint8_t> data);
     // The built-in font (Inter Regular).
     static std::shared_ptr<const Font> builtin();
+    // The built-in font's file, there for as long as the program runs.
+    static std::span<const uint8_t> builtinData();
     ~Font();
 
     Font(const Font&) = delete;

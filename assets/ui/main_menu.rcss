@@ -1,0 +1,136 @@
+/* The main menu: tabs down the left, the chosen one's page beside them. */
+
+body
+{
+    width: 100%;
+    height: 100%;
+}
+
+#menu
+{
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+    background-color: #0e1219f0;
+    border-radius: 22dp;
+    border: 2dp #ffffff1c;
+}
+
+#tabs
+{
+    display: flex;
+    flex-direction: column;
+    width: 230dp;
+    padding: 22dp 14dp;
+    background-color: #151b28;
+    border-radius: 22dp 0 0 22dp;
+    border-right: 1dp #ffffff14;
+}
+
+#tabs .title
+{
+    font-size: 22dp;
+    color: #ffffff;
+    padding: 6dp 14dp 22dp 14dp;
+}
+
+.tab
+{
+    display: block;
+    padding: 14dp 16dp;
+    margin-bottom: 6dp;
+    border-radius: 12dp;
+    color: #b8c2d6;
+    cursor: pointer;
+    transition: background-color 0.12s linear-in-out;
+}
+.tab:hover { background-color: #263048; color: #ffffff; }
+.tab.active
+{
+    background-color: #2f5bd0;
+    decorator: linear-gradient(180deg, #3a6ae0, #2a4fbe);
+    color: #ffffff;
+}
+
+#tabs .spacer { flex: 1; }
+
+.close
+{
+    display: block;
+    text-align: center;
+    padding: 12dp;
+    border-radius: 12dp;
+    color: #b8c2d6;
+    background-color: #222a3c;
+    cursor: pointer;
+}
+.close:hover { background-color: #8a2a32; color: #ffffff; }
+
+#page
+{
+    flex: 1;
+    padding: 26dp 28dp;
+    overflow-y: auto;
+}
+
+/* Home: cards, some side by side in rows. */
+.card { margin-bottom: 20dp; }
+.row
+{
+    display: flex;
+    flex-direction: row;
+}
+.row .card { flex: 1 1 0; }
+.row .card + .card { margin-left: 20dp; }
+
+.clock
+{
+    display: flex;
+    flex-direction: row;
+}
+.clock > div { flex: 1 1 0; }
+.clock .time { font-size: 44dp; color: #ffffff; }
+.clock .zone { font-size: 15dp; color: #8b96ab; }
+.clock .date { font-size: 15dp; color: #8b96ab; }
+
+.stat
+{
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 6dp 0;
+    border-bottom: 1dp #ffffff10;
+}
+.stat .value { color: #ffffff; }
+.stat.good .value { color: #7ee2a0; }
+.stat.fair .value { color: #f1d070; }
+.stat.poor .value { color: #f08080; }
+
+.region-name { font-size: 26dp; color: #ffffff; }
+
+.placeholder
+{
+    height: 140dp;
+    border-radius: 10dp;
+    decorator: linear-gradient(135deg, #24304a, #182030);
+    color: #7c879c;
+    text-align: center;
+    padding-top: 56dp;
+}
+
+.banner
+{
+    border-radius: 14dp;
+    decorator: linear-gradient(120deg, #3a6ae0, #8a4fd8);
+    padding: 22dp 26dp;
+    color: #ffffff;
+}
+.banner .headline { font-size: 26dp; }
+
+.soon
+{
+    text-align: center;
+    padding-top: 160dp;
+    color: #7c879c;
+}

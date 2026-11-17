@@ -4,7 +4,8 @@
 // moment (at the hand that holds it, and following it) and closed by
 // pressing it again (a press otherwise opens the main menu, the app's);
 // chosen from by that hand's stick pushed to a slice and let go, or by a
-// ray and its trigger. And the keyboard, pointed at with up to two pointers (the controllers'
+// ray and its trigger. And the keyboard, and a page of the interface (the
+// main menu) on a panel, pointed at with up to two pointers (the controllers'
 // rays in a headset; the mouse on the desktop, so they can be tried
 // without one). Says what each pointer is on, so a press on the controls
 // isn't also the world's. What the menu holds is the app's (setMenu).
@@ -72,6 +73,26 @@ public:
     // The keyboard, in front of the eyes (as last given to update()).
     void openKeyboard();
 
+    // A page of the interface on a panel (the main menu), pointed at as the
+    // keyboard is: its owner hears where the pointer on it is, its button,
+    // and (a controller's stick) scrolling.
+    struct Page
+    {
+        glm::vec2 size{0.0f}; // pixels
+        float metersPerPixel = 0.0005f;
+        SDL_GPUTexture* image = nullptr; // drawn on the panel
+        // The pointer on it is here (nothing: none is now).
+        std::function<void(std::optional<glm::vec2> pixel)> point;
+        std::function<void(bool down)> button;
+        std::function<void(glm::vec2 lines)> scroll; // positive: down, right
+    };
+    void setPage(Page page) { page_ = std::move(page); }
+    // In front of the eyes (as last given to update()), moving with the
+    // avatar; and put away.
+    void openPage();
+    void closePage();
+    bool pageOpen() const { return pageOpen_; }
+
     std::array<Pointed, kPointers> update(const Input& input);
     bool menuOpen() const { return menu_.isOpen(); }
     bool keyboardOpen() const { return keyboard_.isOpen(); }
@@ -104,6 +125,13 @@ private:
     // stick's let go.
     std::optional<int> stickChoice_;
     std::function<void()> mainMenu_;
+    Page page_;
+    bool pageOpen_ = false;
+    glm::mat4 pageFrame_{1.0f};
+    glm::vec3 pageAnchor_{0.0f};
+    bool pageHovered_ = false;       // its owner was told a pointer's on it
+    std::optional<int> pagePressed_; // the pointer whose button is down on it
+    double lastNow_ = 0.0;
     std::array<bool, kPointers> pressedOnControls_{}; // its press went to the controls
     std::optional<int> menuPointer_;
     glm::mat4 menuFrame_{1.0f};

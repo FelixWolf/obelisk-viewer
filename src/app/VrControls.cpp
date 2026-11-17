@@ -2,6 +2,9 @@
 
 #include "PanelGeometry.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 namespace viewer
 {
 
@@ -17,6 +20,12 @@ constexpr float kKeyboardBelow = 0.3f;
 // back nearer than this, it chooses it.
 constexpr float kStickOut = 0.5f;
 constexpr float kStickBack = 0.35f;
+// The page this far ahead of the eyes and down.
+constexpr float kPageAhead = 0.7f;
+constexpr float kPageBelow = 0.08f;
+// A controller's stick pushed all the way on the page scrolls this many
+// lines a second.
+constexpr float kScrollLines = 14.0f;
 // A ray on nothing is drawn this long.
 constexpr float kRayLength = 5.0f;
 
@@ -44,8 +53,34 @@ void VrControls::openKeyboard()
     keyboard_.open(keyboardFrame_);
 }
 
+void VrControls::openPage()
+{
+    const glm::vec3 at =
+        last_.eye + level(last_.forward) * kPageAhead - glm::vec3(0.0f, 0.0f, kPageBelow);
+    pageFrame_ = panelFacing(at, last_.eye);
+    pageAnchor_ = last_.anchor;
+    pageOpen_ = true;
+}
+
+void VrControls::closePage()
+{
+    if(pageHovered_ && page_.point)
+    {
+        page_.point(std::nullopt);
+    }
+    if(pagePressed_ && page_.button)
+    {
+        page_.button(false);
+    }
+    pageHovered_ = false;
+    pagePressed_.reset();
+    pageOpen_ = false;
+}
+
 std::array<VrControls::Pointed, VrControls::kPointers> VrControls::update(const Input& input)
 {
+    const float dt = static_cast<float>(std::clamp(input.now - lastNow_, 0.0, 0.1));
+    lastNow_ = input.now;
     last_ = input;
     std::array<Pointed, kPointers> out{};
 
@@ -130,6 +165,8 @@ std::array<VrControls::Pointed, VrControls::kPointers> VrControls::update(const 
         holderStick && (glm::length(*holderStick) > kStickOut || stickChoice_.has_value());
     bool rayOnMenu = false;
     std::array<bool, kPointers> onMenu{};
+    const glm::mat4 pageFrame = anchored(pageFrame_, pageAnchor_);
+    std::array<std::optional<glm::vec2>, kPointers> onPage{};
     for(int p = 0; p < kPointers; p++)
     {
         const Pointer& pointer = input.pointers[static_cast<size_t>(p)];
@@ -157,7 +194,52 @@ std::array<VrControls::Pointed, VrControls::kPointers> VrControls::update(const 
         {
             result.onControls = true;
             result.at = at;
+            continue;
         }
+        // The page: on it, or (its button held down on it) anywhere in its
+        // plane, so dragging doesn't stop at the edge.
+        if(pageOpen_)
+        {
+            if(const auto hit = panelHit(pageFrame, page_.size, page_.metersPerPixel,
+                                         pointer.origin, pointer.direction, pagePressed_ == p))
+            {
+                result.onControls = true;
+                result.at = hit->position;
+                onPage[static_cast<size_t>(p)] = hit->pixel;
+            }
+        }
+    }
+    // Which pointer the page follows: the one holding its button down, else
+    // the right one on it, else the left.
+    std::optional<int> pageDriver = pagePressed_;
+    for(int p = kPointers - 1; p >= 0 && !pageDriver; p--)
+    {
+        if(onPage[static_cast<size_t>(p)])
+        {
+            pageDriver = p;
+        }
+    }
+    if(pageDriver && onPage[static_cast<size_t>(*pageDriver)])
+    {
+        if(page_.point)
+        {
+            page_.point(onPage[static_cast<size_t>(*pageDriver)]);
+        }
+        pageHovered_ = true;
+        // A controller's stick scrolls (not the desktop's: its wheel does).
+        const Pointer& driver = input.pointers[static_cast<size_t>(*pageDriver)];
+        if(driver.menuAt && std::abs(driver.stick.y) > 0.25f && page_.scroll)
+        {
+            page_.scroll(glm::vec2(0.0f, -driver.stick.y * kScrollLines * dt));
+        }
+    }
+    else if(pageHovered_)
+    {
+        if(page_.point)
+        {
+            page_.point(std::nullopt);
+        }
+        pageHovered_ = false;
     }
     if(holderStick && !rayOnMenu)
     {
@@ -210,6 +292,20 @@ std::array<VrControls::Pointed, VrControls::kPointers> VrControls::update(const 
                 menu_.choose();
                 used = true;
             }
+            else if(onPage[i])
+            {
+                if(page_.point)
+                {
+                    page_.point(onPage[i]);
+                }
+                if(page_.button)
+                {
+                    page_.button(true);
+                }
+                pagePressed_ = p;
+                pageHovered_ = true;
+                used = true;
+            }
             else if(result.onControls)
             {
                 keyboard_.press(p);
@@ -220,6 +316,14 @@ std::array<VrControls::Pointed, VrControls::kPointers> VrControls::update(const 
         }
         if(up)
         {
+            if(pagePressed_ == p)
+            {
+                if(page_.button)
+                {
+                    page_.button(false);
+                }
+                pagePressed_.reset();
+            }
             result.released = !pressedOnControls_[i];
             pressedOnControls_[i] = false;
         }
@@ -232,9 +336,18 @@ std::array<VrControls::Pointed, VrControls::kPointers> VrControls::update(const 
 void VrControls::addTo(render::Scene& scene, bool rays,
                        const std::array<std::optional<glm::vec3>, kPointers>& worldHits) const
 {
+    if(pageOpen_)
+    {
+        render::Panel page;
+        page.frame = anchored(pageFrame_, pageAnchor_);
+        page.size = page_.size;
+        page.metersPerPixel = page_.metersPerPixel;
+        page.image = page_.image;
+        scene.panels.push_back(page);
+    }
     if(keyboard_.isOpen())
     {
-        scene.panels.push_back(keyboard_.panel());
+        scene.panels.push_back(keyboard_.panel()); // over the page
     }
     if(menu_.isOpen())
     {
