@@ -218,6 +218,15 @@ struct RegionMessage
     protocol::CircuitEvent event{};
 };
 
+// An event from a region's event queue the session doesn't use itself
+// (ParcelProperties, ...): the app's.
+struct RegionEvent
+{
+    uint64_t regionHandle = 0;
+    std::string name;
+    llsd::Value body;
+};
+
 class Session
 {
 public:
@@ -244,6 +253,12 @@ public:
     {
         out.clear();
         std::swap(out, regionMessages_);
+    }
+    // Events for the app, in arrival order; drain every frame too.
+    void drainRegionEvents(std::vector<RegionEvent>& out)
+    {
+        out.clear();
+        std::swap(out, regionEvents_);
     }
 
     // Where the agent is: its region's handle and the position in it
@@ -273,6 +288,12 @@ public:
     void requestMapRegion(std::string_view name);
     void requestAgentLocations(uint64_t regionHandle);
     static constexpr uint32_t kMapAgentLocations = 6; // MAP_ITEM_AGENT_LOCATIONS
+
+    // Groups' names (UUIDGroupNameReply), and the main region's estate
+    // (EstateCovenantReply: its name, owner and covenant), with the world's
+    // messages. Ignored unless Connected.
+    void requestGroupNames(std::span<const Uuid> groups);
+    void requestEstateCovenant();
 
     // How the agent wants to move: control::* flags and the direction the
     // body faces. Sent to the main region at once when they change, and
@@ -495,6 +516,7 @@ private:
     std::map<std::string, uint64_t, std::less<>> messageCounts_;
     std::map<std::string, uint64_t, std::less<>> eventCounts_;
     std::vector<RegionMessage> regionMessages_;
+    std::vector<RegionEvent> regionEvents_;
     std::optional<uint64_t> agentRegion_;
     protocol::Vector3 agentPosition_{};
     uint64_t arrivals_ = 0;

@@ -172,6 +172,28 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
                             });
     model.BindEventCallback("more", [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
                             { m->destinations_->fetchMore(); });
+    if(auto rule = model.RegisterStruct<Rule>())
+    {
+        rule.RegisterMember("name", &Rule::name);
+        rule.RegisterMember("state", &Rule::state);
+        rule.RegisterMember("text", &Rule::text);
+    }
+    model.RegisterArray<std::vector<Rule>>();
+    model.Bind("parcelKnown", &m->parcelKnown_);
+    model.Bind("parcelName", &m->parcelName_);
+    model.Bind("parcelWhere", &m->parcelWhere_);
+    model.Bind("parcelText", &m->parcelText_);
+    model.Bind("parcelImage", &m->parcelImage_);
+    model.Bind("parcelOwner", &m->parcelOwner_);
+    model.Bind("parcelGroup", &m->parcelGroup_);
+    model.Bind("parcelArea", &m->parcelArea_);
+    model.Bind("parcelPrims", &m->parcelPrims_);
+    model.Bind("parcelSale", &m->parcelSale_);
+    model.Bind("parcelMusic", &m->parcelMusic_);
+    model.Bind("parcelRules", &m->parcelRules_);
+    model.Bind("estateName", &m->estateName_);
+    model.Bind("estateOwner", &m->estateOwner_);
+    model.Bind("estateCovenant", &m->estateCovenant_);
     model.RegisterArray<std::vector<Rml::String>>();
     model.Bind("version", &m->version_);
     model.Bind("builtWith", &m->builtWith_);
@@ -409,9 +431,106 @@ void MainMenu::updateDestinations(const Status& status)
     }
 }
 
+namespace
+{
+
+// 12345 as "12,345".
+std::string grouped(int n)
+{
+    std::string digits = std::to_string(n < 0 ? -n : n);
+    for(int i = static_cast<int>(digits.size()) - 3; i > 0; i -= 3)
+    {
+        digits.insert(static_cast<size_t>(i), ",");
+    }
+    return n < 0 ? "-" + digits : digits;
+}
+
+} // namespace
+
+void MainMenu::updateParcel(const Status& status)
+{
+    const auto put = [&](const char* variable, auto& field, auto value)
+    {
+        if(field != value)
+        {
+            field = std::move(value);
+            model_.DirtyVariable(variable);
+        }
+    };
+    put("parcelKnown", parcelKnown_, status.parcel != nullptr);
+    if(!status.parcel)
+    {
+        return;
+    }
+    namespace pf = parcel_flags;
+    const Parcel& p = *status.parcel;
+    put("parcelName", parcelName_, Rml::String(p.name.empty() ? "(No name)" : p.name));
+    const std::string_view category = parcelCategoryName(p.category);
+    put("parcelWhere", parcelWhere_,
+        category.empty() ? status.region : std::format("{} · {}", status.region, category));
+    put("parcelText", parcelText_,
+        Rml::String(p.description.empty() ? "No description." : p.description));
+    put("parcelImage", parcelImage_,
+        p.snapshot.isNull() ? Rml::String()
+                            : std::format("asset://{}?size=512", p.snapshot.toString()));
+    const std::string owner = status.parcelOwner.empty() ? "..." : status.parcelOwner;
+    put("parcelOwner", parcelOwner_, p.groupOwned ? owner + " (group)" : owner);
+    put("parcelGroup", parcelGroup_,
+        p.group.isNull()             ? Rml::String("None")
+        : status.parcelGroup.empty() ? Rml::String("...")
+                                     : Rml::String(status.parcelGroup));
+    put("parcelArea", parcelArea_, std::format("{} m²", grouped(p.area)));
+    put("parcelPrims", parcelPrims_,
+        std::format("{} of {}", grouped(p.prims), grouped(p.maxPrims)));
+    put("parcelSale", parcelSale_,
+        p.has(pf::kForSale) ? std::format("For sale: L${}", grouped(p.salePrice)) : Rml::String());
+    put("parcelMusic", parcelMusic_, Rml::String(p.musicUrl));
+
+    const auto rule =
+        [](const char* name, bool yes, bool group, const char* yesText, const char* noText)
+    {
+        return Rule{name,
+                    yes     ? "yes"
+                    : group ? "group"
+                            : "no",
+                    yes     ? yesText
+                    : group ? "Group only"
+                            : noText};
+    };
+    std::vector<Rule> rules = {
+        rule("Flying", p.has(pf::kAllowFly), false, "Allowed", "Not allowed"),
+        rule("Building", p.has(pf::kCreateObjects), p.has(pf::kCreateGroupObjects), "Anyone",
+             "Not allowed"),
+        rule("Scripts", p.has(pf::kAllowOtherScripts), p.has(pf::kAllowGroupScripts), "Anyone's",
+             "Not allowed"),
+        rule("Safe", !p.has(pf::kAllowDamage), false, "No damage", "Damage on"),
+        rule("Pushing", !p.has(pf::kRestrictPush), false, "Allowed", "Restricted"),
+        rule("Terraforming", p.has(pf::kAllowTerraform), false, "Allowed", "Not allowed"),
+        rule("Voice", p.has(pf::kAllowVoice), false, "Allowed", "Not allowed"),
+        rule("Access", !p.has(pf::kUseAccessGroup) && !p.has(pf::kUseAccessList),
+             p.has(pf::kUseAccessGroup), "Open", "Restricted"),
+        rule("Avatars", p.seeAvatars, false, "Seen from outside", "Hidden from outside"),
+        rule("Sounds", !p.has(pf::kSoundLocal), false, "Heard outside", "Kept inside"),
+    };
+    put("parcelRules", parcelRules_, std::move(rules));
+
+    put("estateName", estateName_,
+        Rml::String(status.estate ? status.estate->name : std::string("...")));
+    const bool owned = status.estate && !status.estate->owner.isNull();
+    put("estateOwner", estateOwner_,
+        Rml::String(!owned                       ? std::string()
+                    : status.estateOwner.empty() ? std::string("...")
+                                                 : status.estateOwner));
+    put("estateCovenant", estateCovenant_,
+        Rml::String(!status.estate                     ? ""
+                    : status.estate->covenant.isNull() ? "No covenant"
+                                                       : "Has a covenant (not shown here yet)"));
+}
+
 void MainMenu::update(const Status& status)
 {
     updateDestinations(status);
+    updateParcel(status);
     // The license picked on About.
     if(license_ != shownLicense_ && license_ >= 0 && license_ < static_cast<int>(licenses_.size()))
     {

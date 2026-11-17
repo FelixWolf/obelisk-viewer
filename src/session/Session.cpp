@@ -669,7 +669,11 @@ void Session::handleEvent(Region& region, const std::string& name, const llsd::V
         }
         teleportFailed(reason);
     }
-    (void)region;
+    else
+    {
+        // The app's (ParcelProperties, ...).
+        regionEvents_.push_back({region.handle, name, body});
+    }
 }
 
 // --- moving between regions -------------------------------------------------
@@ -820,6 +824,34 @@ void Session::requestAgentLocations(uint64_t regionHandle)
     request.AgentData.SessionID = login_->sessionId;
     request.RequestData.ItemType = kMapAgentLocations;
     request.RequestData.RegionHandle = regionHandle;
+    send(*main, request, true);
+}
+
+void Session::requestGroupNames(std::span<const Uuid> groups)
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || !main || groups.empty())
+    {
+        return;
+    }
+    msg::UUIDGroupNameRequest request;
+    for(const Uuid& group : groups)
+    {
+        request.UUIDNameBlock.push_back({group});
+    }
+    send(*main, request, true);
+}
+
+void Session::requestEstateCovenant()
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || !main)
+    {
+        return;
+    }
+    msg::EstateCovenantRequest request;
+    request.AgentData.AgentID = login_->agentId;
+    request.AgentData.SessionID = login_->sessionId;
     send(*main, request, true);
 }
 

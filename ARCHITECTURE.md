@@ -687,8 +687,8 @@ viewer runs.
   body, not the body itself, or `data-for` isn't expanded.
 
 The main menu (`MainMenu`, `main_menu.rml`) has tabs: Home, Destinations,
-Inventory, Outfits, Parcel, Media, Options and About. Home, Destinations
-and About show something so far. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
+Inventory, Outfits, Parcel, Media, Options and About. Home, Destinations,
+Parcel and About show something so far. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
 region's (SimStats: `Region::stats`) and its time dilation, and the region
 we're in. Destinations: the Destination Guide (`Destinations`), in three
 views, each kept hidden behind the next so Back finds it where it was
@@ -714,7 +714,16 @@ block), so a var region's people beyond its first 256 m aren't counted. Categori
 maturity; those named "Adult..." are left out unless the resident's is
 Adult. Cards have a border always there, clear until pointed at, so
 nothing moves. Pictures no longer shown are let go when another list
-comes. About: the version, and the license of everything in the
+comes. Parcel: the one we're on (`ParcelInfo`): the
+region sends its properties on the event queue whenever we come onto one
+(ParcelProperties; sequence 0 or up, negative ones answer requests for
+others), which the session passes on (`drainRegionEvents`, the events it
+doesn't use itself). Its picture (asset://), owner and group (avatar
+names; groups' from UUIDGroupNameRequest), area, objects, sale price,
+rules (ParcelFlags, four bytes most significant first), description and
+music, and its estate (EstateCovenantRequest once a region: its name,
+owner, null on mainland, and whether it has a covenant; the covenant's
+text, an estate asset, isn't fetched yet). About: the version, and the license of everything in the
 viewer, picked from a list: ours, the font's, the artwork's and each
 shipped library's, gathered by the build (`viewer_license` in the root
 CMakeLists.txt and cmake/Dependencies.cmake, written into one embedded

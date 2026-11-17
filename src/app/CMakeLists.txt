@@ -51,6 +51,7 @@ add_executable(viewer
   OutfitAttachments.cpp
   Destinations.cpp
   GridPopulation.cpp
+  ParcelInfo.cpp
   MainMenu.cpp
   RadialMenu.cpp
   VrControls.cpp

@@ -11,6 +11,7 @@ add_executable(viewer_tests
   CircuitTests.cpp
   DestinationsTests.cpp
   GridPopulationTests.cpp
+  ParcelInfoTests.cpp
   DiskCacheTests.cpp
   HttpClientTests.cpp
   JobSystemTests.cpp
@@ -59,6 +60,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/VrControls.cpp
   ${PROJECT_SOURCE_DIR}/src/app/Destinations.cpp
   ${PROJECT_SOURCE_DIR}/src/app/GridPopulation.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ParcelInfo.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

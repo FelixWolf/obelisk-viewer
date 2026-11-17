@@ -6,7 +6,8 @@
 // panel in VR (and first person). Home shows the clocks (SLT and local),
 // the viewer's and the region's performance and where we are; Destinations,
 // the Destination Guide's categories (What's Hot Now first), a category's
-// places, and a place alone, to teleport to; About, the
+// places, and a place alone, to teleport to; Parcel, the one we're on (its
+// picture, owner, group, size, rules, description, and its estate); About, the
 // version and the licenses of everything in the viewer (gathered by the
 // build: cmake/Licenses.cmake). The other tabs are still to come.
 //
@@ -15,6 +16,7 @@
 
 #include "Destinations.hpp"
 #include "GridPopulation.hpp"
+#include "ParcelInfo.hpp"
 
 #include "viewer/gui/Gui.hpp"
 
@@ -62,6 +64,13 @@ public:
         // resident's preference), and whether we can teleport.
         std::string maturity = "g";
         bool inWorld = false;
+        // The parcel we're on (nothing: not known), its owner's and
+        // group's names (empty: not known yet), and its estate's.
+        const Parcel* parcel = nullptr;
+        std::string parcelOwner;
+        std::string parcelGroup;
+        const ParcelInfo::Estate* estate = nullptr;
+        std::string estateOwner;
     };
     // The page's values, then its layout and animations (once a frame
     // while open, before render()).
@@ -94,6 +103,14 @@ public:
         Rml::String people;     // "12 people" (from the map), empty until known
         bool operator==(const Place&) const = default;
     };
+    // One of a parcel's rules, as the page shows it.
+    struct Rule
+    {
+        Rml::String name;
+        Rml::String state; // "yes", "no", "group" (for its style)
+        Rml::String text;  // "Allowed", ...
+        bool operator==(const Rule&) const = default;
+    };
     // A category of the Destination Guide, as the page shows it.
     struct Category
     {
@@ -109,6 +126,7 @@ private:
     void set(const char* variable, std::string& field, std::string value);
     void readLicenses();
     void updateDestinations(const Status& status);
+    void updateParcel(const Status& status);
 
     Destinations* destinations_ = nullptr;
     GridPopulation* population_ = nullptr;
@@ -156,6 +174,22 @@ private:
     Place pick_; // the chosen one
     bool inWorld_ = false;
     std::optional<std::string> teleport_;
+    // Parcel.
+    bool parcelKnown_ = false;
+    Rml::String parcelName_;
+    Rml::String parcelWhere_; // its region (and category)
+    Rml::String parcelText_;  // its description
+    Rml::String parcelImage_; // asset://..., empty: none
+    Rml::String parcelOwner_;
+    Rml::String parcelGroup_;
+    Rml::String parcelArea_;
+    Rml::String parcelPrims_;
+    Rml::String parcelSale_; // empty: not for sale
+    Rml::String parcelMusic_;
+    std::vector<Rule> parcelRules_;
+    Rml::String estateName_;
+    Rml::String estateOwner_;    // empty: none said (mainland)
+    Rml::String estateCovenant_; // whether it has one
     // About.
     std::string version_;
     std::string builtWith_;

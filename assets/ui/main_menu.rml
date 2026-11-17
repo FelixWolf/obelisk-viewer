@@ -150,7 +150,51 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'about'" class="soon">
+        <div data-if="tab == 'parcel'" class="parcel">
+            <div data-if="!parcelKnown" class="soon">
+                <h2>Parcel</h2>
+                <p>Not on a parcel yet: the region says which once we're in.</p>
+            </div>
+            <div data-if="parcelKnown">
+                <div class="parcel-top">
+                    <div class="shot snapshot" data-if="parcelImage != ''"
+                         data-style-decorator="'image(' + parcelImage + ' fill)'"></div>
+                    <div class="shot snapshot empty" data-if="parcelImage == ''"></div>
+                    <div class="parcel-side">
+                        <div class="detail-name">{{ parcelName }}</div>
+                        <div class="muted">{{ parcelWhere }}</div>
+                        <div class="facts">
+                            <div class="stat"><span>Owner</span><span class="value">{{ parcelOwner }}</span></div>
+                            <div class="stat"><span>Group</span><span class="value">{{ parcelGroup }}</span></div>
+                            <div class="stat"><span>Area</span><span class="value">{{ parcelArea }}</span></div>
+                            <div class="stat"><span>Objects</span><span class="value">{{ parcelPrims }}</span></div>
+                        </div>
+                        <div class="sale" data-if="parcelSale != ''">{{ parcelSale }}</div>
+                    </div>
+                </div>
+                <div class="rules">
+                    <div data-for="r : parcelRules" data-attr-class="'rule ' + r.state">
+                        <div class="rule-name">{{ r.name }}</div>
+                        <div class="rule-text">{{ r.text }}</div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="card">
+                        <h3>About this parcel</h3>
+                        <div class="parcel-text">{{ parcelText }}</div>
+                        <div class="muted music" data-if="parcelMusic != ''">Music: {{ parcelMusic }}</div>
+                    </div>
+                    <div class="card estate">
+                        <h3>Estate</h3>
+                        <div class="region-name">{{ estateName }}</div>
+                        <div class="muted" data-if="estateOwner != ''">Owned by {{ estateOwner }}</div>
+                        <div class="muted">{{ estateCovenant }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

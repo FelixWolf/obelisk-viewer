@@ -243,6 +243,7 @@ private:
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<Destinations> destinations_; // the main menu's (it goes after this)
     GridPopulation population_;                  // people in regions, for the main menu
+    ParcelInfo parcel_;                          // the parcel we're on, for the main menu
     std::unique_ptr<TextureManager> textures_;
     std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;
@@ -381,6 +382,7 @@ private:
     std::shared_ptr<const world::World> world_;
     TerrainView terrainView_;
     std::vector<session::RegionMessage> regionMessages_;
+    std::vector<session::RegionEvent> regionEvents_;
     std::vector<world::WorldRequest> worldRequests_;
     std::vector<std::pair<uint32_t, uint8_t>> objectRequests_;
     std::optional<uint64_t> originHandle_; // world coordinates are relative to this region

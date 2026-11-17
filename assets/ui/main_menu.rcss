@@ -360,3 +360,51 @@ body
     color: #7c879c;
     cursor: default;
 }
+
+/* Parcel: its picture and facts side by side, its rules as tiles, then
+   its description and its estate. */
+.parcel-top
+{
+    display: flex;
+    flex-direction: row;
+    margin-bottom: 18dp;
+}
+.shot.snapshot
+{
+    width: 400dp;
+    height: 300dp;
+    border-radius: 14dp;
+}
+.parcel-side
+{
+    flex: 1 1 0;
+    margin-left: 24dp;
+}
+.facts { margin-top: 14dp; }
+.sale
+{
+    margin-top: 14dp;
+    padding: 10dp 14dp;
+    border-radius: 10dp;
+    background-color: #2a3a24;
+    color: #b8f0a0;
+}
+.rules { margin-bottom: 8dp; }
+.rule
+{
+    display: inline-block;
+    width: 150dp;
+    margin: 0 8dp 10dp 0;
+    padding: 8dp 12dp;
+    border-radius: 10dp;
+    background-color: #1a2030e0;
+    border-left: 4dp #7c879c;
+}
+.rule.yes { border-left-color: #7ee2a0; }
+.rule.group { border-left-color: #f1d070; }
+.rule.no { border-left-color: #f08080; }
+.rule-name { font-size: 14dp; color: #8b96ab; }
+.rule-text { font-size: 16dp; color: #ffffff; }
+.parcel-text { font-size: 17dp; color: #c8d0e0; }
+.music { margin-top: 10dp; font-size: 15dp; }
+.card.estate { flex: 0 0 300dp; }

@@ -1035,6 +1035,23 @@ void App::updateSession()
         {
             session_->requestAgentLocations(region);
         }
+        // And of the parcel we're on.
+        const auto parcel = parcel_.requests();
+        session_->requestGroupNames(parcel.groups);
+        if(parcel.estate)
+        {
+            session_->requestEstateCovenant();
+        }
+    }
+
+    // Events for us (the parcel we're on).
+    session_->drainRegionEvents(regionEvents_);
+    for(const session::RegionEvent& e : regionEvents_)
+    {
+        if(e.name == "ParcelProperties")
+        {
+            parcel_.parcelProperties(e.regionHandle, session_->agentRegion().value_or(0), e.body);
+        }
     }
 
     // Messages go to the world thread; this frame reads its latest snapshot
@@ -1064,6 +1081,24 @@ void App::updateSession()
                     blocks.push_back({protocol::toString(block.Name), block.X, block.Y});
                 }
                 population_.mapBlocks(blocks);
+            }
+        }
+        else if(m.event.is<protocol::msg::UUIDGroupNameReply>())
+        {
+            if(const auto reply = m.event.decode<protocol::msg::UUIDGroupNameReply>())
+            {
+                for(const auto& block : reply->UUIDNameBlock)
+                {
+                    parcel_.groupName(block.ID, protocol::toString(block.GroupName));
+                }
+            }
+        }
+        else if(m.event.is<protocol::msg::EstateCovenantReply>())
+        {
+            if(const auto reply = m.event.decode<protocol::msg::EstateCovenantReply>())
+            {
+                parcel_.estate(protocol::toString(reply->Data.EstateName),
+                               reply->Data.EstateOwnerID, reply->Data.CovenantID);
             }
         }
         else if(m.event.is<protocol::msg::MapItemReply>())
@@ -1526,6 +1561,7 @@ void App::updateOutfit()
 void App::endSession()
 {
     population_.clear(); // the next login may be another grid
+    parcel_.clear();
     setFirstPerson(false);
     appearanceDue_.clear();
     objectProperties_ = {};
@@ -2370,6 +2406,24 @@ void App::updateMainMenu()
             status.maturity = maturityPreference(*login);
         }
         status.inWorld = session_->state() == session::SessionState::Connected;
+        // The parcel we're on, and the names of who has it.
+        const auto avatar = [&](const Uuid& id)
+        {
+            const AvatarName* name = id.isNull() ? nullptr : avatarNames_->get(id);
+            return name ? name->completeName() : std::string();
+        };
+        if(const auto& parcel = parcel_.parcel())
+        {
+            status.parcel = &*parcel;
+            status.parcelOwner =
+                parcel->groupOwned ? parcel_.group(parcel->owner) : avatar(parcel->owner);
+            status.parcelGroup = parcel_.group(parcel->group);
+        }
+        if(const auto& estate = parcel_.estate())
+        {
+            status.estate = &*estate;
+            status.estateOwner = avatar(estate->owner);
+        }
     }
     destinations_->update();
     mainMenu_->update(status);
