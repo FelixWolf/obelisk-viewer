@@ -32,7 +32,10 @@ struct Camera
     glm::vec3 target{0.0f};
     glm::vec3 up{0.0f, 0.0f, 1.0f};
     float verticalFov = 1.0472f; // radians
-    float nearPlane = 0.25f;
+    // As the official viewer's (MIN_NEAR_PLANE): nearer cuts the avatar
+    // open when the camera's close to it (a hand held in front of the body
+    // sinks into it as its near side is cut away).
+    float nearPlane = 0.1f;
     float farPlane = 1024.0f;
     // A headset's eye sees an off-center view: its edges, as the tangents of
     // their angles from the view axis (left, right, down, up; left and down

@@ -46,6 +46,27 @@ void LegacyMaterialManager::setCapabilityUrl(std::string url)
     }
 }
 
+std::string_view LegacyMaterialManager::stateName(const Uuid& id) const
+{
+    const auto it = entries_.find(id);
+    if(it == entries_.end())
+    {
+        return "unknown";
+    }
+    switch(it->second.state)
+    {
+    case State::Queued:
+        return "queued";
+    case State::Requested:
+        return "requested";
+    case State::Ready:
+        return "ready";
+    case State::Missing:
+        return "missing";
+    }
+    return "?";
+}
+
 std::shared_ptr<const assets::LegacyMaterial> LegacyMaterialManager::get(const Uuid& id)
 {
     if(id.isNull())

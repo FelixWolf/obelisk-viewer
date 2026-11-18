@@ -632,7 +632,19 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     const int detail = detailFor(radius, distance);
     const world::Object& attached = owner.root ? *owner.root : object;
     const void* overrides = world.materialOverrides(key);
-    const bool kept = record.drawsValid && record.skin &&
+    // Inspected (developer): drawn afresh, to see what's decided.
+    RiggedReport* report = nullptr;
+    if(inspect_ && attached.parentId == inspect_->localId && attached.region == inspect_->region)
+    {
+        report = &reports_.emplace_back();
+        report->key = key;
+        report->root = world::ObjectKey{attached.region, attached.localId};
+        report->mesh = object.sculptTexture;
+        report->animated = owner.animated;
+        report->detail = detail;
+        report->rootDeterminant = glm::determinant(glm::mat3(root));
+    }
+    const bool kept = !report && record.drawsValid && record.skin &&
                       record.contentRevision == object.contentRevision && record.detail == detail &&
                       record.overrides == overrides && record.meshRevision == meshes.revision() &&
                       record.materialRevision == materials.revision() &&
@@ -671,6 +683,15 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     {
         const int joint = binding.joints[j];
         palette[j] = joints[joint < 0 ? pelvis : static_cast<size_t>(joint)] * binding.bind[j];
+    }
+    if(report)
+    {
+        report->bindShapeDeterminant = glm::determinant(glm::mat3(skin->bindShape));
+        report->joints = palette.size();
+        for(const glm::mat4& p : palette)
+        {
+            report->mirroredJoints += glm::determinant(glm::mat3(root * p)) < 0.0f;
+        }
     }
 
     // Attachment draw order, as the official viewer's (llvoavatar.cpp):
@@ -723,8 +744,34 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     {
         const render::Mesh& mesh = (*faces)[f];
         const world::TextureFace& face = object.faces[f];
+        FaceReport* faceReport = nullptr;
+        if(report)
+        {
+            faceReport = &report->faces.emplace_back();
+            faceReport->face = static_cast<int>(f);
+            faceReport->texture = face.texture;
+            faceReport->textureAlpha = textures.alphaMode(face.texture);
+            faceReport->legacy = face.material;
+            faceReport->legacyState =
+                face.material.isNull() ? "none" : legacyMaterials.stateName(face.material);
+            if(const auto legacy = legacyMaterials.get(face.material))
+            {
+                faceReport->alphaMode = legacy->alphaMode;
+                faceReport->maskCutoff = legacy->alphaCutoff;
+            }
+            faceReport->tintAlpha = face.color.a;
+            faceReport->glow = face.glow;
+        }
+        const auto skip = [&](const char* why)
+        {
+            if(faceReport)
+            {
+                faceReport->skipped = why;
+            }
+        };
         if(!mesh || mesh.layout != render::VertexLayout::Skinned || invisiprim(face))
         {
+            skip(!mesh ? "no geometry" : invisiprim(face) ? "invisiprim" : "not skinned");
             continue;
         }
         const world::AnimatedTransform* faceAnimation =
@@ -743,6 +790,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         {
             if(face.color.a <= 0.0f || face.texture == kTransparentTexture)
             {
+                skip("transparent");
                 continue;
             }
             // Bake on Mesh shows the wearer's bakes; an animated object has none.
@@ -751,11 +799,13 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
                                     faceAnimation, true);
             if(!m)
             {
+                skip("bake loading");
                 complete = false; // a bake still loading
                 continue;
             }
             if(m->diffuseTint.a <= 0.0f)
             {
+                skip("nothing shows");
                 continue; // nothing shows
             }
             draw.material = *m;
@@ -770,6 +820,22 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         draw.layer = layer;
         draw.shadowOnly = shadowOnly;
         draw.glow = face.glow;
+        if(faceReport)
+        {
+            faceReport->pbr = pbr;
+            if(const auto* b = std::get_if<render::BlinnPhongMaterial>(&draw.material))
+            {
+                faceReport->blend = b->blend;
+                faceReport->opaque = b->opaque;
+                faceReport->alphaCutoff = b->alphaCutoff;
+            }
+            else if(const auto* p = std::get_if<render::PbrMaterial>(&draw.material))
+            {
+                faceReport->blend = p->blend;
+                faceReport->alphaCutoff = p->alphaCutoff;
+                faceReport->doubleSided = p->doubleSided;
+            }
+        }
         scene.objects.push_back(draw);
         stats_.faces++;
     }
@@ -944,6 +1010,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     stats_.reused = 0;
     probeObjects_.clear();
     riggedOwners_.clear();
+    reports_.clear();
     const glm::vec3 camera = scene.camera.position;
     const glm::vec3 forward = glm::normalize(scene.camera.target - scene.camera.position);
     const auto now = std::chrono::steady_clock::now(); // texture animations, flexible prims

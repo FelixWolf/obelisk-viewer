@@ -15,6 +15,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -34,6 +35,10 @@ public:
 
     // The material once it has arrived; nullptr until then (or if missing).
     std::shared_ptr<const assets::LegacyMaterial> get(const Uuid& id);
+
+    // Developer: where a material is ("ready", "requested", ...; "unknown":
+    // never asked for).
+    std::string_view stateName(const Uuid& id) const;
 
     // Handles answers and sends what's queued.
     void update();

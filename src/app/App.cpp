@@ -1832,6 +1832,7 @@ void App::buildScene(render::Scene& scene)
         }
         profile_.mark(FrameProfile::Avatars);
         placeHud(scene);
+        objects_->inspectWorn(developer_ && showWornMesh_ ? agentKey_ : std::nullopt);
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         *legacyMaterials_, avatars_.get(), 128.0f);
         addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
@@ -3216,6 +3217,101 @@ void App::drawFpsOverlay()
     ImGui::End();
 }
 
+// What was decided for the rigged mesh we wear (ObjectView::wornReports),
+// as text to copy: for finding why some draws wrong.
+void App::drawWornMeshWindow()
+{
+    if(!ImGui::Begin("Worn mesh", &showWornMesh_))
+    {
+        ImGui::End();
+        return;
+    }
+    const auto shortId = [](const Uuid& id) { return id.toString().substr(0, 8); };
+    const auto modeName = [](assets::DiffuseAlphaMode mode) -> std::string_view
+    {
+        switch(mode)
+        {
+        case assets::DiffuseAlphaMode::None:
+            return "none";
+        case assets::DiffuseAlphaMode::Blend:
+            return "blend";
+        case assets::DiffuseAlphaMode::Mask:
+            return "mask";
+        case assets::DiffuseAlphaMode::Emissive:
+            return "emissive";
+        case assets::DiffuseAlphaMode::Default:
+            return "default";
+        }
+        return "?";
+    };
+    std::string text;
+    for(const ObjectView::RiggedReport& r : objects_->wornReports())
+    {
+        std::string name = "?";
+        const world::Object* root =
+            world_ ? world_->object(r.root.region, r.root.localId) : nullptr;
+        if(root && session_)
+        {
+            if(const auto* info =
+                   objectProperties_.get(*session_, root->region, root->localId, root->id))
+            {
+                name = info->name;
+            }
+        }
+        text += std::format("'{}' (attached {}, prim {}) mesh {} {}, detail {}\n", name,
+                            r.root.localId, r.key.localId, shortId(r.mesh),
+                            r.animated ? "animesh (own skeleton)" : "rigged (wearer's skeleton)",
+                            r.detail);
+        text += std::format("  determinants: frame {:+.3f}, bind shape {:+.3f}; mirrored joints "
+                            "{} of {}\n",
+                            r.rootDeterminant, r.bindShapeDeterminant, r.mirroredJoints, r.joints);
+        if(r.faces.empty())
+        {
+            text += "  (mesh not loaded)\n";
+        }
+        for(const ObjectView::FaceReport& f : r.faces)
+        {
+            text += std::format("  face {}: ", f.face);
+            if(!f.skipped.empty())
+            {
+                text += std::format("not drawn ({})\n", f.skipped);
+                continue;
+            }
+            const std::string drawn = f.blend ? std::string("BLENDED")
+                                      : f.alphaCutoff >= 0.0f
+                                          ? std::format("MASKED at {:.2f}", f.alphaCutoff)
+                                      : f.opaque ? std::string("OPAQUE (alpha ignored)")
+                                                 : std::string("OPAQUE");
+            text += std::format(
+                "{} {}{}; texture {} alpha {}; material {} {}{}; tint alpha {:.2f}, glow {:.2f}\n",
+                f.pbr ? "PBR" : "legacy", drawn, f.doubleSided ? ", double sided" : "",
+                shortId(f.texture),
+                f.textureAlpha ? image::alphaModeName(*f.textureAlpha) : "not loaded",
+                f.legacy.isNull() ? std::string("none") : shortId(f.legacy), f.legacyState,
+                f.alphaMode
+                    ? std::format(", mode {} cutoff {:.2f}", modeName(*f.alphaMode), f.maskCutoff)
+                    : std::string(),
+                static_cast<double>(f.tintAlpha), static_cast<double>(f.glow));
+        }
+    }
+    if(text.empty())
+    {
+        text = agentKey_ ? "No rigged mesh worn (or none in view)." : "Not in world.";
+    }
+    if(ImGui::Button("Copy"))
+    {
+        ImGui::SetClipboardText(text.c_str());
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("Log"))
+    {
+        log::info("worn mesh:\n{}", text);
+    }
+    ImGui::Separator();
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::End();
+}
+
 void App::drawEnvironmentWindow()
 {
     if(ImGui::Begin("Environment"))
@@ -3392,6 +3488,7 @@ void App::drawDeveloperWindows()
         ImGui::Checkbox("Material test scene", &showTestScene_);
         ImGui::Checkbox("PBR terrain shader", &pbrTerrain_);
         ImGui::Checkbox("ImGui demo window", &showDemoWindow_);
+        ImGui::Checkbox("Worn mesh inspector", &showWornMesh_);
         // What the pointer is on, and why a click would (or wouldn't) touch it.
         if(const auto& hover = pointer_.hover(); hover && world_)
         {
@@ -3460,6 +3557,10 @@ void App::drawDeveloperWindows()
     textureBrowser_->draw();
     drawTeleportWindow();
     drawEnvironmentWindow();
+    if(showWornMesh_)
+    {
+        drawWornMeshWindow();
+    }
     if(showDemoWindow_)
     {
         ImGui::ShowDemoWindow(&showDemoWindow_);

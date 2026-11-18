@@ -656,8 +656,10 @@ the cursor; it's free while the menu is open).
 ### The viewer's own interface (RmlUi)
 
 The interface people use (not the ImGui debug windows, shown only with
-`--developer`: stats, the FPS overlay, the texture browser, teleport and
-environment; ImGui still draws the login window, the first-person crosshair
+`--developer`: stats, the FPS overlay, the texture browser, teleport,
+environment and the worn mesh inspector, which reports what was decided for
+each face of the rigged mesh we wear (alpha mode, its legacy material,
+mirroring); ImGui still draws the login window, the first-person crosshair
 and the hover tooltip until there are our own) is made with RmlUi
 (`viewer::gui`, src/gui): pages written as documents (RML, like HTML) and
 style sheets (RCSS, like CSS) in `assets/ui`, read at run time and copied

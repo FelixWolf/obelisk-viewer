@@ -164,6 +164,7 @@ private:
     void drawDeveloperWindows();
     bool developer_ = false;
     void drawEnvironmentWindow();
+    void drawWornMeshWindow();
 
     struct SdlRuntime
     {
@@ -408,6 +409,7 @@ private:
     CameraController camera_;
     bool running_ = true;
     bool showDemoWindow_ = false;
+    bool showWornMesh_ = false;
     bool showTestScene_ = false;
     bool pbrTerrain_ = false;
     bool wantFirstPerson_ = false;

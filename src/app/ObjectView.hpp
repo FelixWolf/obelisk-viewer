@@ -108,6 +108,46 @@ public:
     static bool touchable(const world::Object& object, const world::Object& root);
     static uint8_t clickAction(const world::Object& object, const world::Object& root);
 
+    // Developer (the "Worn mesh" window): what was decided for the rigged
+    // mesh worn by one avatar (animated objects too), recorded as it's
+    // drawn, each frame (its draws aren't kept from frame to frame then).
+    struct FaceReport
+    {
+        int face = 0;
+        std::string skipped; // why it isn't drawn (empty: it is)
+        bool pbr = false;
+        Uuid texture;
+        std::optional<image::AlphaMode> textureAlpha; // none: not loaded yet
+        Uuid legacy;                                  // the legacy material (null: none)
+        std::string_view legacyState;
+        std::optional<assets::DiffuseAlphaMode> alphaMode; // the legacy material's
+        float maskCutoff = 0.0f;
+        float tintAlpha = 1.0f;
+        float glow = 0.0f;
+        // As drawn.
+        bool blend = false;
+        bool opaque = false; // the diffuse alpha ignored
+        float alphaCutoff = -1.0f;
+        bool doubleSided = false;
+    };
+    struct RiggedReport
+    {
+        world::ObjectKey key;
+        world::ObjectKey root; // the prim attached to the avatar
+        Uuid mesh;
+        bool animated = false; // part of an animated object (its own skeleton)
+        int detail = 0;
+        float rootDeterminant = 1.0f;      // of the skeleton's frame
+        float bindShapeDeterminant = 1.0f; // of the mesh's bind shape
+        // Joints whose final matrix (frame, pose and bind) mirrors: their
+        // triangles face the other way, and the wrong sides are culled.
+        size_t mirroredJoints = 0;
+        size_t joints = 0;
+        std::vector<FaceReport> faces;
+    };
+    void inspectWorn(std::optional<world::ObjectKey> avatar) { inspect_ = avatar; }
+    std::span<const RiggedReport> wornReports() const { return reports_; }
+
 private:
     struct Key
     {
@@ -275,6 +315,8 @@ private:
     // until it's drawn; a deque keeps them in place as it grows).
     std::deque<std::vector<glm::mat4>> palettes_;
     size_t palettesUsed_ = 0; // this frame's
+    std::optional<world::ObjectKey> inspect_;
+    std::vector<RiggedReport> reports_;
 };
 
 } // namespace viewer
