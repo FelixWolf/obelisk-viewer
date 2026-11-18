@@ -63,6 +63,19 @@ private:
     std::vector<Entry> entries_;
 };
 
+// Which connections a request waits for, as the official viewer's policy
+// classes: each pool has its own on each host, so requests in one never
+// wait behind another's. A region's capabilities share one host (with the
+// other regions on its simulator's machine): without these, the event
+// queues' long polls could fill the host's connections, and everything else
+// wait until one comes back (half a minute when there's nothing to tell).
+enum class HttpPool : uint8_t
+{
+    Default,   // HttpClientOptions::maxConnectionsPerHost per host
+    Inventory, // ... inventoryConnectionsPerHost
+    LongPoll,  // held open until the server has something: no limit
+};
+
 struct HttpRequest
 {
     HttpMethod method = HttpMethod::Get;
@@ -74,6 +87,7 @@ struct HttpRequest
     std::chrono::milliseconds timeout{30'000};
     std::chrono::milliseconds connectTimeout{10'000};
     bool followRedirects = true;
+    HttpPool pool = HttpPool::Default;
 };
 
 enum class HttpError : uint8_t
@@ -116,6 +130,7 @@ struct HttpClientOptions
     std::string caBundlePath{};
     bool verifyPeer = true;
     long maxConnectionsPerHost = 8;
+    long inventoryConnectionsPerHost = 4;
     long maxTotalConnections = 64;
 };
 

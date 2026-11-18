@@ -20,10 +20,10 @@ TEST_CASE("Inventory browser: a folder's lines, folders first, each by name")
 {
     inventory::Model model;
     const Uuid root = id(1);
-    model.put(inventory::Folder{root, Uuid(), "My Inventory", 8, 1});
-    model.put(inventory::Folder{id(2), root, "textures", -1, 1});
-    model.put(inventory::Folder{id(3), root, "Clothing", 5, 1});
-    model.put(inventory::Folder{id(4), Uuid(), "Elsewhere", -1, 1});
+    model.put(inventory::Folder{root, Uuid(), "My Inventory", 8, 1, {}});
+    model.put(inventory::Folder{id(2), root, "textures", -1, 1, {}});
+    model.put(inventory::Folder{id(3), root, "Clothing", 5, 1, {}});
+    model.put(inventory::Folder{id(4), Uuid(), "Elsewhere", -1, 1, {}});
 
     inventory::Item texture;
     texture.id = id(10);

@@ -233,6 +233,18 @@ send through an `HttpRequestGroup` member, which cancels whatever is still
 pending when it is destroyed. That's what makes tearing down a `Session`
 mid-request safe.
 
+Each request names a pool (`HttpPool`), as the official viewer's policy
+classes do, and each pool has its own connections on each host: `Default`
+(8 per host), `Inventory` (4: AISv3 and the inventory fetches) and
+`LongPoll` (no limit: the event queues). Requests wait in the client, not in
+curl, for their pool to have one free. A region's capabilities all share its
+simulator machine's host, together with the other regions running there, so
+without pools those regions' event queues could take every connection to it.
+
+Folders are browsed with AISv3's `depth=0` (a folder's own contents):
+`depth=1` brings everything in its subfolders too, which for a large
+inventory's root was 64 MB and half a minute.
+
 ## Login and Session
 
 `App` owns a `std::unique_ptr<session::Session>`. Pressing "Log in" destroys

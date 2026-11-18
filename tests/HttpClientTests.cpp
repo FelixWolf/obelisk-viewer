@@ -196,6 +196,56 @@ TEST_CASE("HTTP many concurrent requests all complete")
     }
 }
 
+TEST_CASE("HTTP pools: a pool's requests don't wait for another's connections")
+{
+    // /held answers once released; the others at once.
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool released = false;
+    viewer::test::LoopbackHttpServer server(
+        [&](const viewer::test::LoopbackRequest& request)
+            -> std::optional<viewer::test::LoopbackReply>
+        {
+            if(request.path != "/held")
+            {
+                return std::nullopt;
+            }
+            std::unique_lock lock(mutex);
+            changed.wait_for(lock, 5s, [&] { return released; });
+            return viewer::test::LoopbackReply{.body = "held"};
+        });
+    auto client = createHttpClient({.maxConnectionsPerHost = 2, .inventoryConnectionsPerHost = 1});
+    Responses held;
+    Responses quick;
+
+    // Long polls take no connections from the others.
+    for(int i = 0; i < 3; i++)
+    {
+        client->send({.url = server.url("/held"), .pool = HttpPool::LongPoll}, held.callback());
+    }
+    // The default pool's two connections, held.
+    client->send({.url = server.url("/held")}, held.callback());
+    client->send({.url = server.url("/held")}, held.callback());
+    std::this_thread::sleep_for(100ms);
+
+    // Inventory has its own, though the default pool's are taken.
+    client->send({.url = server.url("/hello"), .pool = HttpPool::Inventory}, quick.callback());
+    REQUIRE(quick.waitFor(1, 2s));
+    CHECK(quick[0].bodyText() == "hello");
+
+    // Another default one waits for one of its pool's to be done.
+    client->send({.url = server.url("/hello")}, quick.callback());
+    CHECK_FALSE(quick.waitFor(2, 300ms));
+    {
+        std::lock_guard lock(mutex);
+        released = true;
+    }
+    changed.notify_all();
+    REQUIRE(quick.waitFor(2, 2s));
+    CHECK(quick[1].bodyText() == "hello");
+    REQUIRE(held.waitFor(5, 2s));
+}
+
 TEST_CASE("HttpRequestGroup cancels its pending requests when destroyed")
 {
     viewer::test::LoopbackHttpServer server;

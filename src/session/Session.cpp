@@ -564,6 +564,7 @@ void Session::pollEventQueue(Region& region)
     const auto url = region.capabilities.find("EventQueueGet");
     net::HttpRequest request = llsdPost(url->second, body);
     request.timeout = kEventQueueTimeout;
+    request.pool = net::HttpPool::LongPoll;
     sendHttp(RequestKind::EventQueue, &region, std::move(request));
 }
 

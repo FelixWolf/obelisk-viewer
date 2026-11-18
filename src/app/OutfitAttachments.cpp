@@ -52,7 +52,8 @@ void OutfitAttachments::clear()
 
 void OutfitAttachments::post(const std::string& url, const llsd::Value& body)
 {
-    net::HttpRequest request{.method = net::HttpMethod::Post, .url = url};
+    net::HttpRequest request{
+        .method = net::HttpMethod::Post, .url = url, .pool = net::HttpPool::Inventory};
     request.headers.add("Content-Type", std::string(llsd::kXmlContentType));
     request.headers.add("Accept", std::string(llsd::kXmlContentType));
     const std::string xml = llsd::toXml(body);

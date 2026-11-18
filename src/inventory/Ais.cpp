@@ -28,7 +28,7 @@ void Ais::send(net::HttpMethod method, std::string path, const llsd::Value* body
         pending_[id] = std::move(done);
         return;
     }
-    net::HttpRequest request{.method = method, .url = url(path)};
+    net::HttpRequest request{.method = method, .url = url(path), .pool = net::HttpPool::Inventory};
     request.headers.add("Accept", std::string(llsd::kXmlContentType));
     if(body)
     {

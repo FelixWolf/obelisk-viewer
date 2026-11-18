@@ -94,8 +94,10 @@ std::optional<Uuid> InventoryBrowser::root()
     if(!root_ && !rootAsked_ && ais_.available())
     {
         rootAsked_ = true;
+        // depth 0: its own contents (1 brings its subfolders' too: most of
+        // a large inventory).
         ais_.fetchChildren(
-            "root", 1,
+            "root", 0,
             [this, generation = generation_](bool ok, const inventory::Model::Merged& merged)
             {
                 if(generation != generation_)
@@ -163,7 +165,7 @@ void InventoryBrowser::fetch(const Uuid& folder)
     folders_[folder] = State::Loading;
     version_++;
     ais_.fetchChildren(
-        folder.toString(), 1,
+        folder.toString(), 0,
         [this, folder, generation = generation_](bool ok, const inventory::Model::Merged&)
         {
             if(generation != generation_)

@@ -260,7 +260,7 @@ TEST_CASE("Current outfit: wearing an outfit instead of what's worn")
     put(16, inventory::kObject, 0, "Party hat");
     put(17, inventory::kGesture, 0, "Wave");
     put(18, 7, 0, "A notecard");
-    model.put(inventory::Folder{party, id(4), "Party", inventory::kOutfit, 1});
+    model.put(inventory::Folder{party, id(4), "Party", inventory::kOutfit, 1, {}});
     const auto link = [&](int n, const Uuid& folder, int target, const char* desc = "")
     {
         inventory::Item l;
