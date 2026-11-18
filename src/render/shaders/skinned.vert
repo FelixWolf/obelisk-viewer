@@ -45,7 +45,15 @@ void main()
                           inWeights.z * joints[base + inJoints.z] +
                           inWeights.w * joints[base + inJoints.w];
     const mat4 world = draw.model * skinning;
-    const vec4 position = world * vec4(inPosition, 1.0);
+    // Relative to the draw's frame (the skeleton's root): small numbers,
+    // precise. Projected from there with one matrix for the whole draw, not
+    // from the world position: world coordinates are region sized, and their
+    // rounding (hundredths of a millimetre, different for each vertex) is as
+    // much as the gap between layers made to lie on each other (fur on a
+    // body), which then poke through each other as the view turns. The same
+    // matrix for every draw on the same skeleton rounds them all alike.
+    const vec4 local = skinning * vec4(inPosition, 1.0);
+    const vec4 position = draw.model * local;
     outWorldPosition = position.xyz;
     // Normals need the inverse transpose: the bind shape matrix stretches
     // mesh (a long tail, a flat plate), and stretched normals lean the
@@ -59,5 +67,5 @@ void main()
     outUv = vec2(dot(draw.uvRow0.xyz, vec3(inUv, 1.0)), dot(draw.uvRow1.xyz, vec3(inUv, 1.0)));
     outMeshUv = inUv;
     outDraw = inDraw;
-    gl_Position = viewProjection * position;
+    gl_Position = (viewProjection * draw.model) * local;
 }

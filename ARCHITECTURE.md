@@ -1434,7 +1434,17 @@ so the first attached is drawn on top), each attachment's faces in order.
 Distance can't order layers of clothing on one body, so their attachment
 order does. As in the official viewer, depth tests pass on equal depth
 (layers made of the same geometry show the later one) and blended rigged
-mesh writes depth. Skinned normals use the inverse transpose of the
+mesh writes depth. A face blended because of its tint (alpha under 1) is
+only blended, whatever its alpha mode: no mask cutoff, no emissive mask
+(llvovolume.cpp). Opaque geometry is drawn wholly opaque first, then
+alpha-masked (the official viewer's passes), each in a fixed order: the
+same mesh worn twice (a body's hands and a hands attachment) lies exactly
+on itself, so ties go by attachment order, the later attached last, so it
+shows. Skinned vertices are projected from the skeleton's frame with one
+matrix per draw, not from their world position: region-sized coordinates
+round to hundredths of a millimetre, as much as the gap between layers
+made to fit each other (fur on a body), which would poke through each
+other as the view turns. Skinned normals use the inverse transpose of the
 skinning matrix (the official viewer applies the bind shape's to normals):
 bind shapes stretch meshes, and stretched normals light seams wrongly.
 The legacy highlight (`legacySpecular`, for the sun and local lights) is

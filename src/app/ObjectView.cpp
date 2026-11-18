@@ -430,7 +430,13 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
     m.blend = m.blend || face.color.a < 1.0f;
     if(m.blend)
     {
+        // Blended is all it is, whatever the alpha mode said (llvovolume.cpp:
+        // a transparent face's mode becomes blend): no cutoff, which would
+        // cut away its fainter parts (tint alpha times the texture's), and no
+        // emissive mask.
         m.opaque = false;
+        m.alphaCutoff = -1.0f;
+        m.emissiveMask = false;
     }
     return m;
 }

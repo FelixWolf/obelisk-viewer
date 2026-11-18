@@ -1200,25 +1200,33 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
                 opaque.push_back(&draw);
             }
         }
-        // Opaque draws need no order: group them by pipeline, then texture, then
-        // buffer block, so state changes between neighbours are rare. One
-        // packed key: layout (2 bits), material kind (2), texture (44: its
-        // address, which only needs to tell textures apart), block (16).
+        // Opaque draws: wholly opaque ones, then alpha-masked ones, as the
+        // official viewer's passes (simple before alpha mask): where a masked
+        // layer lies on another (fur on a body, made to fit it), the depth
+        // test (less or equal) lets the later one show. Otherwise grouped by
+        // pipeline, then texture, then buffer block, so state changes between
+        // neighbours are rare. One packed key: masked (1 bit), layout (2),
+        // material kind (2), texture (43: its address, which only needs to
+        // tell textures apart), block (16).
         auto stateKey = [](const ObjectDraw* draw)
         {
             const void* firstTexture = nullptr;
+            bool masked = false;
             if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw->material))
             {
                 firstTexture = m->diffuse;
+                masked = m->alphaCutoff >= 0.0f;
             }
             else if(const auto* t = std::get_if<PbrMaterial>(&draw->material))
             {
                 firstTexture = t->albedo;
+                masked = t->alphaCutoff >= 0.0f;
             }
             const uint64_t textureBits =
-                (reinterpret_cast<uintptr_t>(firstTexture) >> 4) & ((1ull << 44) - 1);
-            return static_cast<uint64_t>(draw->mesh->layout) << 62 |
-                   static_cast<uint64_t>(materialKind(*draw)) << 60 | textureBits << 16 |
+                (reinterpret_cast<uintptr_t>(firstTexture) >> 4) & ((1ull << 43) - 1);
+            return static_cast<uint64_t>(masked) << 63 |
+                   static_cast<uint64_t>(draw->mesh->layout) << 61 |
+                   static_cast<uint64_t>(materialKind(*draw)) << 59 | textureBits << 16 |
                    (draw->mesh->block->index & 0xFFFFu);
         };
         keyedDraws_.clear();
@@ -1227,10 +1235,29 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             keyedDraws_.emplace_back(stateKey(draw), draw);
         }
         // Then by mesh, so the same mesh with the same textures ends up
-        // side by side (drawn as one).
-        std::ranges::sort(
-            keyedDraws_, [](const auto& a, const auto& b)
-            { return a.first != b.first ? a.first < b.first : a.second->mesh < b.second->mesh; });
+        // side by side (drawn as one). Then always in the same order: the
+        // same mesh worn twice (a body and a hands attachment made from the
+        // same hands) lies exactly on itself, and the one drawn last shows;
+        // if that changed from frame to frame they'd flicker. In attachment
+        // order (ObjectDraw::layer), the later attached last so that it shows
+        // (hands made to replace the body's), then as listed.
+        std::ranges::sort(keyedDraws_,
+                          [](const auto& a, const auto& b)
+                          {
+                              if(a.first != b.first)
+                              {
+                                  return a.first < b.first;
+                              }
+                              if(a.second->mesh != b.second->mesh)
+                              {
+                                  return a.second->mesh < b.second->mesh;
+                              }
+                              if(a.second->layer != b.second->layer)
+                              {
+                                  return a.second->layer < b.second->layer;
+                              }
+                              return a.second < b.second;
+                          });
         for(size_t i = 0; i < keyedDraws_.size(); i++)
         {
             opaque[i] = keyedDraws_[i].second;
