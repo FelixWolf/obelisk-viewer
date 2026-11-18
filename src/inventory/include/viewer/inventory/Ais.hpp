@@ -36,7 +36,8 @@ public:
     void setCapability(std::string url) { cap_ = std::move(url); }
     bool available() const { return !cap_.empty(); }
 
-    // A folder and its contents, `depth` levels down (1: its children).
+    // A folder and its contents, `depth` levels down (1: its children);
+    // its own contents in the model become what came.
     void fetchChildren(std::string_view folder, int depth, Done done);
     // A folder's links, each with what it points at.
     void fetchLinks(std::string_view folder, Done done);
@@ -52,6 +53,9 @@ public:
         std::string description;
     };
     void createLinks(const Uuid& folder, std::span<const Link> links, Done done);
+    // A folder's links replaced by these (its contents found again by
+    // fetching its children).
+    void slamLinks(const Uuid& folder, std::span<const Link> links, Done done);
     // An item (or link) removed (and from the model once it is).
     void removeItem(const Uuid& item, Done done);
 

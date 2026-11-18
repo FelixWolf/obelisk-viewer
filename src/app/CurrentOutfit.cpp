@@ -40,6 +40,162 @@ void CurrentOutfit::takeOff(const Uuid& item)
     changing_.insert(item);
 }
 
+void CurrentOutfit::wearOutfit(const Uuid& folder)
+{
+    outfit_ = folder;
+}
+
+Uuid CurrentOutfit::baseOutfit()
+{
+    const inventory::Folder* cof = outfitFolder();
+    if(!cof)
+    {
+        return {};
+    }
+    for(const inventory::Item* i : model_.items(cof->id))
+    {
+        if(i->type == inventory::kFolderLink)
+        {
+            return i->linkedId;
+        }
+    }
+    return {};
+}
+
+CurrentOutfit::AttachmentChanges
+CurrentOutfit::takeAttachmentChanges(const std::unordered_set<Uuid>& worn)
+{
+    AttachmentChanges changes;
+    if(!syncAttachments_ || writes_ != 0)
+    {
+        return changes;
+    }
+    syncAttachments_ = false;
+    for(const Uuid& item : outfitObjects_)
+    {
+        if(!worn.contains(item))
+        {
+            changes.attach.push_back(item);
+        }
+    }
+    for(const Uuid& item : worn)
+    {
+        if(!outfitObjects_.contains(item))
+        {
+            changes.detach.push_back(item);
+        }
+    }
+    return changes;
+}
+
+void CurrentOutfit::slamOutfit(const inventory::Folder& cof, const Uuid& outfit)
+{
+    // The outfit's items (its links' targets, or items in it), each with
+    // its own description (a link's orders layered clothing).
+    struct Entry
+    {
+        const inventory::Item* item;
+        std::string description;
+    };
+    std::vector<Entry> bodyParts;
+    std::vector<Entry> clothing;
+    std::vector<Entry> objects;
+    std::vector<Entry> gestures;
+    const auto sort = [&](const Uuid& folder, bool outfitOnly)
+    {
+        for(const inventory::Item* i : model_.items(folder))
+        {
+            const inventory::Item* target = model_.resolve(i->id);
+            if(!target || i->type == inventory::kFolderLink)
+            {
+                continue;
+            }
+            const Entry e{target, i->description};
+            switch(target->type)
+            {
+            case kBodyPart:
+                bodyParts.push_back(e);
+                break;
+            case kClothing:
+                if(outfitOnly)
+                {
+                    clothing.push_back(e);
+                }
+                break;
+            case inventory::kObject:
+                if(outfitOnly)
+                {
+                    objects.push_back(e);
+                }
+                break;
+            case inventory::kGesture:
+                if(outfitOnly)
+                {
+                    gestures.push_back(e);
+                }
+                break;
+            default:
+                break;
+            }
+        }
+    };
+    sort(outfit, true);
+    // Nothing known in it (its contents not fetched?): not worn, rather
+    // than everything taken off.
+    if(bodyParts.empty() && clothing.empty() && objects.empty() && gestures.empty())
+    {
+        log::warn("outfit: nothing to wear in that outfit");
+        return;
+    }
+    sort(cof.id, false); // body parts worn, after the outfit's
+    // One body part of each kind: the outfit's first.
+    std::unordered_set<int> kinds;
+    std::erase_if(bodyParts,
+                  [&](const Entry& e) { return !kinds.insert(wearableType(*e.item)).second; });
+    std::vector<inventory::Ais::Link> links;
+    std::unordered_set<Uuid> linked;
+    outfitObjects_.clear();
+    for(const auto* list : {&bodyParts, &clothing, &objects, &gestures})
+    {
+        for(const Entry& e : *list)
+        {
+            if(linked.insert(e.item->id).second)
+            {
+                links.push_back({e.item->id, inventory::kLink, e.item->inventoryType, e.item->name,
+                                 e.description});
+                if(e.item->type == inventory::kObject)
+                {
+                    outfitObjects_.insert(e.item->id);
+                }
+            }
+        }
+    }
+    // And the outfit itself (the outfit worn).
+    if(const inventory::Folder* f = model_.folder(outfit); f && f->type == inventory::kOutfit)
+    {
+        links.push_back({f->id, inventory::kFolderLink, -1, f->name, ""});
+    }
+    log::info("outfit: wearing an outfit: {} body parts, {} clothing, {} attachments, {} gestures",
+              bodyParts.size(), clothing.size(), objects.size(), gestures.size());
+    writes_++;
+    ais_.slamLinks(cof.id, links,
+                   [this, generation = generation_](bool ok, const inventory::Model::Merged&)
+                   {
+                       if(generation != generation_)
+                       {
+                           return;
+                       }
+                       writes_--;
+                       if(!ok)
+                       {
+                           log::warn("outfit: the Current Outfit Folder couldn't be replaced");
+                           syncAttachments_ = false;
+                       }
+                   });
+    syncAttachments_ = true;
+    lookWanted_ = true;
+}
+
 bool CurrentOutfit::pending(const Uuid& item) const
 {
     return attaching_.contains(item) || detaching_.contains(item) || changing_.contains(item);
@@ -226,7 +382,7 @@ void CurrentOutfit::update(const std::unordered_set<Uuid>& worn, double now)
         changing_.clear();
     }
 
-    if(attaching_.empty() && detaching_.empty() && changes_.empty() && !lookWanted_)
+    if(attaching_.empty() && detaching_.empty() && changes_.empty() && !lookWanted_ && !outfit_)
     {
         return;
     }
@@ -238,7 +394,12 @@ void CurrentOutfit::update(const std::unordered_set<Uuid>& worn, double now)
 
     // Wearables: the COF changed, then our look asked for (the COF's version
     // after the changes, fetched again).
-    if(!changes_.empty() && look_ == Look::Idle)
+    if(outfit_ && look_ == Look::Idle && writes_ == 0)
+    {
+        slamOutfit(*cof, *outfit_);
+        outfit_.reset();
+    }
+    if(!changes_.empty() && look_ == Look::Idle && writes_ == 0)
     {
         changeWearables(*cof);
     }
@@ -313,6 +474,9 @@ void CurrentOutfit::clear()
     detaching_.clear();
     changes_.clear();
     changing_.clear();
+    outfit_.reset();
+    outfitObjects_.clear();
+    syncAttachments_ = false;
     writes_ = 0;
     lookWanted_ = false;
     look_ = Look::Idle;

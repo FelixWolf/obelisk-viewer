@@ -61,6 +61,9 @@ public:
     };
     // A folder's contents: asked for the first time.
     State open(const Uuid& folder);
+    // A folder's links, each with what it points at (an outfit's): asked
+    // for the first time.
+    State openLinks(const Uuid& folder);
     // Asks for a folder's contents again.
     void refresh(const Uuid& folder);
 
@@ -77,6 +80,7 @@ private:
     std::optional<Uuid> root_;
     bool rootAsked_ = false;
     std::unordered_map<Uuid, State> folders_;
+    std::unordered_map<Uuid, State> links_;
     uint64_t generation_ = 0; // of answers wanted (clear() forgets those coming)
     uint64_t version_ = 0;
 };

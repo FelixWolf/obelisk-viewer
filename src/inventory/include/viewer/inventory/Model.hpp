@@ -22,7 +22,10 @@ namespace viewer::inventory
 // Asset types (llassettype.h) the viewer cares about by number.
 enum AssetType : int
 {
+    kClothingAsset = 5,
     kObject = 6,
+    kBodyPartAsset = 13,
+    kGesture = 21,
     kLink = 24,
     kFolderLink = 25,
 };
@@ -31,6 +34,8 @@ enum AssetType : int
 enum FolderType : int
 {
     kCurrentOutfit = 46,
+    kOutfit = 47,
+    kMyOutfits = 48,
 };
 
 struct Permissions
@@ -74,6 +79,7 @@ struct Folder
     std::string name;
     int type = -1;    // preferred type (-1: an ordinary folder)
     int version = -1; // bumped by the service on every change in it
+    Uuid thumbnail;   // its picture (a texture; outfits have them), null: none
 
     static std::optional<Folder> fromLlsd(const llsd::Value& map);
 };
@@ -106,6 +112,9 @@ public:
     void put(Item item);
     // An item (or link) gone.
     void remove(const Uuid& item);
+    // A folder's contents are what came (a fetch of its children): its
+    // items and folders that didn't are gone.
+    void prune(const Uuid& folder, const Merged& merged);
     void clear();
     size_t folderCount() const { return folders_.size(); }
     size_t itemCount() const { return items_.size(); }

@@ -277,6 +277,42 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
                                     m->inventory_->refresh(m->invPath_.back());
                                 }
                             });
+    if(auto card = model.RegisterStruct<OutfitCard>())
+    {
+        card.RegisterMember("name", &OutfitCard::name);
+        card.RegisterMember("image", &OutfitCard::image);
+        card.RegisterMember("worn", &OutfitCard::worn);
+    }
+    model.RegisterArray<std::vector<OutfitCard>>();
+    model.Bind("outfits", &m->outfitCards_);
+    model.Bind("outfitsNote", &m->outfitsNote_);
+    model.Bind("outfitPage", &m->outfitPage_);
+    model.Bind("outfit", &m->outfit_);
+    model.Bind("outfitItems", &m->outfitItems_);
+    model.Bind("outfitNote", &m->outfitNote_);
+    model.Bind("outfitChanging", &m->outfitChanging_);
+    model.BindEventCallback(
+        "outfitOpen",
+        [m, index](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& arguments)
+        {
+            const int i = index(arguments);
+            if(i >= 0 && i < static_cast<int>(m->outfitIds_.size()))
+            {
+                m->outfitShown_ = m->outfitIds_[static_cast<size_t>(i)];
+            }
+        });
+    model.BindEventCallback("outfitBack",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            { m->outfitShown_ = Uuid(); });
+    model.BindEventCallback("outfitWear",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            {
+                                if(!m->outfitShown_.isNull())
+                                {
+                                    m->inventoryAction_ = InventoryAction{
+                                        InventoryAction::Kind::WearOutfit, m->outfitShown_};
+                                }
+                            });
     if(auto rule = model.RegisterStruct<Rule>())
     {
         rule.RegisterMember("name", &Rule::name);
@@ -802,6 +838,101 @@ void MainMenu::updateInventory(const Status& status)
     put("invItem", invItem_, std::move(item));
 }
 
+void MainMenu::updateOutfits(const Status& status)
+{
+    const auto put = [&](const char* variable, auto& field, auto value)
+    {
+        if(field != value)
+        {
+            field = std::move(value);
+            model_.DirtyVariable(variable);
+        }
+    };
+    const auto thumbnail = [](const inventory::Folder& f)
+    {
+        return f.thumbnail.isNull() ? Rml::String()
+                                    : std::format("asset://{}?size=256", f.thumbnail.toString());
+    };
+    const auto note = [&](const char* text)
+    {
+        put("outfitsNote", outfitsNote_, Rml::String(text));
+        put("outfits", outfitCards_, std::vector<OutfitCard>());
+        outfitIds_.clear();
+        outfitShown_ = Uuid();
+        put("outfitPage", outfitPage_, false);
+    };
+    if(!status.inWorld)
+    {
+        note("Log in to see your outfits.");
+        return;
+    }
+    if(!inventory_->root())
+    {
+        note("Opening your inventory...");
+        return;
+    }
+    const inventory::Model& model = inventory_->model();
+    const inventory::Folder* mine = model.folderOfType(inventory::kMyOutfits);
+    if(!mine)
+    {
+        note("There's no My Outfits folder.");
+        return;
+    }
+    const InventoryBrowser::State state = inventory_->open(mine->id);
+    put("outfitChanging", outfitChanging_, status.outfitChanging);
+    if(inventory_->version() != outfitsVersion_ || outfitShown_ != outfitShownBuilt_ ||
+       status.baseOutfit != outfitBaseShown_)
+    {
+        outfitsVersion_ = inventory_->version();
+        outfitBaseShown_ = status.baseOutfit;
+        // The outfits, by name.
+        std::vector<const inventory::Folder*> folders = model.folders(mine->id);
+        std::ranges::sort(folders, [](const inventory::Folder* a, const inventory::Folder* b)
+                          { return a->name < b->name; });
+        outfitIds_.clear();
+        std::vector<OutfitCard> cards;
+        for(const inventory::Folder* f : folders)
+        {
+            outfitIds_.push_back(f->id);
+            cards.push_back({f->name, thumbnail(*f), f->id == status.baseOutfit});
+        }
+        put("outfits", outfitCards_, std::move(cards));
+        put("outfitsNote", outfitsNote_,
+            Rml::String(!outfitIds_.empty()                         ? ""
+                        : state == InventoryBrowser::State::Loading ? "Finding your outfits..."
+                        : state == InventoryBrowser::State::Failed ? "Your outfits couldn't be had."
+                                                                   : "No outfits saved yet."));
+
+        // One alone: its picture and what's in it.
+        outfitShownBuilt_ = outfitShown_;
+        const inventory::Folder* shown =
+            outfitShown_.isNull() ? nullptr : model.folder(outfitShown_);
+        if(!shown)
+        {
+            outfitShown_ = Uuid();
+            outfitShownBuilt_ = Uuid();
+        }
+        put("outfitPage", outfitPage_, shown != nullptr);
+        if(shown)
+        {
+            const InventoryBrowser::State items = inventory_->openLinks(shown->id);
+            put("outfit", outfit_,
+                OutfitCard{shown->name, thumbnail(*shown), shown->id == status.baseOutfit});
+            std::vector<InvEntry> entries;
+            for(const InventoryEntry& e : inventoryEntries(model, shown->id))
+            {
+                entries.push_back({e.name, std::string(e.kind.name), std::string(e.kind.badge),
+                                   std::string(e.kind.style), e.link, e.broken, false});
+            }
+            put("outfitNote", outfitNote_,
+                Rml::String(!entries.empty()                            ? ""
+                            : items == InventoryBrowser::State::Loading ? "Opening..."
+                                                                        : "This outfit is empty."));
+            put("outfitItems", outfitItems_, std::move(entries));
+        }
+    }
+}
+
 void MainMenu::update(const Status& status)
 {
     updateDestinations(status);
@@ -809,6 +940,10 @@ void MainMenu::update(const Status& status)
     if(tab_ == "inventory")
     {
         updateInventory(status);
+    }
+    if(tab_ == "outfits")
+    {
+        updateOutfits(status);
     }
     // The license picked on About.
     if(license_ != shownLicense_ && license_ >= 0 && license_ < static_cast<int>(licenses_.size()))

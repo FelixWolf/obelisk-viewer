@@ -228,3 +228,104 @@ TEST_CASE("Current outfit: wearing clothing, then asking for our look")
     CHECK(http.sent[6].request.method == net::HttpMethod::Delete);
     CHECK(http.sent[6].request.url.ends_with(id(22).toString()));
 }
+
+TEST_CASE("Current outfit: wearing an outfit instead of what's worn")
+{
+    FakeHttp http;
+    inventory::Model model;
+    inventory::Ais ais(http, model);
+    ais.setCapability("https://ais.example/agent");
+    CurrentOutfit outfit(http, ais, model);
+    outfit.setAppearanceCapability("https://sim.example/appearance");
+
+    const Uuid cof = id(1);
+    const Uuid party = id(3);
+    const auto put = [&](int n, int type, int wearable, const char* name)
+    {
+        inventory::Item item;
+        item.id = id(n);
+        item.parent = id(2);
+        item.name = name;
+        item.type = type;
+        item.inventoryType = type == inventory::kObject ? 17 : 18;
+        item.flags = static_cast<uint32_t>(wearable);
+        model.put(item);
+    };
+    put(10, CurrentOutfit::kBodyPart, 0, "Old shape");
+    put(11, CurrentOutfit::kBodyPart, 1, "Skin");
+    put(12, CurrentOutfit::kClothing, 4, "Shirt");
+    put(13, inventory::kObject, 0, "Old hat");
+    put(14, CurrentOutfit::kBodyPart, 0, "Party shape");
+    put(15, CurrentOutfit::kClothing, 5, "Party pants");
+    put(16, inventory::kObject, 0, "Party hat");
+    put(17, inventory::kGesture, 0, "Wave");
+    put(18, 7, 0, "A notecard");
+    model.put(inventory::Folder{party, id(4), "Party", inventory::kOutfit, 1});
+    const auto link = [&](int n, const Uuid& folder, int target, const char* desc = "")
+    {
+        inventory::Item l;
+        l.id = id(n);
+        l.parent = folder;
+        l.name = "link";
+        l.description = desc;
+        l.type = inventory::kLink;
+        l.linkedId = id(target);
+        model.put(l);
+    };
+    link(30, party, 14);
+    link(31, party, 15, "@1");
+    link(32, party, 16);
+    link(33, party, 17);
+    link(34, party, 18);
+
+    outfit.wearOutfit(party);
+    CHECK(outfit.outfitPending());
+    outfit.update({id(13)}, 0.0);
+    REQUIRE(http.sent.size() == 1); // the COF first
+    http.answer(0,
+                folderReply(cof, linkXml(id(20), cof, id(10)) + linkXml(id(21), cof, id(11)) +
+                                     linkXml(id(22), cof, id(12)) + linkXml(id(23), cof, id(13))));
+    ais.update();
+
+    // The COF replaced: the outfit's shape, the skin worn (it has none), its
+    // pants (their order kept), hat and gesture, and a link to it.
+    outfit.update({id(13)}, 0.1);
+    REQUIRE(http.sent.size() == 2);
+    const auto& slam = http.sent[1].request;
+    CHECK(slam.method == net::HttpMethod::Put);
+    CHECK(slam.url.starts_with(
+        std::format("https://ais.example/agent/category/{}/links?tid=", cof.toString())));
+    const auto body = llsd::parse(
+        std::string_view(reinterpret_cast<const char*>(slam.body.data()), slam.body.size()));
+    REQUIRE(body);
+    REQUIRE(body->size() == 6);
+    std::vector<Uuid> targets;
+    for(size_t i = 0; i < body->size(); i++)
+    {
+        targets.push_back(body->at(i)["linked_id"].asUuid());
+    }
+    CHECK(targets == std::vector<Uuid>{id(14), id(11), id(15), id(16), id(17), party});
+    CHECK(body->at(2)["desc"].asString() == "@1");
+    CHECK(body->at(5)["type"].asInteger() == inventory::kFolderLink);
+    CHECK(outfit.takeAttachmentChanges({id(13)}).attach.empty()); // not until it's done
+
+    // Done: the attachments to match (the outfit's hat on, the old one off),
+    // and our look asked for from the COF as it is now.
+    http.answer(1, "<llsd><map/></llsd>");
+    ais.update();
+    const auto changes = outfit.takeAttachmentChanges({id(13)});
+    CHECK(changes.attach == std::vector<Uuid>{id(16)});
+    CHECK(changes.detach == std::vector<Uuid>{id(13)});
+    CHECK(outfit.takeAttachmentChanges({id(13)}).detach.empty()); // once
+    outfit.update({id(13)}, 0.2);
+    REQUIRE(http.sent.size() == 3);
+    CHECK(http.sent[2].request.url ==
+          "https://ais.example/agent/category/current/children?depth=1");
+    http.answer(2, folderReply(cof, linkXml(id(40), cof, id(14)) + linkXml(id(41), cof, id(11))));
+    ais.update();
+    CHECK_FALSE(model.item(id(22))); // what's gone from the COF, gone from the model
+    CHECK(outfit.wearing(id(14)));
+    CHECK_FALSE(outfit.wearing(id(10)));
+    REQUIRE(http.sent.size() == 4);
+    CHECK(http.sent[3].request.url == "https://sim.example/appearance");
+}

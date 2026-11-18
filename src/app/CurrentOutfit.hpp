@@ -75,6 +75,25 @@ public:
     void wear(const Uuid& item, How how);
     void takeOff(const Uuid& item);
 
+    // An outfit (a folder whose contents are known) worn instead of what's
+    // worn, as the official viewer's LLAppearanceMgr::updateCOF does: the
+    // COF becomes its body parts (and those worn of the kinds it hasn't),
+    // clothing, attachments and gestures, and a link to it (the outfit
+    // worn); then our look's asked for, and the attachments put on and taken
+    // off to match (takeAttachmentChanges).
+    void wearOutfit(const Uuid& folder);
+    // The outfit worn last (the COF's link to it); null: none known.
+    Uuid baseOutfit();
+    // After an outfit's worn: its attachments not on to put on, and those on
+    // not in it to take off. Once.
+    struct AttachmentChanges
+    {
+        std::vector<Uuid> attach;
+        std::vector<Uuid> detach;
+    };
+    AttachmentChanges takeAttachmentChanges(const std::unordered_set<Uuid>& worn);
+    bool outfitPending() const { return outfit_.has_value() || syncAttachments_; }
+
     // Something asked of an item isn't done yet.
     bool pending(const Uuid& item) const;
     // A wearable linked in the COF (false until the COF is known; asked for).
@@ -93,6 +112,7 @@ private:
     std::vector<Uuid> linksTo(const inventory::Folder& cof, const Uuid& item) const;
     void changeWearables(const inventory::Folder& cof);
     void askForLook(int version);
+    void slamOutfit(const inventory::Folder& cof, const Uuid& outfit);
 
     struct Change
     {
@@ -123,9 +143,12 @@ private:
 
     std::unordered_map<Uuid, double> attaching_; // item: when asked
     std::unordered_map<Uuid, double> detaching_;
-    std::vector<Change> changes_;       // wearables', to send
-    std::unordered_set<Uuid> changing_; // ... and those sent, until answered
-    int writes_ = 0;                    // COF writes not answered yet
+    std::vector<Change> changes_;            // wearables', to send
+    std::optional<Uuid> outfit_;             // to wear (instead of what's worn)
+    std::unordered_set<Uuid> outfitObjects_; // the attachments of the outfit sent
+    bool syncAttachments_ = false;           // ... to be put on and taken off
+    std::unordered_set<Uuid> changing_;      // ... and those sent, until answered
+    int writes_ = 0;                         // COF writes not answered yet
     bool lookWanted_ = false;
     Look look_ = Look::Idle;
     int retries_ = 0;

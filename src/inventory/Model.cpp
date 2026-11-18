@@ -66,6 +66,7 @@ std::optional<Folder> Folder::fromLlsd(const llsd::Value& m)
     f.name = m["name"].asString();
     f.type = m["type_default"].isUndefined() ? -1 : m["type_default"].asInteger();
     f.version = m["version"].isUndefined() ? -1 : m["version"].asInteger();
+    f.thumbnail = m["thumbnail"]["asset_id"].asUuid();
     return f;
 }
 
@@ -169,6 +170,33 @@ void Model::remove(const Uuid& item)
     }
     childItems_[it->second.parent].erase(item);
     items_.erase(it);
+}
+
+void Model::prune(const Uuid& folder, const Merged& merged)
+{
+    const std::unordered_set<Uuid> items(merged.items.begin(), merged.items.end());
+    const std::unordered_set<Uuid> folders(merged.folders.begin(), merged.folders.end());
+    if(const auto children = childItems_.find(folder); children != childItems_.end())
+    {
+        for(const Uuid& id : std::vector<Uuid>(children->second.begin(), children->second.end()))
+        {
+            if(!items.contains(id))
+            {
+                remove(id);
+            }
+        }
+    }
+    if(const auto children = childFolders_.find(folder); children != childFolders_.end())
+    {
+        for(const Uuid& id : std::vector<Uuid>(children->second.begin(), children->second.end()))
+        {
+            if(!folders.contains(id))
+            {
+                children->second.erase(id);
+                folders_.erase(id);
+            }
+        }
+    }
 }
 
 void Model::clear()

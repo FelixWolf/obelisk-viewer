@@ -127,6 +127,29 @@ InventoryBrowser::State InventoryBrowser::open(const Uuid& folder)
     return State::Loading;
 }
 
+InventoryBrowser::State InventoryBrowser::openLinks(const Uuid& folder)
+{
+    const auto known = links_.find(folder);
+    if(known != links_.end())
+    {
+        return known->second;
+    }
+    links_[folder] = State::Loading;
+    version_++;
+    ais_.fetchLinks(
+        folder.toString(),
+        [this, folder, generation = generation_](bool ok, const inventory::Model::Merged&)
+        {
+            if(generation != generation_)
+            {
+                return;
+            }
+            links_[folder] = ok ? State::Loaded : State::Failed;
+            version_++;
+        });
+    return State::Loading;
+}
+
 void InventoryBrowser::refresh(const Uuid& folder)
 {
     if(folders_[folder] != State::Loading)
@@ -157,6 +180,7 @@ void InventoryBrowser::clear()
     root_.reset();
     rootAsked_ = false;
     folders_.clear();
+    links_.clear();
     generation_++;
     version_++;
 }

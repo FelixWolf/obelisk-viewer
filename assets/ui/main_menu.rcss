@@ -484,3 +484,10 @@ body
 .actions .teleport { flex: 1 1 0; }
 .actions .teleport + .teleport { margin-left: 10dp; }
 .teleport.add { decorator: linear-gradient(180deg, #4a5a80, #3a4a6e); }
+
+/* Outfits: cards like the categories', then one alone with its items. */
+.outfit-card .shot { height: 150dp; }
+.outfit-card .worn { display: inline-block; margin: 4dp 0 0 0; }
+.inv-row.still { cursor: default; }
+.inv-row.still:hover { background-color: transparent; border-color: #00000000; }
+.place-page .shot.snapshot { width: 360dp; height: 270dp; }

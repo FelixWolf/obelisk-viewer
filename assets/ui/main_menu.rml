@@ -204,6 +204,50 @@
             </div>
         </div>
 
+        <div data-if="tab == 'outfits'" class="destinations">
+            <!-- The outfits (kept, hidden, while one's shown). -->
+            <div class="places" data-class-hidden="outfitPage">
+                <div class="places-head">
+                    <div>
+                        <h2>Outfits</h2>
+                        <div class="muted">Those saved in My Outfits</div>
+                    </div>
+                </div>
+                <div class="category outfit-card" data-for="o : outfits" data-event-click="outfitOpen(it_index)">
+                    <div class="shot" data-if="o.image != ''"
+                         data-style-decorator="'image(' + o.image + ' cover)'"></div>
+                    <div class="shot empty" data-if="o.image == ''"></div>
+                    <div class="place-name">{{ o.name }}</div>
+                    <div class="worn" data-if="o.worn">Worn</div>
+                </div>
+                <div class="note" data-if="outfitsNote != ''">{{ outfitsNote }}</div>
+            </div>
+
+            <div class="place-page" data-if="outfitPage">
+                <div class="button back" data-event-click="outfitBack">‹ Back</div>
+                <div class="place-top">
+                    <div class="shot snapshot" data-if="outfit.image != ''"
+                         data-style-decorator="'image(' + outfit.image + ' cover)'"></div>
+                    <div class="shot snapshot empty" data-if="outfit.image == ''"></div>
+                    <div class="place-side">
+                        <div class="detail-name">{{ outfit.name }}</div>
+                        <div class="muted" data-if="outfit.worn">The outfit you last put on</div>
+                        <div class="spacer"></div>
+                        <div class="teleport off" data-if="outfitChanging">Putting it on...</div>
+                        <div class="teleport" data-if="!outfitChanging" data-event-click="outfitWear">Wear</div>
+                    </div>
+                </div>
+                <div class="description">
+                    <div class="inv-row still" data-for="e : outfitItems">
+                        <div data-attr-class="'badge ' + e.style">{{ e.badge }}</div>
+                        <div class="inv-name">{{ e.name }}</div>
+                        <div class="inv-kind">{{ e.kind }}<span data-if="e.broken"> (missing)</span></div>
+                    </div>
+                    <div class="note" data-if="outfitNote != ''">{{ outfitNote }}</div>
+                </div>
+            </div>
+        </div>
+
         <div data-if="tab == 'parcel'" class="parcel">
             <div data-if="!parcelKnown" class="soon">
                 <h2>Parcel</h2>
@@ -248,7 +292,7 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
+        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

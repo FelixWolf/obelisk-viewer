@@ -90,6 +90,9 @@ public:
         std::function<bool(const Uuid&)> changing;
         // Clothing and body parts worn (linked in the Current Outfit Folder).
         std::function<bool(const Uuid&)> wearing;
+        // The outfit worn last (null: none), and an outfit being put on.
+        Uuid baseOutfit;
+        bool outfitChanging = false;
     };
     // The page's values, then its layout and animations (once a frame
     // while open, before render()).
@@ -107,12 +110,13 @@ public:
         {
             Attach,
             Detach,
-            Wear,    // clothing or a body part, instead of others of its kind
-            Add,     // clothing, over what's worn
-            TakeOff, // clothing
+            Wear,       // clothing or a body part, instead of others of its kind
+            Add,        // clothing, over what's worn
+            TakeOff,    // clothing
+            WearOutfit, // an outfit (a folder) instead of what's worn
         };
         Kind kind = Kind::Attach;
-        Uuid item; // the item itself (not a link to it)
+        Uuid item; // the item itself (not a link to it), or the outfit's folder
     };
     std::optional<InventoryAction> takeInventoryAction()
     {
@@ -172,6 +176,14 @@ public:
         bool changing = false; // being put on or taken off
         bool operator==(const InvItem&) const = default;
     };
+    // An outfit, as the page shows it.
+    struct OutfitCard
+    {
+        Rml::String name;
+        Rml::String image; // asset://... its thumbnail; empty: none
+        bool worn = false;
+        bool operator==(const OutfitCard&) const = default;
+    };
     // One of a parcel's rules, as the page shows it.
     struct Rule
     {
@@ -198,6 +210,7 @@ private:
     void updateParcel(const Status& status);
     void updateInventory(const Status& status);
     void openInventoryEntry(int index);
+    void updateOutfits(const Status& status);
 
     Destinations* destinations_ = nullptr;
     GridPopulation* population_ = nullptr;
@@ -264,6 +277,19 @@ private:
     std::unordered_set<Uuid> invWornShown_;
     double invWornAt_ = -1.0; // when the lines' worn marks were last looked at (seconds)
     std::optional<InventoryAction> inventoryAction_;
+    // Outfits: those in My Outfits, and one shown alone (null: none).
+    std::vector<Uuid> outfitIds_;
+    std::vector<OutfitCard> outfitCards_;
+    Rml::String outfitsNote_;
+    uint64_t outfitsVersion_ = ~uint64_t{0};
+    Uuid outfitShown_;
+    Uuid outfitShownBuilt_; // the one the page's items are of
+    Uuid outfitBaseShown_;  // the outfit worn, as shown
+    bool outfitPage_ = false;
+    OutfitCard outfit_;
+    std::vector<InvEntry> outfitItems_;
+    Rml::String outfitNote_;
+    bool outfitChanging_ = false;
     // Parcel.
     bool parcelKnown_ = false;
     Rml::String parcelName_;

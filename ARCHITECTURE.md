@@ -735,7 +735,21 @@ removes clothing's links; once the writes are answered, the COF is fetched
 again for its version and the region asked to make our look from it
 (UpdateAvatarAppearance, `cof_version`; asked again with the version it
 says it "expected" when ours is stale). The new look comes as
-AvatarAppearance. Landmarks and the rest are still to come. Parcel: the one we're on (`ParcelInfo`): the
+AvatarAppearance. Landmarks and the rest are still to come.
+
+Outfits: the folders in My Outfits as cards (their thumbnails: a folder's
+`thumbnail.asset_id`), and one alone with what's in it (its links with
+their targets: AISv3's links call). Wearing one replaces what's worn, as
+the official viewer's updateCOF: the COF is slammed (AISv3 PUT of the
+folder's links) to the outfit's body parts (and those worn of kinds it
+hasn't), clothing (each link's description kept: it orders layers),
+attachments and gestures, and a folder link to the outfit (the outfit
+worn, marked); then our look is asked for, and the attachments put on (five
+a frame) and taken off to match. An outfit is only worn once its contents
+are known, and never when nothing in it can be worn (or everything would
+come off). A fetch of a folder's children now makes the model's contents
+of that folder what came (`Model::prune`), so the COF is right after a
+slam. Parcel: the one we're on (`ParcelInfo`): the
 region sends its properties on the event queue whenever we come onto one
 (ParcelProperties; sequence 0 or up, negative ones answer requests for
 others), which the session passes on (`drainRegionEvents`, the events it

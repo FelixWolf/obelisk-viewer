@@ -262,6 +262,7 @@ private:
     std::optional<double> selfSeenAt_;
     std::unordered_set<Uuid> worn_; // its items worn, as last looked (twice a second)
     std::unordered_map<Uuid, std::vector<uint32_t>> wornObjects_; // their objects (local ids)
+    std::vector<OutfitAttachments::Item> outfitAttachQueue_;      // an outfit's, to put on
     double wornAt_ = -1e9;
     std::unique_ptr<LegacyMaterialManager> legacyMaterials_;
     std::unique_ptr<AvatarNames> avatarNames_;     // display names, for name tags

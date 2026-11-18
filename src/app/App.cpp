@@ -1572,6 +1572,33 @@ void App::updateOutfit()
             }
         }
     }
+    // An outfit put on: its attachments on (five a frame, as the login's),
+    // the others off.
+    const auto changes = currentOutfit_->takeAttachmentChanges(worn_);
+    for(const Uuid& id : changes.attach)
+    {
+        if(const inventory::Item* item = inventory_->item(id))
+        {
+            outfitAttachQueue_.push_back(OutfitAttachments::toAttach(*item));
+        }
+    }
+    std::vector<uint32_t> off;
+    for(const Uuid& id : changes.detach)
+    {
+        if(const auto objects = wornObjects_.find(id); objects != wornObjects_.end())
+        {
+            off.insert(off.end(), objects->second.begin(), objects->second.end());
+        }
+        outfit_->forget(id);
+    }
+    session_->detach(off);
+    if(!outfitAttachQueue_.empty())
+    {
+        const size_t n = std::min(outfitAttachQueue_.size(), OutfitAttachments::kPerRequest);
+        session_->attachFromInventory(std::span(outfitAttachQueue_.data(), n));
+        outfitAttachQueue_.erase(outfitAttachQueue_.begin(),
+                                 outfitAttachQueue_.begin() + static_cast<std::ptrdiff_t>(n));
+    }
     if(!outfit_->busy())
     {
         return;
@@ -1590,6 +1617,7 @@ void App::endSession()
     inventoryBrowser_->clear();
     currentOutfit_->clear();
     wornObjects_.clear();
+    outfitAttachQueue_.clear();
     setFirstPerson(false);
     appearanceDue_.clear();
     objectProperties_ = {};
@@ -2455,6 +2483,8 @@ void App::updateMainMenu()
         status.worn = &worn_;
         status.changing = [this](const Uuid& item) { return currentOutfit_->pending(item); };
         status.wearing = [this](const Uuid& item) { return currentOutfit_->wearing(item); };
+        status.baseOutfit = currentOutfit_->baseOutfit();
+        status.outfitChanging = currentOutfit_->outfitPending() || !outfitAttachQueue_.empty();
     }
     destinations_->update();
     mainMenu_->update(status);
@@ -2480,6 +2510,17 @@ void App::updateMainMenu()
             currentOutfit_->wear(item->id, action->kind == MainMenu::InventoryAction::Kind::Add
                                                ? CurrentOutfit::How::Add
                                                : CurrentOutfit::How::Replace);
+        }
+        else if(action->kind == MainMenu::InventoryAction::Kind::WearOutfit)
+        {
+            // Only once what's in it is known (or everything would come off).
+            const inventory::Folder* folder = inventory_->folder(action->item);
+            if(folder &&
+               inventoryBrowser_->openLinks(folder->id) == InventoryBrowser::State::Loaded)
+            {
+                log::info("wearing the outfit '{}'", folder->name);
+                currentOutfit_->wearOutfit(folder->id);
+            }
         }
         else if(action->kind == MainMenu::InventoryAction::Kind::TakeOff && item)
         {
