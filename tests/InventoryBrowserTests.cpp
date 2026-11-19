@@ -75,7 +75,7 @@ TEST_CASE("Inventory browser: a folder's lines, folders first, each by name")
     CHECK(lines[5].name == "Lost");
     CHECK(lines[5].broken);
     CHECK(lines[6].name == "zebra");
-    CHECK(lines[6].kind.style == "texture");
+    CHECK(lines[6].kind.icon == "texture");
 
     CHECK(inventoryKind(6, 6).name == "Object");
     CHECK(inventoryKind(3, 3).name == "Landmark");

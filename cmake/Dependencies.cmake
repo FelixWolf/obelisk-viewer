@@ -255,6 +255,19 @@ CPMAddPackage(
     "SKIP_INSTALL_ALL ON"
 )
 
+# --- LunaSVG: RmlUi's SVG plugin draws <svg> images with it (icons) ---------
+# 2.x: its rasterizer (plutovg) is bundled; RmlUi 6.1 uses its 2.x API.
+CPMAddPackage(
+  NAME lunasvg
+  GITHUB_REPOSITORY sammycage/lunasvg
+  GIT_TAG v2.4.1
+  SYSTEM YES
+  OPTIONS "BUILD_SHARED_LIBS OFF" "LUNASVG_BUILD_EXAMPLES OFF"
+)
+if(TARGET lunasvg AND NOT TARGET lunasvg::lunasvg)
+  add_library(lunasvg::lunasvg ALIAS lunasvg)
+endif()
+
 # --- RmlUi: the viewer's own interface (HTML/CSS-like documents) -------------
 # Its font engine takes FreeType as the target above (not an installed one).
 if(TARGET freetype AND NOT TARGET Freetype::Freetype)
@@ -273,6 +286,9 @@ CPMAddPackage(
     # Its bundled hash map (robin_hood.h) lacks <cstdint> for current GCC.
     "RMLUI_THIRDPARTY_CONTAINERS OFF"
     "CMAKE_DISABLE_FIND_PACKAGE_Freetype ON"
+    # SVG images, with the LunaSVG above (not an installed one).
+    "RMLUI_SVG_PLUGIN ON"
+    "CMAKE_DISABLE_FIND_PACKAGE_lunasvg ON"
 )
 
 # --- The licenses of the libraries above that ship in the viewer ------------
@@ -281,6 +297,7 @@ CPMAddPackage(
 viewer_license("SDL" "${SDL3_SOURCE_DIR}/LICENSE.txt")
 viewer_license("Dear ImGui" "${imgui_SOURCE_DIR}/LICENSE.txt")
 viewer_license("RmlUi" "${RmlUi_SOURCE_DIR}/LICENSE.txt")
+viewer_license("LunaSVG" "${lunasvg_SOURCE_DIR}/LICENSE")
 # Dual-licensed: we take the FreeType License.
 viewer_license("FreeType" "${freetype_SOURCE_DIR}/docs/FTL.TXT")
 viewer_license("OpenJPEG" "${openjpeg_SOURCE_DIR}/LICENSE")

@@ -37,3 +37,11 @@ assets/character/avatar_head.llm, avatar_upper_body.llm, avatar_lower_body.llm,
     avatar_eyelashes.llm, avatar_hair.llm, avatar_skirt.llm, avatar_eye.llm
     From the Second Life viewer (newview/character). Included unmodified:
     the default avatar's skeleton, appearance definitions and body meshes.
+
+assets/ui/icons/notecard.svg, object.svg, script.svg, settings.svg,
+    snapshot.svg, sound.svg, texture.svg
+    Adapted from the Second Life viewer's inventory icons
+    (skins/default/textures/icons/Inv_Notecard.png, Inv_Object.png,
+    Inv_Script.png, Inv_Settings.png, Inv_Snapshot.png, Inv_Sound.png,
+    Inv_Texture.png). Changed: redrawn as vector images (SVG), so they can be
+    drawn sharp at any size.

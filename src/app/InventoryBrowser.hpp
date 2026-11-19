@@ -20,12 +20,11 @@
 namespace viewer
 {
 
-// What kind of thing an item is, for its label and badge.
+// What kind of thing an item is, for its label and icon.
 struct InventoryKind
 {
-    std::string_view name;  // "Texture", "Object", ...
-    std::string_view badge; // a few letters
-    std::string_view style; // for the page's style: "texture", "object", ...
+    std::string_view name; // "Texture", "Object", ...
+    std::string_view icon; // its icon: assets/ui/icons/<icon>.svg
 };
 // By asset type (llassettype.h), and inventory type for those that share
 // one (a snapshot is a texture).

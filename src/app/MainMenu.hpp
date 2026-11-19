@@ -148,9 +148,8 @@ public:
     struct InvEntry
     {
         Rml::String name;
-        Rml::String kind;  // "Texture", "Folder", ...
-        Rml::String badge; // a few letters
-        Rml::String style; // "folder", "texture", ...
+        Rml::String kind; // "Texture", "Folder", ...
+        Rml::String icon; // icons/<icon>.svg
         bool link = false;
         bool broken = false;
         bool worn = false;
@@ -161,8 +160,7 @@ public:
     {
         Rml::String name;
         Rml::String kind;
-        Rml::String badge;
-        Rml::String style;
+        Rml::String icon;
         Rml::String description;
         Rml::String creator;
         Rml::String permissions; // "Copy · Modify · Transfer"

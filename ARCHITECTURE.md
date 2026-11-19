@@ -731,7 +731,9 @@ nothing moves. Pictures no longer shown are let go when another list
 comes. Inventory: browsed as a file explorer (`InventoryBrowser`): the root
 folder (AISv3's "root" alias; the reply's first folder), each folder's
 contents asked for the first time it's opened, folders then items by name,
-links as what they point at (a folder link opens its folder), crumbs of the
+links as what they point at (a folder link opens its folder), each with its
+kind's icon (`assets/ui/icons/<kind>.svg`, drawn by RmlUi's SVG plugin with
+LunaSVG at the size it's laid out at, so sharp at any scale), crumbs of the
 folders opened, and an item alone (its picture for textures, creator,
 what we may do with it, when it was made, description). The list is kept
 hidden behind an item, as Destinations' views are. Objects can be attached

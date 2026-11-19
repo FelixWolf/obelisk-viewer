@@ -177,8 +177,7 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     {
         entry.RegisterMember("name", &InvEntry::name);
         entry.RegisterMember("kind", &InvEntry::kind);
-        entry.RegisterMember("badge", &InvEntry::badge);
-        entry.RegisterMember("style", &InvEntry::style);
+        entry.RegisterMember("icon", &InvEntry::icon);
         entry.RegisterMember("link", &InvEntry::link);
         entry.RegisterMember("broken", &InvEntry::broken);
         entry.RegisterMember("worn", &InvEntry::worn);
@@ -188,8 +187,7 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     {
         item.RegisterMember("name", &InvItem::name);
         item.RegisterMember("kind", &InvItem::kind);
-        item.RegisterMember("badge", &InvItem::badge);
-        item.RegisterMember("style", &InvItem::style);
+        item.RegisterMember("icon", &InvItem::icon);
         item.RegisterMember("description", &InvItem::description);
         item.RegisterMember("creator", &InvItem::creator);
         item.RegisterMember("permissions", &InvItem::permissions);
@@ -741,8 +739,8 @@ void MainMenu::updateInventory(const Status& status)
         std::vector<InvEntry> entries;
         for(const InventoryEntry& e : invEntriesKnown_)
         {
-            entries.push_back({e.name, std::string(e.kind.name), std::string(e.kind.badge),
-                               std::string(e.kind.style), e.link, e.broken});
+            entries.push_back(
+                {e.name, std::string(e.kind.name), std::string(e.kind.icon), e.link, e.broken});
         }
         put("invEntries", invEntries_, std::move(entries));
         invWornShown_.clear(); // marked again below
@@ -789,8 +787,7 @@ void MainMenu::updateInventory(const Status& status)
         const InventoryKind kind = inventoryKind(i.type, i.inventoryType);
         item.name = own->name;
         item.kind = std::string(kind.name);
-        item.badge = std::string(kind.badge);
-        item.style = std::string(kind.style);
+        item.icon = std::string(kind.icon);
         item.description = i.description.empty() ? "No description." : i.description;
         const std::string creator = avatarNames_ && !i.permissions.creator.isNull()
                                         ? avatarNames_(i.permissions.creator)
@@ -921,8 +918,8 @@ void MainMenu::updateOutfits(const Status& status)
             std::vector<InvEntry> entries;
             for(const InventoryEntry& e : inventoryEntries(model, shown->id))
             {
-                entries.push_back({e.name, std::string(e.kind.name), std::string(e.kind.badge),
-                                   std::string(e.kind.style), e.link, e.broken, false});
+                entries.push_back({e.name, std::string(e.kind.name), std::string(e.kind.icon),
+                                   e.link, e.broken, false});
             }
             put("outfitNote", outfitNote_,
                 Rml::String(!entries.empty()                            ? ""

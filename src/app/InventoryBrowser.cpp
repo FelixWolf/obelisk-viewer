@@ -22,36 +22,36 @@ InventoryKind inventoryKind(int assetType, int inventoryType)
     switch(assetType)
     {
     case 0:
-        return inventoryType == 15 ? InventoryKind{"Snapshot", "Pic", "texture"}
-                                   : InventoryKind{"Texture", "Tex", "texture"};
+        return inventoryType == 15 ? InventoryKind{"Snapshot", "snapshot"}
+                                   : InventoryKind{"Texture", "texture"};
     case 1:
-        return {"Sound", "Snd", "sound"};
+        return {"Sound", "sound"};
     case 2:
-        return {"Calling card", "Card", "card"};
+        return {"Calling card", "callingcard"};
     case 3:
-        return {"Landmark", "LM", "landmark"};
+        return {"Landmark", "landmark"};
     case 5:
-        return {"Clothing", "Clo", "wearable"};
+        return {"Clothing", "clothing"};
     case 6:
-        return {"Object", "Obj", "object"};
+        return {"Object", "object"};
     case 7:
-        return {"Notecard", "Note", "notecard"};
+        return {"Notecard", "notecard"};
     case 10:
-        return {"Script", "Scr", "script"};
+        return {"Script", "script"};
     case 13:
-        return {"Body part", "Body", "wearable"};
+        return {"Body part", "bodypart"};
     case 20:
-        return {"Animation", "Anim", "animation"};
+        return {"Animation", "animation"};
     case 21:
-        return {"Gesture", "Gest", "animation"};
+        return {"Gesture", "gesture"};
     case 49:
-        return {"Mesh", "Mesh", "object"};
+        return {"Mesh", "mesh"};
     case 56:
-        return {"Settings", "Env", "settings"};
+        return {"Settings", "settings"};
     case 57:
-        return {"Material", "Mat", "texture"};
+        return {"Material", "material"};
     default:
-        return {"Item", "?", "other"};
+        return {"Item", "item"};
     }
 }
 
@@ -61,7 +61,7 @@ std::vector<InventoryEntry> inventoryEntries(const inventory::Model& model, cons
     std::vector<InventoryEntry> items;
     for(const inventory::Folder* f : model.folders(folder))
     {
-        folders.push_back({f->id, true, f->name, {"Folder", "", "folder"}, false, false});
+        folders.push_back({f->id, true, f->name, {"Folder", "folder"}, false, false});
     }
     for(const inventory::Item* i : model.items(folder))
     {
@@ -69,7 +69,7 @@ std::vector<InventoryEntry> inventoryEntries(const inventory::Model& model, cons
         if(i->type == inventory::kFolderLink)
         {
             e.folder = true;
-            e.kind = {"Folder", "", "folder"};
+            e.kind = {"Folder", "folder"};
             e.broken = !model.folder(i->linkedId);
             folders.push_back(std::move(e));
             continue;
@@ -77,7 +77,7 @@ std::vector<InventoryEntry> inventoryEntries(const inventory::Model& model, cons
         const inventory::Item* target = model.resolve(i->id);
         e.broken = !target;
         e.kind = target ? inventoryKind(target->type, target->inventoryType)
-                        : InventoryKind{"Link", "?", "other"};
+                        : InventoryKind{"Link", "link"};
         items.push_back(std::move(e));
     }
     const auto byName = [](const InventoryEntry& a, const InventoryEntry& b)

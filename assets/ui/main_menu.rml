@@ -161,7 +161,7 @@
                     <div class="button" data-event-click="invRefresh">Refresh</div>
                 </div>
                 <div class="inv-row" data-for="e : invEntries" data-event-click="invOpen(it_index)">
-                    <div data-attr-class="'badge ' + e.style">{{ e.badge }}</div>
+                    <svg class="icon" data-attr-src="'icons/' + e.icon + '.svg'"></svg>
                     <div class="inv-name">{{ e.name }}</div>
                     <div class="worn" data-if="e.worn">Worn</div>
                     <div class="inv-kind"><span data-if="e.link">Link · </span>{{ e.kind }}<span data-if="e.broken"> (missing)</span></div>
@@ -174,7 +174,7 @@
                 <div class="place-top">
                     <div class="shot hero" data-if="invItem.image != ''"
                          data-style-decorator="'image(' + invItem.image + ' contain)'"></div>
-                    <div data-if="invItem.image == ''" data-attr-class="'badge big ' + invItem.style">{{ invItem.badge }}</div>
+                    <svg class="icon big" data-if="invItem.image == ''" data-attr-src="'icons/' + invItem.icon + '.svg'"></svg>
                     <div class="place-side">
                         <div class="detail-name">{{ invItem.name }}</div>
                         <div class="muted">{{ invItem.kind }}<span data-if="invItem.link != ''"> · {{ invItem.link }}</span></div>
@@ -239,7 +239,7 @@
                 </div>
                 <div class="description">
                     <div class="inv-row still" data-for="e : outfitItems">
-                        <div data-attr-class="'badge ' + e.style">{{ e.badge }}</div>
+                        <svg class="icon" data-attr-src="'icons/' + e.icon + '.svg'"></svg>
                         <div class="inv-name">{{ e.name }}</div>
                         <div class="inv-kind">{{ e.kind }}<span data-if="e.broken"> (missing)</span></div>
                     </div>
