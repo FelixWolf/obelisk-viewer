@@ -1,0 +1,28 @@
+<rml>
+<head>
+    <title>News</title>
+    <link type="text/rcss" href="theme.rcss"/>
+    <link type="text/rcss" href="boards.rcss"/>
+</head>
+<body>
+<div class="board" data-model="news">
+    <div class="heading">News</div>
+
+    <div class="quiet" data-if="state == 'loading'">Getting the news...</div>
+    <div class="quiet" data-if="state == 'empty'">No news right now.</div>
+
+    <div class="list" data-if="state == 'shown'">
+        <div class="entry" data-for="e : entries" data-class-pinned="e.pinned">
+            <div class="picture" data-if="e.image != ''"
+                 data-style-decorator="'image(' + e.image + ' cover)'"></div>
+            <div class="title">{{ e.title }}</div>
+            <div class="meta">
+                <span class="pin" data-if="e.pinned">Pinned</span>
+                {{ e.source }}<span data-if="e.when != ''"> · {{ e.when }}</span>
+            </div>
+            <div class="text" data-if="e.summary != ''">{{ e.summary }}</div>
+        </div>
+    </div>
+</div>
+</body>
+</rml>

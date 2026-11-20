@@ -729,6 +729,21 @@ viewer runs.
   `#HOME:Floor`, `Landing`, `Login`, `News` or `GridStatus` aren't drawn:
   they place the eyes (1.7 m over the floor, at the landing, facing its
   +Y) and the panels (facing their +Y). F5 in the lobby reads it again.
+- viewerconfig (`ViewerConfig`; the contract is `docs/viewerconfig-api.md`)
+  is the project's own web service, asked instead of Linden Lab's sites
+  (`--viewerconfig URL`, or `off`): its config (flags, settings' defaults,
+  the newest release, which home scene) at startup, its news and grid
+  status when the lobby shows and every so often while it does. Requests
+  carry nothing but the User-Agent; flags and settings are picked for our
+  version and platform here. Each answer's last good copy is kept in the
+  cache folder's `viewerconfig/` with its ETag (sent back for a 304) and
+  shown until a newer one comes. A home scene it names is downloaded
+  once, checked against its size and SHA-256, and replaces the built-in
+  one (not one given with `--home-scene`).
+- The lobby's boards (`LobbyBoards`, `news.rml` and `grid_status.rml`)
+  show viewerconfig's news and grid status on panels at the scene's
+  `News` and `GridStatus` markers; only looked at so far (no pointing,
+  scrolling or links).
 - Unstyled, an RmlUi scrollbar takes the whole width of what scrolls;
   `theme.rcss` gives scrollbars their size.
 - Data reaches pages through RmlUi's data models (bound C++ values, made

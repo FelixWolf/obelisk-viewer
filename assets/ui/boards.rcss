@@ -1,0 +1,124 @@
+/* The lobby's boards (news, grid status): panels standing beside the login
+   panel, only looked at. */
+
+body
+{
+    width: 100%;
+    height: 100%;
+}
+
+.board
+{
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    padding: 30dp 34dp;
+    background-color: #161c2af8;
+    border-radius: 24dp;
+    overflow: hidden;
+}
+
+.heading
+{
+    font-size: 40dp;
+    color: #ffffff;
+    padding-bottom: 22dp;
+}
+.subheading
+{
+    font-size: 16dp;
+    color: #9aa6bd;
+    text-transform: uppercase;
+    letter-spacing: 1dp;
+    margin: 20dp 0 10dp 0;
+}
+
+.quiet { color: #8b96ab; font-size: 22dp; }
+.quiet.small { font-size: 17dp; margin-top: 12dp; }
+
+/* News. */
+.entry
+{
+    padding: 18dp 20dp;
+    margin-bottom: 14dp;
+    background-color: #ffffff08;
+    border-radius: 14dp;
+    border: 1dp #ffffff10;
+}
+.entry.pinned { border-color: #4a7af080; }
+.entry .picture
+{
+    height: 190dp;
+    margin: -18dp -20dp 14dp -20dp;
+    border-radius: 14dp 14dp 0 0;
+}
+.title { font-size: 22dp; color: #ffffff; margin-bottom: 6dp; }
+.meta { font-size: 15dp; color: #8b96ab; margin-bottom: 8dp; }
+.pin
+{
+    color: #ffffff;
+    background-color: #3a6ae0;
+    border-radius: 6dp;
+    padding: 2dp 8dp;
+    margin-right: 8dp;
+    font-size: 13dp;
+}
+.text { font-size: 17dp; color: #c8cfdc; }
+
+/* Grid status. */
+.overall
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 18dp 20dp;
+    border-radius: 14dp;
+    background-color: #ffffff08;
+}
+.overall .dot
+{
+    width: 18dp;
+    height: 18dp;
+    border-radius: 9dp;
+    margin-right: 16dp;
+    background-color: #3ecf6e;
+    flex-shrink: 0;
+}
+.overall .what { font-size: 24dp; color: #ffffff; }
+.overall.minor .dot { background-color: #f0c040; }
+.overall.major .dot { background-color: #f08a3a; }
+.overall.critical .dot { background-color: #e5484d; }
+.overall.maintenance .dot { background-color: #5a86f0; }
+
+.notice
+{
+    margin-top: 14dp;
+    padding: 16dp 20dp;
+    border-radius: 14dp;
+    background-color: #ffffff08;
+    border-left: 5dp #8b96ab;
+}
+.notice .from { font-size: 15dp; color: #8b96ab; margin-bottom: 6dp; }
+.notice.info { border-left-color: #5a86f0; }
+.notice.warning { border-left-color: #f0c040; }
+.notice.critical { border-left-color: #e5484d; background-color: #e5484d18; }
+.notice.incident { border-left-color: #f08a3a; }
+.notice.maintenance { border-left-color: #5a86f0; }
+
+.component
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 10dp 4dp;
+    border-bottom: 1dp #ffffff10;
+}
+.component .name { flex: 1; font-size: 18dp; color: #e8ecf4; }
+.component .group { font-size: 14dp; color: #8b96ab; }
+.state { font-size: 15dp; padding: 3dp 10dp; border-radius: 6dp; color: #10141c; }
+.state.degraded { background-color: #f0c040; }
+.state.partial { background-color: #f08a3a; }
+.state.major { background-color: #e5484d; color: #ffffff; }
+.state.maintenance { background-color: #5a86f0; color: #ffffff; }
+
+.checked { margin-top: 18dp; font-size: 14dp; color: #6c778c; }

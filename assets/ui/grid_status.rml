@@ -1,0 +1,47 @@
+<rml>
+<head>
+    <title>Grid status</title>
+    <link type="text/rcss" href="theme.rcss"/>
+    <link type="text/rcss" href="boards.rcss"/>
+</head>
+<body>
+<div class="board" data-model="status">
+    <div class="heading">Grid status</div>
+
+    <div class="quiet" data-if="state == 'loading'">Checking the grid...</div>
+
+    <div class="list" data-if="state == 'shown'">
+        <!-- Linden Lab's own summary. -->
+        <div class="overall" data-attr-class="'overall ' + indicator">
+            <div class="dot"></div>
+            <div class="what">{{ description }}</div>
+        </div>
+        <div class="quiet small" data-if="stale">Linden Lab's status page hasn't answered lately: this may be out of date.</div>
+
+        <!-- Ours: from the viewer's team, not Linden Lab. -->
+        <div class="notice" data-for="a : announcements" data-attr-class="'notice ' + a.kind">
+            <div class="from">From the TestViewer team<span data-if="a.when != ''"> · {{ a.when }}</span></div>
+            <div class="title">{{ a.title }}</div>
+            <div class="text" data-if="a.body != ''">{{ a.body }}</div>
+        </div>
+
+        <div class="notice" data-for="n : incidents" data-attr-class="'notice ' + n.kind">
+            <div class="from">{{ n.status }}<span data-if="n.when != ''"> · {{ n.when }}</span></div>
+            <div class="title">{{ n.title }}</div>
+            <div class="text" data-if="n.body != ''">{{ n.body }}</div>
+        </div>
+
+        <div data-if="components.size > 0">
+            <div class="subheading">Affected</div>
+            <div class="component" data-for="c : components">
+                <div class="name">{{ c.name }}<div class="group">{{ c.group }}</div></div>
+                <div data-attr-class="'state ' + c.kind">{{ c.status }}</div>
+            </div>
+        </div>
+        <div class="quiet small" data-if="components.size == 0 && incidents.size == 0">Every service is running normally.</div>
+
+        <div class="checked" data-if="checked != ''">Checked {{ checked }}</div>
+    </div>
+</div>
+</body>
+</rml>

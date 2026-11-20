@@ -2,6 +2,7 @@ add_library(viewer_core STATIC
   FileCache.cpp
   JobSystem.cpp
   Md5.cpp
+  Sha256.cpp
   Uuid.cpp
 )
 add_library(viewer::core ALIAS viewer_core)

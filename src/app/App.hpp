@@ -10,6 +10,7 @@
 #include "EnvironmentManager.hpp"
 #include "FrameProfile.hpp"
 #include "LegacyMaterialManager.hpp"
+#include "LobbyBoards.hpp"
 #include "LocalChat.hpp"
 #include "LoginPanel.hpp"
 #include "LoginScreen.hpp"
@@ -25,6 +26,7 @@
 #include "TextureBrowser.hpp"
 #include "TextureManager.hpp"
 #include "TreeView.hpp"
+#include "ViewerConfig.hpp"
 #include "ViewerEffects.hpp"
 #include "VrControls.hpp"
 
@@ -66,6 +68,9 @@ struct AppOptions
     // --home-scene: the lobby's scene (empty: assets/home.scene next to the
     // program; see world/HomeScene.hpp).
     std::filesystem::path homeScene;
+    // --viewerconfig: the project's web service (docs/viewerconfig-api.md),
+    // its .../api/v1/ address; "off": not asked (its copies on disk only).
+    std::string viewerConfig = "https://viewerconfig.coyoteware.com/api/v1/";
     bool developer = false;          // --developer: ImGui's windows (stats, textures, ...)
     bool mainMenu = false;           // --main-menu: open it at the start
     std::string mainMenuTab;         // on this tab (--main-menu TAB)
@@ -267,6 +272,10 @@ private:
     // panels.
     static constexpr uint64_t kHomeRegion = (uint64_t{256000} << 32) | uint64_t{256000};
     std::filesystem::path homeScenePath_;
+    // The built-in one (viewerconfig's replaces it, unless --home-scene).
+    std::filesystem::path builtInHomeScene_;
+    bool homeSceneGiven_ = false;   // --home-scene
+    uint64_t homeSceneVersion_ = 0; // viewerconfig's, loaded
     std::optional<world::HomeScene> home_;
     std::shared_ptr<const world::World> homeWorld_;
     void loadHomeScene();
@@ -295,8 +304,12 @@ private:
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<Destinations> destinations_; // the main menu's (it goes after this)
-    GridPopulation population_;                  // people in regions, for the main menu
-    ParcelInfo parcel_;                          // the parcel we're on, for the main menu
+    // viewerconfig (news, grid status, the home scene, flags), and the
+    // lobby's boards showing its news and status.
+    std::unique_ptr<ViewerConfig> viewerConfig_;
+    std::unique_ptr<LobbyBoards> boards_;
+    GridPopulation population_; // people in regions, for the main menu
+    ParcelInfo parcel_;         // the parcel we're on, for the main menu
     std::unique_ptr<TextureManager> textures_;
     std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;

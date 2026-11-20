@@ -96,7 +96,8 @@ void printUsage()
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
                  "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
-                 "[--ui-dir DIR] [--home-scene PATH] [--main-menu [TAB]] [--developer] "
+                 "[--ui-dir DIR] [--home-scene PATH] [--viewerconfig URL|off] "
+                 "[--main-menu [TAB]] [--developer] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -179,6 +180,12 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.homeScene = args[i];
+        }
+        else if(arg == "--viewerconfig" && hasValue)
+        {
+            i++;
+            options.viewerConfig =
+                std::string_view(args[i]) == "off" ? std::string() : std::string(args[i]);
         }
         else if(arg == "--vr-eye-height" && hasValue)
         {
@@ -503,8 +510,18 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->currentOutfit_ =
         std::make_unique<CurrentOutfit>(*app->http_, *app->ais_, *app->inventory_);
     // The main menu (with the workers and the web, for its pages' pictures).
+    app->viewerConfig_ = std::make_unique<ViewerConfig>(
+        *app->http_, *app->jobs_,
+        ViewerConfig::Options{options.viewerConfig, cacheRoot / "viewerconfig", VIEWER_VERSION,
+                              std::string(platformName())});
     if(app->gui_)
     {
+        app->boards_ =
+            LobbyBoards::create(*app->gui_, *app->http_, *app->jobs_, *app->viewerConfig_);
+        if(!app->boards_)
+        {
+            log::warn("no news or grid status boards: their pages couldn't be set up");
+        }
         app->destinations_ = std::make_unique<Destinations>(*app->http_, *app->jobs_, *app->gui_);
         app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_, app->population_,
                                           *app->inventoryBrowser_);
@@ -543,9 +560,14 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     {
         const char* base = SDL_GetBasePath();
-        app->homeScenePath_ = options.homeScene.empty()
-                                  ? fs::path(base ? base : "") / "assets" / "home.scene"
-                                  : options.homeScene;
+        app->builtInHomeScene_ = fs::path(base ? base : "") / "assets" / "home.scene";
+        app->homeSceneGiven_ = !options.homeScene.empty();
+        // viewerconfig's (from the last time) if it named one.
+        app->homeSceneVersion_ = app->viewerConfig_->homeSceneVersion();
+        app->homeScenePath_ = app->homeSceneGiven_ ? options.homeScene
+                              : !app->viewerConfig_->homeScene().empty()
+                                  ? app->viewerConfig_->homeScene()
+                                  : app->builtInHomeScene_;
         app->loadHomeScene();
     }
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
@@ -892,6 +914,10 @@ int App::run()
                 {
                     loginScreen_->render(frame->commands); // before the panel shows it
                 }
+                if(boards_ && homeShown())
+                {
+                    boards_->render(frame->commands);
+                }
                 else if(mainMenu_ && mainMenu_->isOpen())
                 {
                     mainMenu_->render(frame->commands); // before the panel shows it
@@ -929,6 +955,10 @@ int App::run()
             if(loginScreenShown())
             {
                 loginScreen_->render(frame->commands);
+            }
+            if(boards_ && homeShown())
+            {
+                boards_->render(frame->commands);
             }
             else if(mainMenu_ && mainMenu_->isOpen())
             {
@@ -1949,10 +1979,17 @@ void App::buildSceneOf(render::Scene& scene, bool home)
     {
         sceneAssets_->addFloor(scene, glm::vec2(kLobbyStart), 60.0f);
     }
-    if(home)
+    if(home && boards_ && home_->news && home_->gridStatus)
     {
-        // The side panels' places (theirs to fill later): cards as big
-        // as the login panel, facing as their markers do.
+        // The news and grid status, facing as their markers do.
+        auto frame = [](const world::HomeMarker& m)
+        { return panelFacing(m.position, m.position + markerForward(m.rotation)); };
+        boards_->addTo(scene, frame(*home_->news), frame(*home_->gridStatus));
+    }
+    else if(home)
+    {
+        // The side panels' places, without their pages: cards as big as
+        // the login panel, facing as their markers do.
         auto placeholder = [&](const std::optional<world::HomeMarker>& marker, const char* text)
         {
             if(!marker)
@@ -2589,6 +2626,10 @@ bool App::loginScreenEvent(const SDL_Event& event)
     {
         gui_->forgetStyles();
         loginScreen_->reload();
+        if(boards_)
+        {
+            boards_->reload();
+        }
         log::info("the login screen's documents read again");
         // And the home scene (after converting it again), the panel placed
         // anew from its markers.
@@ -3813,6 +3854,22 @@ void App::drawUi()
             }
             ImGui::EndTooltip();
         }
+    }
+
+    // viewerconfig: its answers, and the home scene it names (unless one
+    // was given) once it's here.
+    viewerConfig_->update(std::chrono::steady_clock::now(), lobby_);
+    if(!homeSceneGiven_ && viewerConfig_->homeSceneVersion() != homeSceneVersion_)
+    {
+        homeSceneVersion_ = viewerConfig_->homeSceneVersion();
+        homeScenePath_ =
+            viewerConfig_->homeScene().empty() ? builtInHomeScene_ : viewerConfig_->homeScene();
+        loadHomeScene();
+        pageIsLogin_ = false; // the login panel placed anew
+    }
+    if(boards_ && homeShown())
+    {
+        boards_->update();
     }
 
     // Logging in: the login screen's (the ImGui panel's without one).

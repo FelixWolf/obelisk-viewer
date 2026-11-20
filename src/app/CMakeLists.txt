@@ -52,6 +52,8 @@ add_executable(viewer
   ViewerEffects.cpp
   OutfitAttachments.cpp
   Destinations.cpp
+  LobbyBoards.cpp
+  ViewerConfig.cpp
   GridPopulation.cpp
   InventoryBrowser.cpp
   CurrentOutfit.cpp
