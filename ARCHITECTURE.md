@@ -742,8 +742,14 @@ viewer runs.
   one (not one given with `--home-scene`).
 - The lobby's boards (`LobbyBoards`, `news.rml` and `grid_status.rml`)
   show viewerconfig's news and grid status on panels at the scene's
-  `News` and `GridStatus` markers; only looked at so far (no pointing,
-  scrolling or links).
+  `News` and `GridStatus` markers. They're `VrControls`' standing pages:
+  pointed at, pressed and scrolled (a controller's stick, the mouse's
+  wheel) as the login panel is, the nearest page a ray meets taking it. A
+  news entry clicked shows whole on its board (our posts' text) with Back;
+  links (an entry's, Linden Lab's status page, an incident's) open in the
+  system's web browser (`SDL_OpenURL`): the viewer has none, so in a
+  headset the page says it opens on the desktop. `--pointer X,Y` (and
+  `--click-at`) stand in for the mouse on the lobby's pages too.
 - Unstyled, an RmlUi scrollbar takes the whole width of what scrolls;
   `theme.rcss` gives scrollbars their size.
 - Data reaches pages through RmlUi's data models (bound C++ values, made

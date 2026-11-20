@@ -408,3 +408,63 @@ TEST_CASE("VrControls: a page on a panel: pointed at, pressed, not the world's")
     pointed = controls.update(input);
     CHECK(pointed[1].pressed);
 }
+
+TEST_CASE("VrControls: standing pages: the nearest pointed at, pressed and scrolled")
+{
+    VrControls controls;
+    struct Heard
+    {
+        std::vector<std::optional<glm::vec2>> points;
+        std::vector<bool> buttons;
+        std::vector<glm::vec2> scrolls;
+    };
+    Heard near, far;
+    auto page = [](Heard& heard)
+    {
+        VrControls::Page p;
+        p.size = glm::vec2(1000.0f, 1000.0f);
+        p.metersPerPixel = 0.001f;
+        p.point = [&heard](std::optional<glm::vec2> pixel) { heard.points.push_back(pixel); };
+        p.button = [&heard](bool down) { heard.buttons.push_back(down); };
+        p.scroll = [&heard](glm::vec2 lines) { heard.scrolls.push_back(lines); };
+        return p;
+    };
+    // Both ahead (+X), facing back at us; one nearer.
+    std::vector<VrControls::StandingPage> pages;
+    pages.push_back({page(far), glm::vec3(3.0f, 0.0f, 0.0f), glm::vec3(0.0f)});
+    pages.push_back({page(near), glm::vec3(2.0f, 0.0f, 0.0f), glm::vec3(0.0f)});
+    controls.setStandingPages(std::move(pages));
+
+    VrControls::Input input;
+    VrControls::Pointer& mouse = input.pointers[1];
+    mouse.active = true;
+    mouse.direction = glm::vec3(1.0f, 0.0f, 0.0f);
+    auto pointed = controls.update(input);
+    CHECK(pointed[1].onControls);
+    REQUIRE_FALSE(near.points.empty());
+    CHECK(near.points.back());
+    CHECK(far.points.empty());
+
+    // The wheel: the page it's on.
+    CHECK(controls.scrollPointed(1, glm::vec2(0.0f, 2.0f)));
+    REQUIRE(near.scrolls.size() == 1);
+    CHECK(near.scrolls[0].y == 2.0f);
+    CHECK_FALSE(controls.scrollPointed(0, glm::vec2(0.0f, 2.0f))); // the left: on nothing
+
+    // A press is the page's, not the world's.
+    mouse.button = true;
+    pointed = controls.update(input);
+    CHECK_FALSE(pointed[1].pressed);
+    REQUIRE(near.buttons.size() == 1);
+    CHECK(near.buttons[0]);
+    mouse.button = false;
+    controls.update(input);
+    REQUIRE(near.buttons.size() == 2);
+
+    // Gone: told the pointer's left it.
+    controls.setStandingPages({});
+    CHECK_FALSE(near.points.back());
+    pointed = controls.update(input);
+    CHECK_FALSE(pointed[1].onControls);
+    CHECK_FALSE(controls.scrollPointed(1, glm::vec2(0.0f, 1.0f)));
+}

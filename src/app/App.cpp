@@ -1979,14 +1979,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
     {
         sceneAssets_->addFloor(scene, glm::vec2(kLobbyStart), 60.0f);
     }
-    if(home && boards_ && home_->news && home_->gridStatus)
-    {
-        // The news and grid status, facing as their markers do.
-        auto frame = [](const world::HomeMarker& m)
-        { return panelFacing(m.position, m.position + markerForward(m.rotation)); };
-        boards_->addTo(scene, frame(*home_->news), frame(*home_->gridStatus));
-    }
-    else if(home)
+    if(home && !boardsPlaced_) // the boards are the VR controls' to draw
     {
         // The side panels' places, without their pages: cards as big as
         // the login panel, facing as their markers do.
@@ -2457,6 +2450,11 @@ glm::vec4 App::pageRect(glm::ivec2 page, float fill) const
 
 void App::setPanelPage(gui::Surface& surface, glm::ivec2 size, float metersPerPixel)
 {
+    controls_.setPage(pageOf(surface, size, metersPerPixel));
+}
+
+VrControls::Page App::pageOf(gui::Surface& surface, glm::ivec2 size, float metersPerPixel)
+{
     VrControls::Page page;
     page.size = glm::vec2(size);
     page.metersPerPixel = metersPerPixel; // the menu's: about 58 cm across
@@ -2474,7 +2472,33 @@ void App::setPanelPage(gui::Surface& surface, glm::ivec2 size, float metersPerPi
     };
     page.button = [&surface](bool down) { surface.pointerButton(0, down); };
     page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
-    controls_.setPage(std::move(page));
+    return page;
+}
+
+void App::placeBoards()
+{
+    // The news and grid status standing at their markers, facing as they
+    // do, while the home scene shows.
+    const bool wanted = boards_ && homeShown() && home_->news && home_->gridStatus;
+    if(wanted == boardsPlaced_ && !boardsMoved_)
+    {
+        return;
+    }
+    boardsPlaced_ = wanted;
+    boardsMoved_ = false;
+    std::vector<VrControls::StandingPage> pages;
+    if(wanted)
+    {
+        auto standing = [&](gui::Surface& surface, const world::HomeMarker& m)
+        {
+            return VrControls::StandingPage{
+                pageOf(surface, LobbyBoards::kSize, LobbyBoards::kMetersPerPixel), m.position,
+                m.position + markerForward(m.rotation)};
+        };
+        pages.push_back(standing(boards_->newsSurface(), *home_->news));
+        pages.push_back(standing(boards_->statusSurface(), *home_->gridStatus));
+    }
+    controls_.setStandingPages(std::move(pages));
 }
 
 void App::updateLobby()
@@ -2631,10 +2655,18 @@ bool App::loginScreenEvent(const SDL_Event& event)
             boards_->reload();
         }
         log::info("the login screen's documents read again");
-        // And the home scene (after converting it again), the panel placed
+        // And the home scene (after converting it again), the panels placed
         // anew from its markers.
         loadHomeScene();
         pageIsLogin_ = false;
+        boardsMoved_ = true;
+        return true;
+    }
+    // The wheel over one of the lobby's pages (the mouse is the right
+    // pointer) scrolls it; the wheel turned away from us scrolls up.
+    if(event.type == SDL_EVENT_MOUSE_WHEEL &&
+       controls_.scrollPointed(1, glm::vec2(event.wheel.x, -event.wheel.y)))
+    {
         return true;
     }
     // Typing into a field on its panel (pointing at it is VrControls').
@@ -2988,14 +3020,25 @@ void App::updateControls(render::Scene& scene)
         SDL_GetWindowSize(window_.get(), &width, &height);
         float x = 0.0f;
         float y = 0.0f;
-        const SDL_MouseButtonFlags buttons = SDL_GetMouseState(&x, &y);
+        SDL_MouseButtonFlags buttons = SDL_GetMouseState(&x, &y);
         if(!cursorFree() && !lobby_)
         {
             x = static_cast<float>(width) * 0.5f;
             y = static_cast<float>(height) * 0.5f;
         }
+        // --pointer (and --click-at's press): the mouse's stand-in, for
+        // trying the pages without one.
+        if(pointerOverride_)
+        {
+            x = (*pointerOverride_)[0] * static_cast<float>(width);
+            y = (*pointerOverride_)[1] * static_cast<float>(height);
+            const bool clicking =
+                clickedTicks_ && SDL_GetTicksNS() - clickedTicks_ <= 200'000'000ull;
+            buttons = clicking ? SDL_BUTTON_LMASK : 0;
+        }
         const bool overUi = (cursorFree() || lobby_) && ImGui::GetIO().WantCaptureMouse;
-        if(width > 0 && height > 0 && SDL_GetKeyboardFocus() == window_.get() && !overUi)
+        const bool focused = SDL_GetKeyboardFocus() == window_.get() || pointerOverride_;
+        if(width > 0 && height > 0 && focused && !overUi)
         {
             const glm::vec2 ndc(2.0f * x / static_cast<float>(width) - 1.0f,
                                 1.0f - 2.0f * y / static_cast<float>(height));
@@ -3866,10 +3909,22 @@ void App::drawUi()
             viewerConfig_->homeScene().empty() ? builtInHomeScene_ : viewerConfig_->homeScene();
         loadHomeScene();
         pageIsLogin_ = false; // the login panel placed anew
+        boardsMoved_ = true;  // and the boards
     }
+    placeBoards();
     if(boards_ && homeShown())
     {
+        boards_->setHeadset(headset_ && headset_->running());
         boards_->update();
+        // A link clicked: the system's web browser (the viewer has none).
+        if(const auto link = boards_->takeLink())
+        {
+            log::info("opening {} in the web browser", *link);
+            if(!SDL_OpenURL(link->c_str()))
+            {
+                log::warn("the web browser couldn't be opened: {}", SDL_GetError());
+            }
+        }
     }
 
     // Logging in: the login screen's (the ImGui panel's without one).

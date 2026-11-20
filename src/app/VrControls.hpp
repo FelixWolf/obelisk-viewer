@@ -20,6 +20,7 @@
 #include <array>
 #include <functional>
 #include <optional>
+#include <vector>
 
 namespace viewer
 {
@@ -86,7 +87,7 @@ public:
         std::function<void(bool down)> button;
         std::function<void(glm::vec2 lines)> scroll; // positive: down, right
     };
-    void setPage(Page page) { page_ = std::move(page); }
+    void setPage(Page page);
     // In front of the eyes (as last given to update()), moving with the
     // avatar; and put away.
     void openPage();
@@ -95,7 +96,21 @@ public:
     // panels stand in the world).
     void openPageAt(glm::vec3 center, glm::vec3 facing, glm::vec3 anchor);
     void closePage();
-    bool pageOpen() const { return pageOpen_; }
+    bool pageOpen() const { return pages_[0].open; }
+
+    // More pages standing in the world (the lobby's boards: at `center`,
+    // facing `facing`, not moving), pointed at as the page is; drawn with
+    // it. Replaces those given before (none: none).
+    struct StandingPage
+    {
+        Page page;
+        glm::vec3 center{0.0f};
+        glm::vec3 facing{1.0f, 0.0f, 0.0f};
+    };
+    void setStandingPages(std::vector<StandingPage> pages);
+    // Scrolls the page a pointer is on (the mouse's wheel), in lines;
+    // false if it's on none.
+    bool scrollPointed(int pointer, glm::vec2 lines);
 
     std::array<Pointed, kPointers> update(const Input& input);
     bool menuOpen() const { return menu_.isOpen(); }
@@ -129,12 +144,28 @@ private:
     // stick's let go.
     std::optional<int> stickChoice_;
     std::function<void()> mainMenu_;
-    Page page_;
-    bool pageOpen_ = false;
-    glm::mat4 pageFrame_{1.0f};
-    glm::vec3 pageAnchor_{0.0f};
-    bool pageHovered_ = false;       // its owner was told a pointer's on it
-    std::optional<int> pagePressed_; // the pointer whose button is down on it
+    struct Slot
+    {
+        Page page;
+        bool open = false;
+        glm::mat4 frame{1.0f};
+        glm::vec3 anchor{0.0f};     // placed relative to it
+        bool standing = false;      // not anchored: where it was put
+        bool hovered = false;       // its owner was told a pointer's on it
+        std::optional<int> pressed; // the pointer whose button is down on it
+    };
+    glm::mat4 slotFrame(const Slot& slot) const;
+    // Tells a page's owner no pointer's on it or pressing it.
+    static void leave(Slot& slot);
+    // The page (openPage, openPageAt), then the standing ones.
+    std::vector<Slot> pages_ = std::vector<Slot>(1);
+    // The page each pointer is on (an index into pages_), and where.
+    struct OnPage
+    {
+        size_t slot = 0;
+        glm::vec2 pixel{0.0f};
+    };
+    std::array<std::optional<OnPage>, kPointers> onPage_{};
     double lastNow_ = 0.0;
     std::array<bool, kPointers> pressedOnControls_{}; // its press went to the controls
     std::optional<int> menuPointer_;

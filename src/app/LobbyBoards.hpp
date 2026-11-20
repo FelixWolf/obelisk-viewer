@@ -2,8 +2,12 @@
 
 // The lobby's boards: the news and the grid's status (from viewerconfig),
 // each an interface page (assets/ui/news.rml, grid_status.rml) on a panel
-// standing where the home scene's markers say. They're only looked at for
-// now: nothing on them can be pointed at or clicked.
+// standing where the home scene's markers say, pointed at as the login
+// panel is (VrControls' standing pages). A news entry clicked shows whole
+// on its board (our posts' text, a feed entry's summary), with its link to
+// open in the web browser; the grid status links to Linden Lab's status
+// page and its incidents. There's no browser in the viewer: links open in
+// the system's, on the desktop (in a headset, the page says so).
 //
 // The news' pictures come from the web, decoded on the workers and given
 // to the pages as image://news-N.
@@ -25,6 +29,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace viewer
@@ -54,9 +59,12 @@ public:
     void render(SDL_GPUCommandBuffer* commands);
     void reload();
 
-    // On panels at these places (centers), facing these points.
-    void addTo(render::Scene& scene, const glm::mat4& newsFrame,
-               const glm::mat4& statusFrame) const;
+    gui::Surface& newsSurface() { return *news_; }
+    gui::Surface& statusSurface() { return *status_; }
+    // In a headset: links are said to open on the desktop.
+    void setHeadset(bool headset);
+    // A link clicked, to open in the web browser (once).
+    std::optional<std::string> takeLink() { return std::exchange(link_, std::nullopt); }
 
     struct Entry
     {
@@ -74,6 +82,7 @@ public:
         Rml::String status;
         Rml::String body;
         Rml::String when;
+        bool link = false; // clicking it opens its page
     };
     struct Component
     {
@@ -87,6 +96,10 @@ private:
     LobbyBoards(gui::Gui& gui, net::HttpClient& http, JobSystem& jobs, const ViewerConfig& source);
     bool setUp();
     void fill();
+    // The news entry opened (openId_) shown, or the list if it's gone.
+    void fillOpened();
+    // Scrolls the news page's content to `to`; where it was.
+    float scrollTop(float to);
     std::string image(const std::string& url);
     void picturesArrived();
 
@@ -112,9 +125,25 @@ private:
     std::map<std::string, std::string> images_;
     int nextImage_ = 0;
 
+    std::optional<std::string> link_;
+    bool headset_ = false;
+
     // The news page.
     Rml::String newsState_ = "loading"; // loading, empty, shown
     std::vector<Entry> entries_;
+    std::vector<std::string> entryIds_; // entries_' ids
+    // The entry shown whole (empty: the list).
+    std::string openId_;
+    bool opened_ = false;
+    Rml::String openTitle_;
+    Rml::String openSource_;
+    Rml::String openWhen_;
+    Rml::String openImage_;
+    Rml::String openText_;
+    std::string openUrl_;
+    bool openLink_ = false;
+    float listScroll_ = 0.0f;       // the list's, while an entry's open
+    std::optional<float> scrollTo_; // after the next layout
     // The status page.
     Rml::String statusState_ = "loading"; // loading, shown
     Rml::String indicator_;               // none, minor, major, critical, maintenance
@@ -123,6 +152,9 @@ private:
     bool stale_ = false;
     std::vector<Notice> announcements_;
     std::vector<Notice> incidents_;
+    std::vector<std::string> incidentUrls_;
+    std::string pageUrl_; // Linden Lab's status page
+    bool hasPage_ = false;
     std::vector<Component> components_; // those not operational
 };
 

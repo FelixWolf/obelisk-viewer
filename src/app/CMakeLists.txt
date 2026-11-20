@@ -104,22 +104,25 @@ target_compile_definitions(viewer PRIVATE
 )
 
 # Data files the viewer loads at runtime (the default avatar, the
-# interface's documents), next to the binary.
-add_custom_command(TARGET viewer POST_BUILD
+# interface's documents, the lobby's scene), next to the binary. Copied by a
+# target of their own that runs on every build, so a change to only them
+# (an .rml, an .rcss) gets there too (a POST_BUILD step runs only when the
+# viewer is linked again).
+set(VIEWER_COPY_ASSETS
   COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
           ${PROJECT_SOURCE_DIR}/assets/character
-          $<TARGET_FILE_DIR:viewer>/assets/character
+          ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/character
   COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
           ${PROJECT_SOURCE_DIR}/assets/ui
-          $<TARGET_FILE_DIR:viewer>/assets/ui
-  VERBATIM
+          ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/ui
 )
 # The lobby's scene (made by default_scene/sceneConvert.py), if there is one.
 if(EXISTS ${PROJECT_SOURCE_DIR}/default_scene/start.scene)
-  add_custom_command(TARGET viewer POST_BUILD
+  list(APPEND VIEWER_COPY_ASSETS
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${PROJECT_SOURCE_DIR}/default_scene/start.scene
-            $<TARGET_FILE_DIR:viewer>/assets/home.scene
-    VERBATIM
+            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/home.scene
   )
 endif()
+add_custom_target(viewer_data ALL ${VIEWER_COPY_ASSETS} VERBATIM)
+add_dependencies(viewer viewer_data)

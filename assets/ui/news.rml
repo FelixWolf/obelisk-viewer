@@ -6,21 +6,41 @@
 </head>
 <body>
 <div class="board" data-model="news">
-    <div class="heading">News</div>
+    <div class="top">
+        <div class="back" data-if="opened" data-event-click="back">‹ Back</div>
+        <div class="heading">News</div>
+    </div>
 
-    <div class="quiet" data-if="state == 'loading'">Getting the news...</div>
-    <div class="quiet" data-if="state == 'empty'">No news right now.</div>
+    <div id="scroll" class="scroll">
+        <div class="quiet" data-if="state == 'loading'">Getting the news...</div>
+        <div class="quiet" data-if="state == 'empty'">No news right now.</div>
 
-    <div class="list" data-if="state == 'shown'">
-        <div class="entry" data-for="e : entries" data-class-pinned="e.pinned">
-            <div class="picture" data-if="e.image != ''"
-                 data-style-decorator="'image(' + e.image + ' cover)'"></div>
-            <div class="title">{{ e.title }}</div>
-            <div class="meta">
-                <span class="pin" data-if="e.pinned">Pinned</span>
-                {{ e.source }}<span data-if="e.when != ''"> · {{ e.when }}</span>
+        <!-- The list. -->
+        <div data-if="state == 'shown' && !opened">
+            <div class="entry" data-for="e : entries" data-class-pinned="e.pinned"
+                 data-event-click="show(it_index)">
+                <div class="picture" data-if="e.image != ''"
+                     data-style-decorator="'image(' + e.image + ' cover)'"></div>
+                <div class="title">{{ e.title }}</div>
+                <div class="meta">
+                    <span class="pin" data-if="e.pinned">Pinned</span>
+                    {{ e.source }}<span data-if="e.when != ''"> · {{ e.when }}</span>
+                </div>
+                <div class="text" data-if="e.summary != ''">{{ e.summary }}</div>
             </div>
-            <div class="text" data-if="e.summary != ''">{{ e.summary }}</div>
+        </div>
+
+        <!-- One entry, whole. -->
+        <div class="opened" data-if="opened">
+            <div class="picture" data-if="openImage != ''"
+                 data-style-decorator="'image(' + openImage + ' cover)'"></div>
+            <div class="title big">{{ openTitle }}</div>
+            <div class="meta">{{ openSource }}<span data-if="openWhen != ''"> · {{ openWhen }}</span></div>
+            <div class="text body">{{ openText }}</div>
+            <div class="link" data-if="openLink">
+                <div class="primary" data-event-click="browse">Open in browser</div>
+                <div class="hint" data-if="headset">It opens on your desktop: take off the headset, or use your headset's desktop view.</div>
+            </div>
         </div>
     </div>
 </div>

@@ -4,6 +4,7 @@
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/DataModelHandle.h>
+#include <RmlUi/Core/ElementDocument.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -181,6 +182,41 @@ bool LobbyBoards::setUp()
     news.RegisterArray<std::vector<Entry>>();
     news.Bind("state", &newsState_);
     news.Bind("entries", &entries_);
+    news.Bind("opened", &opened_);
+    news.Bind("openTitle", &openTitle_);
+    news.Bind("openSource", &openSource_);
+    news.Bind("openWhen", &openWhen_);
+    news.Bind("openImage", &openImage_);
+    news.Bind("openText", &openText_);
+    news.Bind("openLink", &openLink_);
+    news.Bind("headset", &headset_);
+    news.BindEventCallback("show",
+                           [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& a)
+                           {
+                               const int i = a.empty() ? -1 : a[0].Get<int>(-1);
+                               if(i >= 0 && static_cast<size_t>(i) < entryIds_.size())
+                               {
+                                   listScroll_ = scrollTop(0.0f);
+                                   openId_ = entryIds_[static_cast<size_t>(i)];
+                                   fillOpened();
+                                   scrollTo_ = 0.0f;
+                               }
+                           });
+    news.BindEventCallback("back",
+                           [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                           {
+                               openId_.clear();
+                               fillOpened();
+                               scrollTo_ = listScroll_; // once it's laid out
+                           });
+    news.BindEventCallback("browse",
+                           [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                           {
+                               if(!openUrl_.empty())
+                               {
+                                   link_ = openUrl_;
+                               }
+                           });
     newsModel_ = news.GetModelHandle();
 
     Rml::DataModelConstructor status = status_->context()->CreateDataModel("status");
@@ -195,6 +231,7 @@ bool LobbyBoards::setUp()
         notice.RegisterMember("status", &Notice::status);
         notice.RegisterMember("body", &Notice::body);
         notice.RegisterMember("when", &Notice::when);
+        notice.RegisterMember("link", &Notice::link);
     }
     status.RegisterArray<std::vector<Notice>>();
     if(auto component = status.RegisterStruct<Component>())
@@ -213,6 +250,26 @@ bool LobbyBoards::setUp()
     status.Bind("announcements", &announcements_);
     status.Bind("incidents", &incidents_);
     status.Bind("components", &components_);
+    status.Bind("hasPage", &hasPage_);
+    status.Bind("headset", &headset_);
+    status.BindEventCallback("incident",
+                             [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& a)
+                             {
+                                 const int i = a.empty() ? -1 : a[0].Get<int>(-1);
+                                 if(i >= 0 && static_cast<size_t>(i) < incidentUrls_.size() &&
+                                    !incidentUrls_[static_cast<size_t>(i)].empty())
+                                 {
+                                     link_ = incidentUrls_[static_cast<size_t>(i)];
+                                 }
+                             });
+    status.BindEventCallback("statusPage",
+                             [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                             {
+                                 if(!pageUrl_.empty())
+                                 {
+                                     link_ = pageUrl_;
+                                 }
+                             });
     statusModel_ = status.GetModelHandle();
 
     if(!news_->load("news.rml") || !status_->load("grid_status.rml"))
@@ -281,12 +338,15 @@ void LobbyBoards::fill()
     const auto now = std::chrono::system_clock::now();
 
     std::vector<Entry> entries;
+    entryIds_.clear();
     for(const NewsEntry& n : source_.news())
     {
         entries.push_back({n.title, n.summary, n.sourceName, describeTime(n.published, now),
                            image(n.imageUrl), n.pinned});
+        entryIds_.push_back(n.id);
     }
     entries_ = std::move(entries);
+    fillOpened();
     newsState_ = !source_.news().empty() ? "shown" : source_.newsKnown() ? "empty" : "loading";
     newsModel_.DirtyAllVariables();
 
@@ -303,16 +363,21 @@ void LobbyBoards::fill()
             announcements_.push_back(
                 {a.severity, a.title, {}, a.body, describeTime(a.posted, now)});
         }
+        pageUrl_ = g->pageUrl;
+        hasPage_ = !pageUrl_.empty();
         incidents_.clear();
+        incidentUrls_.clear();
         for(const auto& i : g->incidents)
         {
             incidents_.push_back({"incident", i.name, capitalized(i.status), i.update,
-                                  describeTime(i.updated, now)});
+                                  describeTime(i.updated, now), !i.url.empty()});
+            incidentUrls_.push_back(i.url);
         }
         for(const auto& m : g->maintenance)
         {
             incidents_.push_back({"maintenance", m.name, capitalized(m.status), m.update,
-                                  describeTime(m.starts, now)});
+                                  describeTime(m.starts, now), !m.url.empty()});
+            incidentUrls_.push_back(m.url);
         }
         components_.clear();
         for(const auto& c : g->components)
@@ -327,6 +392,52 @@ void LobbyBoards::fill()
     statusModel_.DirtyAllVariables();
 }
 
+void LobbyBoards::fillOpened()
+{
+    const auto& news = source_.news();
+    const auto n = std::ranges::find(news, openId_, &NewsEntry::id);
+    if(openId_.empty() || n == news.end())
+    {
+        openId_.clear();
+        opened_ = false;
+        openUrl_.clear();
+        newsModel_.DirtyAllVariables();
+        return;
+    }
+    opened_ = true;
+    openTitle_ = n->title;
+    openSource_ = n->sourceName;
+    openWhen_ = describeTime(n->published, std::chrono::system_clock::now());
+    openImage_ = image(n->imageUrl);
+    openText_ = !n->body.empty() ? n->body : n->summary;
+    openUrl_ = n->url;
+    openLink_ = !openUrl_.empty();
+    newsModel_.DirtyAllVariables();
+}
+
+float LobbyBoards::scrollTop(float to)
+{
+    Rml::Element* scroll =
+        news_->document() ? news_->document()->GetElementById("scroll") : nullptr;
+    if(!scroll)
+    {
+        return 0.0f;
+    }
+    const float was = scroll->GetScrollTop();
+    scroll->SetScrollTop(to);
+    return was;
+}
+
+void LobbyBoards::setHeadset(bool headset)
+{
+    if(headset != headset_)
+    {
+        headset_ = headset;
+        newsModel_.DirtyVariable("headset");
+        statusModel_.DirtyVariable("headset");
+    }
+}
+
 void LobbyBoards::update()
 {
     picturesArrived();
@@ -338,6 +449,12 @@ void LobbyBoards::update()
         filledAt_ = now;
     }
     news_->update();
+    if(scrollTo_)
+    {
+        scrollTop(*scrollTo_);
+        scrollTo_.reset();
+        news_->update();
+    }
     status_->update();
 }
 
@@ -351,22 +468,6 @@ void LobbyBoards::reload()
 {
     news_->reload();
     status_->reload();
-}
-
-void LobbyBoards::addTo(render::Scene& scene, const glm::mat4& newsFrame,
-                        const glm::mat4& statusFrame) const
-{
-    auto add = [&](const gui::Surface& surface, const glm::mat4& frame)
-    {
-        render::Panel panel;
-        panel.frame = frame;
-        panel.size = glm::vec2(kSize);
-        panel.metersPerPixel = kMetersPerPixel;
-        panel.image = surface.texture();
-        scene.panels.push_back(std::move(panel));
-    };
-    add(*news_, newsFrame);
-    add(*status_, statusFrame);
 }
 
 } // namespace viewer

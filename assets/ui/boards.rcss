@@ -1,5 +1,6 @@
 /* The lobby's boards (news, grid status): panels standing beside the login
-   panel, only looked at. */
+   panel, pointed at as it is. Their heading stays; what's under it
+   scrolls. */
 
 body
 {
@@ -15,8 +16,33 @@ body
     padding: 30dp 34dp;
     background-color: #161c2af8;
     border-radius: 24dp;
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
+
+.top
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+.scroll
+{
+    flex: 1;
+    overflow-y: auto;
+}
+.back
+{
+    font-size: 20dp;
+    color: #b8c2d6;
+    background-color: #222a3c;
+    border-radius: 10dp;
+    padding: 8dp 16dp;
+    margin: 0 18dp 22dp 0;
+    cursor: pointer;
+}
+.back:hover { background-color: #2f3a54; color: #ffffff; }
 
 .heading
 {
@@ -45,7 +71,10 @@ body
     border-radius: 14dp;
     border: 1dp #ffffff10;
 }
+.entry { cursor: pointer; }
+.entry:hover { background-color: #ffffff12; border-color: #4a7af0; }
 .entry.pinned { border-color: #4a7af080; }
+.entry.pinned:hover { border-color: #4a7af0; }
 .entry .picture
 {
     height: 190dp;
@@ -64,6 +93,35 @@ body
     font-size: 13dp;
 }
 .text { font-size: 17dp; color: #c8cfdc; }
+
+/* An entry, whole. */
+.opened .picture
+{
+    height: 300dp;
+    border-radius: 14dp;
+    margin-bottom: 18dp;
+}
+.title.big { font-size: 28dp; }
+.text.body { font-size: 19dp; white-space: pre-line; margin-top: 10dp; }
+
+/* A link out (to the web browser). */
+.link { margin-top: 24dp; padding-bottom: 6dp; }
+.link .primary, .link .button
+{
+    display: inline-block;
+    padding: 12dp 24dp;
+    border-radius: 10dp;
+    cursor: pointer;
+}
+.link .primary
+{
+    color: #ffffff;
+    decorator: linear-gradient(180deg, #3a6ae0, #2a4fbe);
+}
+.link .primary:hover { decorator: linear-gradient(180deg, #4a7af0, #3a5fce); }
+.link .button { background-color: #222a3c; color: #b8c2d6; }
+.link .button:hover { background-color: #2f3a54; color: #ffffff; }
+.hint { font-size: 15dp; color: #8b96ab; margin-top: 10dp; }
 
 /* Grid status. */
 .overall
@@ -104,6 +162,8 @@ body
 .notice.critical { border-left-color: #e5484d; background-color: #e5484d18; }
 .notice.incident { border-left-color: #f08a3a; }
 .notice.maintenance { border-left-color: #5a86f0; }
+.notice.clickable { cursor: pointer; }
+.notice.clickable:hover { background-color: #ffffff12; }
 
 .component
 {

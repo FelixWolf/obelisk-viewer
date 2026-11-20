@@ -296,6 +296,12 @@ private:
                    const SDL_Event& event);
     // The panel (first person, VR) shows `surface`.
     void setPanelPage(gui::Surface& surface, glm::ivec2 size, float metersPerPixel = 0.00045f);
+    VrControls::Page pageOf(gui::Surface& surface, glm::ivec2 size, float metersPerPixel);
+    // The lobby's boards as the VR controls' standing pages while the home
+    // scene shows (again when it's read again: boardsMoved_).
+    void placeBoards();
+    bool boardsPlaced_ = false;
+    bool boardsMoved_ = false;
     std::unique_ptr<JobSystem> jobs_;
     std::unique_ptr<image::J2kDecoder> j2kDecoder_;
     std::unique_ptr<DiskCache> diskCache_;                    // before everything using it
