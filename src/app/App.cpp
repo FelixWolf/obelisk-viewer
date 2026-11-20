@@ -8,6 +8,7 @@
 #include "EmbeddedAssets.hpp"
 #include "FloatingText.hpp"
 #include "NameTags.hpp"
+#include "PanelGeometry.hpp"
 
 #include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -17,6 +18,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <print>
 
 #ifdef __linux__
@@ -33,6 +36,21 @@ namespace
 // No product name yet; this is the directory name used under the platform's
 // cache location.
 constexpr const char* kAppDirectoryName = "viewer";
+
+// Without a home scene, where the login lobby starts (the test scene's
+// ground, around the origin), at eye height; the login panel stands in
+// front of it, north.
+constexpr glm::vec3 kLobbyStart(1.5f, -6.0f, 1.7f);
+// Eyes over the home scene's floor (a standing adult's).
+constexpr float kLobbyEyeHeight = 1.7f;
+
+// A marker's forward (its local +Y), flat.
+glm::vec3 markerForward(const glm::quat& rotation)
+{
+    glm::vec3 forward = rotation * glm::vec3(0.0f, 1.0f, 0.0f);
+    forward.z = 0.0f;
+    return glm::length(forward) > 1e-4f ? glm::normalize(forward) : glm::vec3(0.0f, 1.0f, 0.0f);
+}
 
 fs::path defaultCacheDirectory()
 {
@@ -78,7 +96,7 @@ void printUsage()
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
                  "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
-                 "[--ui-dir DIR] [--main-menu [TAB]] [--developer] "
+                 "[--ui-dir DIR] [--home-scene PATH] [--main-menu [TAB]] [--developer] "
                  "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
 }
 
@@ -156,6 +174,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.uiDirectory = args[i];
+        }
+        else if(arg == "--home-scene" && hasValue)
+        {
+            i++;
+            options.homeScene = args[i];
         }
         else if(arg == "--vr-eye-height" && hasValue)
         {
@@ -514,29 +537,19 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         // The main menu on a panel (first person, VR): the menu button's
         // press opens and closes it, the pointers use it.
         app->controls_.setMainMenu([app = app.get()] { app->mainMenu_->toggle(); });
-        gui::Surface& surface = app->mainMenu_->surface();
-        VrControls::Page page;
-        page.size = glm::vec2(MainMenu::kSize);
-        page.metersPerPixel = 0.00045f; // about 58 cm across
-        page.image = surface.texture();
-        page.point = [&surface](std::optional<glm::vec2> pixel)
-        {
-            if(pixel)
-            {
-                surface.pointerMove(*pixel);
-            }
-            else
-            {
-                surface.pointerLeave();
-            }
-        };
-        page.button = [&surface](bool down) { surface.pointerButton(0, down); };
-        page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
-        app->controls_.setPage(std::move(page));
+        app->setPanelPage(app->mainMenu_->surface(), MainMenu::kSize);
     }
     app->outfit_ = std::make_unique<OutfitAttachments>(*app->http_);
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
+    {
+        const char* base = SDL_GetBasePath();
+        app->homeScenePath_ = options.homeScene.empty()
+                                  ? fs::path(base ? base : "") / "assets" / "home.scene"
+                                  : options.homeScene;
+        app->loadHomeScene();
+    }
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
+    app->accountPicture_ = std::make_unique<AccountPicture>(*app->http_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
@@ -559,12 +572,28 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->loginFlow_ = std::make_unique<LoginFlow>(*app->savedLogins_, session::queryMachineInfo(),
                                                   "viewer", VIEWER_VERSION);
     app->loginPanel_ = std::make_unique<LoginPanel>(*app->loginFlow_, options.loginUri);
-    if(!options.loginFile.empty())
+    if(app->gui_)
+    {
+        app->loginScreen_ = LoginScreen::create(*app->gui_, *app->loginFlow_, options.loginUri);
+    }
+    if(!app->loginScreen_)
+    {
+        log::warn("no login screen: the ImGui login panel instead");
+    }
+    if(!options.start.empty())
     {
         app->loginPanel_->setStart(options.start);
+        if(app->loginScreen_)
+        {
+            app->loginScreen_->setStart(options.start);
+        }
+    }
+    if(!options.loginFile.empty())
+    {
         if(auto credentials = session::readCredentialsFile(options.loginFile))
         {
-            app->handleLoginAction(app->loginPanel_->logInWith(*credentials));
+            app->handleLoginAction(app->loginScreen_ ? app->loginScreen_->logInWith(*credentials)
+                                                     : app->loginPanel_->logInWith(*credentials));
         }
         else
         {
@@ -627,7 +656,8 @@ int App::run()
         {
             // ImGui (the debug windows) first, then the main menu.
             const bool imguiConsumed = ui_->processEvent(event);
-            const bool uiConsumed = imguiConsumed || mainMenuEvent(event);
+            const bool uiConsumed =
+                imguiConsumed || loginScreenEvent(event) || mainMenuEvent(event);
             const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
             // A free cursor (first person) points; it doesn't turn the view.
             const bool pointing = event.type == SDL_EVENT_MOUSE_MOTION && cursorFree();
@@ -708,7 +738,14 @@ int App::run()
         profile_.mark(FrameProfile::Textures);
         const uint64_t now = SDL_GetTicksNS();
         const bool keyboardFree = !ImGui::GetIO().WantCaptureKeyboard;
-        if(keyboardFree)
+        updateLobby();
+        if(!session_)
+        {
+            // Logged out: the home scene's assets (if it's shown).
+            setViewerAssetUrl(homeShown() ? home_->assetUrl : std::string());
+        }
+        // (Not while typing on the login screen: its keys are the field's.)
+        if(keyboardFree && !(lobby_ && loginScreen_->surface().typing()))
         {
             camera_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f);
         }
@@ -851,7 +888,11 @@ int App::run()
             {
                 profile_.mark(FrameProfile::Acquire);
                 xr::HeadsetFrame& h = *headsetFrame_;
-                if(mainMenu_ && mainMenu_->isOpen())
+                if(loginScreenShown())
+                {
+                    loginScreen_->render(frame->commands); // before the panel shows it
+                }
+                else if(mainMenu_ && mainMenu_->isOpen())
                 {
                     mainMenu_->render(frame->commands); // before the panel shows it
                 }
@@ -885,7 +926,11 @@ int App::run()
         else if(auto frame = renderer_->beginFrame())
         {
             profile_.mark(FrameProfile::Acquire);
-            if(mainMenu_ && mainMenu_->isOpen())
+            if(loginScreenShown())
+            {
+                loginScreen_->render(frame->commands);
+            }
+            else if(mainMenu_ && mainMenu_->isOpen())
             {
                 mainMenu_->render(frame->commands);
             }
@@ -897,10 +942,23 @@ int App::run()
             {
                 renderer_->drawScene(*frame, scene_);
             }
+            // The page over the window, and over a screenshot being made.
+            const gui::Surface* over = nullptr;
+            glm::vec4 rect(0.0f);
             if(mainMenuOverWindow())
             {
-                gui_->drawOver(frame->commands, frame->target, {frame->width, frame->height},
-                               mainMenu_->surface(), mainMenuRect());
+                over = &mainMenu_->surface();
+                rect = mainMenuRect();
+            }
+            if(over)
+            {
+                gui_->drawOver(frame->commands, frame->target, {frame->width, frame->height}, *over,
+                               rect);
+                if(SDL_GPUTexture* shot = renderer_->screenshotImage())
+                {
+                    gui_->drawOver(frame->commands, shot, {frame->width, frame->height}, *over,
+                                   rect);
+                }
             }
             ui_->record(*frame);
             profile_.mark(FrameProfile::Render);
@@ -1307,7 +1365,11 @@ void App::updateSession()
         }
         environment_->update(main ? std::optional<uint64_t>(main->handle) : std::nullopt, url);
     }
-    const std::string viewerAsset(session_->capability("ViewerAsset").value_or(""));
+    std::string viewerAsset(session_->capability("ViewerAsset").value_or(""));
+    if(viewerAsset.empty() && homeShown())
+    {
+        viewerAsset = home_->assetUrl; // the lobby's, until the region's is in
+    }
     textures_->setViewerAssetUrl(viewerAsset);
     if(avatars_)
     {
@@ -1612,6 +1674,7 @@ void App::updateOutfit()
 
 void App::endSession()
 {
+    accountPicture_->clear();
     population_.clear(); // the next login may be another grid
     parcel_.clear();
     inventoryBrowser_->clear();
@@ -1661,6 +1724,25 @@ void App::endSession()
 }
 
 void App::buildScene(render::Scene& scene)
+{
+    // Before we arrive (logged out, or logging in): the home scene stands
+    // where the world will be, its region the origin.
+    const bool home = homeShown();
+    std::shared_ptr<const world::World> sessionWorld;
+    if(home)
+    {
+        sessionWorld = std::exchange(world_, homeWorld_);
+        originHandle_ = kHomeRegion;
+    }
+    buildSceneOf(scene, home);
+    if(home)
+    {
+        world_ = std::move(sessionWorld);
+        originHandle_.reset();
+    }
+}
+
+void App::buildSceneOf(render::Scene& scene, bool home)
 {
     // Kept from frame to frame, so its lists keep their capacity.
     scene.objects.clear();
@@ -1863,7 +1945,35 @@ void App::buildScene(render::Scene& scene)
         scene.probes.insert(scene.probes.end(), automatic.begin(), automatic.end());
         profile_.mark(FrameProfile::Objects);
     }
-    if(showTestScene_ || !originHandle_)
+    if(lobby_ && !home)
+    {
+        sceneAssets_->addFloor(scene, glm::vec2(kLobbyStart), 60.0f);
+    }
+    if(home)
+    {
+        // The side panels' places (theirs to fill later): cards as big
+        // as the login panel, facing as their markers do.
+        auto placeholder = [&](const std::optional<world::HomeMarker>& marker, const char* text)
+        {
+            if(!marker)
+            {
+                return;
+            }
+            render::Panel panel;
+            panel.frame =
+                panelFacing(marker->position, marker->position + markerForward(marker->rotation));
+            panel.size = glm::vec2(LoginScreen::kSize);
+            panel.metersPerPixel = 0.00125f;
+            panel.boxes.push_back(
+                {glm::vec2(0.0f), panel.size, glm::vec4(0.086f, 0.11f, 0.165f, 0.97f), 24.0f});
+            panel.texts.push_back({text, panel.size * 0.5f, 40.0f,
+                                   glm::vec4(0.72f, 0.76f, 0.84f, 1.0f), panel.size.x - 80.0f});
+            scene.panels.push_back(std::move(panel));
+        };
+        placeholder(home_->news, "News placeholder");
+        placeholder(home_->gridStatus, "Grid status placeholder");
+    }
+    if(showTestScene_ || (!originHandle_ && !home))
     {
         // Logged in: next to the camera's target, so it's easy to find.
         const glm::vec3 origin =
@@ -2284,10 +2394,15 @@ MenuItem App::radialMenu()
 bool App::mainMenuOverWindow() const
 {
     return mainMenu_ && mainMenu_->isOpen() && !camera_.firstPerson() &&
-           !(headset_ && headset_->running());
+           !(headset_ && headset_->running()) && !loginScreenShown();
 }
 
 glm::vec4 App::mainMenuRect() const
+{
+    return pageRect(MainMenu::kSize, 0.92f);
+}
+
+glm::vec4 App::pageRect(glm::ivec2 page, float fill) const
 {
     // In the middle of the window: at the display's scale, or smaller to
     // fit.
@@ -2295,21 +2410,216 @@ glm::vec4 App::mainMenuRect() const
     int height = 0;
     SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
     const glm::vec2 window(static_cast<float>(width), static_cast<float>(height));
-    const glm::vec2 page(MainMenu::kSize);
+    const glm::vec2 size(page);
     const float scale = std::min({SDL_GetWindowDisplayScale(window_.get()),
-                                  window.x * 0.92f / page.x, window.y * 0.92f / page.y});
-    const glm::vec2 size = glm::floor(page * scale);
-    const glm::vec2 topLeft = glm::floor((window - size) * 0.5f);
-    return glm::vec4(topLeft, size);
+                                  window.x * fill / size.x, window.y * fill / size.y});
+    const glm::vec2 fitted = glm::floor(size * scale);
+    const glm::vec2 topLeft = glm::floor((window - fitted) * 0.5f);
+    return glm::vec4(topLeft, fitted);
+}
+
+void App::setPanelPage(gui::Surface& surface, glm::ivec2 size, float metersPerPixel)
+{
+    VrControls::Page page;
+    page.size = glm::vec2(size);
+    page.metersPerPixel = metersPerPixel; // the menu's: about 58 cm across
+    page.image = surface.texture();
+    page.point = [&surface](std::optional<glm::vec2> pixel)
+    {
+        if(pixel)
+        {
+            surface.pointerMove(*pixel);
+        }
+        else
+        {
+            surface.pointerLeave();
+        }
+    };
+    page.button = [&surface](bool down) { surface.pointerButton(0, down); };
+    page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
+    controls_.setPage(std::move(page));
+}
+
+void App::updateLobby()
+{
+    const bool lobby = loginScreenShown();
+    if(lobby == lobby_)
+    {
+        return;
+    }
+    lobby_ = lobby;
+    camera_.setWalking(lobby);
+    if(lobby)
+    {
+        // Standing at the start, at eye height, looking at the panel.
+        camera_.lookAt(lobbyStart(), 1.0f, lobbyYaw(), 8.0f);
+        const auto [panel, facing] = loginPanelPlace();
+        log::info("lobby: eyes at {:.2f} {:.2f} {:.2f} facing {:.0f} degrees; login panel at "
+                  "{:.2f} {:.2f} {:.2f} facing {:.2f} {:.2f}",
+                  lobbyStart().x, lobbyStart().y, lobbyStart().z, lobbyYaw(), panel.x, panel.y,
+                  panel.z, facing.x - panel.x, facing.y - panel.y);
+        lobbyTicks_ = SDL_GetTicksNS();
+    }
+}
+
+void App::loadHomeScene()
+{
+    home_.reset();
+    homeWorld_.reset();
+    std::ifstream in(homeScenePath_, std::ios::binary);
+    if(!in)
+    {
+        log::info("no home scene at {}: the lobby is the test scene", homeScenePath_.string());
+        return;
+    }
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                     std::istreambuf_iterator<char>());
+    auto scene = world::loadHomeScene(bytes, kHomeRegion);
+    if(!scene)
+    {
+        log::error("the home scene {} couldn't be read: {}", homeScenePath_.string(),
+                   scene.error());
+        return;
+    }
+    auto world = std::make_shared<world::World>();
+    for(world::WorldUpdate& update : scene->updates)
+    {
+        world->apply(std::move(update));
+    }
+    scene->updates.clear();
+    world->standAlone();
+    for(auto& [id, material] : scene->legacyMaterials)
+    {
+        legacyMaterials_->put(id, material);
+    }
+    materials_->put(world::kHomeBlankMaterial, assets::Material{});
+    log::info("home scene {}: {} objects, assets from {}", homeScenePath_.string(),
+              world->objectCount(), scene->assetUrl);
+    home_ = std::move(*scene);
+    homeWorld_ = std::move(world);
+}
+
+glm::vec3 App::lobbyStart() const
+{
+    if(!home_ || (!home_->landing && !home_->floor))
+    {
+        return kLobbyStart;
+    }
+    const glm::vec3 at = home_->landing ? home_->landing->position : glm::vec3(128.0f);
+    const float floor = home_->floor.value_or(at.z);
+    return {at.x, at.y, floor + kLobbyEyeHeight};
+}
+
+float App::lobbyYaw() const
+{
+    if(!home_ || !home_->landing)
+    {
+        return 90.0f;
+    }
+    const glm::vec3 forward = markerForward(home_->landing->rotation);
+    return glm::degrees(std::atan2(forward.y, forward.x));
+}
+
+std::pair<glm::vec3, glm::vec3> App::loginPanelPlace() const
+{
+    if(home_ && home_->login)
+    {
+        const world::HomeMarker& m = *home_->login;
+        return {m.position, m.position + markerForward(m.rotation)};
+    }
+    const glm::vec3 start = lobbyStart();
+    const float yaw = glm::radians(lobbyYaw());
+    const glm::vec3 ahead(std::cos(yaw), std::sin(yaw), 0.0f);
+    return {start + ahead * 1.4f + glm::vec3(0.0f, 0.0f, -0.3f), start};
+}
+
+void App::setViewerAssetUrl(const std::string& url)
+{
+    textures_->setViewerAssetUrl(url);
+    meshes_->setViewerAssetUrl(url);
+    materials_->setViewerAssetUrl(url);
+    if(animations_)
+    {
+        animations_->setViewerAssetUrl(url);
+    }
+}
+
+void App::walkLobby(const VrControls::Input& input, const glm::vec3& headForward)
+{
+    const uint64_t now = SDL_GetTicksNS();
+    const float seconds = std::min(static_cast<float>(now - lobbyTicks_) * 1e-9f, 0.1f);
+    lobbyTicks_ = now;
+    glm::vec3 forward(headForward.x, headForward.y, 0.0f);
+    if(glm::length(forward) < 1e-3f)
+    {
+        return;
+    }
+    forward = glm::normalize(forward);
+    const glm::vec3 right = glm::cross(forward, glm::vec3(0.0f, 0.0f, 1.0f));
+    const glm::vec2 walk = input.pointers[0].stick;
+    if(glm::length(walk) > 0.15f)
+    {
+        camera_.shift((forward * walk.y + right * walk.x) * 1.6f * seconds);
+    }
+    const float turn = input.pointers[1].stick.x;
+    if(!lobbyTurned_ && std::abs(turn) > 0.7f)
+    {
+        camera_.turn(turn > 0.0f ? -30.0f : 30.0f);
+        lobbyTurned_ = true;
+    }
+    else if(std::abs(turn) < 0.3f)
+    {
+        lobbyTurned_ = false;
+    }
+}
+
+bool App::loginScreenShown() const
+{
+    return loginScreen_ && LoginScreen::wanted(session_.get());
+}
+
+bool App::loginScreenEvent(const SDL_Event& event)
+{
+    if(!loginScreenShown())
+    {
+        return false;
+    }
+    if(event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+       event.key.scancode == SDL_SCANCODE_F5 && !ImGui::GetIO().WantCaptureKeyboard)
+    {
+        gui_->forgetStyles();
+        loginScreen_->reload();
+        log::info("the login screen's documents read again");
+        // And the home scene (after converting it again), the panel placed
+        // anew from its markers.
+        loadHomeScene();
+        pageIsLogin_ = false;
+        return true;
+    }
+    // Typing into a field on its panel (pointing at it is VrControls').
+    gui::Surface& surface = loginScreen_->surface();
+    if(surface.typing() && !ImGui::GetIO().WantCaptureKeyboard)
+    {
+        if(event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
+        {
+            surface.key(event.key.key, event.key.mod, event.type == SDL_EVENT_KEY_DOWN);
+            return true;
+        }
+        if(event.type == SDL_EVENT_TEXT_INPUT)
+        {
+            surface.text(event.text.text);
+            return true;
+        }
+    }
+    return false;
 }
 
 bool App::mainMenuEvent(const SDL_Event& event)
 {
-    if(!mainMenu_)
+    if(!mainMenu_ || loginScreenShown())
     {
         return false;
     }
-    gui::Surface& surface = mainMenu_->surface();
     const bool keyboardFree = !ImGui::GetIO().WantCaptureKeyboard;
     if(event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && keyboardFree)
     {
@@ -2332,6 +2642,14 @@ bool App::mainMenuEvent(const SDL_Event& event)
     {
         return false;
     }
+    return pageEvent(mainMenu_->surface(), mainMenuRect(), MainMenu::kSize, mainMenuPressed_,
+                     event);
+}
+
+bool App::pageEvent(gui::Surface& surface, const glm::vec4& rect, glm::ivec2 size, bool& pressed,
+                    const SDL_Event& event)
+{
+    const bool keyboardFree = !ImGui::GetIO().WantCaptureKeyboard;
     // Typing into a field on it.
     if(surface.typing() && keyboardFree)
     {
@@ -2347,14 +2665,13 @@ bool App::mainMenuEvent(const SDL_Event& event)
         }
     }
     // The mouse: window coordinates to the page's pixels.
-    const glm::vec4 rect = mainMenuRect();
     const float density = SDL_GetWindowPixelDensity(window_.get());
     auto toPage = [&](float x, float y, bool& inside)
     {
         const glm::vec2 pixel = glm::vec2(x, y) * density;
         const glm::vec2 local = (pixel - glm::vec2(rect.x, rect.y)) / glm::vec2(rect.z, rect.w);
         inside = local.x >= 0.0f && local.y >= 0.0f && local.x < 1.0f && local.y < 1.0f;
-        return local * glm::vec2(MainMenu::kSize);
+        return local * glm::vec2(size);
     };
     bool inside = false;
     switch(event.type)
@@ -2362,7 +2679,7 @@ bool App::mainMenuEvent(const SDL_Event& event)
     case SDL_EVENT_MOUSE_MOTION:
     {
         const glm::vec2 at = toPage(event.motion.x, event.motion.y, inside);
-        if(inside || mainMenuPressed_)
+        if(inside || pressed)
         {
             surface.pointerMove(at);
         }
@@ -2370,7 +2687,7 @@ bool App::mainMenuEvent(const SDL_Event& event)
         {
             surface.pointerLeave();
         }
-        return inside || mainMenuPressed_;
+        return inside || pressed;
     }
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     {
@@ -2384,12 +2701,12 @@ bool App::mainMenuEvent(const SDL_Event& event)
                            : event.button.button == SDL_BUTTON_RIGHT ? 1
                                                                      : 2;
         surface.pointerButton(button, true);
-        mainMenuPressed_ = true;
+        pressed = true;
         return true;
     }
     case SDL_EVENT_MOUSE_BUTTON_UP:
     {
-        if(!mainMenuPressed_)
+        if(!pressed)
         {
             return false;
         }
@@ -2397,8 +2714,8 @@ bool App::mainMenuEvent(const SDL_Event& event)
                            : event.button.button == SDL_BUTTON_RIGHT ? 1
                                                                      : 2;
         surface.pointerButton(button, false);
-        mainMenuPressed_ = (SDL_GetMouseState(nullptr, nullptr) &
-                            (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK | SDL_BUTTON_MMASK)) != 0;
+        pressed = (SDL_GetMouseState(nullptr, nullptr) &
+                   (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK | SDL_BUTTON_MMASK)) != 0;
         return true;
     }
     case SDL_EVENT_MOUSE_WHEEL:
@@ -2539,6 +2856,11 @@ void App::updateMainMenu()
             }
         }
     }
+    if(mainMenu_->takeLogOut() && session_)
+    {
+        mainMenu_->setOpen(false);
+        handleLoginAction({LoginAction::Kind::LogOut, {}});
+    }
     if(const auto where = mainMenu_->takeTeleport(); where && session_)
     {
         if(const auto location = session::parseLocation(*where))
@@ -2576,7 +2898,8 @@ void App::updateControls(render::Scene& scene)
     VrControls::Input input;
     input.eye = scene.camera.position;
     input.forward = glm::normalize(scene.camera.target - scene.camera.position);
-    input.anchor = vr_.placed ? vr_.base : scene.camera.position;
+    // In the lobby the panels stand in the world: a fixed anchor.
+    input.anchor = lobby_ ? glm::vec3(0.0f) : vr_.placed ? vr_.base : scene.camera.position;
     input.now = static_cast<double>(SDL_GetTicks()) / 1000.0;
     vrAim_.reset();
     const bool headset = vr_.placed && headsetFrame_ && headsetFrame_->render;
@@ -2609,23 +2932,28 @@ void App::updateControls(render::Scene& scene)
             vrAim_ = PointerController::Ray{input.pointers[1].origin, input.pointers[1].direction,
                                             std::nullopt};
         }
+        if(lobby_)
+        {
+            walkLobby(input, input.forward);
+        }
     }
-    else if(camera_.firstPerson())
+    else if(camera_.firstPerson() || lobby_)
     {
-        // The mouse: through the crosshair, or the cursor while it's free;
-        // the left button presses, the right one (held) opens the menu.
+        // The mouse: through the crosshair, or the cursor while it's free
+        // (always, in the lobby); the left button presses, the right one
+        // (held) opens the menu (in the lobby it looks around instead).
         int width = 0;
         int height = 0;
         SDL_GetWindowSize(window_.get(), &width, &height);
         float x = 0.0f;
         float y = 0.0f;
         const SDL_MouseButtonFlags buttons = SDL_GetMouseState(&x, &y);
-        if(!cursorFree())
+        if(!cursorFree() && !lobby_)
         {
             x = static_cast<float>(width) * 0.5f;
             y = static_cast<float>(height) * 0.5f;
         }
-        const bool overUi = cursorFree() && ImGui::GetIO().WantCaptureMouse;
+        const bool overUi = (cursorFree() || lobby_) && ImGui::GetIO().WantCaptureMouse;
         if(width > 0 && height > 0 && SDL_GetKeyboardFocus() == window_.get() && !overUi)
         {
             const glm::vec2 ndc(2.0f * x / static_cast<float>(width) - 1.0f,
@@ -2639,14 +2967,36 @@ void App::updateControls(render::Scene& scene)
             p.origin = scene.camera.position;
             p.direction = glm::normalize(glm::vec3(far) / far.w - scene.camera.position);
             p.button = (buttons & SDL_BUTTON_LMASK) != 0;
-            p.menu = (buttons & SDL_BUTTON_RMASK) != 0;
+            p.menu = !lobby_ && (buttons & SDL_BUTTON_RMASK) != 0;
+            p.active = !(lobby_ && camera_.dragging());
         }
     }
     controlsPointed_ = controls_.update(input);
     // The main menu on a panel while it's open in first person or VR (placed
     // from where the eyes are now); over the window otherwise.
-    const bool menuOnPanel = mainMenu_ && mainMenu_->isOpen() &&
-                             (camera_.firstPerson() || (headset_ && headset_->running()));
+    // The login screen instead, on the same panel, in a headset until
+    // we're in the world.
+    const bool loginOnPanel = lobby_;
+    if(loginOnPanel != pageIsLogin_ && (loginOnPanel || mainMenu_))
+    {
+        pageIsLogin_ = loginOnPanel;
+        if(loginOnPanel)
+        {
+            // Where the scene's marker says (or in front of where the
+            // lobby starts, facing it), 90 cm across.
+            setPanelPage(loginScreen_->surface(), LoginScreen::kSize, 0.00125f);
+            const auto [center, facing] = loginPanelPlace();
+            controls_.openPageAt(center, facing, glm::vec3(0.0f));
+        }
+        else
+        {
+            controls_.closePage();
+            setPanelPage(mainMenu_->surface(), MainMenu::kSize);
+        }
+    }
+    const bool menuOnPanel =
+        loginOnPanel || (mainMenu_ && mainMenu_->isOpen() && !loginScreenShown() &&
+                         (camera_.firstPerson() || (headset_ && headset_->running())));
     if(menuOnPanel && !controls_.pageOpen())
     {
         controls_.openPage();
@@ -3465,12 +3815,35 @@ void App::drawUi()
         }
     }
 
-    // Logging in is ImGui's until the interface has its own.
+    // Logging in: the login screen's (the ImGui panel's without one).
     loginFlow_->observe(session_.get());
-    handleLoginAction(loginPanel_->draw(session_.get()));
+    if(!loginScreen_)
+    {
+        handleLoginAction(loginPanel_->draw(session_.get()));
+    }
+    else if(loginScreenShown())
+    {
+        handleLoginAction(loginScreen_->update(session_.get()));
+    }
+    // Our profile picture, for the account on the login screen.
+    if(const auto* login = session_ ? session_->login() : nullptr)
+    {
+        accountPicture_->update(login->agentId, session_->capability("AgentProfile").value_or(""),
+                                [this](const Uuid& image)
+                                {
+                                    if(const auto account = loginFlow_->account())
+                                    {
+                                        savedLogins_->setImage(*account, image);
+                                    }
+                                });
+    }
     if(developer_)
     {
         drawDeveloperWindows();
+        if(loginScreen_)
+        {
+            handleLoginAction(loginPanel_->drawSessionWindow(session_.get()));
+        }
     }
 }
 

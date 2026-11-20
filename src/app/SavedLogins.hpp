@@ -8,6 +8,7 @@
 // on Windows. Never the plain password: the viewer only ever needs its
 // hash.
 
+#include "viewer/core/Uuid.hpp"
 #include "viewer/session/Login.hpp"
 
 #include <filesystem>
@@ -41,6 +42,9 @@ struct SavedAccount
 {
     std::string loginUri;
     session::AgentName name;
+    // Its profile picture (a texture), as last seen logged in; null: none
+    // known. Not part of which account it is.
+    Uuid image;
     bool operator==(const SavedAccount& o) const
     {
         return loginUri == o.loginUri && name.first == o.name.first && name.last == o.name.last;
@@ -66,6 +70,8 @@ public:
     // store refused (nothing is listed then).
     bool save(const SavedAccount& account, const SavedSecret& secret);
     void forget(const SavedAccount& account);
+    // The account's profile picture, if it's remembered.
+    void setImage(const SavedAccount& account, const Uuid& image);
 
     // The list file's default place: the platform's config directory.
     static std::filesystem::path defaultListFile();

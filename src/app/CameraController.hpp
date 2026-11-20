@@ -7,6 +7,10 @@
 // (setEye), turned by the mouse's motion with no button held; the keys
 // move the avatar instead. The wheel all the way in asks for first person,
 // out of it for third (takeModeRequest): the app switches.
+//
+// Walking (the login lobby, bodiless): the camera at the target, at eye
+// height; right-drag looks around, WASD walks on the ground (no up or
+// down), the wheel does nothing.
 
 #include "viewer/render/Scene.hpp"
 
@@ -41,6 +45,8 @@ public:
 
     void setFirstPerson(bool on);
     bool firstPerson() const { return firstPerson_; }
+    void setWalking(bool on);
+    bool walking() const { return walking_; }
     void setEye(glm::vec3 eye) { eye_ = eye; }
     // What the wheel asked for since last time: first person (true),
     // third (false), or nothing.
@@ -56,6 +62,7 @@ private:
     bool rotating_ = false;
     bool panning_ = false;
     bool firstPerson_ = false;
+    bool walking_ = false;
     glm::vec3 eye_{0.0f};
     std::optional<bool> modeRequest_;
 };

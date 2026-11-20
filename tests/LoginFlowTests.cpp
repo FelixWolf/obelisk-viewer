@@ -42,13 +42,13 @@ TEST_CASE("Saved logins: the list in a file, the secrets in the store")
     {
         SavedLogins saved(file.path, std::move(store));
         CHECK(saved.accounts().empty());
-        const SavedAccount a{std::string(session::kAgniLoginUri), name("Ann", "Resident")};
-        const SavedAccount b{std::string(session::kAditiLoginUri), name("Bob", "Tester")};
+        const SavedAccount a{std::string(session::kAgniLoginUri), name("Ann", "Resident"), {}};
+        const SavedAccount b{std::string(session::kAditiLoginUri), name("Bob", "Tester"), {}};
         CHECK(saved.save(a, {"$1$aaa", "mfa-a"}));
         CHECK(saved.save(b, {"$1$bbb", ""}));
         // Most recent first; saving again moves it up (names compared without case).
         CHECK(saved.accounts().front() == b);
-        CHECK(saved.save({a.loginUri, name("ann", "resident")}, {"$1$aaa", "mfa-a2"}));
+        CHECK(saved.save({a.loginUri, name("ann", "resident"), {}}, {"$1$aaa", "mfa-a2"}));
         REQUIRE(saved.accounts().size() == 2);
         CHECK(saved.secret(a)->mfaHash == "mfa-a2");
         CHECK(saved.secret(b)->passwordHash == "$1$bbb");
@@ -68,6 +68,29 @@ TEST_CASE("Saved logins: the list in a file, the secrets in the store")
     SavedLogins again(file.path, SecretStore::memory());
     REQUIRE(again.accounts().size() == 1);
     CHECK(again.accounts()[0].name.first == "ann");
+}
+
+TEST_CASE("Saved logins: a profile picture remembered, kept when saved again")
+{
+    ListFile file;
+    const Uuid picture = Uuid::random();
+    const SavedAccount a{std::string(session::kAgniLoginUri), name("Ann", "Resident"), {}};
+    {
+        // A list from before pictures: no third column.
+        std::filesystem::create_directories(file.path.parent_path());
+        std::ofstream(file.path) << a.loginUri << "\tAnn Resident\n";
+        SavedLogins saved(file.path, SecretStore::memory());
+        REQUIRE(saved.accounts().size() == 1);
+        CHECK(saved.accounts()[0].image.isNull());
+        saved.setImage(a, picture);
+        // Logged in again: saved without a picture, which keeps the old one.
+        CHECK(saved.save(a, {"$1$aaa", ""}));
+        CHECK(saved.accounts()[0].image == picture);
+    }
+    SavedLogins again(file.path, SecretStore::memory());
+    REQUIRE(again.accounts().size() == 1);
+    CHECK(again.accounts()[0].image == picture);
+    CHECK(again.accounts()[0].name.last == "Resident");
 }
 
 TEST_CASE("Login flow: an authenticator code asked for, the MFA hash saved and reused")

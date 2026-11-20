@@ -1,0 +1,111 @@
+<rml>
+<head>
+    <title>Login</title>
+    <link type="text/rcss" href="theme.rcss"/>
+    <link type="text/rcss" href="login.rcss"/>
+</head>
+<body>
+<div id="login" data-model="login">
+    <div id="middle">
+        <div class="brand">TestViewer</div>
+
+        <!-- A login on its way. -->
+        <div class="card panel" data-if="busy">
+            <div class="busy-text">{{ busyText }}</div>
+            <div class="actions">
+                <div class="button" data-event-click="cancel">Cancel</div>
+            </div>
+        </div>
+
+        <!-- Two-factor: the authenticator's code. -->
+        <div class="card panel" data-if="!busy && prompt == 'code'">
+            <h3>Authenticator code</h3>
+            <p class="muted">{{ promptText }}</p>
+            <input type="text" class="field" data-value="code"
+                   data-event-change="answerCode(ev.linebreak)"/>
+            <div class="actions">
+                <div class="button" data-event-click="dismiss">Cancel</div>
+                <div class="primary" data-event-click="answerCode">Continue</div>
+            </div>
+        </div>
+
+        <!-- The terms of service, or a message to read, before going on. -->
+        <div class="card panel" data-if="!busy && (prompt == 'terms' || prompt == 'critical')">
+            <h3>{{ prompt == 'terms' ? 'Terms of Service' : 'Please read' }}</h3>
+            <div class="message">{{ promptText }}</div>
+            <div class="toggle" data-class-on="accepted" data-event-click="accepted = !accepted">
+                <div class="box"></div>
+                <span>{{ prompt == 'terms' ? 'I agree to the Terms of Service' : 'I have read this message' }}</span>
+            </div>
+            <div class="actions">
+                <div class="button" data-event-click="dismiss">Cancel</div>
+                <div class="primary" data-class-off="!accepted" data-event-click="accept">Continue</div>
+            </div>
+        </div>
+
+        <div data-if="!busy && prompt != 'code' && prompt != 'terms' && prompt != 'critical'">
+            <!-- Why the last login failed. -->
+            <div class="card error" data-if="prompt == 'error'">
+                <div>{{ promptText }}</div>
+                <div class="reason" data-if="promptReason != ''">({{ promptReason }})</div>
+                <div class="close" data-event-click="dismiss">×</div>
+            </div>
+
+            <!-- The remembered accounts. -->
+            <div data-if="view == 'accounts'">
+                <div class="account" data-for="a : accounts" data-event-click="logInAccount(it_index)">
+                    <div class="picture" data-if="a.image != ''"
+                         data-style-decorator="'image(' + a.image + ' cover)'"></div>
+                    <div class="picture none" data-if="a.image == ''">{{ a.initial }}</div>
+                    <div class="who">
+                        <div class="name">{{ a.name }}</div>
+                        <div class="muted" data-if="a.grid != ''">{{ a.grid }}</div>
+                    </div>
+                    <div class="forget" data-event-click="forget(it_index)">Forget</div>
+                </div>
+                <div class="add" data-event-click="view = 'form'">+ Add account</div>
+            </div>
+
+            <!-- A new account (or one not remembered). -->
+            <div class="card panel" data-if="view == 'form'">
+                <label>Username</label>
+                <input type="text" class="field" data-value="username"
+                       data-event-change="submit(ev.linebreak)"/>
+                <label>Password</label>
+                <input type="password" class="field" data-value="password"
+                       data-event-change="submit(ev.linebreak)"/>
+                <label>Grid</label>
+                <div class="choices">
+                    <div class="choice" data-for="g : grids" data-class-on="grid == it_index"
+                         data-event-click="grid = it_index">{{ g }}</div>
+                </div>
+                <label data-if="grid == grids.size - 1">Login URI</label>
+                <input type="text" class="field" data-if="grid == grids.size - 1"
+                       data-value="customUri"/>
+                <div class="toggle" data-class-on="remember" data-event-click="remember = !remember">
+                    <div class="box"></div>
+                    <span>Remember me</span>
+                </div>
+                <div class="form-error" data-if="formError != ''">{{ formError }}</div>
+                <div class="actions">
+                    <div class="button" data-if="accounts.size > 0" data-event-click="view = 'accounts'">Back</div>
+                    <div class="primary" data-event-click="submit">Log in</div>
+                </div>
+            </div>
+
+            <!-- Where to arrive, for any login. -->
+            <div class="card start-card">
+                <div class="start">
+                    <span class="muted">Start at</span>
+                    <div class="choice" data-class-on="start == 0" data-event-click="start = 0">Last location</div>
+                    <div class="choice" data-class-on="start == 1" data-event-click="start = 1">Home</div>
+                    <div class="choice" data-class-on="start == 2" data-event-click="start = 2">Region</div>
+                </div>
+                <label data-if="start == 2">Region name, or Region/x/y/z</label>
+                <input type="text" class="field" data-if="start == 2" data-value="region"/>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</rml>

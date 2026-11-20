@@ -90,6 +90,14 @@ std::shared_ptr<const assets::Material> MaterialManager::get(const Uuid& id)
     return it->second.material;
 }
 
+void MaterialManager::put(const Uuid& id, assets::Material material)
+{
+    Entry& e = entries_[id];
+    e.state = State::Ready;
+    e.material = std::make_shared<const assets::Material>(std::move(material));
+    revision_++;
+}
+
 // On a worker: parse and (for downloads) save.
 void MaterialManager::parse(const Uuid& id, std::vector<uint8_t> bytes, bool save)
 {

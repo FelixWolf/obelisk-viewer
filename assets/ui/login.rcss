@@ -1,0 +1,217 @@
+/* The login screen: a panel standing in the lobby: the accounts (and the
+   form). */
+
+body
+{
+    width: 100%;
+    height: 100%;
+}
+
+#login
+{
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    padding: 20dp 30dp;
+}
+
+#middle
+{
+    height: 100%;
+    overflow-y: auto;
+}
+
+.brand
+{
+    font-size: 40dp;
+    color: #ffffff;
+    text-align: center;
+    padding: 10dp 0 24dp 0;
+}
+
+.card { margin-bottom: 16dp; background-color: #161c2af8; }
+.panel { padding: 26dp 28dp; }
+h3 { font-size: 22dp; color: #ffffff; margin-bottom: 10dp; }
+p { margin-bottom: 14dp; }
+label
+{
+    display: block;
+    color: #8b96ab;
+    font-size: 15dp;
+    margin: 12dp 0 6dp 0;
+}
+
+/* Text fields. */
+input.field
+{
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 12dp 14dp;
+    margin-bottom: 6dp;
+    border-radius: 10dp;
+    background-color: #0e1219;
+    border: 1dp #ffffff24;
+    color: #ffffff;
+    font-size: 18dp;
+    cursor: text;
+}
+input.field:focus { border-color: #4a7af0; }
+input.field selection { background-color: #3a6ae0; color: #ffffff; }
+
+/* An account: its picture, its name, a quiet Forget. */
+.account
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 14dp 18dp;
+    margin-bottom: 12dp;
+    background-color: #161c2af8;
+    border-radius: 16dp;
+    border: 2dp #00000000;
+    cursor: pointer;
+}
+.account:hover { border-color: #4a7af0; background-color: #222a3ce8; }
+.picture
+{
+    width: 72dp;
+    height: 72dp;
+    border-radius: 36dp;
+    background-color: #2f3a54;
+}
+.picture.none
+{
+    line-height: 72dp;
+    text-align: center;
+    font-size: 32dp;
+    color: #ffffff;
+    decorator: linear-gradient(180deg, #4a7af0, #2a4fbe);
+}
+.who { flex: 1 1 0; margin-left: 18dp; }
+.name { font-size: 22dp; color: #ffffff; }
+.forget
+{
+    padding: 6dp 12dp;
+    border-radius: 8dp;
+    color: #8b96ab;
+    font-size: 14dp;
+}
+.forget:hover { background-color: #5a2a30; color: #ffffff; }
+
+.add
+{
+    text-align: center;
+    padding: 18dp;
+    margin-bottom: 16dp;
+    border-radius: 16dp;
+    background-color: #161c2af8;
+    border: 2dp #ffffff24;
+    color: #b8c2d6;
+    font-size: 18dp;
+    cursor: pointer;
+}
+.add:hover { border-color: #4a7af0; color: #ffffff; }
+
+/* Choices (grid, where to start): one picked. */
+.choices, .start
+{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.start-card { padding: 14dp 18dp 6dp 18dp; }
+.start-card input.field { margin: 0 0 12dp 0; }
+.start-card label { margin-top: 2dp; }
+.start .muted { margin: 0 12dp 8dp 0; }
+.choice
+{
+    padding: 8dp 14dp;
+    margin: 0 8dp 8dp 0;
+    border-radius: 10dp;
+    border: 1dp #ffffff30;
+    color: #b8c2d6;
+    cursor: pointer;
+}
+.choice:hover { background-color: #2f3a54; color: #ffffff; }
+.choice.on { background-color: #3a6ae0; border-color: #3a6ae0; color: #ffffff; }
+
+/* A switch: its box filled when on. */
+.toggle
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin: 14dp 0 4dp 0;
+    cursor: pointer;
+}
+.toggle .box
+{
+    width: 22dp;
+    height: 22dp;
+    margin-right: 10dp;
+    border-radius: 6dp;
+    border: 2dp #ffffff40;
+}
+.toggle.on .box { background-color: #3a6ae0; border-color: #3a6ae0; }
+
+.message
+{
+    max-height: 340dp;
+    overflow-y: auto;
+    padding: 12dp;
+    border-radius: 10dp;
+    background-color: #0e1219;
+    white-space: pre-wrap;
+}
+
+.actions
+{
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    margin-top: 18dp;
+}
+.button
+{
+    padding: 12dp 20dp;
+    margin-left: 10dp;
+    border-radius: 10dp;
+    background-color: #222a3c;
+    color: #b8c2d6;
+    cursor: pointer;
+}
+.button:hover { background-color: #2f3a54; color: #ffffff; }
+.primary
+{
+    padding: 12dp 26dp;
+    margin-left: 10dp;
+    border-radius: 10dp;
+    color: #ffffff;
+    decorator: linear-gradient(180deg, #3a6ae0, #2a4fbe);
+    cursor: pointer;
+}
+.primary:hover { decorator: linear-gradient(180deg, #4a7af0, #3a5fce); }
+.primary.off { decorator: none; background-color: #222a3c; color: #6b7690; cursor: default; }
+
+.busy-text { font-size: 22dp; color: #ffffff; text-align: center; padding: 10dp 0; }
+
+.error
+{
+    position: relative;
+    background-color: #3a1a20e8;
+    border-color: #ff707040;
+    color: #ffd0d0;
+    padding-right: 44dp;
+}
+.error .reason { color: #c08080; font-size: 14dp; margin-top: 6dp; }
+.error .close
+{
+    position: absolute;
+    top: 10dp;
+    right: 14dp;
+    font-size: 22dp;
+    cursor: pointer;
+}
+.form-error { color: #ff9090; margin-top: 10dp; }

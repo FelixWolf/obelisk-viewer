@@ -19,6 +19,7 @@
             <div class="card banner">
                 <div class="headline">Welcome back</div>
                 <div>{{ greeting }}</div>
+                <div class="button logout" data-if="inWorld" data-event-click="logOut">Log out</div>
             </div>
 
             <div class="row">

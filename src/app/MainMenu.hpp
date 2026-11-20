@@ -103,6 +103,8 @@ public:
     // A destination the page asked to teleport to ("Region/x/y/z",
     // URL-encoded), once.
     std::optional<std::string> takeTeleport() { return std::exchange(teleport_, std::nullopt); }
+    // Log out was pressed, once.
+    bool takeLogOut() { return std::exchange(logOut_, false); }
     // An item the page asked to attach or take off, once.
     struct InventoryAction
     {
@@ -218,6 +220,7 @@ private:
     uint64_t populationVersion_ = ~uint64_t{0};
     double populationAt_ = -1.0; // when the numbers were last looked at (seconds)
     std::unique_ptr<gui::Surface> surface_;
+    bool logOut_ = false;
     Rml::DataModelHandle model_;
     bool open_ = false;
 

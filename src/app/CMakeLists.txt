@@ -21,6 +21,7 @@ add_executable(viewer
   FrameProfile.cpp
   AnimationManager.cpp
   AutomaticProbes.cpp
+  AccountPicture.cpp
   AvatarNames.cpp
   AvatarView.cpp
   AgentController.cpp
@@ -31,6 +32,7 @@ add_executable(viewer
   FloatingText.cpp
   LocalChat.cpp
   LoginPanel.cpp
+  LoginScreen.cpp
   LoginFlow.cpp
   SavedLogins.cpp
   LegacyMaterialManager.cpp
@@ -110,3 +112,12 @@ add_custom_command(TARGET viewer POST_BUILD
           $<TARGET_FILE_DIR:viewer>/assets/ui
   VERBATIM
 )
+# The lobby's scene (made by default_scene/sceneConvert.py), if there is one.
+if(EXISTS ${PROJECT_SOURCE_DIR}/default_scene/start.scene)
+  add_custom_command(TARGET viewer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${PROJECT_SOURCE_DIR}/default_scene/start.scene
+            $<TARGET_FILE_DIR:viewer>/assets/home.scene
+    VERBATIM
+  )
+endif()

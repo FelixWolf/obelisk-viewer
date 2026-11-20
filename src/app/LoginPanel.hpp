@@ -24,6 +24,10 @@ public:
     ~LoginPanel();
 
     LoginAction draw(const session::Session* session);
+    // Only the session's details (regions, circuits, traffic; Log out), in
+    // a window of their own: for developers, once the login screen is
+    // RmlUi's.
+    LoginAction drawSessionWindow(const session::Session* session);
 
     // Logs in with details from a credentials file (--login-file), filling
     // in the form so retries (TOS, MFA) work as if they had been typed.

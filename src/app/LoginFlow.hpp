@@ -13,11 +13,25 @@
 #include "viewer/session/Login.hpp"
 #include "viewer/session/Session.hpp"
 
+#include <array>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace viewer
 {
+
+// The grids offered for logging in; the last (no URI) is any other.
+struct KnownGrid
+{
+    const char* label;
+    std::string_view uri;
+};
+inline constexpr std::array kKnownGrids = {
+    KnownGrid{"Second Life", session::kAgniLoginUri},
+    KnownGrid{"Second Life Beta (Aditi)", session::kAditiLoginUri},
+    KnownGrid{"Custom", {}},
+};
 
 struct LoginAction
 {
@@ -73,6 +87,16 @@ public:
                  const session::LoginSuccess* success);
 
     SavedLogins& saved() { return saved_; }
+    // The account of the last login asked for (whether it's remembered or
+    // not); none before one.
+    std::optional<SavedAccount> account() const
+    {
+        if(!attempt_)
+        {
+            return std::nullopt;
+        }
+        return SavedAccount{attempt_->loginUri, attempt_->name, {}};
+    }
 
 private:
     LoginAction retry();

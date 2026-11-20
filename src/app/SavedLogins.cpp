@@ -170,7 +170,8 @@ std::string SavedLogins::user(const SavedAccount& account)
 
 void SavedLogins::load()
 {
-    // One account a line: the login URI, a tab, first and last name.
+    // One account a line: the login URI, a tab, first and last name, and
+    // (since profile pictures) a tab and its picture's id.
     std::ifstream in(listFile_);
     std::string line;
     while(std::getline(in, line))
@@ -180,10 +181,14 @@ void SavedLogins::load()
         {
             continue;
         }
-        auto name = session::parseAgentName(line.substr(tab + 1));
+        const size_t imageTab = line.find('\t', tab + 1);
+        auto name = session::parseAgentName(line.substr(tab + 1, imageTab - tab - 1));
         if(name)
         {
-            accounts_.push_back({line.substr(0, tab), std::move(*name)});
+            const Uuid image = imageTab == std::string::npos
+                                   ? Uuid()
+                                   : Uuid::parse(line.substr(imageTab + 1)).value_or(Uuid());
+            accounts_.push_back({line.substr(0, tab), std::move(*name), image});
         }
     }
 }
@@ -195,7 +200,12 @@ void SavedLogins::write() const
     std::ofstream out(listFile_, std::ios::trunc);
     for(const SavedAccount& a : accounts_)
     {
-        out << a.loginUri << '\t' << a.name.first << ' ' << a.name.last << '\n';
+        out << a.loginUri << '\t' << a.name.first << ' ' << a.name.last;
+        if(!a.image.isNull())
+        {
+            out << '\t' << a.image.toString();
+        }
+        out << '\n';
     }
     if(!out)
     {
@@ -219,11 +229,31 @@ bool SavedLogins::save(const SavedAccount& account, const SavedSecret& secret)
     {
         return false;
     }
+    SavedAccount saved = account;
+    for(const SavedAccount& a : accounts_)
+    {
+        if(saved.image.isNull() && a.loginUri == account.loginUri && user(a) == user(account))
+        {
+            saved.image = a.image; // still its picture
+        }
+    }
     std::erase_if(accounts_, [&](const SavedAccount& a)
                   { return a.loginUri == account.loginUri && user(a) == user(account); });
-    accounts_.insert(accounts_.begin(), account);
+    accounts_.insert(accounts_.begin(), std::move(saved));
     write();
     return true;
+}
+
+void SavedLogins::setImage(const SavedAccount& account, const Uuid& image)
+{
+    for(SavedAccount& a : accounts_)
+    {
+        if(a.loginUri == account.loginUri && user(a) == user(account) && a.image != image)
+        {
+            a.image = image;
+            write();
+        }
+    }
 }
 
 void SavedLogins::forget(const SavedAccount& account)

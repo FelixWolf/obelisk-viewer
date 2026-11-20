@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AccountPicture.hpp"
 #include "AgentController.hpp"
 #include "AnimationManager.hpp"
 #include "AvatarNames.hpp"
@@ -11,6 +12,7 @@
 #include "LegacyMaterialManager.hpp"
 #include "LocalChat.hpp"
 #include "LoginPanel.hpp"
+#include "LoginScreen.hpp"
 #include "MainMenu.hpp"
 #include "MaterialManager.hpp"
 #include "ObjectProperties.hpp"
@@ -34,6 +36,7 @@
 #include "viewer/render/Renderer.hpp"
 #include "viewer/session/Session.hpp"
 #include "viewer/ui/ImGuiLayer.hpp"
+#include "viewer/world/HomeScene.hpp"
 #include "viewer/world/World.hpp"
 #include "viewer/world/WorldThread.hpp"
 #include "viewer/xr/Headset.hpp"
@@ -60,6 +63,9 @@ struct AppOptions
     // --ui-dir: the interface's documents (empty: assets/ui next to the
     // program; the source folder's, to edit them while running).
     std::filesystem::path uiDirectory;
+    // --home-scene: the lobby's scene (empty: assets/home.scene next to the
+    // program; see world/HomeScene.hpp).
+    std::filesystem::path homeScene;
     bool developer = false;          // --developer: ImGui's windows (stats, textures, ...)
     bool mainMenu = false;           // --main-menu: open it at the start
     std::string mainMenuTab;         // on this tab (--main-menu TAB)
@@ -144,6 +150,8 @@ private:
     void logOutBeforeExit();
     // Fills the frame's scene (cleared first).
     void buildScene(render::Scene& scene);
+    // The same, `home`: from the home scene (in world_'s place).
+    void buildSceneOf(render::Scene& scene, bool home);
     // The headset's eyes (eyeCameras_) and head (into `camera`), placed
     // from `camera`.
     void placeEyes(render::Camera& camera, const xr::HeadsetFrame& frame);
@@ -236,6 +244,49 @@ private:
     bool mainMenuOverWindow() const;
     glm::vec4 mainMenuRect() const;
     bool mainMenuPressed_ = false; // the mouse button went down on it
+    // The login screen (RmlUi; the ImGui panel if it couldn't be made):
+    // shown until we're in the world.
+    std::unique_ptr<LoginScreen> loginScreen_;
+    std::unique_ptr<AccountPicture> accountPicture_;
+    bool loginScreenShown() const;
+    bool loginScreenEvent(const SDL_Event& event);
+    bool pageIsLogin_ = false; // the VR page shows the login screen
+    // The login lobby: logged out, we stand (bodiless) in the scene and walk
+    // about on the ground; the login screen is a panel standing in front of
+    // where we start.
+    bool lobby_ = false;
+    void updateLobby();
+    // A headset's sticks in the lobby: the left walks where the head looks,
+    // the right turns by steps (once each push).
+    void walkLobby(const VrControls::Input& input, const glm::vec3& headForward);
+    uint64_t lobbyTicks_ = 0;
+    bool lobbyTurned_ = false;
+    // The lobby's scene (none: the test scene on a plain floor), as a world
+    // of its own, a region with this handle. Shown in the world's place
+    // until we arrive (homeShown()); its markers place the start and the
+    // panels.
+    static constexpr uint64_t kHomeRegion = (uint64_t{256000} << 32) | uint64_t{256000};
+    std::filesystem::path homeScenePath_;
+    std::optional<world::HomeScene> home_;
+    std::shared_ptr<const world::World> homeWorld_;
+    void loadHomeScene();
+    bool homeShown() const { return lobby_ && homeWorld_ && !originHandle_; }
+    // Where the lobby starts (eye height) and which way it faces (degrees
+    // from east); where the login panel stands and the point it faces.
+    glm::vec3 lobbyStart() const;
+    float lobbyYaw() const;
+    std::pair<glm::vec3, glm::vec3> loginPanelPlace() const;
+    // The viewer-asset service for every asset manager.
+    void setViewerAssetUrl(const std::string& url);
+    // A page over the window: `size` pixels fitted in the middle, at most
+    // `fill` of the window each way, at the display's scale or smaller.
+    glm::vec4 pageRect(glm::ivec2 size, float fill) const;
+    // The mouse and typing, to a page over the window at `rect`; true if
+    // it took the event. `pressed`: a button went down on it.
+    bool pageEvent(gui::Surface& surface, const glm::vec4& rect, glm::ivec2 size, bool& pressed,
+                   const SDL_Event& event);
+    // The panel (first person, VR) shows `surface`.
+    void setPanelPage(gui::Surface& surface, glm::ivec2 size, float metersPerPixel = 0.00045f);
     std::unique_ptr<JobSystem> jobs_;
     std::unique_ptr<image::J2kDecoder> j2kDecoder_;
     std::unique_ptr<DiskCache> diskCache_;                    // before everything using it

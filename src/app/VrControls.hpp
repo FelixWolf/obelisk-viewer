@@ -90,6 +90,10 @@ public:
     // In front of the eyes (as last given to update()), moving with the
     // avatar; and put away.
     void openPage();
+    // At `center`, facing `facing` (a point in front of it): it stays there
+    // as long as the anchor given to update() does (the login lobby's
+    // panels stand in the world).
+    void openPageAt(glm::vec3 center, glm::vec3 facing, glm::vec3 anchor);
     void closePage();
     bool pageOpen() const { return pageOpen_; }
 

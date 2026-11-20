@@ -109,6 +109,17 @@ render::TerrainPbrMaterial SceneAssets::terrainPbr() const
     return m;
 }
 
+void SceneAssets::addFloor(render::Scene& scene, glm::vec2 center, float size) const
+{
+    render::BlinnPhongMaterial floor;
+    floor.diffuseTint = glm::vec4(0.32f, 0.36f, 0.4f, 1.0f);
+    floor.specularTint = glm::vec3(0.0f);
+    // The cube is a meter across, centered: a thin slab, its top at 0.
+    const glm::mat4 slab = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(center, -0.05f)),
+                                      glm::vec3(size, size, 0.1f));
+    scene.objects.push_back({&cube_, slab, floor});
+}
+
 void SceneAssets::addTestScene(render::Scene& scene, glm::vec3 origin) const
 {
     auto at = [&](float x, float y, float z, float scale = 1.0f)

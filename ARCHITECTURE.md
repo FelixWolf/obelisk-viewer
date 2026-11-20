@@ -657,10 +657,11 @@ the cursor; it's free while the menu is open).
 
 The interface people use (not the ImGui debug windows, shown only with
 `--developer`: stats, the FPS overlay, the texture browser, teleport,
-environment and the worn mesh inspector, which reports what was decided for
-each face of the rigged mesh we wear (alpha mode, its legacy material,
-mirroring); ImGui still draws the login window, the first-person crosshair
-and the hover tooltip until there are our own) is made with RmlUi
+environment, the session's details (regions, circuits, traffic) and the
+worn mesh inspector, which reports what was decided for each face of the
+rigged mesh we wear (alpha mode, its legacy material, mirroring); ImGui
+still draws the first-person crosshair and the hover tooltip until there
+are our own, and the login window if the interface can't be set up) is made with RmlUi
 (`viewer::gui`, src/gui): pages written as documents (RML, like HTML) and
 style sheets (RCSS, like CSS) in `assets/ui`, read at run time and copied
 next to the program. `--ui-dir assets/ui` reads them from the source
@@ -694,6 +695,40 @@ viewer runs.
   decoded and gave (`Gui::setImage`, `gui::decodeImage` on the workers):
   pictures from the web. Pages show one only once it's there (`data-if`
   on its name), so its size is known and it can be fitted (`cover`).
+- The login screen (`LoginScreen`, `login.rml`) is a page of its own on a
+  panel standing in the login lobby until we're in the world: bodiless,
+  we stand in the home scene (on a plain floor among the test objects if
+  there's none) and walk about on the ground (`CameraController`'s walking:
+  WASD and the right button to look; a headset's left stick walks where
+  the head looks, the right turns by steps), pointing at the panel with
+  the mouse or the controllers' rays; it stays where it stands
+  (`VrControls::openPageAt`, with a fixed anchor). It's a view of
+  `LoginFlow`, as the ImGui panel was. The remembered
+  accounts, each with its profile picture (`AccountPicture` asks the
+  region's AgentProfile capability for ours once a login, and the saved
+  accounts list keeps its id; the texture comes from the disk cache before
+  the next login), log in with a click; Add account is the form (username,
+  password, grid, remember); where to start is chosen for either. The
+  grid's questions (an authenticator code, the terms, a message) and why a
+  login failed show over them, "Logging in..." while one is on its way.
+  Log out is on the main menu's Home tab. Screenshots are read back at the
+  frame's end, so they show the pages over the window too.
+- The home scene (`world::loadHomeScene`, `assets/home.scene`, or
+  `--home-scene PATH`) is the lobby's scene: binary LLSD that
+  `default_scene/sceneConvert.py` makes from an OXP export, shaped like a
+  simulator's state (terrain heights, its textures and water, linksets of
+  prims). It becomes the updates a region would send, applied to a
+  `World` of its own (`World::standAlone`, so views following snapshots
+  start afresh at either side of it), a made-up region (`kHomeRegion`);
+  until we arrive, `buildScene` shows it in the session world's place,
+  its region the origin. Its assets come from the file's `asset_cdn` (the
+  viewer-asset service needs no login). Faces' legacy materials come in
+  the file (given ids from their contents, put in `LegacyMaterialManager`);
+  PBR faces have only their overrides, over the default material
+  (`kHomeBlankMaterial`, put in `MaterialManager`). Linksets named
+  `#HOME:Floor`, `Landing`, `Login`, `News` or `GridStatus` aren't drawn:
+  they place the eyes (1.7 m over the floor, at the landing, facing its
+  +Y) and the panels (facing their +Y). F5 in the lobby reads it again.
 - Unstyled, an RmlUi scrollbar takes the whole width of what scrolls;
   `theme.rcss` gives scrollbars their size.
 - Data reaches pages through RmlUi's data models (bound C++ values, made

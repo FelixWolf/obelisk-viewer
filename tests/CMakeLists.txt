@@ -36,6 +36,7 @@ add_executable(viewer_tests
   ParticleTests.cpp
   ProtocolTests.cpp
   SessionTests.cpp
+  HomeSceneTests.cpp
   TerrainTests.cpp
   TextTests.cpp
   TextureCacheTests.cpp

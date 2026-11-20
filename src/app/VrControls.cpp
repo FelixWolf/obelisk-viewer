@@ -62,6 +62,13 @@ void VrControls::openPage()
     pageOpen_ = true;
 }
 
+void VrControls::openPageAt(glm::vec3 center, glm::vec3 facing, glm::vec3 anchor)
+{
+    pageFrame_ = panelFacing(center, facing);
+    pageAnchor_ = anchor;
+    pageOpen_ = true;
+}
+
 void VrControls::closePage()
 {
     if(pageHovered_ && page_.point)

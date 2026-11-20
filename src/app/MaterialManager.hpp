@@ -39,6 +39,9 @@ public:
     // The material once it has loaded; nullptr until then (or if it failed).
     std::shared_ptr<const assets::Material> get(const Uuid& id);
 
+    // A material that isn't downloaded (made here): ready at once.
+    void put(const Uuid& id, assets::Material material);
+
     // Handles finished reads, downloads and parses.
     void update();
     // Bumped whenever a material arrives (or turns out missing).

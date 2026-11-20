@@ -223,6 +223,14 @@ public:
     const Changes& changes() const { return changes_; }
     // Which snapshot this is (each published one is the last's plus one).
     uint64_t serial() const { return serial_; }
+    // A world made up on its own (not one of a WorldThread's snapshots):
+    // whatever follows snapshots starts afresh from it, and from the next
+    // snapshot after it.
+    void standAlone()
+    {
+        changes_ = {{}, true};
+        serial_ = ~0ull >> 1;
+    }
     // Before publishing a copy: the next changes start afresh.
     void startNextSnapshot()
     {

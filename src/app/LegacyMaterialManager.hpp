@@ -36,6 +36,9 @@ public:
     // The material once it has arrived; nullptr until then (or if missing).
     std::shared_ptr<const assets::LegacyMaterial> get(const Uuid& id);
 
+    // A material that isn't asked for (it came with a scene): ready at once.
+    void put(const Uuid& id, assets::LegacyMaterial material);
+
     // Developer: where a material is ("ready", "requested", ...; "unknown":
     // never asked for).
     std::string_view stateName(const Uuid& id) const;

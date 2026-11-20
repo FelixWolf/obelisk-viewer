@@ -360,6 +360,21 @@ void Renderer::endFrame()
     {
         return;
     }
+    if(screenshotDrawn_)
+    {
+        screenshotDrawn_ = false;
+        SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(currentCommands_);
+        SDL_GPUTextureRegion source = {};
+        source.texture = screenshotTexture_;
+        source.w = screenshotWidth_;
+        source.h = screenshotHeight_;
+        source.d = 1;
+        SDL_GPUTextureTransferInfo destination = {};
+        destination.transfer_buffer = screenshotTransfer_;
+        SDL_DownloadFromGPUTexture(copy, &source, &destination);
+        SDL_EndGPUCopyPass(copy);
+        screenshotPending_ = true;
+    }
     if(screenshotPending_ || pickSubmitted_ || occlusionSlot_ >= 0)
     {
         // A pick and the occlusion map are read once this frame is done

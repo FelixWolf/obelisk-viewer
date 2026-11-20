@@ -179,6 +179,13 @@ public:
     // Bytes in the mesh pool's GPU buffers (vertices and indices).
     uint64_t meshPoolBytes() const;
     std::optional<image::MipLevel> takeScreenshot() { return std::exchange(screenshot_, {}); }
+    // This frame's screenshot image while it's being made (null: none):
+    // what's drawn over the window is drawn over it too, before endFrame
+    // reads it back.
+    SDL_GPUTexture* screenshotImage() const
+    {
+        return screenshotDrawn_ ? screenshotTexture_ : nullptr;
+    }
 
     // The GPU pipelines and samplers (internal: RendererPipelines.hpp).
     struct Pipelines;
@@ -561,6 +568,7 @@ private:
     uint32_t screenshotWidth_ = 0;
     uint32_t screenshotHeight_ = 0;
     bool screenshotPending_ = false;
+    bool screenshotDrawn_ = false; // this frame, to read back at its end
     std::optional<image::MipLevel> screenshot_;
 };
 

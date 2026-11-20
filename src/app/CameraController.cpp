@@ -40,9 +40,22 @@ render::Camera CameraController::camera() const
         camera.nearPlane = 0.05f;
         return camera;
     }
+    if(walking_)
+    {
+        camera.position = target_;
+        camera.target = target_ + forward();
+        return camera;
+    }
     camera.target = target_;
     camera.position = target_ - forward() * distance_;
     return camera;
+}
+
+void CameraController::setWalking(bool on)
+{
+    walking_ = on;
+    rotating_ = false;
+    panning_ = false;
 }
 
 void CameraController::setFirstPerson(bool on)
@@ -82,7 +95,7 @@ void CameraController::handleEvent(const SDL_Event& event)
         {
             rotating_ = down;
         }
-        else if(event.button.button == SDL_BUTTON_MIDDLE)
+        else if(event.button.button == SDL_BUTTON_MIDDLE && !walking_)
         {
             panning_ = down;
         }
@@ -104,6 +117,10 @@ void CameraController::handleEvent(const SDL_Event& event)
         }
         break;
     case SDL_EVENT_MOUSE_WHEEL:
+        if(walking_)
+        {
+            break;
+        }
         // All the way in, and in again: first person.
         if(event.wheel.y > 0.0f && distance_ <= 1.0f)
         {
@@ -136,6 +153,16 @@ void CameraController::update(float seconds)
     move -= keys[SDL_SCANCODE_S] ? flat : glm::vec3(0.0f);
     move += keys[SDL_SCANCODE_D] ? right : glm::vec3(0.0f);
     move -= keys[SDL_SCANCODE_A] ? right : glm::vec3(0.0f);
+    if(walking_)
+    {
+        // A walk (a run with shift), on the ground.
+        const float length = glm::length(move);
+        if(length > 0.0f)
+        {
+            target_ += move / length * (keys[SDL_SCANCODE_LSHIFT] ? 4.0f : 1.6f) * seconds;
+        }
+        return;
+    }
     move.z += keys[SDL_SCANCODE_E] ? 1.0f : 0.0f;
     move.z -= keys[SDL_SCANCODE_Q] ? 1.0f : 0.0f;
     const float speed = std::max(5.0f, distance_) * (keys[SDL_SCANCODE_LSHIFT] ? 3.0f : 1.0f);

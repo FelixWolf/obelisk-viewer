@@ -1440,17 +1440,9 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
                 {
                     compositeHud(commands, screenshotTexture_);
                 }
-                SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(commands);
-                SDL_GPUTextureRegion source = {};
-                source.texture = screenshotTexture_;
-                source.w = width;
-                source.h = height;
-                source.d = 1;
-                SDL_GPUTextureTransferInfo destination = {};
-                destination.transfer_buffer = screenshotTransfer_;
-                SDL_DownloadFromGPUTexture(copy, &source, &destination);
-                SDL_EndGPUCopyPass(copy);
-                screenshotPending_ = true;
+                // Read back at the frame's end (endFrame), after what's
+                // drawn over the window is drawn over it too.
+                screenshotDrawn_ = true;
             }
         }
     }

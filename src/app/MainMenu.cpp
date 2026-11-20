@@ -340,6 +340,8 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     model.Bind("licenseText", &m->licenseText_);
     model.BindEventCallback("close", [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
                             { m->setOpen(false); });
+    model.BindEventCallback("logOut", [m](Rml::DataModelHandle, Rml::Event&,
+                                          const Rml::VariantList&) { m->logOut_ = true; });
     menu->model_ = model.GetModelHandle();
 
     if(!menu->surface_->load("main_menu.rml"))

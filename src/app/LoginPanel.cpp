@@ -13,17 +13,8 @@ namespace viewer
 namespace
 {
 
-struct Grid
-{
-    const char* label;
-    std::string_view uri;
-};
-
-constexpr std::array kGrids = {
-    Grid{"Second Life", session::kAgniLoginUri},
-    Grid{"Second Life Beta (Aditi)", session::kAditiLoginUri},
-    Grid{"Custom", {}},
-};
+using Grid = KnownGrid;
+constexpr const auto& kGrids = kKnownGrids;
 
 constexpr std::array kStartLocations = {"Last location", "Home", "Region"};
 
@@ -108,6 +99,21 @@ LoginAction LoginPanel::draw(const session::Session* session)
         {
             action = drawForm(session);
         }
+    }
+    ImGui::End();
+    return action;
+}
+
+LoginAction LoginPanel::drawSessionWindow(const session::Session* session)
+{
+    LoginAction action;
+    if(!session || session->state() == session::SessionState::Failed)
+    {
+        return action;
+    }
+    if(ImGui::Begin("Session"))
+    {
+        drawSession(*session, action);
     }
     ImGui::End();
     return action;

@@ -142,6 +142,7 @@ std::vector<std::string> defaultCapabilityNames()
 {
     return {
         "AgentPreferences",
+        "AgentProfile",
         "ChatSessionRequest",
         "EventQueueGet",
         "ExtEnvironment",

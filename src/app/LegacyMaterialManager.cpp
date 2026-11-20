@@ -81,6 +81,15 @@ std::shared_ptr<const assets::LegacyMaterial> LegacyMaterialManager::get(const U
     return it->second.material;
 }
 
+void LegacyMaterialManager::put(const Uuid& id, assets::LegacyMaterial material)
+{
+    std::erase(queue_, id);
+    Entry& e = entries_[id];
+    e.state = State::Ready;
+    e.material = std::make_shared<const assets::LegacyMaterial>(std::move(material));
+    revision_++;
+}
+
 void LegacyMaterialManager::update()
 {
     answers_.drain(drained_);

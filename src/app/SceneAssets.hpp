@@ -22,6 +22,9 @@ public:
     // and a patch of terrain drawn with each terrain shader. Centered on
     // `origin`.
     void addTestScene(render::Scene& scene, glm::vec3 origin) const;
+    // The login lobby's floor until it has a scene of its own: a plain
+    // slab, its top at z = 0, `size` meters square around `center`.
+    void addFloor(render::Scene& scene, glm::vec2 center, float size) const;
 
 private:
     render::Mesh sphere_;

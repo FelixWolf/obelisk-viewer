@@ -4,6 +4,7 @@ add_library(viewer_world STATIC
   TerrainDecoder.cpp
   TerrainLayers.cpp
   TextureAnimation.cpp
+  HomeScene.cpp
   ParticleSystem.cpp
   World.cpp
   WorldThread.cpp
