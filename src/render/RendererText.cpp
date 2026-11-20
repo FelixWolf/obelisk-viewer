@@ -150,8 +150,9 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
         Placed p;
         p.label = &label;
         p.pixel = glm::round(glm::vec2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f) * size);
-        p.depth = label.hud ? 0.0f : ndc.z;
-        p.distance = label.hud ? label.position.x : clip.w; // the HUD looks along +X
+        p.depth = label.hud || label.overAll ? 0.0f : ndc.z;
+        // The HUD looks along +X; those over all are drawn last.
+        p.distance = label.overAll ? 0.0f : label.hud ? label.position.x : clip.w;
         (label.hud ? hud : world).push_back(p);
     }
     auto farFirst = [](const Placed& a, const Placed& b) { return a.distance > b.distance; };

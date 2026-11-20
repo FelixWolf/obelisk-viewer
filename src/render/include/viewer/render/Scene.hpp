@@ -394,6 +394,9 @@ struct Label
     bool alignLeft = false;           // NameTag: lines other than headers
     float raise = 0.0f;
     bool hud = false;
+    // Over everything, the other labels too (a tooltip): not hidden by
+    // what's in front of its point.
+    bool overAll = false;
 };
 
 // A flat panel in the scene (the VR controls: menus, the keyboard): boxes

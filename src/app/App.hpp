@@ -300,6 +300,8 @@ private:
     // The lobby's boards as the VR controls' standing pages while the home
     // scene shows (again when it's read again: boardsMoved_).
     void placeBoards();
+    // What a click on what the pointer's on would do, by it (a label).
+    void addHoverLabel(render::Scene& scene) const;
     bool boardsPlaced_ = false;
     bool boardsMoved_ = false;
     std::unique_ptr<JobSystem> jobs_;

@@ -605,7 +605,10 @@ the root's frame, and the surface: llDetectedTouchUV, ST, Face, Pos,
 Normal, Binormal; positions in the agent's region's coordinates, HUD hits
 in HUD space); letting go sends ObjectDeGrab. Click actions other than
 touch aren't done yet (they touch instead). Over something clickable the
-cursor is a hand with a tooltip naming the action, and the prim gets an
+cursor is a hand, a tooltip names the action (a label by the point the
+pointer's on, over everything: `Label::overAll`; the same size on screen
+at any distance, so it shows in first person and in each of a headset's
+eyes too; on the HUD for HUD attachments), and the prim gets an
 outline: its visible pixels (depth tested against the view) into a mask,
 then a 2-pixel gold outline around the mask over the view, after
 tonemapping. `--pointer X,Y` (fractions of the window) and
@@ -660,8 +663,7 @@ The interface people use (not the ImGui debug windows, shown only with
 environment, the session's details (regions, circuits, traffic) and the
 worn mesh inspector, which reports what was decided for each face of the
 rigged mesh we wear (alpha mode, its legacy material, mirroring); ImGui
-still draws the first-person crosshair and the hover tooltip until there
-are our own, and the login window if the interface can't be set up) is made with RmlUi
+still draws the first-person crosshair until there's our own, and the login window if the interface can't be set up) is made with RmlUi
 (`viewer::gui`, src/gui): pages written as documents (RML, like HTML) and
 style sheets (RCSS, like CSS) in `assets/ui`, read at run time and copied
 next to the program. `--ui-dir assets/ui` reads them from the source

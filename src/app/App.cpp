@@ -1901,6 +1901,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
                               (hover->touchable || hover->clickAction != world::ClickAction::Touch)
                           ? hover->hit.pickId
                           : 0;
+    addHoverLabel(scene);
     if(world_ && originHandle_)
     {
         terrainView_.update(*world_, *renderer_);
@@ -3847,6 +3848,51 @@ void App::drawTeleportWindow()
     ImGui::End();
 }
 
+void App::addHoverLabel(render::Scene& scene) const
+{
+    // What a click on what the pointer's on does, and its name: a bubble
+    // by where the pointer meets it, the same size on screen at any
+    // distance, so it shows in first person and in a headset (in each
+    // eye) as on the desktop. On a HUD attachment, on the HUD.
+    const auto& hover = pointer_.hover();
+    if(!hover || !(hover->touchable || hover->clickAction != world::ClickAction::Touch))
+    {
+        return;
+    }
+    static constexpr const char* kActions[] = {"Touch", "Sit",  "Buy",        "Pay",
+                                               "Open",  "Play", "Open media", "Zoom"};
+    if(hover->clickAction >= std::size(kActions))
+    {
+        return;
+    }
+    // The script's own words for touching or sitting (llSetTouchText,
+    // llSetSitText), once its properties are in.
+    std::string action = kActions[hover->clickAction];
+    if(hoverInfo_ && hover->clickAction == world::ClickAction::Touch &&
+       !hoverInfo_->touchName.empty())
+    {
+        action = hoverInfo_->touchName;
+    }
+    if(hoverInfo_ && hover->clickAction == world::ClickAction::Sit && !hoverInfo_->sitName.empty())
+    {
+        action = hoverInfo_->sitName;
+    }
+    render::Label label;
+    label.style = render::Label::Style::NameTag;
+    label.hud = hover->hud;
+    label.position = hover->hit.position;
+    label.overAll = true; // not hidden by what's in front of the point
+    label.lines.push_back({std::move(action), glm::vec4(1.0f), 10.0f});
+    if(hoverInfo_ && !hoverInfo_->name.empty())
+    {
+        label.lines.push_back({hoverInfo_->name, glm::vec4(0.75f, 0.78f, 0.84f, 1.0f), 9.0f});
+    }
+    // The interface's panels' color: seen against a night sky too.
+    label.background = glm::vec4(0.086f, 0.11f, 0.165f, 0.9f);
+    label.raise = 14.0f;
+    scene.labels.push_back(std::move(label));
+}
+
 void App::drawUi()
 {
     if(developer_)
@@ -3866,37 +3912,13 @@ void App::drawUi()
         draw->AddLine(ImVec2(c.x, c.y + 3.0f), ImVec2(c.x, c.y + 8.0f), color, 2.0f);
     }
 
-    // Over something a click does something to: a hand, and what it does.
+    // Over something a click does something to: a hand (what it does is
+    // a label by it: addHoverLabel).
     if(const auto& hover = pointer_.hover();
        hover && (hover->touchable || hover->clickAction != world::ClickAction::Touch) &&
        !ImGui::GetIO().WantCaptureMouse)
     {
-        static constexpr const char* kActions[] = {"Touch", "Sit",  "Buy",        "Pay",
-                                                   "Open",  "Play", "Open media", "Zoom"};
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-        if(hover->clickAction < std::size(kActions))
-        {
-            // The script's own words for touching or sitting (llSetTouchText,
-            // llSetSitText), once its properties are in; and its name.
-            std::string action = kActions[hover->clickAction];
-            if(hoverInfo_ && hover->clickAction == world::ClickAction::Touch &&
-               !hoverInfo_->touchName.empty())
-            {
-                action = hoverInfo_->touchName;
-            }
-            if(hoverInfo_ && hover->clickAction == world::ClickAction::Sit &&
-               !hoverInfo_->sitName.empty())
-            {
-                action = hoverInfo_->sitName;
-            }
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(action.c_str());
-            if(hoverInfo_ && !hoverInfo_->name.empty())
-            {
-                ImGui::TextDisabled("%s", hoverInfo_->name.c_str());
-            }
-            ImGui::EndTooltip();
-        }
     }
 
     // viewerconfig: its answers, and the home scene it names (unless one
