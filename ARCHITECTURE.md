@@ -647,8 +647,10 @@ which regions send only for selected prims, so once the pointer has rested
 a quarter second on something clickable `ObjectProperties` selects the prim
 (ObjectSelect) and deselects it as soon as they're in (as the official
 viewer does for its pie menu and inspector). They're kept a minute, then
-asked again; physical objects aren't asked (selecting stops them). Not yet:
-outlines on HUDs, dragging physical objects, avatars.
+asked again; physical objects aren't asked (selecting stops them). HUD
+parts get no outline (by choice: HUDs are built as flat layers, and the
+tooltip names what a click does). Not yet: dragging physical objects,
+avatars.
 
 ### VR controls
 
@@ -1006,8 +1008,10 @@ after tonemapping there) into a transparent image, which leaves it
 premultiplied by coverage. Over the view it's blended in sRGB after the
 tonemap; on a panel it's turned back into linear light for the HDR view.
 Clicking one is picking (the HUD point is tried first) and touching as
-anywhere (Picking and touching), dragging included. Not yet: outlines on
-HUDs, HUD zoom controls, rigged mesh on HUDs.
+anywhere (Picking and touching), dragging included. Not planned: an
+outline on HUD parts (it would get in the way of how HUDs are built), HUD
+zoom, and rigged mesh on HUDs (the official viewer doesn't draw it
+either).
 
 ### Reflection probes
 
