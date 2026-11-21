@@ -586,24 +586,48 @@ transform, and the face's own. They're copied to a transfer buffer and read
 once that frame's fence says the GPU is done (`Renderer::takePick`), a
 frame or two later, so nothing waits; while one is on its way, new
 requests are skipped. Being the GPU's own drawing, it hits what's drawn:
-sculpts, mesh, alpha masks (see-through texels don't count).
+sculpts, mesh, alpha masks (see-through texels don't count), and only
+faces' front sides, as they're drawn and as the official pick's one-sided
+test (double-sided PBR materials both): a face turned away, culled where
+it's drawn, isn't hit (on the HUD, a part turned away in front of another
+would otherwise take its clicks).
 
 `ObjectView` gives each face a pick id: the prim's local id, an index for
 its region and the face. Objects whose click action is "ignore" get none
 (clicks go through them), nor does rigged mesh (the official left click
-doesn't pick it). Invisible faces (alpha 0, or the transparent texture) of
-objects a click does something to are listed as pick-only draws, which
-nothing else draws: invisible buttons are common.
+doesn't pick it). Which faces a ray hits is the official pick's rule
+(LLVOVolume::lineSegmentIntersect): a face of tint alpha 0 only if its prim
+is clickable itself (a touch script in it, not only in its root, a click
+action of its own, or physics; listed as pick-only draws, which nothing
+else draws: invisible buttons are common), so a HUD's hidden pages and
+overlays are clicked through to what shows behind them; and only where the
+texture's alpha is above 32 of 255, whatever the tint (a wholly see-through
+texture is never hit, even on a clickable prim), unless the face's legacy alpha mode ignores alpha
+(none, emissive, a mask cut at 0).
 
 What a click does is decided as the official viewer does (lltoolpie.cpp):
 touchable if a script in the prim or its root listens for touches
 (UpdateFlags 0x80) and its click action isn't "disabled"; the click action
 (sit, buy, pay, open, play, open media, zoom) is its own or its root's,
-none for attachments. Pressing the left button on something touchable
+none for attachments. Each pick is made twice, as the official left
+click's (lltoolpie.cpp handleMouseDown): as seen (above), and transparent,
+counting every face of what can be picked whatever its alpha (faces nothing
+of shows are listed for it alone, `ObjectDraw::pickTransparentOnly`;
+pick.frag's pixels 2 and 3). The hand cursor, tooltip and outline follow
+the seen one (the official hover's); a press takes the transparent one if
+both are the same prim or either is nothing, if it's worn (HUDs included),
+or if clicking it does something, else the seen one if that's worn or
+clickable, else the transparent one (`PointerController::pressed`): an
+invisible button in front of what shows (a mesh HUD's face whose texture
+coordinates sit in a see-through corner) takes the press. Pressing the left
+button on something touchable
 sends ObjectGrab (the prim's local id, the offset from it to its root in
 the root's frame, and the surface: llDetectedTouchUV, ST, Face, Pos,
 Normal, Binormal; positions in the agent's region's coordinates, HUD hits
-in HUD space); letting go sends ObjectDeGrab. Click actions other than
+in HUD space); while it's held, where on that prim the pointer is now goes
+as ObjectGrabUpdate whenever it changes (face -1 off the prim, as the
+official viewer's non-physical grab: sliders and colour wheels read
+llDetectedTouchUV in touch()); letting go sends ObjectDeGrab. Click actions other than
 touch aren't done yet (they touch instead). Over something clickable the
 cursor is a hand (`App::updateCursor`, SDL's system cursors: also the
 cursor the RmlUi page under the mouse asks for, `Surface::cursor`, each
@@ -981,7 +1005,9 @@ first, then blended ones from far to near, written in sRGB (they're drawn
 after tonemapping there) into a transparent image, which leaves it
 premultiplied by coverage. Over the view it's blended in sRGB after the
 tonemap; on a panel it's turned back into linear light for the HDR view.
-Not yet: clicking HUDs, HUD zoom controls, rigged mesh on HUDs.
+Clicking one is picking (the HUD point is tried first) and touching as
+anywhere (Picking and touching), dragging included. Not yet: outlines on
+HUDs, HUD zoom controls, rigged mesh on HUDs.
 
 ### Reflection probes
 

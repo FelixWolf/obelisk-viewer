@@ -332,10 +332,18 @@ public:
         protocol::Vector3 position{};
         protocol::Vector3 normal{};
         protocol::Vector3 binormal{};
+        bool operator==(const TouchSurface&) const = default;
     };
     void touchObject(uint64_t regionHandle, uint32_t localId, protocol::Vector3 grabOffset,
                      const TouchSurface& surface);
     void releaseObject(uint64_t regionHandle, uint32_t localId, const TouchSurface& surface);
+    // While it's held: where on it the pointer is now (ObjectGrabUpdate;
+    // face -1: off it), for touch events' llDetectedTouch* (sliders, colour
+    // wheels). `grabPosition` in the region's coordinates, `sinceLast` in
+    // milliseconds.
+    void dragObject(uint64_t regionHandle, const Uuid& object, protocol::Vector3 grabOffset,
+                    protocol::Vector3 grabPosition, uint32_t sinceLast,
+                    const TouchSurface& surface);
 
     // Sits on an object (AgentRequestSit), `offset` where on it (the
     // object's frame), as the official viewer's "Sit Here"; the region

@@ -1293,14 +1293,19 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const world::Object* wearer =
             object.parentId != 0 && !hud ? attachedAvatar(world, object) : nullptr;
         stats_.drawn++;
-        // Picking: unless clicks go through it, each face can be picked;
-        // its invisible faces too if clicking it does something (invisible
-        // buttons are common).
+        // Picking: unless clicks go through it, each face can be picked.
+        // Its wholly transparent faces (tint alpha 0) too if it's clickable
+        // itself (invisible buttons are common), as the official viewer's
+        // pick (LLVOVolume::lineSegmentIntersect, specialHoverCursor): a
+        // touch script in it (not only in its root), a click action of its
+        // own, or physics. Others are picked through (a HUD's hidden pages
+        // and overlays): clicks land on what shows behind them.
         const bool pickable = object.clickAction != world::ClickAction::Ignore;
         const world::Object& root = linkRoot(object, world);
-        const bool actionable =
+        const bool pickedClear =
             pickable &&
-            (touchable(object, root) || clickAction(object, root) != world::ClickAction::Touch);
+            ((object.updateFlags & (world::kFlagHandleTouch | world::kFlagUsePhysics)) ||
+             object.clickAction != world::ClickAction::Touch);
         const uint64_t pickBase =
             pickable ? static_cast<uint64_t>(object.localId) << 32 | pickRegion(object.region) << 8
                      : 0;
@@ -1328,13 +1333,23 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             if(invisiprim(face))
             {
                 // Not drawn; a water exclusion surface (still clickable)
-                // unless worn or on the HUD.
+                // unless worn or on the HUD, where it's only for the
+                // transparent pick.
                 if(!wearer && !hud)
                 {
                     render::ObjectDraw draw{&mesh, transform, render::BlinnPhongMaterial{}};
                     draw.pickOnly = true;
                     draw.waterExclusion = true;
                     draw.pickId = pickable ? pickBase | f : 0;
+                    scene.objects.push_back(draw);
+                }
+                else if(pickable)
+                {
+                    render::ObjectDraw draw{&mesh, transform, render::BlinnPhongMaterial{}};
+                    draw.pickOnly = true;
+                    draw.pickTransparentOnly = true;
+                    draw.hud = hud;
+                    draw.pickId = pickBase | f;
                     scene.objects.push_back(draw);
                 }
                 continue;
@@ -1375,9 +1390,20 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 }
                 if(clear || m->diffuseTint.a <= 0.0f)
                 {
-                    if(actionable)
+                    // Not drawn, but picked. As seen (the visible pick):
+                    // only a face whose tint makes it invisible, on a prim
+                    // clickable itself (an invisible button); one whose
+                    // texture is wholly see-through (the transparent
+                    // texture, or any other) has no solid texel. The
+                    // transparent pick (a press's) counts them all.
+                    const bool seeThroughTexture =
+                        face.texture == kTransparentTexture ||
+                        textures.alphaMode(face.texture) == image::AlphaMode::Transparent;
+                    if(pickable)
                     {
                         draw.pickOnly = true;
+                        draw.pickTransparentOnly =
+                            !(pickedClear && face.color.a <= 0.0f && !seeThroughTexture);
                         draw.pickId = pickBase | f;
                         draw.hud = hud;
                         uvTransform(face, faceAnimation, draw.uvRow0, draw.uvRow1);

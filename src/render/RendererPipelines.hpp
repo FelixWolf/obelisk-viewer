@@ -40,7 +40,9 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* hudPbr[2] = {};
     SDL_GPUGraphicsPipeline* hudComposite = nullptr;
     SDL_GPUGraphicsPipeline* hudPanel = nullptr;
-    SDL_GPUGraphicsPipeline* pick = nullptr; // pick.frag: what a ray hits
+    // pick.frag: what a ray hits; [0] front faces only, as drawn (and as
+    // the official pick), [1] both sides (double-sided PBR materials).
+    SDL_GPUGraphicsPipeline* pick[2] = {};
     // The highlighted prim: its visible pixels, then an outline around them.
     SDL_GPUGraphicsPipeline* outlineMask = nullptr;
     SDL_GPUGraphicsPipeline* outline = nullptr;
@@ -104,7 +106,8 @@ struct Renderer::Pipelines
                                           hudPbr[1],
                                           hudComposite,
                                           hudPanel,
-                                          pick,
+                                          pick[0],
+                                          pick[1],
                                           outlineMask,
                                           outline,
                                           label,

@@ -149,6 +149,9 @@ struct ObjectDraw
     // invisible but can still be clicked.
     uint64_t pickId = 0;
     bool pickOnly = false;
+    // Only the transparent pick counts it (PickResult::transparent): a face
+    // nothing of shows that isn't an invisible button.
+    bool pickTransparentOnly = false;
     // A water exclusion surface (pickOnly too): not drawn, but where it's
     // in front of the water (above it) there's no water (RendererWater.cpp).
     bool waterExclusion = false;
@@ -171,9 +174,8 @@ struct PickRequest
     std::optional<glm::vec2> hudPoint; // HUD space Y and Z (render::Hud)
 };
 
-struct PickResult
+struct PickHit
 {
-    uint64_t request = 0;
     uint64_t pickId = 0; // 0: nothing was hit
     bool hud = false;    // a HUD draw (positions in HUD space)
     glm::vec3 position{0.0f};
@@ -181,6 +183,17 @@ struct PickResult
     glm::vec3 binormal{0.0f};
     glm::vec2 uv{0.0f}; // texture coordinates, after the face's transform
     glm::vec2 st{0.0f}; // the face's own coordinates
+};
+
+// What the ray hits as it's seen (see-through texels and wholly transparent
+// faces let it through, but invisible buttons), and, as the official left
+// click's transparent pick, counting every face whatever its alpha
+// (ObjectDraw::pickTransparentOnly faces too): a press chooses between
+// them (lltoolpie.cpp handleMouseDown).
+struct PickResult : PickHit
+{
+    uint64_t request = 0;
+    PickHit transparent;
 };
 
 struct TerrainDraw

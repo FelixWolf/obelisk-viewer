@@ -515,7 +515,9 @@ bool Renderer::createPipelines()
         p.hudPanel = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
     // Picking: four targets (pick id, then position, normal and binormal
-    // with the texture coordinates in their w), both sides of faces.
+    // with the texture coordinates in their w); faces' back sides culled as
+    // when they're drawn (a face turned away isn't hit, on the HUD as in
+    // the world), but for double-sided materials.
     if(objectVert && pickFrag)
     {
         SDL_GPUColorTargetDescription colors[4] = {};
@@ -533,7 +535,7 @@ bool Renderer::createPipelines()
         info.vertex_input_state.num_vertex_attributes =
             static_cast<Uint32>(std::size(objectAttributes));
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
         info.depth_stencil_state.enable_depth_test = true;
         info.depth_stencil_state.enable_depth_write = true;
         info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
@@ -541,7 +543,12 @@ bool Renderer::createPipelines()
         info.target_info.num_color_targets = 4;
         info.target_info.has_depth_stencil_target = true;
         info.target_info.depth_stencil_format = depthFormat_;
-        p.pick = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        for(int bothSides = 0; bothSides < 2; bothSides++)
+        {
+            info.rasterizer_state.cull_mode =
+                bothSides ? SDL_GPU_CULLMODE_NONE : SDL_GPU_CULLMODE_BACK;
+            p.pick[bothSides] = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        }
     }
     // The outline: the prim's mask (depth tested against the view, both
     // sides), then the outline over the view (blended).
@@ -711,8 +718,8 @@ bool Renderer::createPipelines()
         info.target_info.num_color_targets = 1;
         p.outline = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
-    if(!p.hudComposite || !p.hudPanel || !p.pick || !p.outlineMask || !p.outline || !p.label ||
-       !p.hudLabel || !p.panelImage)
+    if(!p.hudComposite || !p.hudPanel || !p.pick[0] || !p.pick[1] || !p.outlineMask || !p.outline ||
+       !p.label || !p.hudLabel || !p.panelImage)
     {
         log::error("creating the HUD pipelines failed: {}", SDL_GetError());
     }
@@ -851,8 +858,8 @@ bool Renderer::createPipelines()
            p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
            p.tonemap && p.luminance && p.exposure && p.sky && p.probeRadiance &&
            p.probeIrradiance && p.brdfTable && p.hudLegacy[0] && p.hudLegacy[1] && p.hudPbr[0] &&
-           p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick && p.outlineMask && p.outline &&
-           p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
+           p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick[0] && p.pick[1] && p.outlineMask &&
+           p.outline && p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
            p.glowBlur && p.occlusionReduce && p.shadowObject && p.shadowObjectMasked &&
            p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.water && p.waterMask &&
            p.waterMaskObject && p.repeatSampler && p.clampSampler && p.shadowSampler;
@@ -2399,10 +2406,16 @@ bool Renderer::uploadDraws(SDL_GPUCommandBuffer* commands, const Scene& scene)
             jointBase += static_cast<uint32_t>(draw.joints.size());
             lastPalette = draw.joints.data();
         }
+        const auto* legacy = std::get_if<BlinnPhongMaterial>(&draw.material);
+        // Picking ignores the texture's alpha on faces drawn only to be
+        // picked, and where a legacy face's alpha mode does (none,
+        // emissive, or a mask cut at 0: LLVOVolume::lineSegmentIntersect).
+        const bool pickAnyAlpha =
+            draw.pickOnly ||
+            (legacy && (legacy->opaque || legacy->emissiveMask || legacy->alphaCutoff == 0.0f));
         out.skin = glm::uvec4(draw.joints.empty() ? jointBase : paletteBase,
                               static_cast<uint32_t>(draw.pickId),
-                              static_cast<uint32_t>(draw.pickId >> 32), draw.pickOnly ? 1u : 0u);
-        const auto* legacy = std::get_if<BlinnPhongMaterial>(&draw.material);
+                              static_cast<uint32_t>(draw.pickId >> 32), pickAnyAlpha ? 1u : 0u);
         if(legacy && legacy->mapTransforms)
         {
             out.mapUv[0] = glm::vec4(legacy->normalUv[0], 0.0f);

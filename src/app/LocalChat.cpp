@@ -1,5 +1,7 @@
 #include "LocalChat.hpp"
 
+#include "viewer/core/Log.hpp"
+
 #include "viewer/protocol/Messages.hpp"
 
 namespace viewer
@@ -125,6 +127,9 @@ void LocalChat::handle(uint8_t sourceType, uint8_t chatType, uint8_t audible, co
             b.lines.pop_front();
         }
     }
+    // On the console too (there's no chat window yet).
+    log::info("chat: {}{}{}", chatType == ChatType::Owner ? "(to you) " : "",
+              line.emote ? "" : line.fromName + ": ", line.text);
     log_.push_back(std::move(line));
     while(log_.size() > kLogLines)
     {

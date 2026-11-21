@@ -22,6 +22,8 @@ void PointerController::aim(render::Scene& scene, const std::optional<Ray>& ray)
     {
         scene.pick.reset();
         hover_.reset();
+        transparent_.reset();
+        press_.reset();
         return;
     }
     render::PickRequest request;
@@ -41,23 +43,46 @@ void PointerController::update(render::Renderer& renderer, const world::World& w
     {
         return;
     }
-    const auto picked = objects.resolvePick(result->pickId);
-    const world::Object* object =
-        picked ? world.object(picked->key.region, picked->key.localId) : nullptr;
-    if(!object)
+    auto hoverOf = [&](const render::PickHit& hit) -> std::optional<Hover>
     {
-        hover_.reset();
-        return;
+        const auto picked = objects.resolvePick(hit.pickId);
+        const world::Object* object =
+            picked ? world.object(picked->key.region, picked->key.localId) : nullptr;
+        if(!object)
+        {
+            return std::nullopt;
+        }
+        const world::Object& root = ObjectView::linkRoot(*object, world);
+        Hover hover;
+        hover.key = picked->key;
+        hover.face = picked->face;
+        hover.hud = hit.hud;
+        hover.touchable = ObjectView::touchable(*object, root);
+        hover.clickAction = ObjectView::clickAction(*object, root);
+        hover.attachment = root.parentId != 0; // its root sits on an avatar
+        hover.hit = hit;
+        return hover;
+    };
+    hover_ = hoverOf(*result);
+    transparent_ = hoverOf(result->transparent);
+
+    // What a press would touch, as the official left click chooses.
+    const auto& t = transparent_;
+    const auto& v = hover_;
+    auto actionable = [](const Hover& h)
+    { return h.touchable || h.clickAction != world::ClickAction::Touch; };
+    if(!t || !v || t->key == v->key || t->attachment || actionable(*t))
+    {
+        press_ = t ? t : v;
     }
-    const world::Object& root = ObjectView::linkRoot(*object, world);
-    Hover hover;
-    hover.key = picked->key;
-    hover.face = picked->face;
-    hover.hud = result->hud;
-    hover.touchable = ObjectView::touchable(*object, root);
-    hover.clickAction = ObjectView::clickAction(*object, root);
-    hover.hit = *result;
-    hover_ = hover;
+    else if(v->attachment || actionable(*v))
+    {
+        press_ = v;
+    }
+    else
+    {
+        press_ = t;
+    }
 }
 
 void PointerController::press(session::Session& session, const world::World& world,
@@ -65,19 +90,19 @@ void PointerController::press(session::Session& session, const world::World& wor
                               uint64_t originHandle, uint64_t agentRegion)
 {
     release(session);
-    if(!hover_ || !hover_->touchable)
+    if(!press_ || !press_->touchable)
     {
         return;
     }
-    const world::Object* object = world.object(hover_->key.region, hover_->key.localId);
+    const world::Object* object = world.object(press_->key.region, press_->key.localId);
     if(!object)
     {
         return;
     }
-    if(hover_->clickAction != world::ClickAction::Touch)
+    if(press_->clickAction != world::ClickAction::Touch)
     {
         // Sit, pay, buy, open, play, zoom: not yet; a touch meanwhile.
-        log::info("click action {} isn't supported yet: touching instead", hover_->clickAction);
+        log::info("click action {} isn't supported yet: touching instead", press_->clickAction);
     }
     // From the prim to its root, in the root's frame (lltoolgrab.cpp).
     const world::Object& root = ObjectView::linkRoot(*object, world);
@@ -90,9 +115,20 @@ void PointerController::press(session::Session& session, const world::World& wor
         grabOffset =
             glm::transpose(rootRotation) * (glm::vec3((*rootFrame)[3]) - glm::vec3((*frame)[3]));
     }
-    // Positions in the agent's region's coordinates (HUD hits stay in HUD
-    // space).
-    const render::PickResult& hit = hover_->hit;
+    const session::Session::TouchSurface surface = surfaceOf(*press_, originHandle, agentRegion);
+    session.touchObject(object->region, object->localId, toVector(grabOffset), surface);
+    grabbed_ = Grab{object->region,       object->localId,  press_->key, object->id,
+                    toVector(grabOffset), surface.position, surface,     0};
+    log::info("touched {} (face {}{}): uv {:.3f} {:.3f}, st {:.3f} {:.3f}, at {:.3f} {:.3f} {:.3f}",
+              object->id.toString(), press_->face, press_->hud ? ", HUD" : "", surface.uv.x,
+              surface.uv.y, surface.st.x, surface.st.y, surface.position.x, surface.position.y,
+              surface.position.z);
+}
+
+session::Session::TouchSurface
+PointerController::surfaceOf(const Hover& hover, uint64_t originHandle, uint64_t agentRegion)
+{
+    const render::PickHit& hit = hover.hit;
     glm::vec3 position = hit.position;
     if(!hit.hud)
     {
@@ -105,13 +141,52 @@ void PointerController::press(session::Session& session, const world::World& wor
     session::Session::TouchSurface surface;
     surface.uv = {hit.uv.x, hit.uv.y, 0.0f};
     surface.st = {hit.st.x, hit.st.y, 0.0f};
-    surface.face = hover_->face;
+    surface.face = hover.face;
     surface.position = toVector(position);
     surface.normal = toVector(hit.normal);
     surface.binormal = toVector(hit.binormal);
-    session.touchObject(object->region, object->localId, toVector(grabOffset), surface);
-    grabbed_ = Grab{object->region, object->localId, surface};
-    log::info("touched {} (face {})", object->id.toString(), hover_->face);
+    return surface;
+}
+
+void PointerController::drag(session::Session& session, uint64_t originHandle, uint64_t agentRegion,
+                             uint64_t now)
+{
+    if(!grabbed_)
+    {
+        return;
+    }
+    if(grabbed_->sentAt == 0)
+    {
+        grabbed_->sentAt = now; // pressed this frame: the grab said where
+        return;
+    }
+    // On the prim it holds: where; off it, nowhere on it (as the official
+    // pick of that object alone finds no surface).
+    session::Session::TouchSurface surface;
+    // (Through the transparent pick first: the grab came from it, mostly.)
+    if(transparent_ && transparent_->key == grabbed_->key)
+    {
+        surface = surfaceOf(*transparent_, originHandle, agentRegion);
+    }
+    else if(hover_ && hover_->key == grabbed_->key)
+    {
+        surface = surfaceOf(*hover_, originHandle, agentRegion);
+    }
+    else
+    {
+        surface.uv = {-1.0f, -1.0f, 0.0f};
+        surface.st = {-1.0f, -1.0f, 0.0f};
+        surface.face = -1;
+    }
+    if(surface == grabbed_->surface)
+    {
+        return;
+    }
+    const auto sinceLast = static_cast<uint32_t>((now - grabbed_->sentAt) / 1'000'000u);
+    session.dragObject(grabbed_->region, grabbed_->object, grabbed_->offset, grabbed_->position,
+                       sinceLast, surface);
+    grabbed_->surface = surface;
+    grabbed_->sentAt = now;
 }
 
 void PointerController::release(session::Session& session)

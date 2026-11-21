@@ -1921,6 +1921,11 @@ void App::buildSceneOf(render::Scene& scene, bool home)
     {
         const auto before = pointer_.hover();
         pointer_.update(*renderer_, *world_, *objects_);
+        // Held on what it touched: where on it the pointer is now.
+        if(session_ && originHandle_ && session_->agentRegion())
+        {
+            pointer_.drag(*session_, *originHandle_, *session_->agentRegion(), SDL_GetTicksNS());
+        }
         const auto& after = pointer_.hover();
         if((pointerOverride_ || !pointAt_.isNull()) &&
            (before.has_value() != after.has_value() ||

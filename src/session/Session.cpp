@@ -1414,6 +1414,26 @@ void Session::touchObject(uint64_t regionHandle, uint32_t localId, protocol::Vec
     send(*target, grab, true);
 }
 
+void Session::dragObject(uint64_t regionHandle, const Uuid& object, protocol::Vector3 grabOffset,
+                         protocol::Vector3 grabPosition, uint32_t sinceLast,
+                         const TouchSurface& surface)
+{
+    const Region* target = regionByHandle(regionHandle);
+    if(!target || !login_)
+    {
+        return;
+    }
+    msg::ObjectGrabUpdate update;
+    update.AgentData.AgentID = login_->agentId;
+    update.AgentData.SessionID = login_->sessionId;
+    update.ObjectData.ObjectID = object;
+    update.ObjectData.GrabOffsetInitial = grabOffset;
+    update.ObjectData.GrabPosition = grabPosition;
+    update.ObjectData.TimeSinceLast = sinceLast;
+    update.SurfaceInfo.push_back(surfaceBlock<msg::ObjectGrabUpdate::SurfaceInfoBlock>(surface));
+    send(*target, update); // unreliable, as the official viewer: the next one follows
+}
+
 void Session::releaseObject(uint64_t regionHandle, uint32_t localId, const TouchSurface& surface)
 {
     const Region* target = nullptr;

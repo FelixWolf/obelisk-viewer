@@ -6,8 +6,11 @@
 // writes what was hit there: its pick id and the surface, as the official
 // viewer's pick reports it (texture coordinates after the face's repeats,
 // the face's own coordinates, position, normal, binormal). See-through
-// texels don't count, except on faces drawn only to be picked (invisible
-// prims that can be clicked).
+// texels don't count (the texture's alpha at most 32 of 255, whatever the
+// tint, as the official pick mask), except where alpha is ignored: faces
+// drawn only to be picked (invisible prims that can be clicked) and legacy
+// faces whose alpha mode ignores it, and in the transparent pick (pixels 2
+// and 3, as the official left click's: every face, whatever its alpha).
 
 layout(location = 0) in vec3 inWorldPosition;
 layout(location = 1) in vec3 inNormal;
@@ -29,14 +32,12 @@ layout(location = 3) out vec4 outBinormal; // xyz, w the face's s
 
 void main()
 {
-    const uvec4 skin = draws[inDraw].skin; // y, z pick id; w 1: drawn only to be picked
-    if(skin.w == 0u)
+    const uvec4 skin = draws[inDraw].skin; // y, z pick id; w 1: alpha ignored
+    // Pixels 2 and 3 are the transparent pick: every face counts.
+    const bool transparentPick = gl_FragCoord.x >= 2.0;
+    if(skin.w == 0u && !transparentPick && texture(baseMap, inUv).a <= 32.0 / 255.0)
     {
-        const float alpha = texture(baseMap, inUv).a * draws[inDraw].material[0].a;
-        if(alpha < 0.05)
-        {
-            discard;
-        }
+        discard;
     }
     const vec3 n = normalize(inNormal);
     const vec3 t = normalize(inTangent.xyz - n * dot(n, inTangent.xyz));

@@ -29,7 +29,9 @@ constexpr float kHudPickSize = 1e-4f;
 constexpr float kHudDepth = 16.0f;
 
 constexpr uint32_t kPickTargets = 4;
-constexpr uint32_t kPickPixels = 2;      // world, HUD
+// The world and the HUD as seen, then each counting every face whatever
+// its alpha (pick.frag knows these by their x).
+constexpr uint32_t kPickPixels = 4;
 constexpr uint32_t kPickTexelBytes = 16; // RGBA32
 constexpr uint32_t kPickTargetBytes = kPickPixels * kPickTexelBytes;
 
@@ -107,7 +109,8 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
     depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, colors, kPickTargets, &depth);
-    SDL_BindGPUGraphicsPipeline(pass, pipelines_->pick);
+    SDL_GPUGraphicsPipeline* bound = pipelines_->pick[0];
+    SDL_BindGPUGraphicsPipeline(pass, bound);
     SDL_GPUBuffer* draws = drawBuffer_.buffer.get();
     SDL_BindGPUVertexStorageBuffers(pass, 0, &draws, 1);
     SDL_BindGPUFragmentStorageBuffers(pass, 0, &draws, 1);
@@ -116,7 +119,8 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
 
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
     { return t && *t ? t->get() : fallback.get(); };
-    auto drawPixel = [&](uint32_t pixel, const glm::mat4& viewProjection, bool hud)
+    auto drawPixel =
+        [&](uint32_t pixel, const glm::mat4& viewProjection, bool hud, bool transparent)
     {
         const SDL_GPUViewport viewport = {static_cast<float>(pixel), 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
         SDL_SetGPUViewport(pass, &viewport);
@@ -126,7 +130,8 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
         for(const ObjectDraw& draw : scene.objects)
         {
             if(draw.pickId == 0 || draw.hud != hud || !draw.mesh || !*draw.mesh ||
-               draw.mesh->layout != VertexLayout::Object)
+               draw.mesh->layout != VertexLayout::Object ||
+               (draw.pickTransparentOnly && !transparent))
             {
                 continue;
             }
@@ -144,6 +149,7 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
                 }
             }
             const GpuTexture* base = nullptr;
+            bool bothSides = false;
             if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
             {
                 base = m->diffuse;
@@ -151,6 +157,14 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
             else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
             {
                 base = t->albedo;
+                bothSides = t->doubleSided;
+            }
+            // Faces turned away aren't hit, as they aren't drawn.
+            SDL_GPUGraphicsPipeline* pipeline = pipelines_->pick[bothSides ? 1 : 0];
+            if(pipeline != bound)
+            {
+                SDL_BindGPUGraphicsPipeline(pass, pipeline);
+                bound = pipeline;
             }
             const SDL_GPUTextureSamplerBinding sampler = {texture(base, white_),
                                                           pipelines_->repeatSampler};
@@ -164,10 +178,12 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
                                          static_cast<uint32_t>(&draw - scene.objects.data()));
         }
     };
-    drawPixel(0, worldView, false);
+    drawPixel(0, worldView, false, false);
+    drawPixel(2, worldView, false, true);
     if(request.hudPoint)
     {
-        drawPixel(1, hudView, true);
+        drawPixel(1, hudView, true, false);
+        drawPixel(3, hudView, true, true);
     }
     SDL_EndGPURenderPass(pass);
 
@@ -203,34 +219,42 @@ void Renderer::readPick()
     {
         std::memcpy(&out, bytes + target * kPickTargetBytes + pixel * kPickTexelBytes, sizeof(out));
     };
-    PickResult result;
-    result.request = pickRequest_;
-    // The HUD pixel first: HUDs are in front of everything.
-    for(uint32_t pixel : {1u, 0u})
+    // The nearest hit of the HUD's pixel, else the world's: HUDs are in
+    // front of everything.
+    auto hitOf = [&](uint32_t hudPixel, uint32_t worldPixel)
     {
-        glm::uvec4 id;
-        read(0, pixel, id);
-        if(id.w == 0)
+        PickHit hit;
+        for(uint32_t pixel : {hudPixel, worldPixel})
         {
-            continue;
+            glm::uvec4 id;
+            read(0, pixel, id);
+            if(id.w == 0)
+            {
+                continue;
+            }
+            glm::vec4 position;
+            glm::vec4 normal;
+            glm::vec4 binormal;
+            read(1, pixel, position);
+            read(2, pixel, normal);
+            read(3, pixel, binormal);
+            hit.pickId = static_cast<uint64_t>(id.y) << 32 | id.x;
+            hit.hud = pixel == hudPixel;
+            hit.position = glm::vec3(position);
+            hit.normal = glm::vec3(normal);
+            hit.binormal = glm::vec3(binormal);
+            hit.uv = glm::vec2(position.w, normal.w);
+            float t = 0.0f;
+            std::memcpy(&t, &id.z, sizeof(t));
+            hit.st = glm::vec2(binormal.w, t);
+            break;
         }
-        glm::vec4 position;
-        glm::vec4 normal;
-        glm::vec4 binormal;
-        read(1, pixel, position);
-        read(2, pixel, normal);
-        read(3, pixel, binormal);
-        result.pickId = static_cast<uint64_t>(id.y) << 32 | id.x;
-        result.hud = pixel == 1;
-        result.position = glm::vec3(position);
-        result.normal = glm::vec3(normal);
-        result.binormal = glm::vec3(binormal);
-        result.uv = glm::vec2(position.w, normal.w);
-        float t = 0.0f;
-        std::memcpy(&t, &id.z, sizeof(t));
-        result.st = glm::vec2(binormal.w, t);
-        break;
-    }
+        return hit;
+    };
+    PickResult result;
+    static_cast<PickHit&>(result) = hitOf(1, 0);
+    result.transparent = hitOf(3, 2);
+    result.request = pickRequest_;
     SDL_UnmapGPUTransferBuffer(device_, pickTransfer_);
     pick_ = result;
 }
@@ -247,8 +271,8 @@ void Renderer::drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene,
     std::vector<const ObjectDraw*> draws;
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(draw.pickId >> 8 == scene.highlight >> 8 && !draw.hud && draw.mesh && *draw.mesh &&
-           draw.mesh->layout == VertexLayout::Object)
+        if(draw.pickId >> 8 == scene.highlight >> 8 && !draw.hud && !draw.pickTransparentOnly &&
+           draw.mesh && *draw.mesh && draw.mesh->layout == VertexLayout::Object)
         {
             draws.push_back(&draw);
         }
