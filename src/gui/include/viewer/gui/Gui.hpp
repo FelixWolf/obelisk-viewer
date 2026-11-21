@@ -96,10 +96,6 @@ public:
     // A text field took the keyboard (true) or let it go: the app shows
     // one where there's none (VR), or starts the window's text input.
     void setKeyboard(std::function<void(bool)> keyboard);
-    // The mouse cursor the page under the pointer asks for (CSS names:
-    // "pointer", "text", ...; empty: the usual one).
-    const std::string& cursor() const;
-
     // Images named SCHEME://REST: `resolve` gets REST and says what the
     // image is (nothing: there's no such image).
     void addImageScheme(const std::string& scheme,
@@ -171,6 +167,9 @@ public:
     bool key(SDL_Keycode key, SDL_Keymod modifiers, bool down);
     // The pointer is over something on the page (not just its empty body).
     bool pointerOver() const;
+    // The cursor what the pointer is over asks for (CSS names: "pointer",
+    // "text", ...; empty: the usual one, or the pointer isn't on it).
+    std::string cursor() const;
     // A text field has the keyboard.
     bool typing() const;
 

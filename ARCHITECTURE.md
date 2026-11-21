@@ -605,7 +605,9 @@ the root's frame, and the surface: llDetectedTouchUV, ST, Face, Pos,
 Normal, Binormal; positions in the agent's region's coordinates, HUD hits
 in HUD space); letting go sends ObjectDeGrab. Click actions other than
 touch aren't done yet (they touch instead). Over something clickable the
-cursor is a hand, a tooltip names the action (a label by the point the
+cursor is a hand (`App::updateCursor`, SDL's system cursors: also the
+cursor the RmlUi page under the mouse asks for, `Surface::cursor`, each
+page's own; ImGui picks its own over its windows), a tooltip names the action (a label by the point the
 pointer's on, over everything: `Label::overAll`; the same size on screen
 at any distance, so it shows in first person and in each of a headset's
 eyes too; on the HUD for HUD attachments), and the prim gets an

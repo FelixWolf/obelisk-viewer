@@ -61,7 +61,6 @@ public:
         Rml::SystemInterface::JoinPath(joined, documentPath, path);
     }
 
-    void SetMouseCursor(const Rml::String& name) override { cursor = name; }
     void SetClipboardText(const Rml::String& text) override { SDL_SetClipboardText(text.c_str()); }
     void GetClipboardText(Rml::String& text) override
     {
@@ -85,7 +84,6 @@ public:
     }
 
     std::filesystem::path documents;
-    std::string cursor;
     std::function<void(bool)> keyboard;
 };
 
@@ -206,11 +204,6 @@ Gui::~Gui()
 void Gui::setKeyboard(std::function<void(bool)> keyboard)
 {
     system_->keyboard = std::move(keyboard);
-}
-
-const std::string& Gui::cursor() const
-{
-    return system_->cursor;
 }
 
 void Gui::addImageScheme(const std::string& scheme,
@@ -376,6 +369,13 @@ bool Surface::pointerOver() const
 {
     const Rml::Element* hover = context_->GetHoverElement();
     return hover && hover != context_->GetRootElement() && hover != document_;
+}
+
+std::string Surface::cursor() const
+{
+    // Each page's own (RmlUi tells the system one cursor for all pages).
+    const Rml::Element* hover = context_->GetHoverElement();
+    return hover ? hover->GetComputedValues().cursor() : std::string();
 }
 
 bool Surface::typing() const

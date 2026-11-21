@@ -196,6 +196,14 @@ private:
     // SDL_Quit.
     SdlRuntime sdl_;
     std::unique_ptr<SDL_Window, WindowDeleter> window_;
+    // The mouse cursors made so far (the system's own), and the one shown
+    // (updateCursor).
+    struct CursorDeleter
+    {
+        void operator()(SDL_Cursor* cursor) const { SDL_DestroyCursor(cursor); }
+    };
+    std::array<std::unique_ptr<SDL_Cursor, CursorDeleter>, SDL_SYSTEM_CURSOR_COUNT> cursors_;
+    std::optional<SDL_SystemCursor> cursorShown_;
     std::unique_ptr<render::Renderer> renderer_;
     // --vr: the headset (its session goes before the GPU device). Its frame
     // under way, and each eye's camera this frame (buildScene).
@@ -304,6 +312,9 @@ private:
     void addHoverLabel(render::Scene& scene) const;
     // First person: a dot at the view's middle, where clicks go.
     void addCenterDot(render::Scene& scene) const;
+    // The mouse cursor: what the page under the mouse asks for, else a hand
+    // over what a click does something to (ImGui's own over its windows).
+    void updateCursor();
     bool boardsPlaced_ = false;
     bool boardsMoved_ = false;
     std::unique_ptr<JobSystem> jobs_;

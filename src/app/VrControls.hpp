@@ -86,6 +86,7 @@ public:
         std::function<void(std::optional<glm::vec2> pixel)> point;
         std::function<void(bool down)> button;
         std::function<void(glm::vec2 lines)> scroll; // positive: down, right
+        std::function<std::string()> cursor;         // what a pointer on it shows (CSS names)
     };
     void setPage(Page page);
     // In front of the eyes (as last given to update()), moving with the
@@ -111,6 +112,9 @@ public:
     // Scrolls the page a pointer is on (the mouse's wheel), in lines;
     // false if it's on none.
     bool scrollPointed(int pointer, glm::vec2 lines);
+    // The cursor the page a pointer is on asks for (empty: the usual one,
+    // or it's on none).
+    std::string cursorPointed(int pointer) const;
 
     std::array<Pointed, kPointers> update(const Input& input);
     bool menuOpen() const { return menu_.isOpen(); }

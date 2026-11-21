@@ -2474,6 +2474,7 @@ VrControls::Page App::pageOf(gui::Surface& surface, glm::ivec2 size, float meter
     };
     page.button = [&surface](bool down) { surface.pointerButton(0, down); };
     page.scroll = [&surface](glm::vec2 lines) { surface.scroll(lines); };
+    page.cursor = [&surface] { return surface.cursor(); };
     return page;
 }
 
@@ -3919,6 +3920,93 @@ void App::addCenterDot(render::Scene& scene) const
     scene.pointerLines.push_back(dot);
 }
 
+namespace
+{
+
+// A CSS cursor name as the system's cursor (the usual one for those it
+// has none like).
+SDL_SystemCursor systemCursor(std::string_view css)
+{
+    static constexpr std::pair<std::string_view, SDL_SystemCursor> kNames[] = {
+        {"pointer", SDL_SYSTEM_CURSOR_POINTER},
+        {"text", SDL_SYSTEM_CURSOR_TEXT},
+        {"move", SDL_SYSTEM_CURSOR_MOVE},
+        {"not-allowed", SDL_SYSTEM_CURSOR_NOT_ALLOWED},
+        {"wait", SDL_SYSTEM_CURSOR_WAIT},
+        {"progress", SDL_SYSTEM_CURSOR_PROGRESS},
+        {"crosshair", SDL_SYSTEM_CURSOR_CROSSHAIR},
+        {"ew-resize", SDL_SYSTEM_CURSOR_EW_RESIZE},
+        {"col-resize", SDL_SYSTEM_CURSOR_EW_RESIZE},
+        {"ns-resize", SDL_SYSTEM_CURSOR_NS_RESIZE},
+        {"row-resize", SDL_SYSTEM_CURSOR_NS_RESIZE},
+        {"nwse-resize", SDL_SYSTEM_CURSOR_NWSE_RESIZE},
+        {"nesw-resize", SDL_SYSTEM_CURSOR_NESW_RESIZE},
+    };
+    for(const auto& [name, cursor] : kNames)
+    {
+        if(name == css)
+        {
+            return cursor;
+        }
+    }
+    return SDL_SYSTEM_CURSOR_DEFAULT;
+}
+
+} // namespace
+
+void App::updateCursor()
+{
+    auto show = [&](SDL_SystemCursor wanted)
+    {
+        auto& cursor = cursors_[static_cast<size_t>(wanted)];
+        if(!cursor)
+        {
+            cursor.reset(SDL_CreateSystemCursor(wanted));
+        }
+        if(cursor)
+        {
+            SDL_SetCursor(cursor.get());
+        }
+    };
+    // Over ImGui's windows (developer), it picks its own cursor. It sets
+    // one only when it changes from the last it set: the arrow, as when it
+    // last had it.
+    ImGuiIO& io = ImGui::GetIO();
+    if(io.WantCaptureMouse)
+    {
+        if(cursorShown_)
+        {
+            show(SDL_SYSTEM_CURSOR_DEFAULT);
+            cursorShown_.reset();
+        }
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+        return;
+    }
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+
+    // The page under the mouse (the main menu over the window, or a panel
+    // the mouse points at), else a hand over what a click does something
+    // to (what it does is a label by it: addHoverLabel).
+    std::string name = mainMenuOverWindow() ? mainMenu_->surface().cursor() : std::string();
+    if(name.empty())
+    {
+        name = controls_.cursorPointed(1);
+    }
+    if(const auto& hover = pointer_.hover();
+       name.empty() && hover &&
+       (hover->touchable || hover->clickAction != world::ClickAction::Touch))
+    {
+        name = "pointer";
+    }
+    const SDL_SystemCursor wanted = systemCursor(name);
+    if(cursorShown_ == wanted)
+    {
+        return;
+    }
+    show(wanted);
+    cursorShown_ = wanted;
+}
+
 void App::drawUi()
 {
     if(developer_)
@@ -3926,14 +4014,7 @@ void App::drawUi()
         ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
     }
 
-    // Over something a click does something to: a hand (what it does is
-    // a label by it: addHoverLabel).
-    if(const auto& hover = pointer_.hover();
-       hover && (hover->touchable || hover->clickAction != world::ClickAction::Touch) &&
-       !ImGui::GetIO().WantCaptureMouse)
-    {
-        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-    }
+    updateCursor();
 
     // viewerconfig: its answers, and the home scene it names (unless one
     // was given) once it's here.

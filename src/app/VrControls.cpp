@@ -125,6 +125,17 @@ void VrControls::setStandingPages(std::vector<StandingPage> pages)
     }
 }
 
+std::string VrControls::cursorPointed(int pointer) const
+{
+    const auto& on = onPage_[static_cast<size_t>(pointer)];
+    if(!on)
+    {
+        return {};
+    }
+    const Slot& slot = pages_[on->slot];
+    return slot.page.cursor ? slot.page.cursor() : std::string();
+}
+
 bool VrControls::scrollPointed(int pointer, glm::vec2 lines)
 {
     const auto& on = onPage_[static_cast<size_t>(pointer)];
