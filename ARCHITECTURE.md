@@ -650,7 +650,7 @@ the cursor; it's free while the menu is open).
   object's sit click action sits, a touchable object is touched, and held
   0.6 s on anything else sits on it there (AgentRequestSit with the offset
   in the object's frame; asked to walk there, we ask AgentSit at once).
-  With the crosshair the left button stays the mouselook button.
+  With the center dot the left button stays the mouselook button.
 - Panels (`render::Panel`: boxes, text, boxes over the text) and pointer
   rays (`render::PointerLine`) are drawn by the label pass over everything,
   in panel pixels mapped through the panel's frame into each eye's clip
@@ -663,7 +663,7 @@ The interface people use (not the ImGui debug windows, shown only with
 environment, the session's details (regions, circuits, traffic) and the
 worn mesh inspector, which reports what was decided for each face of the
 rigged mesh we wear (alpha mode, its legacy material, mirroring); ImGui
-still draws the first-person crosshair until there's our own, and the login window if the interface can't be set up) is made with RmlUi
+still draws the login window if the interface can't be set up) is made with RmlUi
 (`viewer::gui`, src/gui): pages written as documents (RML, like HTML) and
 style sheets (RCSS, like CSS) in `assets/ui`, read at run time and copied
 next to the program. `--ui-dir assets/ui` reads them from the source
@@ -1797,5 +1797,7 @@ toggles it; zooming all the way in enters it and zooming out leaves it;
   twice, shrunk with `ObjectDraw::castsShadow` off, and whole as
   `shadowOnly`.
 - Clicks and the look-at go through the middle of the view, marked by a
-  crosshair (ImGui for now). Others are told as a mouselook look-at
-  (type 9) along the camera's direction.
+  small dot (`App::addCenterDot`: a pointer line of no length, all dot,
+  white in a dark ring; hidden while the cursor is free). A dot, not a
+  crosshair: it's a social place, not a shooter. Others are told as a
+  mouselook look-at (type 9) along the camera's direction.

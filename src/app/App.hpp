@@ -302,6 +302,8 @@ private:
     void placeBoards();
     // What a click on what the pointer's on would do, by it (a label).
     void addHoverLabel(render::Scene& scene) const;
+    // First person: a dot at the view's middle, where clicks go.
+    void addCenterDot(render::Scene& scene) const;
     bool boardsPlaced_ = false;
     bool boardsMoved_ = false;
     std::unique_ptr<JobSystem> jobs_;

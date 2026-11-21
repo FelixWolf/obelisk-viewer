@@ -1902,6 +1902,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
                           ? hover->hit.pickId
                           : 0;
     addHoverLabel(scene);
+    addCenterDot(scene);
     if(world_ && originHandle_)
     {
         terrainView_.update(*world_, *renderer_);
@@ -2212,7 +2213,7 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
     }
     else if(camera_.firstPerson())
     {
-        // The crosshair, in the middle.
+        // The center dot, in the middle.
         x = static_cast<float>(width) * 0.5f;
         y = static_cast<float>(height) * 0.5f;
     }
@@ -3013,7 +3014,7 @@ void App::updateControls(render::Scene& scene)
     }
     else if(camera_.firstPerson() || lobby_)
     {
-        // The mouse: through the crosshair, or the cursor while it's free
+        // The mouse: through the center dot, or the cursor while it's free
         // (always, in the lobby); the left button presses, the right one
         // (held) opens the menu (in the lobby it looks around instead).
         int width = 0;
@@ -3092,7 +3093,7 @@ void App::updateControls(render::Scene& scene)
     }
 
     // The right pointer's presses not on the controls: the world's. On the
-    // desktop with the crosshair, the mouselook button scripts take.
+    // desktop with the center dot, the mouselook button scripts take.
     const VrControls::Pointed& right = controlsPointed_[1];
     if(right.pressed)
     {
@@ -3893,23 +3894,36 @@ void App::addHoverLabel(render::Scene& scene) const
     scene.labels.push_back(std::move(label));
 }
 
+void App::addCenterDot(render::Scene& scene) const
+{
+    // First person on a screen, the mouse captured: clicks and the look-at
+    // go through the middle of the view, marked by a small dot (a pointer
+    // line of no length, all dot), white in a dark ring to show on light
+    // and dark alike. Not a crosshair: this is a place to be, not a shooter.
+    if(!camera_.firstPerson() || cursorFree() || (headset_ && headset_->running()))
+    {
+        return;
+    }
+    const glm::vec3 forward = scene.camera.target - scene.camera.position;
+    if(glm::length(forward) < 1e-6f)
+    {
+        return;
+    }
+    render::PointerLine dot;
+    dot.from = dot.to = scene.camera.position + glm::normalize(forward);
+    dot.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.45f);
+    dot.dot = 8.0f;
+    scene.pointerLines.push_back(dot);
+    dot.color = glm::vec4(1.0f, 1.0f, 1.0f, 0.9f);
+    dot.dot = 5.0f;
+    scene.pointerLines.push_back(dot);
+}
+
 void App::drawUi()
 {
     if(developer_)
     {
         ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
-    }
-
-    // First person: a crosshair (ImGui for now, until our own UI).
-    if(camera_.firstPerson())
-    {
-        ImDrawList* draw = ImGui::GetForegroundDrawList();
-        const ImVec2 c(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
-        const ImU32 color = IM_COL32(255, 255, 255, 200);
-        draw->AddLine(ImVec2(c.x - 8.0f, c.y), ImVec2(c.x - 3.0f, c.y), color, 2.0f);
-        draw->AddLine(ImVec2(c.x + 3.0f, c.y), ImVec2(c.x + 8.0f, c.y), color, 2.0f);
-        draw->AddLine(ImVec2(c.x, c.y - 8.0f), ImVec2(c.x, c.y - 3.0f), color, 2.0f);
-        draw->AddLine(ImVec2(c.x, c.y + 3.0f), ImVec2(c.x, c.y + 8.0f), color, 2.0f);
     }
 
     // Over something a click does something to: a hand (what it does is
