@@ -142,6 +142,10 @@ public:
 
     // Joint transforms (relative to the root) as posed this frame.
     const std::vector<glm::mat4>& posedJoints(const world::Object& avatar) const;
+    // First person: the joints as posed, the head not shrunk, for the
+    // avatar's shadow (which keeps its head); nullptr for an avatar not in
+    // first person.
+    const std::vector<glm::mat4>* shadowJoints(const world::Object& avatar) const;
 
     // A rigged mesh's skin resolved against the skeleton, once per skin:
     // per skin joint, the skeleton's joint (-1 if it has none) and the
@@ -187,6 +191,9 @@ private:
         std::vector<avatar::JointPose> pose;
         std::vector<glm::mat4> joints; // posed this frame, relative to the root
         std::array<std::vector<glm::mat4>, std::size(avatar::kBodyParts)> palettes;
+        // First person: as above, the head not shrunk (for the shadow).
+        std::vector<glm::mat4> shadowJoints;
+        std::array<std::vector<glm::mat4>, std::size(avatar::kBodyParts)> shadowPalettes;
         float extent = 0.0f;
         glm::vec3 eyes{0.0f};         // between the eyes, avatar space (before first person)
         glm::vec3 steadyEyes{0.0f};   // as eyePosition's steady ones, avatar space

@@ -1788,9 +1788,14 @@ toggles it; zooming all the way in enters it and zooming out leaves it;
   nothing, which shrinks the body's head, Bento face bones and rigged mesh
   on them alike. Unrigged attachments on points not visible in first
   person (`avatar_lad.xml` visible_in_first_person: skull, eyes, ears,
-  nose, mouth, chin, jaw, tongue) aren't drawn. Rigged mesh is drawn
-  wherever it's worn: what's weighted to the head shrinks with it, the
-  rest stays (a whole body worn on the skull still shows its body).
+  nose, mouth, chin, jaw, tongue) are drawn only into shadow maps (not
+  picked). Rigged mesh is drawn wherever it's worn: what's weighted to the
+  head shrinks with it, the rest stays (a whole body worn on the skull
+  still shows its body).
+- The shadow keeps the head: the pose is also skinned unshrunk
+  (`AvatarView::shadowJoints`), and the body and rigged mesh are drawn
+  twice, shrunk with `ObjectDraw::castsShadow` off, and whole as
+  `shadowOnly`.
 - Clicks and the look-at go through the middle of the view, marked by a
   crosshair (ImGui for now). Others are told as a mouselook look-at
   (type 9) along the camera's direction.

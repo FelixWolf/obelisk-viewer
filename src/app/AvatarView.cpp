@@ -408,6 +408,13 @@ const std::vector<glm::mat4>& AvatarView::posedJoints(const world::Object& avata
     return it != avatars_.end() && !it->second.joints.empty() ? it->second.joints : defaultJoints_;
 }
 
+const std::vector<glm::mat4>* AvatarView::shadowJoints(const world::Object& avatar) const
+{
+    const auto it = avatars_.find(avatar.id);
+    return it != avatars_.end() && !it->second.shadowJoints.empty() ? &it->second.shadowJoints
+                                                                    : nullptr;
+}
+
 const AvatarView::SkinBinding&
 AvatarView::binding(const std::shared_ptr<const assets::MeshSkin>& skin) const
 {
@@ -656,10 +663,16 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
         {
             a.pose.resize(base_.skeleton.joints.size());
         }
+        // The shadow keeps the head: it's only out of our own view.
+        a.shadowJoints = avatar::poseJoints(base_, shape, a.pose);
         for(const int j : headJoints_)
         {
             a.pose[static_cast<size_t>(j)].scale = glm::vec3(0.0f);
         }
+    }
+    else
+    {
+        a.shadowJoints.clear();
     }
     a.joints = avatar::poseJoints(base_, shape, a.pose);
     glm::vec3 low(a.joints.empty() ? 0.0f : std::numeric_limits<float>::max());
@@ -800,6 +813,16 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             render::ObjectDraw draw{&body.meshes[i], root, m};
             draw.joints = a.palettes[i];
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
+            if(!a.shadowJoints.empty())
+            {
+                // First person: the head shrunk in view, whole in the shadow.
+                draw.castsShadow = false;
+                scene.objects.push_back(draw);
+                avatar::skinPalette(base_, i, a.shadowJoints, a.shadowPalettes[i]);
+                draw.joints = a.shadowPalettes[i];
+                draw.shadowOnly = true;
+                draw.castsShadow = true;
+            }
             scene.objects.push_back(draw);
         }
     }

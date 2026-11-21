@@ -1963,7 +1963,7 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
     {
         const ObjectDraw& draw = scene.objects[i];
         if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain || draw.hud ||
-           draw.pickOnly)
+           draw.pickOnly || !draw.castsShadow)
         {
             continue;
         }

@@ -679,17 +679,46 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     const auto pelvis = static_cast<size_t>(std::max(avatars->base().skeleton.find("mPelvis"), 0));
     // Kept from frame to frame (their capacity too); the deque keeps them
     // where they are, since draws point at them until the frame is drawn.
-    if(palettesUsed_ == palettes_.size())
+    auto paletteOf = [&](const std::vector<glm::mat4>& posed) -> std::vector<glm::mat4>&
     {
-        palettes_.emplace_back();
-    }
-    std::vector<glm::mat4>& palette = palettes_[palettesUsed_++];
-    palette.resize(binding.joints.size());
-    for(size_t j = 0; j < binding.joints.size(); j++)
+        if(palettesUsed_ == palettes_.size())
+        {
+            palettes_.emplace_back();
+        }
+        std::vector<glm::mat4>& palette = palettes_[palettesUsed_++];
+        palette.resize(binding.joints.size());
+        for(size_t j = 0; j < binding.joints.size(); j++)
+        {
+            const int joint = binding.joints[j];
+            palette[j] = posed[joint < 0 ? pelvis : static_cast<size_t>(joint)] * binding.bind[j];
+        }
+        return palette;
+    };
+    const std::vector<glm::mat4>& palette = paletteOf(joints);
+    // First person: what's weighted to the head shrinks in view only; the
+    // shadow is of the whole avatar, drawn again for it (the draws from
+    // `first` on).
+    const std::vector<glm::mat4>* shadowJoints =
+        owner.animated ? nullptr : avatars->shadowJoints(*owner.owner);
+    auto castShadows = [&](size_t first)
     {
-        const int joint = binding.joints[j];
-        palette[j] = joints[joint < 0 ? pelvis : static_cast<size_t>(joint)] * binding.bind[j];
-    }
+        if(!shadowJoints)
+        {
+            return;
+        }
+        const std::vector<glm::mat4>& shadowPalette = paletteOf(*shadowJoints);
+        const size_t end = scene.objects.size();
+        for(size_t i = first; i < end; i++)
+        {
+            scene.objects[i].castsShadow = false;
+            render::ObjectDraw shadow = scene.objects[i];
+            shadow.joints = shadowPalette;
+            shadow.shadowOnly = true;
+            shadow.castsShadow = true;
+            shadow.glow = 0.0f;
+            scene.objects.push_back(shadow);
+        }
+    };
     if(report)
     {
         report->bindShapeDeterminant = glm::determinant(glm::mat3(skin->bindShape));
@@ -717,6 +746,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
         {
             textures.touch(u, u.texels / record.texels * texels);
         }
+        const size_t first = scene.objects.size();
         for(render::ObjectDraw draw : record.draws)
         {
             draw.transform = root;
@@ -726,6 +756,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
             draw.shadowOnly = shadowOnly;
             scene.objects.push_back(draw);
         }
+        castShadows(first);
         record.usedFrame = frame_;
         stats_.reused++;
         stats_.faces += record.faces;
@@ -872,6 +903,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
             c.faces = stats_.faces - facesBefore;
             c.pbrFaces = stats_.pbrFaces - pbrBefore;
             c.usedFrame = frame_;
+            castShadows(firstDraw);
             return;
         }
     }
@@ -879,6 +911,7 @@ void ObjectView::addRigged(render::Scene& scene, const world::World& world,
     record.draws.clear();
     record.uses.clear();
     record.skin.reset();
+    castShadows(firstDraw);
 }
 
 const world::Object& ObjectView::linkRoot(const world::Object& object, const world::World& world)
@@ -1039,6 +1072,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                     : glm::vec3(0.0f);
     };
 
+    // Set by addPrim: the prim's draws are for its shadow only.
+    bool onlyShadow = false;
     // One prim (`moving`: of a link set looked at every frame).
     auto addPrim = [&](const world::ObjectKey& key, const world::Object& object, bool moving)
     {
@@ -1063,9 +1098,11 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                             meshes.isRigged(object.sculptTexture).value_or(false);
         }
         // First person: unrigged prims worn where they aren't shown then
-        // (the head's points) aren't drawn. Rigged mesh is, wherever it's
-        // worn: what's weighted to the head shrinks with it, the rest (a
-        // whole body worn on the skull) stays.
+        // (the head's points) cast only their shadow. Rigged mesh is drawn,
+        // wherever it's worn: what's weighted to the head shrinks with it
+        // (but not in the shadow), the rest (a whole body worn on the
+        // skull) stays.
+        onlyShadow = false;
         if(!record.rigged && avatars && avatars->anyFirstPerson() && object.parentId != 0)
         {
             const world::Object& root = linkRoot(object, world);
@@ -1074,7 +1111,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             if(wearer && wearer->type == world::ObjectType::Avatar &&
                avatars->hiddenInFirstPerson(*wearer, avatar::attachmentPointFromState(root.state)))
             {
-                return;
+                onlyShadow = true;
             }
         }
         const bool hud = record.onHud;
@@ -1449,7 +1486,25 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             if(const world::Object* o = world.object(m.region, m.localId);
                o && o->type == world::ObjectType::Prim && o->hasVolume)
             {
+                const size_t first = scene.objects.size();
                 addPrim(m, *o, moving);
+                if(onlyShadow)
+                {
+                    // Not seen, glowing or clicked (it's at our eyes).
+                    scene.objects.erase(
+                        std::remove_if(scene.objects.begin() + static_cast<ptrdiff_t>(first),
+                                       scene.objects.end(),
+                                       [](const render::ObjectDraw& d) { return d.pickOnly; }),
+                        scene.objects.end());
+                    for(size_t i = first; i < scene.objects.size(); i++)
+                    {
+                        render::ObjectDraw& d = scene.objects[i];
+                        d.shadowOnly = true;
+                        d.pickId = 0;
+                        d.glow = 0.0f;
+                        d.waterExclusion = false;
+                    }
+                }
             }
         }
     };

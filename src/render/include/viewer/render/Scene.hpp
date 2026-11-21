@@ -139,6 +139,9 @@ struct ObjectDraw
     uint64_t layer = 0;
     // Out of view: drawn only into shadow maps and reflection probes.
     bool shadowOnly = false;
+    // Not drawn into shadow maps (a shadowOnly draw casts its shadow
+    // instead: our avatar in first person, its head shrunk in view only).
+    bool castsShadow = true;
     // A HUD attachment: in HUD space (render::Hud), drawn only into the HUD.
     bool hud = false;
     // Picking (Scene::pick): what the pick reports for this draw; 0: rays
