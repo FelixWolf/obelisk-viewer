@@ -205,6 +205,18 @@ const Region* Session::mainRegion() const
     return nullptr;
 }
 
+const Region* Session::regionByHandle(uint64_t handle) const
+{
+    for(const auto& [id, region] : regions_)
+    {
+        if(region->handle == handle)
+        {
+            return region.get();
+        }
+    }
+    return nullptr;
+}
+
 std::optional<std::string_view> Session::capability(std::string_view name) const
 {
     if(const Region* main = mainRegion())
@@ -884,6 +896,43 @@ void Session::say(std::string_view text, int32_t channel, uint8_t type)
     chat.ChatData.Type = type;
     chat.ChatData.Channel = channel;
     send(*main, chat, true);
+}
+
+void Session::replyToScriptDialog(uint64_t regionHandle, const Uuid& object, int32_t channel,
+                                  int32_t button, std::string_view label)
+{
+    const Region* region = regionByHandle(regionHandle);
+    if(!region || !login_)
+    {
+        log::info("script dialog reply not sent: its region is gone");
+        return;
+    }
+    msg::ScriptDialogReply reply;
+    reply.AgentData.AgentID = login_->agentId;
+    reply.AgentData.SessionID = login_->sessionId;
+    reply.Data.ObjectID = object;
+    reply.Data.ChatChannel = channel;
+    reply.Data.ButtonIndex = button;
+    reply.Data.ButtonLabel = protocol::fromString(label);
+    send(*region, reply, true);
+}
+
+void Session::answerScriptPermissions(uint64_t regionHandle, const Uuid& task, const Uuid& item,
+                                      int32_t granted)
+{
+    const Region* region = regionByHandle(regionHandle);
+    if(!region || !login_)
+    {
+        log::info("script permissions answer not sent: its region is gone");
+        return;
+    }
+    msg::ScriptAnswerYes answer;
+    answer.AgentData.AgentID = login_->agentId;
+    answer.AgentData.SessionID = login_->sessionId;
+    answer.Data.TaskID = task;
+    answer.Data.ItemID = item;
+    answer.Data.Questions = granted;
+    send(*region, answer, true);
 }
 
 void Session::detach(std::span<const uint32_t> localIds)

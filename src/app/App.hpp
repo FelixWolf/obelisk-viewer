@@ -21,6 +21,8 @@
 #include "OutfitAttachments.hpp"
 #include "PointerController.hpp"
 #include "SceneAssets.hpp"
+#include "ScriptDialogPage.hpp"
+#include "ScriptDialogs.hpp"
 #include "TerrainTextures.hpp"
 #include "TerrainView.hpp"
 #include "TextureBrowser.hpp"
@@ -248,6 +250,19 @@ private:
     // The viewer's own interface (RmlUi), and its main menu (before it goes).
     std::unique_ptr<gui::Gui> gui_;
     std::unique_ptr<MainMenu> mainMenu_;
+    // What scripts ask of us (dialogs, permissions, web pages), and the page
+    // that shows the oldest: over the window's top right on the desktop
+    // (third person), on a panel beside the view in first person and VR.
+    ScriptDialogs scriptDialogs_;
+    std::unique_ptr<ScriptDialogPage> dialogPage_;
+    bool dialogPressed_ = false; // the mouse's button went down on it
+    // The VR keyboard types a text box's reply (that notice's serial), not
+    // local chat.
+    std::optional<uint64_t> keyboardForDialog_;
+    void updateScriptDialogs();
+    bool dialogOverWindow() const;
+    glm::vec4 dialogRect() const;
+    bool scriptDialogEvent(const SDL_Event& event);
     // The main menu: shown over the window (the desktop, third person) or
     // on a panel (first person, VR); its values each frame, its input from
     // the window's events (true: the event was its), and where it's drawn

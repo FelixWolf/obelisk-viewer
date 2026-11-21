@@ -1,0 +1,72 @@
+<rml>
+<head>
+    <title>Script dialog</title>
+    <link type="text/rcss" href="theme.rcss"/>
+    <link type="text/rcss" href="script_dialog.rcss"/>
+</head>
+<body>
+<div class="notice" data-model="dialog">
+    <div class="top">
+        <div class="who">
+            <div class="object">{{ objectName }}</div>
+            <div class="owner" data-if="owner != ''">Owned by {{ owner }}</div>
+        </div>
+        <div class="more" data-if="more > 0">{{ more }} more</div>
+    </div>
+
+    <div class="scroll">
+        <!-- A dialog's or text box's message. -->
+        <div class="message" data-if="(kind == 'dialog' || kind == 'textbox') &amp;&amp; message != ''">{{ message }}</div>
+
+        <!-- Permissions. -->
+        <div data-if="kind == 'permissions'">
+            <div class="message" data-if="!experience">It would like to:</div>
+            <div class="message" data-if="experience">It would like to take you into an experience, and to:</div>
+            <div data-for="p : permissions" class="permission">{{ p }}</div>
+            <div class="caution" data-if="caution">Only allow this if you trust the object and its owner: it can take money from you.</div>
+        </div>
+
+        <!-- A web page. -->
+        <div data-if="kind == 'url'">
+            <div class="message" data-if="message != ''">{{ message }}</div>
+            <div class="url">{{ url }}</div>
+            <div class="hint" data-if="headset">It opens on your desktop.</div>
+        </div>
+    </div>
+
+    <div class="answers">
+        <!-- A dialog: llDialog's buttons, three to a row, the first along the bottom. -->
+        <div data-if="kind == 'dialog'">
+            <div class="buttons" data-for="r : rows">
+                <div class="choice" data-for="b : r.buttons" data-event-click="choose(b.index)">{{ b.label }}</div>
+            </div>
+        </div>
+
+        <!-- A text box. -->
+        <div data-if="kind == 'textbox'">
+            <input type="text" class="field" data-value="reply" data-if="!keyboard"/>
+            <div class="typed" data-if="keyboard &amp;&amp; reply != ''">{{ reply }}</div>
+            <div class="row">
+                <div class="primary" data-if="keyboard" data-event-click="type">Type a reply</div>
+                <div class="primary" data-if="!keyboard" data-event-click="send">Send</div>
+            </div>
+        </div>
+
+        <div class="row" data-if="kind == 'permissions'">
+            <div class="primary" data-event-click="allow">Allow</div>
+            <div class="secondary" data-event-click="deny">Deny</div>
+        </div>
+
+        <div class="row" data-if="kind == 'url'">
+            <div class="primary" data-event-click="open">Open in browser</div>
+            <div class="secondary" data-event-click="ignore">Not now</div>
+        </div>
+
+        <div class="foot">
+            <div class="hint" data-if="pointHint">Hold Tab to point at it.</div>
+            <div class="ignore" data-if="kind == 'dialog' || kind == 'textbox'" data-event-click="ignore">Ignore</div>
+        </div>
+    </div>
+</div>
+</body>
+</rml>

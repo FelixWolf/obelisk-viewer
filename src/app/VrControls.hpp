@@ -109,6 +109,13 @@ public:
         glm::vec3 facing{1.0f, 0.0f, 0.0f};
     };
     void setStandingPages(std::vector<StandingPage> pages);
+    // A notice (a script's dialog): another page, opened beside where the
+    // page opens (to the right, in front of the eyes) and moving with the
+    // avatar as it does.
+    void setNoticePage(Page page);
+    void openNotice();
+    void closeNotice();
+    bool noticeOpen() const { return pages_[kNotice].open; }
     // Scrolls the page a pointer is on (the mouse's wheel), in lines;
     // false if it's on none.
     bool scrollPointed(int pointer, glm::vec2 lines);
@@ -161,8 +168,10 @@ private:
     glm::mat4 slotFrame(const Slot& slot) const;
     // Tells a page's owner no pointer's on it or pressing it.
     static void leave(Slot& slot);
-    // The page (openPage, openPageAt), then the standing ones.
-    std::vector<Slot> pages_ = std::vector<Slot>(1);
+    // The page (openPage, openPageAt), the notice, then the standing ones.
+    static constexpr size_t kNotice = 1;
+    static constexpr size_t kFirstStanding = 2;
+    std::vector<Slot> pages_ = std::vector<Slot>(kFirstStanding);
     // The page each pointer is on (an index into pages_), and where.
     struct OnPage
     {

@@ -23,6 +23,9 @@ constexpr float kStickBack = 0.35f;
 // The page this far ahead of the eyes and down.
 constexpr float kPageAhead = 0.7f;
 constexpr float kPageBelow = 0.08f;
+// A notice this far ahead, and to the right (beside the page, not on it).
+constexpr float kNoticeAhead = 0.6f;
+constexpr float kNoticeRight = 0.42f;
 // A controller's stick pushed all the way on the page scrolls this many
 // lines a second.
 constexpr float kScrollLines = 14.0f;
@@ -100,13 +103,36 @@ void VrControls::closePage()
     pages_[0].open = false;
 }
 
+void VrControls::setNoticePage(Page page)
+{
+    leave(pages_[kNotice]);
+    pages_[kNotice].page = std::move(page);
+}
+
+void VrControls::openNotice()
+{
+    const glm::vec3 ahead = level(last_.forward);
+    const glm::vec3 right = glm::normalize(glm::cross(ahead, glm::vec3(0.0f, 0.0f, 1.0f)));
+    const glm::vec3 at =
+        last_.eye + ahead * kNoticeAhead + right * kNoticeRight - glm::vec3(0.0f, 0.0f, kPageBelow);
+    pages_[kNotice].frame = panelFacing(at, last_.eye);
+    pages_[kNotice].anchor = last_.anchor;
+    pages_[kNotice].open = true;
+}
+
+void VrControls::closeNotice()
+{
+    leave(pages_[kNotice]);
+    pages_[kNotice].open = false;
+}
+
 void VrControls::setStandingPages(std::vector<StandingPage> pages)
 {
-    for(size_t i = 1; i < pages_.size(); i++)
+    for(size_t i = kFirstStanding; i < pages_.size(); i++)
     {
         leave(pages_[i]);
     }
-    pages_.resize(1);
+    pages_.resize(kFirstStanding);
     for(StandingPage& p : pages)
     {
         Slot slot;

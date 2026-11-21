@@ -1,0 +1,146 @@
+/* What a script asks of us (a dialog, a text box, permissions, a web page):
+   a card filling its page, its message scrolling, the answers under it. */
+
+body
+{
+    width: 100%;
+    height: 100%;
+}
+
+.notice
+{
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    padding: 22dp 24dp 16dp 24dp;
+    background-color: #161c2af4;
+    border-radius: 18dp;
+    border: 1dp #ffffff18;
+    display: flex;
+    flex-direction: column;
+}
+
+.top
+{
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    flex-shrink: 0;
+    margin-bottom: 14dp;
+}
+.who { flex: 1; }
+.object { font-size: 24dp; color: #ffffff; }
+.owner { font-size: 15dp; color: #8b96ab; margin-top: 4dp; }
+.more
+{
+    font-size: 14dp;
+    color: #ffffff;
+    background-color: #3a6ae0;
+    border-radius: 8dp;
+    padding: 3dp 10dp;
+    margin-left: 12dp;
+}
+
+.scroll
+{
+    flex: 1;
+    overflow-y: auto;
+}
+.message { font-size: 18dp; color: #d8deea; white-space: pre-line; margin-bottom: 10dp; }
+.permission
+{
+    font-size: 18dp;
+    color: #ffffff;
+    padding: 8dp 12dp;
+    margin-bottom: 6dp;
+    background-color: #ffffff0c;
+    border-radius: 8dp;
+}
+.caution
+{
+    font-size: 16dp;
+    color: #ffd27a;
+    margin-top: 10dp;
+    padding: 10dp 12dp;
+    border-left: 4dp #f0c040;
+    background-color: #f0c04014;
+}
+.url { font-size: 16dp; color: #8fb0ff; word-break: break-all; }
+.hint { font-size: 14dp; color: #8b96ab; margin-top: 8dp; }
+
+.answers { flex-shrink: 0; margin-top: 12dp; }
+
+/* llDialog's buttons: three to a row. */
+.buttons
+{
+    display: flex;
+    flex-direction: row;
+}
+.choice
+{
+    box-sizing: border-box;
+    width: 31.5%;
+    margin: 0 1.75% 8dp 0;
+    padding: 10dp 6dp;
+    text-align: center;
+    font-size: 17dp;
+    color: #e8ecf4;
+    background-color: #222a3c;
+    border-radius: 10dp;
+    border: 1dp #ffffff14;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.choice:hover { background-color: #2f3a54; color: #ffffff; border-color: #4a7af0; }
+
+input.field
+{
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10dp 12dp;
+    margin-bottom: 10dp;
+    border-radius: 10dp;
+    background-color: #0e1219;
+    border: 1dp #ffffff24;
+    color: #ffffff;
+    font-size: 18dp;
+    cursor: text;
+}
+input.field:focus { border-color: #4a7af0; }
+input.field selection { background-color: #3a6ae0; color: #ffffff; }
+.typed { font-size: 17dp; color: #ffffff; margin-bottom: 10dp; }
+
+.row { display: flex; flex-direction: row; }
+.primary, .secondary
+{
+    padding: 11dp 22dp;
+    margin-right: 10dp;
+    border-radius: 10dp;
+    font-size: 18dp;
+    cursor: pointer;
+}
+.primary { color: #ffffff; decorator: linear-gradient(180deg, #3a6ae0, #2a4fbe); }
+.primary:hover { decorator: linear-gradient(180deg, #4a7af0, #3a5fce); }
+.secondary { color: #b8c2d6; background-color: #222a3c; }
+.secondary:hover { background-color: #2f3a54; color: #ffffff; }
+
+.foot
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 6dp;
+}
+.foot .hint { flex: 1; margin-top: 0; }
+.ignore
+{
+    margin-left: auto;
+    font-size: 15dp;
+    color: #8b96ab;
+    padding: 6dp 10dp;
+    border-radius: 8dp;
+    cursor: pointer;
+}
+.ignore:hover { color: #ffffff; background-color: #ffffff10; }

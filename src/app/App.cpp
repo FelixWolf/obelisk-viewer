@@ -461,7 +461,19 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->controls_.setSubmit(
         [app = app.get()](const std::string& text)
         {
-            if(app->session_)
+            // A text box's reply, if the keyboard was opened for one (and
+            // it's still the one shown); else local chat.
+            const ScriptNotice* notice = app->scriptDialogs_.front();
+            const auto forDialog = std::exchange(app->keyboardForDialog_, std::nullopt);
+            if(forDialog && notice && notice->serial == *forDialog)
+            {
+                if(const auto r = app->scriptDialogs_.reply(text); r && app->session_)
+                {
+                    app->session_->replyToScriptDialog(r->region, r->object, r->channel, r->index,
+                                                       r->label);
+                }
+            }
+            else if(app->session_)
             {
                 app->session_->say(text);
             }
@@ -555,6 +567,27 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         // press opens and closes it, the pointers use it.
         app->controls_.setMainMenu([app = app.get()] { app->mainMenu_->toggle(); });
         app->setPanelPage(app->mainMenu_->surface(), MainMenu::kSize);
+    }
+    if(app->gui_)
+    {
+        app->dialogPage_ = ScriptDialogPage::create(*app->gui_);
+    }
+    if(app->dialogPage_)
+    {
+        app->dialogPage_->setNames(
+            [app = app.get()](const Uuid& id) -> std::string
+            {
+                const AvatarName* name =
+                    id.isNull() || !app->avatarNames_ ? nullptr : app->avatarNames_->get(id);
+                return name ? name->userName() : std::string();
+            });
+        app->controls_.setNoticePage(app->pageOf(app->dialogPage_->surface(),
+                                                 ScriptDialogPage::kSize,
+                                                 ScriptDialogPage::kMetersPerPixel));
+    }
+    else
+    {
+        log::warn("no script dialogs: the interface couldn't be set up");
     }
     app->outfit_ = std::make_unique<OutfitAttachments>(*app->http_);
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
@@ -678,8 +711,8 @@ int App::run()
         {
             // ImGui (the debug windows) first, then the main menu.
             const bool imguiConsumed = ui_->processEvent(event);
-            const bool uiConsumed =
-                imguiConsumed || loginScreenEvent(event) || mainMenuEvent(event);
+            const bool uiConsumed = imguiConsumed || loginScreenEvent(event) ||
+                                    scriptDialogEvent(event) || mainMenuEvent(event);
             const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
             // A free cursor (first person) points; it doesn't turn the view.
             const bool pointing = event.type == SDL_EVENT_MOUSE_MOTION && cursorFree();
@@ -922,6 +955,10 @@ int App::run()
                 {
                     mainMenu_->render(frame->commands); // before the panel shows it
                 }
+                if(dialogPage_ && scriptDialogs_.front())
+                {
+                    dialogPage_->render(frame->commands);
+                }
                 if(h.render)
                 {
                     renderer_->drawEyes(*frame, scene_, eyeCameras_, h.width, h.height);
@@ -964,6 +1001,10 @@ int App::run()
             {
                 mainMenu_->render(frame->commands);
             }
+            if(dialogPage_ && scriptDialogs_.front())
+            {
+                dialogPage_->render(frame->commands);
+            }
             if(stereoSize_ > 0)
             {
                 renderer_->drawStereo(*frame, scene_, stereoSize_, 0.064f);
@@ -980,15 +1021,23 @@ int App::run()
                 over = &mainMenu_->surface();
                 rect = mainMenuRect();
             }
-            if(over)
+            auto drawOver = [&](const gui::Surface& page, const glm::vec4& at)
             {
-                gui_->drawOver(frame->commands, frame->target, {frame->width, frame->height}, *over,
-                               rect);
+                gui_->drawOver(frame->commands, frame->target, {frame->width, frame->height}, page,
+                               at);
                 if(SDL_GPUTexture* shot = renderer_->screenshotImage())
                 {
-                    gui_->drawOver(frame->commands, shot, {frame->width, frame->height}, *over,
-                                   rect);
+                    gui_->drawOver(frame->commands, shot, {frame->width, frame->height}, page, at);
                 }
+            };
+            if(over)
+            {
+                drawOver(*over, rect);
+            }
+            // What a script asks, over that.
+            if(dialogOverWindow())
+            {
+                drawOver(dialogPage_->surface(), dialogRect());
             }
             ui_->record(*frame);
             profile_.mark(FrameProfile::Render);
@@ -1173,6 +1222,36 @@ void App::updateSession()
         else if(m.event.is<protocol::msg::ChatFromSimulator>())
         {
             localChat_.handle(m.event, *avatarNames_, LocalChat::Clock::now());
+        }
+        else if(m.event.is<protocol::msg::ScriptDialog>())
+        {
+            if(const auto dialog = m.event.decode<protocol::msg::ScriptDialog>())
+            {
+                scriptDialogs_.dialog(m.regionHandle, *dialog);
+            }
+        }
+        else if(m.event.is<protocol::msg::ScriptQuestion>())
+        {
+            const auto question = m.event.decode<protocol::msg::ScriptQuestion>();
+            if(const auto* login = session_->login(); question && login)
+            {
+                const std::string self = login->name.last.empty() || login->name.last == "Resident"
+                                             ? login->name.first
+                                             : login->name.first + " " + login->name.last;
+                scriptDialogs_.question(m.regionHandle, *question, self,
+                                        static_cast<double>(SDL_GetTicksNS()) * 1e-9);
+            }
+            else if(!question)
+            {
+                log::warn("a permission request that couldn't be read");
+            }
+        }
+        else if(m.event.is<protocol::msg::LoadURL>())
+        {
+            if(const auto load = m.event.decode<protocol::msg::LoadURL>())
+            {
+                scriptDialogs_.loadUrl(m.regionHandle, *load);
+            }
         }
         else if(m.event.is<protocol::msg::MapBlockReply>())
         {
@@ -1722,6 +1801,8 @@ void App::endSession()
     legacyMaterials_->setCapabilityUrl({});
     avatarNames_ = std::make_unique<AvatarNames>(*http_); // the next login may be another grid
     localChat_.clear();
+    scriptDialogs_.clear();
+    keyboardForDialog_.reset();
     if(animations_)
     {
         animations_->setViewerAssetUrl({});
@@ -2230,16 +2311,17 @@ std::optional<PointerController::Ray> App::pointerRay(const render::Scene& scene
             return std::nullopt;
         }
         SDL_GetMouseState(&x, &y);
-        // Not through the main menu over the window.
-        if(mainMenuOverWindow())
+        // Not through the main menu or a script's dialog over the window.
+        const glm::vec2 pixel = glm::vec2(x, y) * SDL_GetWindowPixelDensity(window_.get());
+        auto within = [&](const glm::vec4& rect)
         {
-            const glm::vec4 rect = mainMenuRect();
-            const glm::vec2 pixel = glm::vec2(x, y) * SDL_GetWindowPixelDensity(window_.get());
-            if(pixel.x >= rect.x && pixel.y >= rect.y && pixel.x < rect.x + rect.z &&
-               pixel.y < rect.y + rect.w)
-            {
-                return std::nullopt;
-            }
+            return pixel.x >= rect.x && pixel.y >= rect.y && pixel.x < rect.x + rect.z &&
+                   pixel.y < rect.y + rect.w;
+        };
+        if((mainMenuOverWindow() && within(mainMenuRect())) ||
+           (dialogOverWindow() && within(dialogRect())))
+        {
+            return std::nullopt;
         }
     }
     // Through the view's projection, back from the window position.
@@ -2398,7 +2480,12 @@ MenuItem App::radialMenu()
                 .when([this] { return !sitting(); }),
             MenuItem::run("Stand up", [this] { agent_.standUp(); })
                 .when([this] { return sitting(); }),
-            MenuItem::run("Chat", [this] { controls_.openKeyboard(); }),
+            MenuItem::run("Chat",
+                          [this]
+                          {
+                              keyboardForDialog_.reset();
+                              controls_.openKeyboard();
+                          }),
             MenuItem::submenu(
                 "VR",
                 {
@@ -2710,6 +2797,10 @@ bool App::mainMenuEvent(const SDL_Event& event)
         {
             gui_->forgetStyles();
             mainMenu_->reload();
+            if(dialogPage_)
+            {
+                dialogPage_->reload();
+            }
             log::info("the interface's documents read again");
             return true;
         }
@@ -2720,6 +2811,128 @@ bool App::mainMenuEvent(const SDL_Event& event)
     }
     return pageEvent(mainMenu_->surface(), mainMenuRect(), MainMenu::kSize, mainMenuPressed_,
                      event);
+}
+
+bool App::dialogOverWindow() const
+{
+    return dialogPage_ && scriptDialogs_.front() && !camera_.firstPerson() &&
+           !(headset_ && headset_->running()) && !loginScreenShown();
+}
+
+glm::vec4 App::dialogRect() const
+{
+    // The window's top right: at the display's scale, or smaller to fit.
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSizeInPixels(window_.get(), &width, &height);
+    const glm::vec2 window(static_cast<float>(width), static_cast<float>(height));
+    const glm::vec2 size(ScriptDialogPage::kSize);
+    const float scale = std::min({SDL_GetWindowDisplayScale(window_.get()),
+                                  window.x * 0.45f / size.x, window.y * 0.7f / size.y});
+    const glm::vec2 fitted = glm::floor(size * scale);
+    const float margin = std::floor(16.0f * scale);
+    return glm::vec4(window.x - fitted.x - margin, margin, fitted);
+}
+
+bool App::scriptDialogEvent(const SDL_Event& event)
+{
+    if(!dialogOverWindow())
+    {
+        dialogPressed_ = false;
+        // On a panel (first person on the desktop): a text box typed into
+        // from the window's keyboard.
+        if(dialogPage_ && controls_.noticeOpen() && dialogPage_->surface().typing() &&
+           !ImGui::GetIO().WantCaptureKeyboard)
+        {
+            if(event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
+            {
+                dialogPage_->surface().key(event.key.key, event.key.mod,
+                                           event.type == SDL_EVENT_KEY_DOWN);
+                return true;
+            }
+            if(event.type == SDL_EVENT_TEXT_INPUT)
+            {
+                dialogPage_->surface().text(event.text.text);
+                return true;
+            }
+        }
+        return false;
+    }
+    return pageEvent(dialogPage_->surface(), dialogRect(), ScriptDialogPage::kSize, dialogPressed_,
+                     event);
+}
+
+void App::updateScriptDialogs()
+{
+    if(!dialogPage_)
+    {
+        return;
+    }
+    const bool headset = headset_ && headset_->running();
+    const bool shown = scriptDialogs_.front() && !loginScreenShown();
+    const bool onPanel = shown && (camera_.firstPerson() || headset);
+    if(shown)
+    {
+        dialogPage_->update(scriptDialogs_, headset, headset,
+                            camera_.firstPerson() && !headset && !cursorFree());
+    }
+    if(onPanel != controls_.noticeOpen())
+    {
+        onPanel ? controls_.openNotice() : controls_.closeNotice();
+    }
+
+    // What was clicked: the answer to the script.
+    const auto action = dialogPage_->takeAction();
+    const ScriptNotice* notice = scriptDialogs_.front();
+    if(!action || !notice || notice->serial != action->serial)
+    {
+        return; // nothing, or about one that's gone
+    }
+    auto sendReply = [&](const std::optional<ScriptDialogs::DialogReply>& r)
+    {
+        if(r && session_)
+        {
+            session_->replyToScriptDialog(r->region, r->object, r->channel, r->index, r->label);
+        }
+    };
+    auto sendAnswer = [&](const std::optional<ScriptDialogs::PermissionReply>& r)
+    {
+        if(r && session_)
+        {
+            session_->answerScriptPermissions(r->region, r->task, r->item, r->questions);
+        }
+    };
+    using Kind = ScriptDialogPage::Action::Kind;
+    switch(action->kind)
+    {
+    case Kind::Choose:
+        sendReply(scriptDialogs_.choose(action->button));
+        break;
+    case Kind::Send:
+        sendReply(scriptDialogs_.reply(action->text));
+        break;
+    case Kind::Allow:
+    case Kind::Deny:
+        sendAnswer(scriptDialogs_.answer(action->kind == Kind::Allow));
+        break;
+    case Kind::Open:
+        if(const auto url = scriptDialogs_.open())
+        {
+            log::info("opening {} in the web browser (offered by a script)", *url);
+            if(!SDL_OpenURL(url->c_str()))
+            {
+                log::warn("the web browser couldn't be opened: {}", SDL_GetError());
+            }
+        }
+        break;
+    case Kind::Ignore:
+        sendAnswer(scriptDialogs_.dismiss());
+        break;
+    case Kind::Keyboard:
+        keyboardForDialog_ = action->serial;
+        controls_.openKeyboard();
+        break;
+    }
 }
 
 bool App::pageEvent(gui::Surface& surface, const glm::vec4& rect, glm::ivec2 size, bool& pressed,
@@ -3987,7 +4200,11 @@ void App::updateCursor()
     // The page under the mouse (the main menu over the window, or a panel
     // the mouse points at), else a hand over what a click does something
     // to (what it does is a label by it: addHoverLabel).
-    std::string name = mainMenuOverWindow() ? mainMenu_->surface().cursor() : std::string();
+    std::string name = dialogOverWindow() ? dialogPage_->surface().cursor() : std::string();
+    if(name.empty() && mainMenuOverWindow())
+    {
+        name = mainMenu_->surface().cursor();
+    }
     if(name.empty())
     {
         name = controls_.cursorPointed(1);
@@ -4029,6 +4246,7 @@ void App::drawUi()
         boardsMoved_ = true;  // and the boards
     }
     placeBoards();
+    updateScriptDialogs();
     if(boards_ && homeShown())
     {
         boards_->setHeadset(headset_ && headset_->running());

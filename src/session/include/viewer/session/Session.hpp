@@ -348,6 +348,15 @@ public:
     // tell others we started or stopped typing.
     void say(std::string_view text, int32_t channel = 0, uint8_t type = 1);
 
+    // Answers to scripts, to the region that asked (gone: not sent; the
+    // script's object went with it). A dialog's button (ScriptDialogReply:
+    // its index and label; a text box's text with index 0), and the
+    // permissions granted (ScriptAnswerYes; 0: none).
+    void replyToScriptDialog(uint64_t regionHandle, const Uuid& object, int32_t channel,
+                             int32_t button, std::string_view label);
+    void answerScriptPermissions(uint64_t regionHandle, const Uuid& task, const Uuid& item,
+                                 int32_t granted);
+
     // Wears objects from inventory (RezMultipleAttachmentsFromInv), as the
     // official viewer's LLAttachmentsMgr: each at the point it was last
     // worn on, added to what's there (ATTACHMENT_ADD) rather than replacing
@@ -428,6 +437,7 @@ public:
         return regions_;
     }
     const Region* mainRegion() const;
+    const Region* regionByHandle(uint64_t handle) const;
     // The main region's capability URL, if it granted it. Until a new main
     // region's capabilities arrive (after a teleport), another region's.
     std::optional<std::string_view> capability(std::string_view name) const;

@@ -53,6 +53,8 @@ add_executable(viewer
   OutfitAttachments.cpp
   Destinations.cpp
   LobbyBoards.cpp
+  ScriptDialogPage.cpp
+  ScriptDialogs.cpp
   ViewerConfig.cpp
   GridPopulation.cpp
   InventoryBrowser.cpp

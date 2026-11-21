@@ -37,6 +37,7 @@ add_executable(viewer_tests
   ProtocolTests.cpp
   SessionTests.cpp
   HomeSceneTests.cpp
+  ScriptDialogsTests.cpp
   ViewerConfigTests.cpp
   TerrainTests.cpp
   TextTests.cpp
@@ -63,6 +64,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/VrKeyboard.cpp
   ${PROJECT_SOURCE_DIR}/src/app/VrControls.cpp
   ${PROJECT_SOURCE_DIR}/src/app/Destinations.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ScriptDialogs.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ViewerConfig.cpp
   ${PROJECT_SOURCE_DIR}/src/app/GridPopulation.cpp
   ${PROJECT_SOURCE_DIR}/src/app/InventoryBrowser.cpp

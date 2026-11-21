@@ -844,6 +844,41 @@ the window), as does a quick press of the menu button in first person and
 VR (on a panel ahead, moving with the avatar). `--main-menu [TAB]` opens it at
 the start (on that tab).
 
+### Script dialogs and permissions
+
+What scripts ask of us waits in `ScriptDialogs` (no UI; tested alone),
+oldest first, and `ScriptDialogPage` (assets/ui/script_dialog.rml) shows
+the oldest, with how many more wait:
+- Dialogs (ScriptDialog, llDialog): the message and up to 12 buttons, three
+  to a row, the first three along the bottom as llDialog lays them out
+  (`dialogRows`). A button sends ScriptDialogReply (its index and label);
+  Ignore sends nothing. A dialog whose one button is `!!llTextBox!!` is a
+  text box (llTextBox): its text goes as the label, index 0, cut to the
+  field's 254 bytes. A newer dialog from the same object replaces the one
+  waiting.
+- Permission requests (ScriptQuestion): what it asks for in words
+  (`scriptPermissions`, llRequestPermissions' bits; taking money is marked
+  with a caution), Allow or Deny (ScriptAnswerYes with the bits granted, or
+  0). Bits we don't know are never granted, and a request of only those
+  isn't shown. More than 5 from one owner's scripts in 10 seconds are
+  dropped (our own objects each counted on their own), as the official
+  viewer. Experience requests (llRequestExperiencePermissions) are asked as
+  any other, not remembered per experience.
+- Web pages (LoadURL, llLoadURL): Open in browser (the system's) or Not now;
+  only http and https.
+
+Answers go to the region that asked (`Session::replyToScriptDialog`,
+`answerScriptPermissions`); logging out drops what's waiting. The page is
+over the window's top right on the desktop (third person; clicks and the
+wheel on it aren't the world's), and on a second VR controls page (the
+notice: ahead and to the right, moving with the avatar) in first person and
+in a headset, pointed at as the main menu is (in first person on the
+desktop, hold Tab to point; a text box takes the keyboard). In a headset a
+text box's "Type a reply" opens the VR keyboard, whose Enter sends it
+instead of chatting. Not yet: muting an object or owner (Block), script
+teleport requests (llMapDestination), group names for group-owned web
+pages.
+
 ### Glow
 
 As the official viewer's (LLPipeline::generateGlow, combineGlow, at its
