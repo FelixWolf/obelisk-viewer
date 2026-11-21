@@ -16,6 +16,7 @@
 // The app gives it what it shows (update()); what it looks like is the
 // documents' (they can be reloaded while running: reload()).
 
+#include "ChatView.hpp"
 #include "CurrentOutfit.hpp"
 #include "Destinations.hpp"
 #include "GridPopulation.hpp"
@@ -93,6 +94,10 @@ public:
         // The outfit worn last (null: none), and an outfit being put on.
         Uuid baseOutfit;
         bool outfitChanging = false;
+        // Local chat heard, and whether we're in a headset (typing on the
+        // VR keyboard).
+        const LocalChat* chat = nullptr;
+        bool headset = false;
     };
     // The page's values, then its layout and animations (once a frame
     // while open, before render()).
@@ -126,6 +131,8 @@ public:
     }
 
     gui::Surface& surface() { return *surface_; }
+    // The Chat tab: what it said, and whether it wants the VR keyboard.
+    ChatView& chat() { return chat_; }
     // Reads the document and its style sheets again.
     void reload();
 
@@ -222,6 +229,7 @@ private:
     std::unique_ptr<gui::Surface> surface_;
     bool logOut_ = false;
     Rml::DataModelHandle model_;
+    ChatView chat_;
     bool open_ = false;
 
     std::vector<Tab> tabs_;

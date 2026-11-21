@@ -75,3 +75,58 @@ TEST_CASE("Local chat: bubbles type, keep 12 lines, and go 24 s after the latest
     CHECK(chat.bubble(kAvatar, t0 + std::chrono::seconds(25)) == nullptr);
     CHECK(chat.log().size() == 15); // the log keeps them
 }
+
+TEST_CASE("Local chat: the log counts its lines, past the oldest kept")
+{
+    LocalChat chat;
+    const auto now = LocalChat::Clock::now();
+    CHECK(chat.added() == 0);
+    hear(chat, ChatSource::Object, ChatType::Normal, kObject, "one", now);
+    hear(chat, ChatSource::Object, ChatType::Normal, kObject, "two", now);
+    CHECK(chat.added() == 2);
+    CHECK(chat.firstNumber() == 1);
+    for(int i = 0; i < 600; i++)
+    {
+        hear(chat, ChatSource::Object, ChatType::Normal, kObject, "more", now);
+    }
+    CHECK(chat.added() == 602);
+    CHECK(chat.firstNumber() == 602 - chat.log().size() + 1);
+    // Not heard (typing, too far): not counted.
+    hear(chat, ChatSource::Agent, ChatType::StartTyping, kAvatar, "", now);
+    CHECK(chat.added() == 602);
+    const uint64_t before = chat.added();
+    chat.clear();
+    CHECK(chat.added() != before); // what's shown changes
+    CHECK(chat.log().empty());
+}
+
+TEST_CASE("Local chat: what's typed, and on which channel")
+{
+    CHECK_FALSE(parseChatInput(""));
+    CHECK_FALSE(parseChatInput("   "));
+    CHECK_FALSE(parseChatInput("/5"));
+    CHECK_FALSE(parseChatInput("/5 "));
+    auto plain = parseChatInput("  hello there  ");
+    REQUIRE(plain);
+    CHECK(plain->channel == 0);
+    CHECK(plain->text == "hello there");
+    auto channel = parseChatInput("/5 open door");
+    REQUIRE(channel);
+    CHECK(channel->channel == 5);
+    CHECK(channel->text == "open door");
+    auto negative = parseChatInput("/-42 hi");
+    REQUIRE(negative);
+    CHECK(negative->channel == -42);
+    // Not a channel: said as typed.
+    auto emote = parseChatInput("/me waves");
+    REQUIRE(emote);
+    CHECK(emote->channel == 0);
+    CHECK(emote->text == "/me waves");
+    auto glued = parseChatInput("/5x hi");
+    REQUIRE(glued);
+    CHECK(glued->channel == 0);
+    CHECK(glued->text == "/5x hi");
+    auto huge = parseChatInput("/99999999999 hi");
+    REQUIRE(huge);
+    CHECK(huge->channel == 0);
+}

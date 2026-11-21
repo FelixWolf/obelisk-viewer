@@ -1,8 +1,13 @@
 #include "LocalChat.hpp"
 
 #include "viewer/core/Log.hpp"
-
 #include "viewer/protocol/Messages.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cerrno>
+#include <cstdint>
+#include <cstdlib>
 
 namespace viewer
 {
@@ -130,7 +135,9 @@ void LocalChat::handle(uint8_t sourceType, uint8_t chatType, uint8_t audible, co
     // On the console too (there's no chat window yet).
     log::info("chat: {}{}{}", chatType == ChatType::Owner ? "(to you) " : "",
               line.emote ? "" : line.fromName + ": ", line.text);
+    line.when = std::chrono::system_clock::now();
     log_.push_back(std::move(line));
+    added_++;
     while(log_.size() > kLogLines)
     {
         log_.pop_front();
@@ -161,6 +168,54 @@ void LocalChat::clear()
 {
     bubbles_.clear();
     log_.clear();
+    added_++; // what's shown changes
+}
+
+std::optional<ChatInput> parseChatInput(std::string_view typed)
+{
+    // Spaces around it don't count.
+    while(!typed.empty() && (typed.front() == ' ' || typed.front() == '\t'))
+    {
+        typed.remove_prefix(1);
+    }
+    while(!typed.empty() && (typed.back() == ' ' || typed.back() == '\t' || typed.back() == '\n' ||
+                             typed.back() == '\r'))
+    {
+        typed.remove_suffix(1);
+    }
+    ChatInput input;
+    if(typed.size() >= 2 && typed[0] == '/' &&
+       (std::isdigit(static_cast<unsigned char>(typed[1])) ||
+        (typed[1] == '-' && typed.size() >= 3 &&
+         std::isdigit(static_cast<unsigned char>(typed[2])))))
+    {
+        size_t end = 1;
+        if(typed[end] == '-')
+        {
+            end++;
+        }
+        while(end < typed.size() && std::isdigit(static_cast<unsigned char>(typed[end])))
+        {
+            end++;
+        }
+        if(end == typed.size() || typed[end] == ' ')
+        {
+            const std::string number(typed.substr(1, end - 1));
+            errno = 0;
+            const long channel = std::strtol(number.c_str(), nullptr, 10);
+            if(errno == 0 && channel >= INT32_MIN && channel <= INT32_MAX)
+            {
+                input.channel = static_cast<int32_t>(channel);
+                typed.remove_prefix(std::min(end + 1, typed.size()));
+            }
+        }
+    }
+    if(typed.empty())
+    {
+        return std::nullopt;
+    }
+    input.text = std::string(typed);
+    return input;
 }
 
 } // namespace viewer

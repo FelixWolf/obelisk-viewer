@@ -260,9 +260,18 @@ private:
     // local chat.
     std::optional<uint64_t> keyboardForDialog_;
     void updateScriptDialogs();
+    // Local chat as typed (the Chat tab, the VR keyboard): "/5 text" on
+    // channel 5.
+    void say(std::string_view typed);
     bool dialogOverWindow() const;
     glm::vec4 dialogRect() const;
     bool scriptDialogEvent(const SDL_Event& event);
+    // A page's text field has the keyboard (its keys aren't the avatar's
+    // or the camera's); one on a panel (first person: the window's keyboard
+    // typed into it), and its events.
+    bool typingOnPage() const;
+    gui::Surface* panelTyping() const;
+    bool panelTypingEvent(const SDL_Event& event);
     // The main menu: shown over the window (the desktop, third person) or
     // on a panel (first person, VR); its values each frame, its input from
     // the window's events (true: the event was its), and where it's drawn

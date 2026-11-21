@@ -249,6 +249,40 @@
             </div>
         </div>
 
+        <!-- Chat: conversations on the left, the chosen one on the right,
+             newest at the bottom, and a line to type into. -->
+        <div data-if="tab == 'chat'" class="chat">
+            <div class="chat-list">
+                <div data-for="c : chatConversations"
+                     data-attr-class="'conversation' + (c.id == chatOpen ? ' active' : '')"
+                     data-event-click="chatOpen = c.id">
+                    <span class="conversation-name">{{ c.name }}</span>
+                    <span class="unread" data-if="c.unread > 0">{{ c.unread }}</span>
+                </div>
+            </div>
+            <div class="chat-main">
+                <div class="chat-head">
+                    <div class="chat-title">Nearby</div>
+                    <div class="toggle" data-class-on="chatShowObjects"
+                         data-event-click="chatShowObjects = !chatShowObjects">Objects' chat</div>
+                </div>
+                <div id="chat-lines" class="chat-lines">
+                    <div class="quiet" data-if="chatLines.size == 0">Nothing said nearby yet.</div>
+                    <div data-for="l : chatLines" data-attr-class="'chat-line ' + l.kind">
+                        <span class="when">{{ l.when }}</span>
+                        <span class="who" data-if="l.name != ''">{{ l.name }}</span>
+                        <span class="said">{{ l.text }}</span>
+                    </div>
+                </div>
+                <div class="chat-input">
+                    <input type="text" class="chat-field" maxlength="1023" data-if="!chatHeadset"
+                           data-value="chatDraft" data-event-keydown="chatKey"/>
+                    <div class="send" data-if="!chatHeadset" data-event-click="chatSend">Send</div>
+                    <div class="send wide" data-if="chatHeadset" data-event-click="chatType">Type a message</div>
+                </div>
+            </div>
+        </div>
+
         <div data-if="tab == 'parcel'" class="parcel">
             <div data-if="!parcelKnown" class="soon">
                 <h2>Parcel</h2>
@@ -293,7 +327,7 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
+        <div data-if="tab != 'home' &amp;&amp; tab != 'chat' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

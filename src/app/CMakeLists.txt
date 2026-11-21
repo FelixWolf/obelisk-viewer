@@ -58,6 +58,7 @@ add_executable(viewer
   ViewerConfig.cpp
   GridPopulation.cpp
   InventoryBrowser.cpp
+  ChatView.cpp
   CurrentOutfit.cpp
   ParcelInfo.cpp
   MainMenu.cpp

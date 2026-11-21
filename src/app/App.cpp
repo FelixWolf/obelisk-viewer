@@ -473,9 +473,9 @@ std::unique_ptr<App> App::create(const AppOptions& options)
                                                        r->label);
                 }
             }
-            else if(app->session_)
+            else
             {
-                app->session_->say(text);
+                app->say(text);
             }
         });
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
@@ -712,7 +712,8 @@ int App::run()
             // ImGui (the debug windows) first, then the main menu.
             const bool imguiConsumed = ui_->processEvent(event);
             const bool uiConsumed = imguiConsumed || loginScreenEvent(event) ||
-                                    scriptDialogEvent(event) || mainMenuEvent(event);
+                                    panelTypingEvent(event) || scriptDialogEvent(event) ||
+                                    mainMenuEvent(event);
             const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
             // A free cursor (first person) points; it doesn't turn the view.
             const bool pointing = event.type == SDL_EVENT_MOUSE_MOTION && cursorFree();
@@ -792,15 +793,16 @@ int App::run()
         textures_->update();
         profile_.mark(FrameProfile::Textures);
         const uint64_t now = SDL_GetTicksNS();
-        const bool keyboardFree = !ImGui::GetIO().WantCaptureKeyboard;
+        // The keys aren't the avatar's or the camera's while a page's text
+        // field has them.
+        const bool keyboardFree = !ImGui::GetIO().WantCaptureKeyboard && !typingOnPage();
         updateLobby();
         if(!session_)
         {
             // Logged out: the home scene's assets (if it's shown).
             setViewerAssetUrl(homeShown() ? home_->assetUrl : std::string());
         }
-        // (Not while typing on the login screen: its keys are the field's.)
-        if(keyboardFree && !(lobby_ && loginScreen_->surface().typing()))
+        if(keyboardFree)
         {
             camera_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f);
         }
@@ -2839,32 +2841,68 @@ glm::vec4 App::dialogRect() const
     return glm::vec4(window.x - fitted.x - margin, margin, fitted);
 }
 
+gui::Surface* App::panelTyping() const
+{
+    // Pages on the VR controls' panels (first person, a headset), the
+    // window's keyboard typing into one's text field.
+    if(dialogPage_ && controls_.noticeOpen() && dialogPage_->surface().typing())
+    {
+        return &dialogPage_->surface();
+    }
+    if(mainMenu_ && controls_.pageOpen() && !pageIsLogin_ && mainMenu_->surface().typing())
+    {
+        return &mainMenu_->surface();
+    }
+    return nullptr;
+}
+
+bool App::typingOnPage() const
+{
+    return (lobby_ && loginScreen_ && loginScreen_->surface().typing()) ||
+           (mainMenu_ && mainMenu_->isOpen() && mainMenu_->surface().typing()) ||
+           (dialogPage_ && scriptDialogs_.front() && dialogPage_->surface().typing());
+}
+
+bool App::panelTypingEvent(const SDL_Event& event)
+{
+    gui::Surface* page = panelTyping();
+    if(!page || ImGui::GetIO().WantCaptureKeyboard)
+    {
+        return false;
+    }
+    // Escape still closes the menu (mainMenuEvent).
+    if((event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) &&
+       event.key.scancode != SDL_SCANCODE_ESCAPE)
+    {
+        page->key(event.key.key, event.key.mod, event.type == SDL_EVENT_KEY_DOWN);
+        return true;
+    }
+    if(event.type == SDL_EVENT_TEXT_INPUT)
+    {
+        page->text(event.text.text);
+        return true;
+    }
+    return false;
+}
+
 bool App::scriptDialogEvent(const SDL_Event& event)
 {
     if(!dialogOverWindow())
     {
         dialogPressed_ = false;
-        // On a panel (first person on the desktop): a text box typed into
-        // from the window's keyboard.
-        if(dialogPage_ && controls_.noticeOpen() && dialogPage_->surface().typing() &&
-           !ImGui::GetIO().WantCaptureKeyboard)
-        {
-            if(event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
-            {
-                dialogPage_->surface().key(event.key.key, event.key.mod,
-                                           event.type == SDL_EVENT_KEY_DOWN);
-                return true;
-            }
-            if(event.type == SDL_EVENT_TEXT_INPUT)
-            {
-                dialogPage_->surface().text(event.text.text);
-                return true;
-            }
-        }
         return false;
     }
     return pageEvent(dialogPage_->surface(), dialogRect(), ScriptDialogPage::kSize, dialogPressed_,
                      event);
+}
+
+void App::say(std::string_view typed)
+{
+    // "/5 text": on channel 5 (as the official chat bar).
+    if(const auto input = parseChatInput(typed); input && session_)
+    {
+        session_->say(input->text, input->channel);
+    }
 }
 
 void App::updateScriptDialogs()
@@ -3099,6 +3137,8 @@ void App::updateMainMenu()
         status.outfitChanging = currentOutfit_->outfitPending() || !outfitAttachQueue_.empty();
     }
     destinations_->update();
+    status.chat = &localChat_;
+    status.headset = headset_ && headset_->running();
     mainMenu_->update(status);
     // Attaching from inventory, or taking off: the COF follows once the
     // simulator has done it (CurrentOutfit).
@@ -3149,6 +3189,16 @@ void App::updateMainMenu()
                 outfit_->forget(action->item); // not put back by a later outfit pass
             }
         }
+    }
+    // Chat typed on the Chat tab, or the VR keyboard asked for to type it.
+    if(const auto typed = mainMenu_->chat().takeSay(); typed && session_)
+    {
+        say(*typed);
+    }
+    if(mainMenu_->chat().takeKeyboard())
+    {
+        keyboardForDialog_.reset();
+        controls_.openKeyboard();
     }
     if(mainMenu_->takeLogOut() && session_)
     {

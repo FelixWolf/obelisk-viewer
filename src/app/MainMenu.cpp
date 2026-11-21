@@ -79,10 +79,10 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     {
         return nullptr;
     }
-    menu->tabs_ = {{"home", "Home"},           {"destinations", "Destinations"},
-                   {"inventory", "Inventory"}, {"outfits", "Outfits"},
-                   {"parcel", "Parcel"},       {"media", "Media"},
-                   {"options", "Options"},     {"about", "About"}};
+    menu->tabs_ = {
+        {"home", "Home"},           {"chat", "Chat"},       {"destinations", "Destinations"},
+        {"inventory", "Inventory"}, {"outfits", "Outfits"}, {"parcel", "Parcel"},
+        {"media", "Media"},         {"options", "Options"}, {"about", "About"}};
     menu->readLicenses();
     menu->tabName_ = "Home";
 
@@ -342,7 +342,9 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
                             { m->setOpen(false); });
     model.BindEventCallback("logOut", [m](Rml::DataModelHandle, Rml::Event&,
                                           const Rml::VariantList&) { m->logOut_ = true; });
+    m->chat_.bind(model);
     menu->model_ = model.GetModelHandle();
+    m->chat_.setHandle(menu->model_);
 
     if(!menu->surface_->load("main_menu.rml"))
     {
@@ -936,6 +938,10 @@ void MainMenu::update(const Status& status)
 {
     updateDestinations(status);
     updateParcel(status);
+    if(status.chat)
+    {
+        chat_.update(*status.chat, tab_ == "chat", status.headset, surface_->document());
+    }
     if(tab_ == "inventory")
     {
         updateInventory(status);
@@ -996,6 +1002,11 @@ void MainMenu::update(const Status& status)
                                 : std::string("-"));
     }
     surface_->update();
+    // Chat follows its newest line (once laid out).
+    if(chat_.scrollAfterLayout(surface_->document()))
+    {
+        surface_->update();
+    }
 }
 
 void MainMenu::reload()

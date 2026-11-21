@@ -14,7 +14,9 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 namespace viewer
@@ -41,6 +43,7 @@ inline constexpr uint8_t Object = 2;
 struct ChatLine
 {
     std::chrono::steady_clock::time_point time{};
+    std::chrono::system_clock::time_point when{}; // the wall clock's, to show
     Uuid source{};
     Uuid owner{};
     uint8_t sourceType = ChatSource::System;
@@ -81,11 +84,27 @@ public:
     const Bubble* bubble(const Uuid& avatar, Clock::time_point now);
 
     const std::deque<ChatLine>& log() const { return log_; }
+    // Lines ever added to the log (its newest line's number; changes with
+    // each), and the number of its oldest line.
+    uint64_t added() const { return added_; }
+    uint64_t firstNumber() const { return added_ - log_.size() + 1; }
     void clear();
 
 private:
     std::unordered_map<Uuid, Bubble> bubbles_;
     std::deque<ChatLine> log_;
+    uint64_t added_ = 0;
 };
+
+// What's typed into local chat: "/5 text" says "text" on channel 5, as the
+// official viewer's chat bar (LLChatUtils: a slash and digits, then a
+// space); anything else on channel 0 ("/me" included: the region makes it
+// an emote). Nothing to say if there's no text.
+struct ChatInput
+{
+    int32_t channel = 0;
+    std::string text;
+};
+std::optional<ChatInput> parseChatInput(std::string_view typed);
 
 } // namespace viewer

@@ -786,7 +786,7 @@ viewer runs.
   dirty when they change); a data model goes on an element inside the
   body, not the body itself, or `data-for` isn't expanded.
 
-The main menu (`MainMenu`, `main_menu.rml`) has tabs: Home, Destinations,
+The main menu (`MainMenu`, `main_menu.rml`) has tabs: Home, Chat (see Local chat), Destinations,
 Inventory, Outfits, Parcel, Media, Options and About. Home, Destinations,
 Inventory, Parcel and About show something so far. Home: a greeting, SLT and local clocks, the viewer's frame rate, the
 region's (SimStats: `Region::stats`) and its time dilation, and the region
@@ -969,7 +969,8 @@ avatar's display name arrives, its legacy name stands in.
 (process_chat_from_simulator): only fully audible chat; "/me" lines become
 "Name ..." (the complete name: display name and username); whispers and
 shouts get "whispers: " and "shouts: "; tabs become four spaces. It keeps a
-log (for a chat window to come) and, per avatar, what its bubble shows
+log (the Chat tab's, and the console's: each line is logged too) and, per
+avatar, what its bubble shows
 (LLVOAvatar::addChat): the latest 12 lines (1023 characters at most), all
 gone 24 seconds after the latest, and whether it's typing (chat types 4
 and 5; a real line ends it). `Session::say` sends ChatFromViewer (and
@@ -982,6 +983,19 @@ aligned and wrapped at 190 pixels, ours yellow and others' white, dimming
 to gray after 8 and 16 seconds and gone after 24, with "." to "..." while
 typing. Chatting tags are seen to 40 m (fading to 45). Not yet: italic
 whispers and bold shouts (no such fonts yet), muting.
+
+Chat is read and written on the main menu's Chat tab (`ChatView`), not in
+popups: objects can chat a lot, and a window over the view doesn't suit a
+headset. Conversations are on the left (Nearby now; instant messages and
+group chats to come), each with how many lines weren't seen; the chosen
+one's lines on the right (time, name, text; newest at the bottom, followed
+unless scrolled back), and a line to type into (Enter or Send). Objects'
+chat can be left out; what's said to us alone (llOwnerSay) always shows,
+marked. What's typed goes through `parseChatInput`: "/5 text" is said on
+channel 5, as the official chat bar; anything else on 0 ("/me" included).
+In a headset the field is a button that opens the VR keyboard, whose Enter
+says the line (as the radial menu's Chat). Not yet: typing starts and stops
+sent while typing on the tab, a sound for new messages.
 
 ### HUDs
 
