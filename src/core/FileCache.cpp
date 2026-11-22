@@ -18,6 +18,7 @@ const char* directoryFor(CacheKind kind)
     {
     case CacheKind::Texture:
     case CacheKind::TextureSource:
+    case CacheKind::TextureMask:
         return "textures";
     case CacheKind::Mesh:
         return "meshes";
@@ -50,6 +51,9 @@ fs::path FileCache::pathFor(const CacheKey& key) const
         break;
     case CacheKind::TextureSource:
         name = id + ".j2c";
+        break;
+    case CacheKind::TextureMask:
+        name = id + ".mask";
         break;
     case CacheKind::Mesh:
         name = key.part == CacheKey::kMeshHeader ? id + ".header"

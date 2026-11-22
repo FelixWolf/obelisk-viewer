@@ -197,10 +197,12 @@ std::optional<glm::vec3> AvatarView::jointPosition(const world::Object& avatar,
                      it->second.joints[static_cast<size_t>(index)][3]);
 }
 
-std::shared_ptr<const AvatarView::Body> AvatarView::build(const avatar::ParamWeights& weights) const
+std::shared_ptr<const AvatarView::Body>
+AvatarView::build(const avatar::ParamWeights& weights,
+                  std::span<const avatar::MorphMask> masks) const
 {
     auto body = std::make_shared<Body>();
-    body->shape = avatar::shapeAvatar(base_, weights);
+    body->shape = avatar::shapeAvatar(base_, weights, masks);
     for(size_t part = 0; part < base_.meshes.size(); part++)
     {
         // Morphed but unskinned: the GPU places each vertex from its joints.
@@ -371,6 +373,24 @@ const render::GpuTexture* AvatarView::bake(const world::World& world, const worl
     const std::string url = std::format("{}texture/{}/{}/{}", appearanceUrl_, avatar.id.toString(),
                                         name, id.toString());
     return linear ? textures.getLinear(id, url, texels) : textures.get(id, url, texels);
+}
+
+std::shared_ptr<const image::Plane> AvatarView::bakeMask(const world::World& world,
+                                                         const world::Object& avatar, int slot,
+                                                         const char* name,
+                                                         TextureManager& textures) const
+{
+    const world::World::Appearance* appearance = world.appearance(avatar.id);
+    const world::TextureEntry& faces = appearance ? appearance->faces : avatar.faces;
+    const Uuid& id = faces[static_cast<size_t>(slot)].texture;
+    if(id.isNull() || id == kDefaultAvatarTexture || id == kInvisibleTexture ||
+       appearanceUrl_.empty())
+    {
+        return nullptr;
+    }
+    const std::string url = std::format("{}texture/{}/{}/{}", appearanceUrl_, avatar.id.toString(),
+                                        name, id.toString());
+    return textures.mask(id, url);
 }
 
 std::optional<const render::GpuTexture*>
@@ -755,10 +775,30 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const world::World::Appearance* appearance = world.appearance(object.id);
         if(appearance && !appearance->visualParams.empty())
         {
-            if(!a.body || a.appearanceSerial != appearance->serial)
+            // The morphs that follow clothing go by the bakes' masks
+            // (LLVOAvatar::onBakedTextureMasksLoaded): rebuilt as they come.
+            static constexpr std::pair<int, const char*> kMaskBakes[] = {
+                {8, "head"}, {9, "upper"}, {10, "lower"}};
+            std::array<std::shared_ptr<const image::Plane>, 3> masks;
+            for(size_t i = 0; i < masks.size(); i++)
             {
-                a.body = build(avatar::ParamWeights(base_, appearance->visualParams));
+                masks[i] =
+                    bakeMask(world, object, kMaskBakes[i].first, kMaskBakes[i].second, textures);
+            }
+            if(!a.body || a.appearanceSerial != appearance->serial || masks != a.masks)
+            {
+                std::vector<avatar::MorphMask> inputs;
+                for(size_t i = 0; i < masks.size(); i++)
+                {
+                    if(masks[i])
+                    {
+                        inputs.push_back({kMaskBakes[i].first, masks[i]->width, masks[i]->height,
+                                          masks[i]->pixels});
+                    }
+                }
+                a.body = build(avatar::ParamWeights(base_, appearance->visualParams), inputs);
                 a.appearanceSerial = appearance->serial;
+                a.masks = std::move(masks);
             }
         }
         const Body& body = a.body ? *a.body : *defaultBody_;

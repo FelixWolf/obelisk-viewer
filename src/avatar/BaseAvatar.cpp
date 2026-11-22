@@ -519,6 +519,28 @@ std::expected<BaseAvatar, std::string> BaseAvatar::load(const std::filesystem::p
     }
 
     collectParams(avatar, lad.RootElement(), std::nullopt);
+    // Morphs that follow clothing: the bake whose morph mask weighs them,
+    // by the body region it covers.
+    const auto* masks = lad.RootElement()->FirstChildElement("morph_masks");
+    for(const auto* m = masks ? masks->FirstChildElement("mask") : nullptr; m;
+        m = m->NextSiblingElement("mask"))
+    {
+        const std::string_view name = m->Attribute("morph_name") ? m->Attribute("morph_name") : "";
+        const std::string_view region =
+            m->Attribute("body_region") ? m->Attribute("body_region") : "";
+        const int bake = region == "head"         ? 8
+                         : region == "upper_body" ? 9
+                         : region == "lower_body" ? 10
+                                                  : -1;
+        for(auto& [id, param] : avatar.params)
+        {
+            if(param.name == name && !param.morphs.empty())
+            {
+                param.maskBake = bake;
+                param.maskInvert = m->BoolAttribute("invert", false);
+            }
+        }
+    }
     for(const auto& [id, param] : avatar.params)
     {
         if(param.transmitted())

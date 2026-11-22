@@ -268,6 +268,10 @@ std::optional<TextureData> textureFromJ2k(const J2kDecoder& decoder, std::span<c
     texture.discardLevel = discardLevel;
     texture.fullWidth = base.width << discardLevel;
     texture.fullHeight = base.height << discardLevel;
+    if(decoded.aux.size() == static_cast<size_t>(decoded.width) * decoded.height)
+    {
+        texture.aux = Plane{decoded.width, decoded.height, std::move(decoded.aux)};
+    }
     texture.levels = buildMipChain(std::move(base));
     return texture;
 }
@@ -322,6 +326,13 @@ MipLevel resizeRgba8(const MipLevel& source, uint32_t width, uint32_t height)
 
 void flipRows(TextureData& texture)
 {
+    Plane& aux = texture.aux;
+    for(uint32_t y = 0; y < aux.height / 2; y++)
+    {
+        const auto row = [&](uint32_t r)
+        { return aux.pixels.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(r) * aux.width); };
+        std::swap_ranges(row(y), row(y + 1), row(aux.height - 1 - y));
+    }
     for(MipLevel& level : texture.levels)
     {
         const size_t row = static_cast<size_t>(level.width) * 4;

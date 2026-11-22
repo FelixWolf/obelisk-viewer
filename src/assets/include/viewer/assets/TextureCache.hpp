@@ -46,6 +46,8 @@ struct TextureRequest
     // decoded at the coarsest level at least this big.
     uint32_t maxDimension = 0;
     bool flipRows = false; // the result bottom row first (image::flipRows), on the worker
+    // An avatar bake: its morph mask too (TextureData::aux), if it has one.
+    bool wantMask = false;
 };
 
 struct TextureResult
@@ -65,6 +67,9 @@ struct TextureResult
     // a bigger one from (the caller may download it and ask again with a
     // source).
     bool needsSource = false;
+    // A mask was wanted, but the cache doesn't know whether the texture has
+    // one (decoded before masks were kept): decoding it again would say.
+    bool maskUnknown = false;
     double milliseconds = 0; // worker time spent on this request
 };
 

@@ -34,6 +34,10 @@ enum class CacheKind : uint8_t
     // resolution (for decoding a bigger one). Stored with the textures:
     // clearing either kind clears both.
     TextureSource,
+    // An avatar bake's morph mask (its fifth component; the KTX2 has four):
+    // width and height (little-endian 32-bit) then the bytes, top row
+    // first. Stored with the textures too.
+    TextureMask,
 };
 
 struct CacheKey

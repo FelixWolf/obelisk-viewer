@@ -75,6 +75,43 @@ bool TextureCache::request(TextureRequest request)
     return true;
 }
 
+namespace
+{
+
+std::vector<uint8_t> packMask(const image::Plane& mask)
+{
+    std::vector<uint8_t> out(8);
+    for(int i = 0; i < 4; i++)
+    {
+        out[static_cast<size_t>(i)] = static_cast<uint8_t>(mask.width >> (8 * i));
+        out[static_cast<size_t>(4 + i)] = static_cast<uint8_t>(mask.height >> (8 * i));
+    }
+    out.insert(out.end(), mask.pixels.begin(), mask.pixels.end());
+    return out;
+}
+
+std::optional<image::Plane> unpackMask(const std::vector<uint8_t>& bytes)
+{
+    if(bytes.size() < 8)
+    {
+        return std::nullopt;
+    }
+    image::Plane mask;
+    for(int i = 0; i < 4; i++)
+    {
+        mask.width |= uint32_t{bytes[static_cast<size_t>(i)]} << (8 * i);
+        mask.height |= uint32_t{bytes[static_cast<size_t>(4 + i)]} << (8 * i);
+    }
+    if(static_cast<uint64_t>(mask.width) * mask.height != bytes.size() - 8)
+    {
+        return std::nullopt;
+    }
+    mask.pixels.assign(bytes.begin() + 8, bytes.end());
+    return mask;
+}
+
+} // namespace
+
 TextureResult TextureCache::process(const TextureRequest& request) const
 {
     using Clock = std::chrono::steady_clock;
@@ -98,8 +135,29 @@ TextureResult TextureCache::process(const TextureRequest& request) const
     // 1. The KTX2, if it's big enough (or whole).
     const CacheKey key{CacheKind::Texture, request.id};
     const CacheKey sourceKey{CacheKind::TextureSource, request.id};
+    const CacheKey maskKey{CacheKind::TextureMask, request.id};
+    // The morph mask beside the KTX2, for a bake (rows top first, as stored).
+    auto readMask = [&](image::TextureData& texture)
+    {
+        if(!request.wantMask)
+        {
+            return;
+        }
+        auto bytes = store_.read(maskKey);
+        if(!bytes)
+        {
+            result.maskUnknown = true;
+            return;
+        }
+        if(auto mask = unpackMask(*bytes))
+        {
+            texture.aux = std::move(*mask);
+        }
+    };
     std::optional<image::TextureData> cached;
-    if(auto file = store_.read(key))
+    // A bake whose mask isn't known, with its bytes at hand: decode them.
+    const bool decodeForMask = request.wantMask && request.source && !store_.contains(maskKey);
+    if(auto file = decodeForMask ? std::nullopt : store_.read(key))
     {
         cached = image::readKtx2(*file, {.maxDimension = request.maxDimension});
         if(!cached)
@@ -114,6 +172,7 @@ TextureResult TextureCache::process(const TextureRequest& request) const
         if(cached->discardLevel == 0 ||
            (request.maxDimension != 0 && stored >= request.maxDimension))
         {
+            readMask(*cached);
             result.texture = std::move(*cached);
             return finish(TextureResult::Status::LoadedFromCache);
         }
@@ -131,6 +190,7 @@ TextureResult TextureCache::process(const TextureRequest& request) const
         if(cached)
         {
             // The best there is without downloading.
+            readMask(*cached);
             result.texture = std::move(*cached);
             result.needsSource = true;
             return finish(TextureResult::Status::LoadedFromCache);
@@ -156,6 +216,15 @@ TextureResult TextureCache::process(const TextureRequest& request) const
     if(ktx.empty() || !store_.write(key, ktx))
     {
         log::warn("texture cache: failed to store {}", request.id.toString());
+    }
+    // The mask, or that there's none (an empty one), for whoever asks.
+    if(!texture->aux.empty() || request.wantMask)
+    {
+        store_.write(maskKey, packMask(texture->aux));
+    }
+    if(!request.wantMask)
+    {
+        texture->aux = {};
     }
     // Keep the J2K while the KTX2 is partial; whole, it's no longer needed.
     if(texture->discardLevel > 0 && !kept)

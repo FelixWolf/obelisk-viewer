@@ -186,6 +186,9 @@ private:
     {
         std::shared_ptr<const Body> body;
         uint64_t appearanceSerial = 0;
+        // The head, upper and lower bakes' morph masks the body was built
+        // with (rebuilt as they arrive).
+        std::array<std::shared_ptr<const image::Plane>, 3> masks;
         avatar::Animator animator;
         std::unordered_map<Uuid, int32_t> started; // animation -> sequence
         std::vector<avatar::JointPose> pose;
@@ -209,7 +212,13 @@ private:
     const render::GpuTexture* bake(const world::World& world, const world::Object& avatar, int slot,
                                    const char* name, TextureManager& textures, float texels,
                                    bool linear = false) const;
-    std::shared_ptr<const Body> build(const avatar::ParamWeights& weights) const;
+    // A bake's morph mask (head, upper or lower), nullptr until it's here or
+    // if it has none.
+    std::shared_ptr<const image::Plane> bakeMask(const world::World& world,
+                                                 const world::Object& avatar, int slot,
+                                                 const char* name, TextureManager& textures) const;
+    std::shared_ptr<const Body> build(const avatar::ParamWeights& weights,
+                                      std::span<const avatar::MorphMask> masks = {}) const;
     const Body& bodyOf(const world::Object& avatar) const;
     // Joint position (and scale lock) overrides from rigged attachments, by
     // avatar: per joint, the one from the mesh with the highest id (as the

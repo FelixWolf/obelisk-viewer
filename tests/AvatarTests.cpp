@@ -257,3 +257,51 @@ TEST_CASE("Animation: parse, sample, ease and blend")
     animator.evaluate(2.7, avatar->skeleton.joints.size(), pose);
     CHECK_FALSE(pose[static_cast<size_t>(pelvis)].rotation.has_value());
 }
+
+TEST_CASE("Shape: morphs that follow clothing go by their bake's morph mask")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    // avatar_lad.xml <morph_masks>: the loose shirt morph by the upper bake.
+    const VisualParam* loose = nullptr;
+    for(const auto& [id, p] : avatar->params)
+    {
+        if(p.name == "Displace_Loose_Upperbody")
+        {
+            loose = &p;
+        }
+    }
+    REQUIRE(loose);
+    CHECK(loose->maskBake == 9);
+    CHECK_FALSE(loose->maskInvert);
+
+    ParamWeights weights(*avatar);
+    for(const auto& [id, p] : avatar->params)
+    {
+        weights.set(id, 0.0f);
+    }
+    const Shape bare = shapeAvatar(*avatar, weights);
+    weights.set(loose->id, 1.0f);
+    const Shape unmasked = shapeAvatar(*avatar, weights);
+    const std::vector<uint8_t> none(4, 0);
+    const std::vector<uint8_t> all(4, 255);
+    const Shape nothing = shapeAvatar(*avatar, weights, std::vector<MorphMask>{{9, 2, 2, none}});
+    const Shape everything = shapeAvatar(*avatar, weights, std::vector<MorphMask>{{9, 2, 2, all}});
+    // Another bake's mask doesn't touch it.
+    const Shape other = shapeAvatar(*avatar, weights, std::vector<MorphMask>{{10, 2, 2, none}});
+
+    const size_t upper = 2; // kBodyParts: upperBodyMesh
+    REQUIRE(std::string(kBodyParts[upper].type) == "upperBodyMesh");
+    size_t moved = 0;
+    for(size_t v = 0; v < bare.meshes[upper].positions.size(); v++)
+    {
+        if(unmasked.meshes[upper].positions[v] != bare.meshes[upper].positions[v])
+        {
+            moved++;
+        }
+        CHECK(nothing.meshes[upper].positions[v] == bare.meshes[upper].positions[v]);
+        CHECK(everything.meshes[upper].positions[v] == unmasked.meshes[upper].positions[v]);
+        CHECK(other.meshes[upper].positions[v] == unmasked.meshes[upper].positions[v]);
+    }
+    CHECK(moved > 0);
+}

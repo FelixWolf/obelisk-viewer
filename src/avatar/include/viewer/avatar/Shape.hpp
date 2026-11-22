@@ -62,10 +62,24 @@ struct Shape
     float hover = 0.0f;
 };
 
+// A bake's morph mask (its fifth component; rows bottom first, as the
+// bakes are uploaded): where clothing is, for the morphs that follow it
+// (loose shirts and pants, flares, cuffs).
+struct MorphMask
+{
+    int bake = -1; // texture entry index: 8 head, 9 upper, 10 lower
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::span<const uint8_t> pixels; // width * height
+};
+
 // The skeleton only (cheap): joints, body size and hover.
 Shape shapeSkeleton(const BaseAvatar& base, const ParamWeights& weights);
-// The skeleton and the morphed meshes.
-Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights);
+// The skeleton and the morphed meshes. Morphs that follow clothing are
+// weighed per vertex by their bake's mask; without one, applied whole (as
+// the official viewer until the mask arrives).
+Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights,
+                  std::span<const MorphMask> masks = {});
 
 // A joint's animated local transform; what isn't set keeps the rest pose
 // (rotation) or the shape (position).

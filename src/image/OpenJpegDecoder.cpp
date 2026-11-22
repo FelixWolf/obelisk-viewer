@@ -97,8 +97,8 @@ public:
 
         if(ok && image->numcomps > 0)
         {
-            // Up to four channels; avatar bakes carry a fifth we don't use
-            // (the official viewer also decodes at most four).
+            // Up to four channels; avatar bakes carry a fifth, their morph
+            // mask, which goes apart (Image::aux).
             const uint32_t n = std::min<uint32_t>(image->numcomps, 4);
             uint8_t precision[4];
             bool isSigned[4];
@@ -112,6 +112,18 @@ public:
             interleaveTo8Bit(
                 out, w, h, n, precision, isSigned, [&](uint32_t c, uint32_t x, uint32_t y)
                 { return image->comps[c].data[static_cast<size_t>(y) * image->comps[c].w + x]; });
+            out.aux.clear();
+            if(image->numcomps >= 5 && image->comps[4].w == w && image->comps[4].h == h)
+            {
+                const opj_image_comp_t& a = image->comps[4];
+                const uint8_t auxPrecision = static_cast<uint8_t>(a.prec);
+                const bool auxSigned = a.sgnd != 0;
+                Image plane;
+                interleaveTo8Bit(plane, w, h, 1, &auxPrecision, &auxSigned,
+                                 [&](uint32_t, uint32_t x, uint32_t y)
+                                 { return a.data[static_cast<size_t>(y) * a.w + x]; });
+                out.aux = std::move(plane.pixels);
+            }
         }
         else
         {

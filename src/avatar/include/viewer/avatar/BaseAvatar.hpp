@@ -157,6 +157,11 @@ struct VisualParam
     std::vector<BoneDeformation> bones;
     std::vector<BoneDeformation> volumes; // collision volumes a morph resizes
     std::vector<Driven> driven;
+    // Its morph follows clothing (avatar_lad.xml <morph_masks>): weighed per
+    // vertex by this bake's morph mask (texture entry index; -1: none),
+    // inverted if so said (llpolymorph.cpp LLPolyVertexMask).
+    int maskBake = -1;
+    bool maskInvert = false;
 
     bool transmitted() const { return group == 0 || group == 3; }
 };

@@ -188,7 +188,8 @@ Shape shapeSkeleton(const BaseAvatar& base, const ParamWeights& weights)
     return shape;
 }
 
-Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights)
+Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights,
+                  std::span<const MorphMask> masks)
 {
     Shape shape = shapeSkeleton(base, weights);
     const Sex sex = weights.sex();
@@ -209,16 +210,49 @@ Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights)
         {
             continue;
         }
+        // Its bake's mask, if it follows clothing and the mask is here.
+        const MorphMask* mask = nullptr;
+        if(p.maskBake >= 0)
+        {
+            for(const MorphMask& m : masks)
+            {
+                if(m.bake == p.maskBake && m.width > 0 && m.height > 0 &&
+                   m.pixels.size() == static_cast<size_t>(m.width) * m.height)
+                {
+                    mask = &m;
+                }
+            }
+        }
         for(const VisualParam::MorphRef& ref : p.morphs)
         {
             const Morph& morph = base.meshes[ref.part].morphs[ref.morph];
+            const BodyMesh& mesh = base.meshes[ref.part];
             ShapedMesh& out = shape.meshes[ref.part];
             for(size_t v = 0; v < morph.vertices.size(); v++)
             {
                 const uint32_t i = morph.vertices[v];
-                out.positions[i] += w * morph.positions[v];
-                out.normals[i] += w * kNormalSoften * morph.normals[v];
-                out.texCoords[i] += w * morph.texCoords[v];
+                float vw = w;
+                if(mask && i < mesh.texCoords.size())
+                {
+                    // LLPolyVertexMask::generateMask: the texel at the
+                    // vertex's UV, truncated, rows from the bottom.
+                    const glm::vec2 uv = mesh.texCoords[i];
+                    const auto s = static_cast<uint32_t>(
+                        std::clamp(uv.x * static_cast<float>(mask->width - 1), 0.0f,
+                                   static_cast<float>(mask->width - 1)));
+                    const auto t = static_cast<uint32_t>(
+                        std::clamp(uv.y * static_cast<float>(mask->height - 1), 0.0f,
+                                   static_cast<float>(mask->height - 1)));
+                    float m = mask->pixels[static_cast<size_t>(t) * mask->width + s] / 255.0f;
+                    if(p.maskInvert)
+                    {
+                        m = 1.0f - m;
+                    }
+                    vw *= m;
+                }
+                out.positions[i] += vw * morph.positions[v];
+                out.normals[i] += vw * kNormalSoften * morph.normals[v];
+                out.texCoords[i] += vw * morph.texCoords[v];
             }
         }
     }

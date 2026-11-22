@@ -109,6 +109,11 @@ public:
     // (terrain layers go into an array). Keeps a copy once asked for;
     // nullptr until it's loaded.
     const image::TextureData* data(const Uuid& id);
+    // An avatar bake's morph mask (its fifth component), for the morphs
+    // that follow clothing; nullptr until it's known, or if it has none.
+    // Changes (another pointer) when a better one arrives.
+    std::shared_ptr<const image::Plane> mask(const Uuid& id);
+    std::shared_ptr<const image::Plane> mask(const Uuid& id, const std::string& url);
 
     // How the texture uses alpha, once it's resident.
     std::optional<image::AlphaMode> alphaMode(const Uuid& id) const;
@@ -158,6 +163,12 @@ private:
         bool wantColor = false;
         bool wantLinear = false;
         bool keepCpuCopy = false;
+        // The morph mask: wanted, read (whether or not there's one), and
+        // downloaded again once for one decoded before masks were kept.
+        bool wantMask = false;
+        bool maskKnown = false;
+        bool maskRefetched = false;
+        std::shared_ptr<const image::Plane> mask;
         image::TextureData pending;       // decoded, waiting for an upload job
         image::TextureData pendingLinear; // the same, for the linear copy
         std::unique_ptr<image::TextureData> cpuCopy;

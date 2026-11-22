@@ -229,6 +229,37 @@ const image::TextureData* TextureManager::data(const Uuid& id)
     return e.cpuCopy.get();
 }
 
+std::shared_ptr<const image::Plane> TextureManager::mask(const Uuid& id)
+{
+    if(id.isNull())
+    {
+        return nullptr;
+    }
+    Entry& e = entry(id);
+    e.wantMask = true;
+    if(e.listedFrame != frame_)
+    {
+        e.listedFrame = frame_;
+        used_.push_back(&e);
+    }
+    e.usedFrame = frame_;
+    return e.mask;
+}
+
+std::shared_ptr<const image::Plane> TextureManager::mask(const Uuid& id, const std::string& url)
+{
+    if(id.isNull())
+    {
+        return nullptr;
+    }
+    Entry& e = entry(id);
+    if(e.url.empty())
+    {
+        e.url = url;
+    }
+    return mask(id);
+}
+
 std::optional<image::AlphaMode> TextureManager::alphaMode(const Uuid& id) const
 {
     const auto it = entries_.find(id);
@@ -369,7 +400,7 @@ void TextureManager::chooseSizes()
         {
             continue;
         }
-        const bool needCpuCopy = e.keepCpuCopy && !e.cpuCopy;
+        const bool needCpuCopy = (e.keepCpuCopy && !e.cpuCopy) || (e.wantMask && !e.maskKnown);
         const uint32_t target = targetSize(e);
         bool read = e.state == State::Lookup || needCpuCopy;
         if(!read && (e.wantColor || e.wantLinear))
@@ -458,8 +489,8 @@ void TextureManager::startReads()
         {
             continue;
         }
-        if(!cache_.request(
-               assets::TextureRequest{.id = id, .maxDimension = size, .flipRows = true}))
+        if(!cache_.request(assets::TextureRequest{
+               .id = id, .maxDimension = size, .flipRows = true, .wantMask = it->second.wantMask}))
         {
             it->second.reading = false; // one is in flight already: try again later
             continue;
@@ -569,6 +600,22 @@ void TextureManager::handleCacheResult(assets::TextureResult& result)
         {
             e.cpuCopy = std::make_unique<image::TextureData>(texture);
         }
+        if(e.wantMask)
+        {
+            if(!texture.aux.empty())
+            {
+                e.mask = std::make_shared<const image::Plane>(std::move(texture.aux));
+            }
+            e.maskKnown = true;
+            // Cached before masks were kept: once more from the source.
+            if(result.maskUnknown && !e.maskRefetched && e.state == State::Cached &&
+               (!e.url.empty() || !viewerAssetUrl_.empty()))
+            {
+                e.maskRefetched = true;
+                e.state = State::Queued;
+                downloadQueue_.push_back(result.id);
+            }
+        }
         // The GPU copies wanted that aren't this size already.
         const bool color = e.wantColor && largerSide(e.color) != side;
         const bool linear = e.wantLinear && largerSide(e.linear) != side;
@@ -670,7 +717,8 @@ void TextureManager::handleDownload(Download& download)
                                           .source = [bytes]() -> std::optional<std::vector<uint8_t>>
                                           { return std::move(*bytes); },
                                           .maxDimension = e.readSize,
-                                          .flipRows = true});
+                                          .flipRows = true,
+                                          .wantMask = e.wantMask});
 }
 
 TextureManager::Stats TextureManager::stats() const
