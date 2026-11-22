@@ -1804,12 +1804,13 @@ void Renderer::updateExposure(SDL_GPUCommandBuffer* commands, const Lighting& li
         {luminance_, pipelines_->clampSampler},
         {exposureMaps_[previous], pipelines_->clampSampler}};
     SDL_BindGPUFragmentSamplers(pass, 0, inputs, 2);
-    // The official viewer's RenderDynamicExposureCoefficient, SpeedError and
-    // SpeedTarget: a luminance of 0.175 takes the least exposure, and 90% of
-    // the way to a new exposure takes 2 s.
+    // The official viewer's RenderDynamicExposureCoefficient (settings.xml's
+    // 0.5; the 0.175 in pipeline.cpp is only the fallback for a missing
+    // setting), SpeedError and SpeedTarget: a luminance of 0.5 takes the
+    // least exposure, and 90% of the way to a new exposure takes 2 s.
     pushFragmentUniforms(
         commands, 0,
-        ExposureFS{glm::vec4(0.175f, light.exposureMin, light.exposureMax, 0.1f),
+        ExposureFS{glm::vec4(0.5f, light.exposureMin, light.exposureMax, 0.1f),
                    glm::vec4(seconds, exposureHistory_ ? 1.0f : 0.0f, 2.0f, 0.0f)});
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);

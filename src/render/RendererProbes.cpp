@@ -361,15 +361,17 @@ uint32_t Renderer::probesCaptured() const
 void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& scene,
                                 const FrameFS& frameFs, bool drawsReady)
 {
-    // This face, lit as the view but from the probe's origin, and with the
-    // sky's ambient light, not the probes': lit by what it captures, each
-    // capture would come out brighter than the last (the official viewer's
-    // irradiance pass does the same, ambiance 0).
+    // This face, lit as the view but from the probe's origin. For the
+    // radiance (reflections), surfaces take their ambient light from the
+    // probes as in the view, so light bounces from capture to capture
+    // (llreflectionmapmanager.cpp: ambiance at full in the radiance pass;
+    // surfaces reflect less than they get, so it settles). The irradiance
+    // pass (below) has none.
     FrameFS fs = frameFs;
     fs.cameraPosition = glm::vec4(capture_.origin, 1.0f);
-    fs.probeInfo.w = 1.0f;
     if(capture_.irradiance)
     {
+        fs.probeInfo.w = 1.0f; // no probes' ambient (ambiance 0)
         // The irradiance pass (llsettingsvo.cpp draw_color, applyToShader;
         // lldrawpoolwlsky.cpp): the sky's blue horizon and density made the
         // gray of their HSL lightness, no ambient light (direct light only)

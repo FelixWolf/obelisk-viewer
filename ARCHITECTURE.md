@@ -465,7 +465,9 @@ scene's luminance (the middle of the view, nudged towards the ground;
 surfaces at half, RenderDiffuseLuminanceScale, the sky in full, told apart
 by the depth buffer) goes into a 256² map whose mip chain averages it;
 from that average a one-pixel pass picks an exposure between the sky's
-bounds (dark views the most, a luminance of 0.175 and up the least) and
+bounds (dark views the most, a luminance of 0.5 and up the least:
+settings.xml's RenderDynamicExposureCoefficient, not the 0.175 fallback in
+pipeline.cpp) and
 eases last frame's towards it (90% in 2 s). The tonemap reads it there, so
 it never comes back to the CPU. Skies made for PBR (with
 `reflection_probe_ambiance`) range from 1 / (2 sqrt(gamma)) to
@@ -1178,8 +1180,10 @@ the nearest one without a capture goes next, otherwise the one captured
 longest ago, at most every 10 s (`refreshSeconds`). The face to capture is
 announced a frame ahead (`Renderer::nextProbeFace`, `Reflections::
 probeFace`), so the scene lists the objects in it even when they're out of
-view, and only those. Captures are lit with the sky's ambient, not the
-probes': lit by themselves, each would come out brighter than the last.
+view, and only those. In the reflection capture, surfaces take their
+ambient light from the probes as in the view, so light bounces from
+capture to capture (llreflectionmapmanager.cpp: ambiance at full in the
+radiance pass). It settles, because surfaces reflect less than they get.
 
 Each cube is captured twice, as LLReflectionMapManager does:
 1. **Radiance:** the six faces as they look, filtered into the
