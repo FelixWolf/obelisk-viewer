@@ -14,10 +14,12 @@ namespace viewer
 namespace
 {
 
-// The light scales the official viewer uses for its PBR pipeline
-// (RenderSkySunlightScale, RenderSkyAmbientScale).
-constexpr float kSunlightScale = 1.5f;
-constexpr float kAmbientScale = 1.5f;
+// The light scales the official viewer uses for its PBR pipeline: its
+// settings.xml's RenderSkySunlightScale (RenderHDRSkySunlightScale with HDR)
+// and RenderSkyAmbientScale, 1 (the 1.5 in llsettingsvo.cpp is only the
+// fallback for a missing setting).
+constexpr float kSunlightScale = 1.0f;
+constexpr float kAmbientScale = 1.0f;
 
 glm::vec3 srgbToLinear(glm::vec3 c)
 {
@@ -223,8 +225,11 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
                             : glm::vec3(0.0f);
     const glm::vec3 ambient = srgbToLinear(glm::pow(light.ambient, glm::vec3(0.9f)) * 0.57f);
     const float gray = glm::dot(ambient, glm::vec3(0.2126f, 0.7152f, 0.0722f)) * kAmbientScale;
+    // One gray all round, as the official viewer's (no sky and ground
+    // colors); the shaders dim it facing towards or away from the light
+    // (ambientLighting).
     lighting.skyAmbient = glm::vec3(gray);
-    lighting.groundAmbient = glm::vec3(gray * 0.6f);
+    lighting.groundAmbient = glm::vec3(gray);
 
     lighting.exposure = exposure_;
     // Skies made for PBR (with a probe ambiance) get the official viewer's
@@ -267,6 +272,8 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
     a.sunScale = sky.sunScale;
     a.moonScale = sky.moonScale;
     a.moonBrightness = sky.moonBrightness;
+    // llsettingsvo.cpp applyToShader: sqrt(gamma) x 2 with a probe ambiance.
+    a.skyHdrScale = sky.probeAmbiance > 0.0f ? std::sqrt(sky.gamma) * 2.0f : 1.0f;
     a.starBrightness = sky.starBrightness;
     a.cloudColor = sky.cloudColor;
     a.cloudScale = sky.cloudScale;

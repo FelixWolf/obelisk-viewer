@@ -428,9 +428,15 @@ rotated by their rotations), which lights surfaces (the sun if up, else the
 moon at its brightness), the light dimmed along its path through the air
 (more when low: redder sunsets) and the ambient raised by cloud cover. The
 App turns that into linear light the way the official PBR pipeline does
-(the settings' sRGB-ish colors linearized, sunlight x1.5 and x pi for our
-BRDFs' 1/pi, ambient as gray x1.5) and passes the atmosphere itself to the
-shaders (`render::Atmosphere`, in the frame uniforms):
+(the settings' sRGB-ish colors linearized; sunlight x pi for our BRDFs'
+1/pi). The sun and ambient scales are 1: settings.xml's
+RenderSkySunlightScale, RenderHDRSkySunlightScale and
+RenderSkyAmbientScale. The 1.5 in llsettingsvo.cpp is only the fallback
+for a missing setting, and using it made everything half again too
+bright. The ambient is one gray all round, dimmed by up to a quarter on
+surfaces facing towards or away from the light (atmosphericsFuncs.glsl
+`ambientLighting`). The App passes the atmosphere itself to the shaders
+(`render::Atmosphere`, in the frame uniforms):
 
 - `sky.frag`, a full-screen triangle drawn first, is the windlight sky
   model (as the official skyF.glsl, with Z up): blue and haze scattering by
@@ -1129,8 +1135,16 @@ point, 128² per face, one face a frame. There are three kinds:
   ambiance, near clip, box or sphere), a sphere their X size across or their
   box. They're usually where builders want rooms lit from inside.
 - Automatic probes (`AutomaticProbes.cpp`), where the official octree puts
-  them: in every 32 m node, and those exist only where the 64 m node around
-  them held more than 128 prims. A grid stands in for the octree. A probe
+  them: one in every 32 m node. A prim settles in the node whose half-size s
+  has s < r <= 2s, where r is its bin radius (max(radius, 3); lloctree.h
+  `contains`, llvovolume.cpp `getBinRadius`). Smaller prims pass down
+  through the 32 m node, which creates it. So every 32 m cell holding a prim
+  with a bin radius up to 32 m gets a probe, however few prims it has; the
+  128-object capacity only pushes prims further down. (We used to place
+  probes only where a 64 m cell held more than 128 prims. Sparse places
+  such as skyboxes then had none, and everything there was lit by the
+  sky-only default probe: too bright and too blue.) A grid stands in for
+  the octree. A probe
   sits at the middle of its prims' bounds, its radius reaches their
   corners (8 m at least), and it's at least 2 m above the ground and high
   enough that its near clip (half its radius) clears it.
@@ -1143,9 +1157,31 @@ longest ago, at most every 10 s (`refreshSeconds`). The face to capture is
 announced a frame ahead (`Renderer::nextProbeFace`, `Reflections::
 probeFace`), so the scene lists the objects in it even when they're out of
 view, and only those. Captures are lit with the sky's ambient, not the
-probes' (as the official irradiance pass): lit by themselves, each would
-come out brighter than the last. When the sixth face is in, the cube is
-mipmapped and filtered: radiance, 7 levels (128 down to 2, max_probe_lod
+probes': lit by themselves, each would come out brighter than the last.
+
+Each cube is captured twice, as LLReflectionMapManager does:
+1. **Radiance:** the six faces as they look, filtered into the
+   reflections.
+2. **Irradiance:** the six faces again, filtered into the ambient light,
+   with three changes (llsettingsvo.cpp draw_color and applyToShader;
+   lldrawpoolwlsky.cpp):
+   - the sky's blue horizon and blue density replaced by the gray of their
+     HSL lightness;
+   - no ambient light, so only direct light;
+   - no clouds.
+
+Without the irradiance pass the ambient light took the sky's blue, and at
+sunrise white came out blue where the official viewer shows it gray.
+
+Skies made for PBR (with a probe ambiance) are drawn brighter: the sky, and
+the haze added over surfaces, are scaled by sqrt(gamma) x 2 in linear light
+(`Atmosphere::skyHdrScale`; the official viewer's sky_hdr_scale, applied in
+softenLightF.glsl and hazeF.glsl). The probes capture that brighter sky, so
+the ambient light it gives is twice as strong against the sun. Without the
+scale, a low sun lit the scene orange with hard shadows, where the official
+viewer shows it flatter, with faint shadows.
+
+When the cube's faces are in, it is mipmapped and filtered: radiance, 7 levels (128 down to 2, max_probe_lod
 6), each face of level n the capture through a GGX lobe of roughness n / 6
 (64 importance samples, each reading the capture's level that matches its
 solid angle), and irradiance (16², the cosine-weighted average around each

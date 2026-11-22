@@ -103,7 +103,8 @@ void main()
     vec3 color =
         blinnPhong(n, v, l, albedo.rgb, specularColor, glossiness, frame.sunColor.rgb) * shadow;
     // Ambient light and reflections from the probes around.
-    vec3 ambient = hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
+    vec3 ambient = hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb) *
+                   ambientLighting(n, l);
     vec3 glossy = vec3(0.0);
     vec3 sharp = vec3(0.0);
     const bool reflections = anyProbes();

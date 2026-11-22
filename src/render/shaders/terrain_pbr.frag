@@ -151,8 +151,9 @@ void main()
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor, roughness, metallic,
                            frame.sunColor.rgb) *
                  sunShadow(shadowMap, inWorldPosition, normalize(inNormal));
-    color += orm.r * pbrProbeLight(inWorldPosition, n, v, baseColor, roughness, metallic, frame.skyAmbient.rgb,
-                                   frame.groundAmbient.rgb);
+    const float amb = ambientLighting(n, frame.sunDirection.xyz);
+    color += orm.r * pbrProbeLight(inWorldPosition, n, v, baseColor, roughness, metallic,
+                                   frame.skyAmbient.rgb * amb, frame.groundAmbient.rgb * amb);
     color += baseColor * (1.0 - metallic) * localLight(inWorldPosition, n);
     color += emissive;
     outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);

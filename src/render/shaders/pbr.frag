@@ -76,7 +76,8 @@ void main()
     vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor.rgb, roughness, metallic,
                            frame.sunColor.rgb) * shadow;
     color += occlusion * pbrProbeLight(inWorldPosition, n, v, baseColor.rgb, roughness, metallic,
-                                       frame.skyAmbient.rgb, frame.groundAmbient.rgb);
+                                       frame.skyAmbient.rgb * ambientLighting(n, frame.sunDirection.xyz),
+                                       frame.groundAmbient.rgb * ambientLighting(n, frame.sunDirection.xyz));
     // Local lights: diffuse, and GGX highlights.
     const LocalLighting local = localLights(inWorldPosition, n, v, true, 0.0,
                                             mix(vec3(0.04), baseColor.rgb, metallic), roughness);

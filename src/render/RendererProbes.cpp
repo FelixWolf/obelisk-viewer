@@ -368,6 +368,24 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
     FrameFS fs = frameFs;
     fs.cameraPosition = glm::vec4(capture_.origin, 1.0f);
     fs.probeInfo.w = 1.0f;
+    if(capture_.irradiance)
+    {
+        // The irradiance pass (llsettingsvo.cpp draw_color, applyToShader;
+        // lldrawpoolwlsky.cpp): the sky's blue horizon and density made the
+        // gray of their HSL lightness, no ambient light (direct light only)
+        // and no clouds.
+        auto lightness = [](glm::vec4 c)
+        {
+            const float l = 0.5f * (std::max({c.x, c.y, c.z}) + std::min({c.x, c.y, c.z}));
+            return glm::vec4(l, l, l, c.w);
+        };
+        fs.blueHorizon = lightness(fs.blueHorizon);
+        fs.blueDensity = lightness(fs.blueDensity);
+        fs.atmoAmbient = glm::vec4(0.0f, 0.0f, 0.0f, fs.atmoAmbient.w);
+        fs.skyAmbient = glm::vec4(0.0f, 0.0f, 0.0f, fs.skyAmbient.w);
+        fs.groundAmbient = glm::vec4(0.0f, 0.0f, 0.0f, fs.groundAmbient.w);
+        fs.cloudPos2.w = 0.0f;
+    }
     const glm::mat4 view = faceView(capture_.face, capture_.origin);
     const glm::mat4 projection =
         glm::perspective(glm::half_pi<float>(), 1.0f, capture_.nearClip, capture_.farClip);
@@ -437,9 +455,16 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
     drawObjects(scenePass, scene, order, instanceBase);
     SDL_EndGPURenderPass(pass);
 
-    if(++capture_.face == 6)
+    if(++capture_.face == 6 && !capture_.irradiance)
     {
-        filterProbe(commands, capture_.cube);
+        // Reflections done: the same cube again for its ambient light.
+        filterProbe(commands, capture_.cube, false);
+        capture_.irradiance = true;
+        capture_.face = 0;
+    }
+    else if(capture_.face == 6)
+    {
+        filterProbe(commands, capture_.cube, true);
         ProbeCube& cube = probeCubes_[capture_.cube];
         const uint64_t now = SDL_GetTicksNS();
         if(capture_.cube == 0)
@@ -456,7 +481,7 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
     }
 }
 
-void Renderer::filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube)
+void Renderer::filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube, bool irradiance)
 {
     // Lower levels of the capture: what the filters read for wide lobes.
     SDL_GenerateMipmapsForGPUTexture(commands, probeCapture_);
@@ -482,6 +507,14 @@ void Renderer::filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube)
         SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
         SDL_EndGPURenderPass(pass);
     };
+    if(irradiance)
+    {
+        for(int face = 0; face < 6; face++)
+        {
+            filterFace(p.probeIrradiance, probeIrradiance_, 0, face, 0.0f);
+        }
+        return;
+    }
     // Radiance: level n stands for roughness n / last level.
     for(uint32_t level = 0; level < kProbeLevels; level++)
     {
@@ -490,10 +523,6 @@ void Renderer::filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube)
             filterFace(p.probeRadiance, probeRadiance_, level, face,
                        static_cast<float>(level) / kLastLevel);
         }
-    }
-    for(int face = 0; face < 6; face++)
-    {
-        filterFace(p.probeIrradiance, probeIrradiance_, 0, face, 0.0f);
     }
 }
 

@@ -239,7 +239,9 @@ void main()
 
     const vec4 clouds = cloudLayer(dir);
     const vec3 sky = mix(atmosphereSky(dir), clouds.rgb, clouds.a);
-    vec3 color = srgbToLinear(sky);
+    // Linear, and brighter for skies made for PBR (softenLightF.glsl:
+    // sky_hdr_scale).
+    vec3 color = srgbToLinear(sky) * frame.moonInfo.y;
     const float brightness = dot(sky, vec3(0.2126, 0.7152, 0.0722));
     const float clear = 1.0 - clouds.a; // the clouds hide what's behind them
 

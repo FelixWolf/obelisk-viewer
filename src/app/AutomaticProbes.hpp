@@ -3,10 +3,12 @@
 // Automatic reflection probes, placed as the official viewer places them
 // (LLReflectionMapManager::registerSpatialGroup, LLReflectionMap::
 // autoAdjustOrigin): its octree of objects gets a probe in every node 32 m
-// across, and such nodes exist where the 64 m node around them held more
-// than 128 objects (OctreeMaxNodeCapacity), so only dense places get them.
-// Here a grid stands in for the octree: 64 m cells counting the objects that
-// fit them, 32 m cells inside the full ones.
+// across. An object settles in the node whose half-size s has
+// s < r <= 2s, r its bin radius (lloctree.h contains: max(its radius, 3)
+// for prims, llvovolume.cpp getBinRadius), and smaller ones go down
+// through the 32 m node to get there, making it. So every 32 m cell
+// holding an object with a bin radius up to 32 m gets a probe, however
+// few objects it has. Here a grid of 32 m cells stands in for the octree.
 //
 // A probe sits at the middle of its objects' bounds, at least 2 m above the
 // ground, and far enough up that half its radius (its near clip) clears the

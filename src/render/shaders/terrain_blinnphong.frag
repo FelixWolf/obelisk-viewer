@@ -48,7 +48,8 @@ void main()
                             frame.sunColor.rgb) * sunShadow(shadowMap, inWorldPosition, n);
     color += albedo * probeAmbient(inWorldPosition, n,
                                    hemisphereAmbient(n, frame.skyAmbient.rgb,
-                                                     frame.groundAmbient.rgb));
+                                                     frame.groundAmbient.rgb) *
+                                       ambientLighting(n, frame.sunDirection.xyz));
     color += albedo * localLight(inWorldPosition, n);
     outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);
 }

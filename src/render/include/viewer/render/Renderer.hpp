@@ -272,7 +272,7 @@ private:
                       bool drawsReady);
     void captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& scene,
                           const FrameFS& frameFs, bool drawsReady);
-    void filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube);
+    void filterProbe(SDL_GPUCommandBuffer* commands, uint32_t cube, bool irradiance);
     // The probe textures, as samplers 'radiance, irradiance, BRDF table'.
     std::array<SDL_GPUTextureSamplerBinding, 3> probeSamplers() const;
 
@@ -526,6 +526,11 @@ private:
         float nearClip = 0.1f;
         float farClip = 64.0f;
         bool objects = false; // local probes see objects, the default one doesn't
+        // Each probe is captured twice, as the official viewer's
+        // LLReflectionMapManager does: for its radiance (reflections), then
+        // for its irradiance (ambient light), with the sky made gray, no
+        // ambient light and no clouds, so the world isn't tinted blue.
+        bool irradiance = false;
     };
     ProbeCapture capture_;
     FrameBuffer probeBuffer_; // the local probes surfaces use this frame

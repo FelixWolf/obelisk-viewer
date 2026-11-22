@@ -39,7 +39,7 @@ const float PI = 3.14159265359;
         vec4 glow;         /* xyz glow, w star brightness */                                  \
         vec4 sunDisc;      /* xyz towards the sun, w its radius (radians) */                  \
         vec4 moonDisc;     /* xyz towards the moon, w its radius */                           \
-        vec4 moonInfo;     /* x moon brightness */                                            \
+        vec4 moonInfo;     /* x moon brightness, y sky HDR scale */                           \
         vec4 cloudColor;   /* xyz, w scale */                                                 \
         vec4 cloudPos1;    /* xyz position/density 1, w variance */                           \
         vec4 cloudPos2;    /* xyz position/density 2, w clouds on (1) */                      \
@@ -89,6 +89,15 @@ vec3 decodeNormal(vec4 texel)
 vec3 hemisphereAmbient(vec3 n, vec3 sky, vec3 ground)
 {
     return mix(ground, sky, n.z * 0.5 + 0.5);
+}
+
+// The official viewer's "touch of lighting in the opposite direction of the
+// sun light" (atmosphericsFuncs.glsl ambientLighting): its ambient, dimmed
+// by up to a quarter on surfaces facing towards or away from the light `l`.
+float ambientLighting(vec3 n, vec3 l)
+{
+    float a = min(abs(dot(n, l)), 1.0) * 0.5;
+    return 1.0 - a * a;
 }
 
 // --- Blinn-Phong ---------------------------------------------------------------

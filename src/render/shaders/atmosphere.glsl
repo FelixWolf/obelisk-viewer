@@ -68,7 +68,8 @@ vec3 applySky(vec3 color, vec3 worldPosition)
     vec3 additive = frame.blueHorizon.xyz * blueWeight * (shaded + cloudyAmbient) +
                     frame.blueHorizon.w * hazeWeight * (shaded * hazeGlow + cloudyAmbient);
     additive = min(additive * (vec3(1.0) - atten), vec3(10.0));
-    return color * atten.r + srgbToLinear(additive * 2.0);
+    // The haze as hazeF.glsl adds it: brighter for skies made for PBR.
+    return color * atten.r + srgbToLinear(additive * 2.0) * frame.moonInfo.y;
 }
 
 // Water fog between the camera and a surface under the water, for the

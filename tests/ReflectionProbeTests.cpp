@@ -23,10 +23,12 @@ std::vector<ProbeObject> cluster(int count)
 
 } // namespace
 
-TEST_CASE("Automatic probes: only where the 64 m cell holds more than 128 objects")
+TEST_CASE("Automatic probes: in every 32 m cell with objects up to its size")
 {
     const auto flat = [](glm::vec2) { return 0.0f; };
-    CHECK(placeAutomaticProbes(cluster(128), flat, 0).empty());
+    CHECK(placeAutomaticProbes({}, flat, 0).empty());
+    // However few (one object makes the octree's 32 m node).
+    CHECK(placeAutomaticProbes(cluster(1), flat, 0).size() == 1);
 
     const auto probes = placeAutomaticProbes(cluster(200), flat, 0);
     REQUIRE(probes.size() == 1);
@@ -42,11 +44,17 @@ TEST_CASE("Automatic probes: only where the 64 m cell holds more than 128 object
     CHECK_FALSE(p.manual);
     CHECK_FALSE(p.box.has_value());
 
-    // Big objects don't fit a 32 m cell: they count for the 64 m one only.
+    // Objects up to 32 m across settle in the 32 m node itself; bigger ones
+    // stay above it.
     auto objects = cluster(200);
     for(auto& o : objects)
     {
         o.radius = 20.0f;
+    }
+    CHECK(placeAutomaticProbes(objects, flat, 0).size() == 1);
+    for(auto& o : objects)
+    {
+        o.radius = 40.0f;
     }
     CHECK(placeAutomaticProbes(objects, flat, 0).empty());
 

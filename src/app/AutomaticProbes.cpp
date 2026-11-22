@@ -10,9 +10,8 @@ namespace viewer
 namespace
 {
 
-constexpr float kCell = 32.0f;      // a probe's octree node, across
-constexpr float kParent = 64.0f;    // the node that splits into them
-constexpr uint32_t kCapacity = 128; // OctreeMaxNodeCapacity
+constexpr float kCell = 32.0f;            // a probe's octree node, across
+constexpr float kMinimumBinRadius = 3.0f; // OctreeStaticObjectSizeFactor
 constexpr float kMinimumRadius = 8.0f;
 constexpr float kAboveGround = 2.0f;
 
@@ -54,25 +53,12 @@ std::vector<render::ReflectionProbe>
 placeAutomaticProbes(std::span<const ProbeObject> objects,
                      const std::function<float(glm::vec2)>& groundAt, uint64_t idSeed)
 {
-    // An object belongs to the smallest cell it fits (its sphere no wider
-    // than the cell), by its center.
-    std::unordered_map<CellKey, uint32_t, CellKeyHash> parents;
-    for(const ProbeObject& o : objects)
-    {
-        if(2.0f * o.radius <= kParent)
-        {
-            parents[cellOf(o.center, kParent)]++;
-        }
-    }
+    // Every object whose bin radius is up to the cell's size settles in the
+    // cell's node or below it, by its center.
     std::unordered_map<CellKey, Bounds, CellKeyHash> cells;
     for(const ProbeObject& o : objects)
     {
-        if(2.0f * o.radius > kCell)
-        {
-            continue;
-        }
-        const auto parent = parents.find(cellOf(o.center, kParent));
-        if(parent == parents.end() || parent->second <= kCapacity)
+        if(std::max(o.radius, kMinimumBinRadius) > kCell)
         {
             continue;
         }

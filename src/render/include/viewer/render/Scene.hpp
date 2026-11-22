@@ -80,6 +80,10 @@ struct Atmosphere
     float sunScale = 1.0f;
     float moonScale = 1.0f;
     float moonBrightness = 0.5f;
+    // The sky's and the haze's brightness in linear light (the official
+    // viewer's sky_hdr_scale): sqrt(gamma) x 2 for skies made for PBR (with a
+    // probe ambiance), 1 for older ones.
+    float skyHdrScale = 1.0f;
     float starBrightness = 0.0f; // 0..500ish, as the settings
     // Clouds: a noise texture (none: no clouds) and how it's used.
     const GpuTexture* clouds = nullptr;

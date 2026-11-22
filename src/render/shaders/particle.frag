@@ -41,7 +41,8 @@ void main()
     const vec3 l = frame.sunDirection.xyz;
     const float shadow = sunShadow(shadowMap, inWorldPosition, n);
     const vec3 sun = frame.sunColor.rgb * max(dot(n, l), 0.0) * shadow;
-    const vec3 ambient = hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb);
+    const vec3 ambient =
+        hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb) * ambientLighting(n, l);
     const vec3 color = albedo.rgb * (sun + ambient + localLight(inWorldPosition, n));
     outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }
