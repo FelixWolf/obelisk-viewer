@@ -63,6 +63,14 @@ TEST_CASE("Parcel info: the parcel's properties, as a region sends them")
     CHECK(p->has(parcel_flags::kAllowOtherScripts));
     CHECK_FALSE(p->has(parcel_flags::kForSale));
     CHECK(p->has(parcel_flags::kAllowVoice));
+    CHECK(p->environmentVersion == -1); // not said
+
+    // The parcel's environment version (its own environment changed).
+    llsd::Value withEnvironment = parcelProperties(0, "PUBLIC SANDBOX");
+    withEnvironment["ParcelEnvironmentBlock"][0]["ParcelEnvironmentVersion"] = 7;
+    const auto e = parseParcelProperties(withEnvironment);
+    REQUIRE(e);
+    CHECK(e->environmentVersion == 7);
     CHECK_FALSE(parseParcelProperties(llsd::Value()));
 }
 

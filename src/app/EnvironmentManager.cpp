@@ -47,44 +47,68 @@ EnvironmentManager::EnvironmentManager(net::HttpClient& http)
     status_.name = "default sky";
 }
 
-void EnvironmentManager::update(std::optional<uint64_t> region, std::string_view capability)
+void EnvironmentManager::update(std::optional<uint64_t> region, std::string_view capability,
+                                std::optional<ParcelKey> parcel)
 {
     replies_->drain(drained_);
     for(const Reply& r : drained_)
     {
-        if(region_ && r.region == *region_)
+        if(region_ && r.region == *region_ &&
+           (!r.parcel || (parcel_ && parcel_->localId == *r.parcel)))
         {
             handle(r);
         }
     }
 
-    if(region == region_ && capability == capability_)
+    if(region != region_ || capability != capability_)
     {
-        return;
-    }
-    region_ = region;
-    capability_ = std::string(capability);
-    requests_ = std::make_unique<net::HttpRequestGroup>(http_); // drops the old request
-    if(!region || capability.empty())
-    {
-        if(!region)
+        region_ = region;
+        capability_ = std::string(capability);
+        parcel_.reset();
+        parcelCycle_.reset();
+        requests_ = std::make_unique<net::HttpRequestGroup>(http_); // drops the old requests
+        if(!region || capability.empty())
         {
-            cycle_.reset();
+            if(!region)
+            {
+                cycle_.reset();
+            }
+            return; // keep the old region's sky until the new one's arrives
         }
-        return; // keep the old region's sky until the new one's arrives
+        request(std::nullopt);
     }
-    net::HttpRequest request{.url = capability_};
+    // The parcel's, when the agent changes parcels or its environment does.
+    if(region_ && !capability_.empty() && parcel && parcel != parcel_)
+    {
+        if(!parcel_ || parcel_->localId != parcel->localId)
+        {
+            parcelCycle_.reset(); // another parcel: the region's until it says
+        }
+        parcel_ = parcel;
+        request(parcel->localId);
+    }
+}
+
+void EnvironmentManager::request(std::optional<int> parcel)
+{
+    std::string url = capability_;
+    if(parcel)
+    {
+        url += "?parcelid=" + std::to_string(*parcel);
+    }
+    net::HttpRequest request{.url = std::move(url)};
     request.headers.add("Accept", std::string(llsd::kXmlContentType));
     requests_->send(std::move(request),
-                    [replies = replies_, handle = *region](net::HttpResponse&& response)
-                    { replies->push({handle, std::move(response)}); });
+                    [replies = replies_, handle = *region_, parcel](net::HttpResponse&& response)
+                    { replies->push({handle, parcel, std::move(response)}); });
 }
 
 void EnvironmentManager::handle(const Reply& reply)
 {
+    const char* what = reply.parcel ? "the parcel's" : "the region's";
     if(!reply.response.ok())
     {
-        log::warn("environment: the region's request failed (HTTP {})", reply.response.status);
+        log::warn("environment: {} request failed (HTTP {})", what, reply.response.status);
         return;
     }
     const auto parsed = llsd::parse(reply.response.bodyText());
@@ -93,7 +117,30 @@ void EnvironmentManager::handle(const Reply& reply)
         log::warn("environment: unreadable reply: {}", parsed.error());
         return;
     }
-    auto cycle = environment::DayCycle::fromEnvironment((*parsed)["environment"]);
+    const llsd::Value& environment = (*parsed)["environment"];
+    if(reply.parcel)
+    {
+        // The parcel's own, if it has one (parcel_id -1, or no day: it uses
+        // the region's).
+        auto cycle =
+            environment["parcel_id"].asInteger() == -1
+                ? std::expected<environment::DayCycle, std::string>(std::unexpected("the region's"))
+                : environment::DayCycle::fromEnvironment(environment);
+        if(!cycle)
+        {
+            if(parcelCycle_)
+            {
+                log::info("environment: the parcel uses the region's");
+            }
+            parcelCycle_.reset();
+            return;
+        }
+        log::info("environment: the parcel's own day cycle '{}', {} s per day, offset {} s",
+                  cycle->name, cycle->dayLength, cycle->dayOffset);
+        parcelCycle_ = std::move(*cycle);
+        return;
+    }
+    auto cycle = environment::DayCycle::fromEnvironment(environment);
     if(!cycle)
     {
         log::warn("environment: {}; using the default sky", cycle.error());
@@ -102,22 +149,33 @@ void EnvironmentManager::handle(const Reply& reply)
     }
     const bool pbr = std::any_of(cycle->skies.begin(), cycle->skies.end(),
                                  [](const auto& sky) { return sky.probeAmbiance > 0.0f; });
-    log::info("environment: day cycle '{}', {} skies ({}), {} s per day", cycle->name,
-              cycle->skies.size(), pbr ? "made for PBR" : "legacy", cycle->dayLength);
+    log::info("environment: day cycle '{}', {} skies ({}), {} s per day, offset {} s", cycle->name,
+              cycle->skies.size(), pbr ? "made for PBR" : "legacy", cycle->dayLength,
+              cycle->dayOffset);
     cycle_ = std::move(*cycle);
 }
 
 void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, float altitude)
 {
     environment::SkySettings sky;
-    if(cycle_)
+    // The parcel's own day (with the region's sky altitudes), else the
+    // region's.
+    if(parcelCycle_ && cycle_)
     {
-        status_.position = fixedPosition_ ? *fixedPosition_ : cycle_->position(unixSeconds);
-        status_.dayLength = cycle_->dayLength;
-        status_.name = cycle_->name;
+        parcelCycle_->trackAltitudes = cycle_->trackAltitudes;
+    }
+    const environment::DayCycle* cycle = parcelCycle_ ? &*parcelCycle_
+                                         : cycle_     ? &*cycle_
+                                                      : nullptr;
+    status_.fromParcel = parcelCycle_.has_value();
+    if(cycle)
+    {
+        status_.position = fixedPosition_ ? *fixedPosition_ : cycle->position(unixSeconds);
+        status_.dayLength = cycle->dayLength;
+        status_.name = cycle->name;
         status_.fromRegion = true;
-        sky = cycle_->skyAt(status_.position, altitude);
-        water_ = cycle_->waterAt(status_.position);
+        sky = cycle->skyAt(status_.position, altitude);
+        water_ = cycle->waterAt(status_.position);
     }
     else
     {

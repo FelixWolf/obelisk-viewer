@@ -1571,7 +1571,14 @@ void App::updateSession()
                 url = it->second;
             }
         }
-        environment_->update(main ? std::optional<uint64_t>(main->handle) : std::nullopt, url);
+        // The agent's parcel, once its region says which (the main region's).
+        std::optional<EnvironmentManager::ParcelKey> parcel;
+        if(const auto& p = parcel_.parcel(); p && main && parcel_.region() == main->handle)
+        {
+            parcel = EnvironmentManager::ParcelKey{p->localId, p->environmentVersion};
+        }
+        environment_->update(main ? std::optional<uint64_t>(main->handle) : std::nullopt, url,
+                             parcel);
     }
     std::string viewerAsset(session_->capability("ViewerAsset").value_or(""));
     if(viewerAsset.empty() && homeShown())
@@ -1982,12 +1989,21 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         placeEyes(scene.camera, *headsetFrame_);
     }
     const auto wallClock = std::chrono::system_clock::now().time_since_epoch();
+    // Which sky track: by our avatar's height (the camera's until it's here).
+    float altitude = scene.camera.position.z;
+    if(session_ && world_)
+    {
+        if(const auto global = agentGlobalPosition())
+        {
+            altitude = static_cast<float>(global->z);
+        }
+    }
     environment_->apply(
         scene.lighting,
         static_cast<double>(
             std::chrono::duration_cast<std::chrono::milliseconds>(wallClock).count()) /
             1000.0,
-        scene.camera.position.z);
+        altitude);
     scene.lighting.atmosphere.clouds = textures_->get(environment_->cloudTexture());
     scene.lighting.atmosphere.sunTexture = textures_->get(environment_->sunTexture(), 512.0f);
     scene.lighting.atmosphere.moonTexture = textures_->get(environment_->moonTexture(), 512.0f);

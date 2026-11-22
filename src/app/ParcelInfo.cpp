@@ -36,6 +36,10 @@ std::optional<Parcel> parseParcelProperties(const llsd::Value& body)
     }
     Parcel p;
     p.localId = d["LocalID"].asInteger();
+    if(const llsd::Value& e = body["ParcelEnvironmentBlock"][0]; e.isMap())
+    {
+        p.environmentVersion = e["ParcelEnvironmentVersion"].asInteger();
+    }
     p.sequence = d["SequenceID"].asInteger();
     p.name = d["Name"].asString();
     p.description = d["Desc"].asString();

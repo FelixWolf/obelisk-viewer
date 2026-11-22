@@ -1,11 +1,12 @@
 #pragma once
 
 // The sky and light: the agent's region's environment (a day cycle from
-// its ExtEnvironment capability), followed through the day, turned into
-// the scene's lighting and atmosphere. Without one (logged out, or the
-// region gives none we can read) it uses a default midday sky.
-//
-// Parcel environments aren't fetched yet: the region's applies everywhere.
+// its ExtEnvironment capability), or its parcel's if the parcel has its
+// own (asked for with ?parcelid=, again when the agent changes parcels or
+// the parcel's environment version changes, as llenvironment.cpp), followed
+// through the day, turned into the scene's lighting and atmosphere. A
+// parcel's day uses the region's sky altitudes. Without one (logged out,
+// or the region gives none we can read) it uses a default midday sky.
 
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/environment/DayCycle.hpp"
@@ -26,11 +27,20 @@ public:
     explicit EnvironmentManager(net::HttpClient& http);
 
     // The region the agent is in and its ExtEnvironment capability (empty
-    // if none); fetches its environment when either changes. Call every
-    // frame.
-    void update(std::optional<uint64_t> region, std::string_view capability);
+    // if none), and the parcel it's on (its local id and environment
+    // version), if known; fetches their environments when they change.
+    // Call every frame.
+    struct ParcelKey
+    {
+        int localId = 0;
+        int environmentVersion = -1;
+        bool operator==(const ParcelKey&) const = default;
+    };
+    void update(std::optional<uint64_t> region, std::string_view capability,
+                std::optional<ParcelKey> parcel = std::nullopt);
 
-    // The scene's lighting for `unixSeconds` and a camera at `altitude`.
+    // The scene's lighting for `unixSeconds`, the agent at `altitude` (which
+    // sky track: the official viewer goes by the agent's, not the camera's).
     void apply(render::Lighting& lighting, double unixSeconds, float altitude);
 
     // For testing and screenshots: a fixed time of day (0..1), or none to
@@ -49,6 +59,7 @@ public:
         double dayLength = 0.0; // seconds
         glm::vec3 sunDirection{0.0f};
         bool fromRegion = false; // false: the default sky
+        bool fromParcel = false; // the parcel's own
     };
     const Status& status() const { return status_; }
     // The cloud noise texture the current sky uses (after apply()).
@@ -63,8 +74,10 @@ private:
     struct Reply
     {
         uint64_t region = 0;
+        std::optional<int> parcel; // a parcel's (else the region's)
         net::HttpResponse response;
     };
+    void request(std::optional<int> parcel);
     void handle(const Reply& reply);
 
     net::HttpClient& http_;
@@ -73,7 +86,9 @@ private:
     std::vector<Reply> drained_;
     std::optional<uint64_t> region_;
     std::string capability_;
-    std::optional<environment::DayCycle> cycle_;
+    std::optional<environment::DayCycle> cycle_;       // the region's
+    std::optional<ParcelKey> parcel_;                  // asked for
+    std::optional<environment::DayCycle> parcelCycle_; // the parcel's own
     std::optional<float> fixedPosition_;
     float exposure_ = 1.0f;
     // Clouds drift by the sky's scroll rate; accumulated here so a change of

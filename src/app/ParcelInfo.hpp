@@ -61,6 +61,8 @@ struct Parcel
     std::string musicUrl;
     std::string mediaUrl;
     bool seeAvatars = true; // from outside it
+    // Bumped when the parcel's own environment changes (-1: not said).
+    int environmentVersion = -1;
 
     bool has(uint32_t flag) const { return (flags & flag) != 0; }
 };

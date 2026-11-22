@@ -408,11 +408,20 @@ bands from `track_altitudes`) list keyframes at positions 0..1 through the
 day, naming sky frames. The position now is (seconds since 1970 +
 `day_offset`) mod `day_length`, over `day_length`; the sky blends the
 keyframes on either side (values linearly, sun and moon rotations by
-slerp, textures switching half way), on the highest track the camera's
-altitude reaches. Values under `legacy_haze` take precedence, as in the
+slerp, textures switching half way), on the highest track the agent's
+altitude reaches (the agent's, as the official viewer; the camera's until
+our avatar is in view). Values under `legacy_haze` take precedence, as in the
 official viewer. Without an environment (logged out, or a reply with only a
-day asset) a default midday sky is used. Parcel environments aren't
-fetched yet.
+day asset) a default midday sky is used.
+
+The parcel the agent is on may have an environment of its own, as in
+llenvironment.cpp. It is fetched with `?parcelid=N` whenever the agent
+changes parcels, or `ParcelProperties`' `ParcelEnvironmentVersion` changes.
+A parcel day cycle replaces the region's, including its own `day_length`
+and `day_offset`, and uses the region's track altitudes. A reply with
+`parcel_id` -1, or with no day, means the region's applies. Without this,
+a parcel with its own 24-hour day, on a region with a 4-hour one, showed
+the region's time of day while the official viewer showed the parcel's.
 
 From a sky, `computeLighting` works out the sun and moon directions (+X
 rotated by their rotations), which lights surfaces (the sun if up, else the
