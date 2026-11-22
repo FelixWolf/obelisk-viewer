@@ -116,6 +116,10 @@ struct Lighting
     // comes from the reflection probes. 0 for skies made before PBR, which
     // keep `skyAmbient` and `groundAmbient` ("classic mode").
     float probeAmbiance = 0.0f;
+    // Shaded as before PBR ("classic mode", for skies made before it):
+    // `sunColor` and the ambients are then the sky's sRGB colors, mixed in
+    // sRGB by the shaders (atmosphere.glsl classicMode).
+    bool classic = false;
     Atmosphere atmosphere;
 };
 

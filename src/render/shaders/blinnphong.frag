@@ -100,8 +100,6 @@ void main()
     const float envIntensity = draws[inDraw].mapUv[1].w * specularTexel.a;
 
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
-    vec3 color =
-        blinnPhong(n, v, l, albedo.rgb, specularColor, glossiness, frame.sunColor.rgb) * shadow;
     // Ambient light and reflections from the probes around.
     vec3 ambient = hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb) *
                    ambientLighting(n, l);
@@ -116,7 +114,18 @@ void main()
         glossy = light.radiance;
         sharp = light.sharp;
     }
-    color += albedo.rgb * ambient;
+    vec3 color;
+    if(classicMode())
+    {
+        color = albedo.rgb * classicLight(ambient, dot(n, l), shadow) +
+                specularColor * legacySpecular(n, v, l, glossiness) * classicSunlight() * shadow;
+    }
+    else
+    {
+        color = blinnPhong(n, v, l, albedo.rgb, specularColor, glossiness, frame.sunColor.rgb) *
+                shadow;
+        color += albedo.rgb * ambient;
+    }
     if(reflections && glossiness > 0.0)
     {
         applyGlossyReflection(color, glossy, n, v, specularColor, glossiness);
@@ -128,8 +137,10 @@ void main()
     }
     // Local lights after (the official viewer adds them in later passes),
     // not on what shows unlit.
+    color *= classicScale();
     const LocalLighting local =
         localLights(inWorldPosition, n, v, false, glossiness, vec3(0.0), 1.0);
-    color += (1.0 - emissive) * (albedo.rgb * local.diffuse + specularColor * local.specular);
+    color += (1.0 - emissive) * (albedo.rgb * local.diffuse + specularColor * local.specular) *
+             classicLocalScale();
     outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }

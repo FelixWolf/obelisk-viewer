@@ -230,6 +230,22 @@ vec3 pbrProbeLight(vec3 position, vec3 n, vec3 v, vec3 baseColor, float roughnes
     return light.irradiance * diffuseColor + light.radiance * (specularColor * brdf.x + brdf.y);
 }
 
+// Only the reflection of that (for classic mode, which lights the rest
+// itself); none before any probe is ready.
+vec3 pbrProbeSpecular(vec3 position, vec3 n, vec3 v, vec3 baseColor, float roughness,
+                      float metallic)
+{
+    if(!anyProbes())
+    {
+        return vec3(0.0);
+    }
+    const ProbeLight light = sampleProbes(position, n, reflect(-v, n), roughness, false, vec3(0.0));
+    const vec3 specularColor = mix(vec3(0.04), baseColor, metallic);
+    const float nDotV = clamp(abs(dot(n, v)), 0.001, 1.0);
+    const vec2 brdf = textureLod(brdfTable, vec2(nDotV, roughness), 0.0).rg;
+    return light.radiance * (specularColor * brdf.x + brdf.y);
+}
+
 // Legacy glossy faces: a soft reflection at their glossiness, stronger at
 // grazing angles and only on what isn't already bright (the official
 // viewer's applyGlossEnv).

@@ -35,6 +35,9 @@ struct SkySettings
     // "reflection_probe_ambiance", the official default), which the official
     // viewer shows without dynamic exposure or tonemapping.
     float probeAmbiance = 0.0f;
+    // Made before PBR: no "reflection_probe_ambiance" at all (the official
+    // viewer's canAutoAdjust), which it shades in "classic mode".
+    bool classic = true;
 
     // Sun and moon: rotations of +X (east) to where they are.
     glm::quat sunRotation{1.0f, 0.0f, 0.0f, 0.0f};

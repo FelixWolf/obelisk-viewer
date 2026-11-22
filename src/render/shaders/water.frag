@@ -111,10 +111,13 @@ void main()
         const vec3 toCamera = -viewVec;
         const float nl = max(dot(hn, l), 0.0);
         const float shadow = sunShadow(shadowMap, inWorldPosition, up);
+        // In classic mode the sun's sRGB color, without its 1.35 (waterF.glsl).
+        const vec3 sunlight =
+            classicMode() ? frame.sunColor.rgb / 1.35 * PI : frame.sunColor.rgb;
         const vec3 punctual =
             clamp(nl * ggxSpecular(hn, toCamera, l, vec3(1.0), max(roughness, 0.05)), vec3(0.0),
                   vec3(10.0)) *
-            frame.sunColor.rgb * shadow;
+            sunlight * shadow;
         color = mix(behind, radiance, min(1.0, df2.x)) + punctual;
     }
     // From under it, the water's fog up to the surface; from above, the

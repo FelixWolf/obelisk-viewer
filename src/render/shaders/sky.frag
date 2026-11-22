@@ -295,5 +295,7 @@ void main()
     {
         color = srgbToLinear(frame.waterFog.rgb);
     }
-    outColor = vec4(color, 1.0);
+    // Drawn through the surfaces' last step in the official viewer, so it
+    // takes their classic-mode scale too (softenLightF.glsl).
+    outColor = vec4(color * classicScale(), 1.0);
 }

@@ -40,9 +40,12 @@ void main()
     const vec3 n = normalize(frame.cameraPosition.xyz - inWorldPosition);
     const vec3 l = frame.sunDirection.xyz;
     const float shadow = sunShadow(shadowMap, inWorldPosition, n);
-    const vec3 sun = frame.sunColor.rgb * max(dot(n, l), 0.0) * shadow;
     const vec3 ambient =
         hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb) * ambientLighting(n, l);
-    const vec3 color = albedo.rgb * (sun + ambient + localLight(inWorldPosition, n));
+    const vec3 sunAndAmbient = classicMode() ? classicLight(ambient, dot(n, l), shadow)
+                                             : frame.sunColor.rgb * max(dot(n, l), 0.0) * shadow +
+                                                   ambient;
+    const vec3 color = albedo.rgb * (sunAndAmbient * classicScale() +
+                                     localLight(inWorldPosition, n) * classicLocalScale());
     outColor = vec4(applyAtmosphere(color, inWorldPosition), albedo.a);
 }

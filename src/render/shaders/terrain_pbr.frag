@@ -148,13 +148,24 @@ void main()
     float roughness = clamp(orm.g, 0.0, 1.0);
     float metallic = clamp(orm.b, 0.0, 1.0);
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
-    vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor, roughness, metallic,
-                           frame.sunColor.rgb) *
-                 sunShadow(shadowMap, inWorldPosition, normalize(inNormal));
-    const float amb = ambientLighting(n, frame.sunDirection.xyz);
-    color += orm.r * pbrProbeLight(inWorldPosition, n, v, baseColor, roughness, metallic,
-                                   frame.skyAmbient.rgb * amb, frame.groundAmbient.rgb * amb);
-    color += baseColor * (1.0 - metallic) * localLight(inWorldPosition, n);
+    const vec3 l = frame.sunDirection.xyz;
+    const float shadow = sunShadow(shadowMap, inWorldPosition, normalize(inNormal));
+    const float amb = ambientLighting(n, l);
+    vec3 color;
+    if(classicMode())
+    {
+        color = classicPbr(n, v, l, baseColor, roughness, metallic, frame.skyAmbient.rgb * amb,
+                           shadow) +
+                orm.r * pbrProbeSpecular(inWorldPosition, n, v, baseColor, roughness, metallic);
+    }
+    else
+    {
+        color = pbrDirect(n, v, l, baseColor, roughness, metallic, frame.sunColor.rgb) * shadow;
+        color += orm.r * pbrProbeLight(inWorldPosition, n, v, baseColor, roughness, metallic,
+                                       frame.skyAmbient.rgb * amb, frame.groundAmbient.rgb * amb);
+    }
     color += emissive;
+    color *= classicScale();
+    color += baseColor * (1.0 - metallic) * localLight(inWorldPosition, n) * classicLocalScale();
     outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);
 }

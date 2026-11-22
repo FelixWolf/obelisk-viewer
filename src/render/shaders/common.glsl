@@ -175,8 +175,9 @@ vec3 ggxSpecular(vec3 n, vec3 v, vec3 l, vec3 f0, float roughness)
            visibilitySmithGgx(nDotL, nDotV, alpha);
 }
 
-vec3 pbrDirect(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float metallic,
-               vec3 lightColor)
+// The sun's diffuse and highlight on a PBR face per unit of light, before
+// the cosine (deferredUtil.glsl pbrPunctual): 0 facing away.
+vec3 pbrPunctual(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float metallic)
 {
     float nDotL = max(dot(n, l), 0.0);
     if(nDotL <= 0.0)
@@ -193,11 +194,18 @@ vec3 pbrDirect(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float me
     vec3 f = fresnelSchlick(vDotH, f0);
     vec3 specular = f * distributionGgx(nDotH, alpha) * visibilitySmithGgx(nDotL, nDotV, alpha);
     // The diffuse color is the base color less the 4% a dielectric reflects
-    // (deferredUtil.glsl calcDiffuseSpecular), and the sun is taken 3 times
-    // over its color, not pi (pbrBaseLight): `lightColor` comes pi times the
-    // sunlight here.
+    // (deferredUtil.glsl calcDiffuseSpecular).
     vec3 diffuse = (1.0 - f) * (1.0 - metallic) * baseColor * 0.96 / PI;
-    return (diffuse + specular) * lightColor * nDotL * (3.0 / PI);
+    return diffuse + specular;
+}
+
+vec3 pbrDirect(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float metallic,
+               vec3 lightColor)
+{
+    // The sun is taken 3 times over its color, not pi (pbrBaseLight):
+    // `lightColor` comes pi times the sunlight here.
+    return pbrPunctual(n, v, l, baseColor, roughness, metallic) * lightColor *
+           max(dot(n, l), 0.0) * (3.0 / PI);
 }
 
 // Ambient for PBR before the reflection probe is ready (probes.glsl):

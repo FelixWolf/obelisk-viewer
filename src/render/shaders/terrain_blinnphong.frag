@@ -44,12 +44,22 @@ void main()
 
     vec3 n = normalize(inNormal);
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
-    vec3 color = blinnPhong(n, v, frame.sunDirection.xyz, albedo, vec3(0.0), 0.0,
-                            frame.sunColor.rgb) * sunShadow(shadowMap, inWorldPosition, n);
-    color += albedo * probeAmbient(inWorldPosition, n,
-                                   hemisphereAmbient(n, frame.skyAmbient.rgb,
-                                                     frame.groundAmbient.rgb) *
-                                       ambientLighting(n, frame.sunDirection.xyz));
-    color += albedo * localLight(inWorldPosition, n);
+    const vec3 l = frame.sunDirection.xyz;
+    const float shadow = sunShadow(shadowMap, inWorldPosition, n);
+    const vec3 ambient = probeAmbient(
+        inWorldPosition, n,
+        hemisphereAmbient(n, frame.skyAmbient.rgb, frame.groundAmbient.rgb) * ambientLighting(n, l));
+    vec3 color;
+    if(classicMode())
+    {
+        color = albedo * classicLight(ambient, dot(n, l), shadow);
+    }
+    else
+    {
+        color = blinnPhong(n, v, l, albedo, vec3(0.0), 0.0, frame.sunColor.rgb) * shadow;
+        color += albedo * ambient;
+    }
+    color *= classicScale();
+    color += albedo * localLight(inWorldPosition, n) * classicLocalScale();
     outColor = vec4(applyAtmosphere(color, inWorldPosition), 1.0);
 }

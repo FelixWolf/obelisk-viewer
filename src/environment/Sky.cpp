@@ -89,6 +89,7 @@ SkySettings SkySettings::fromLlsd(const llsd::Value& sky)
     read(sky, "glow", s.glow);
     read(sky, "gamma", s.gamma);
     read(sky, "reflection_probe_ambiance", s.probeAmbiance);
+    s.classic = lookup(sky, "reflection_probe_ambiance") == nullptr;
     read(sky, "sun_rotation", s.sunRotation);
     read(sky, "moon_rotation", s.moonRotation);
     read(sky, "sunlight_color", s.sunlightColor);
@@ -127,6 +128,7 @@ SkySettings blend(const SkySettings& a, const SkySettings& b, float t)
     s.glow = mix(a.glow, b.glow);
     s.gamma = mix(a.gamma, b.gamma);
     s.probeAmbiance = mix(a.probeAmbiance, b.probeAmbiance);
+    s.classic = b.classic; // llsettingssky.cpp blend: the target's
     s.sunRotation = glm::slerp(a.sunRotation, b.sunRotation, t);
     s.moonRotation = glm::slerp(a.moonRotation, b.moonRotation, t);
     s.sunlightColor = mix(a.sunlightColor, b.sunlightColor);

@@ -21,6 +21,68 @@ vec3 srgbToLinear(vec3 c)
     return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
 
+// And back (srgbF.glsl linear_to_srgb).
+vec3 srgbFromLinear(vec3 c)
+{
+    c = max(c, vec3(0.0));
+    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
+// "Classic mode": skies made before PBR (no probe ambiance), which the
+// official viewer shades as before SL 7 unless RenderSkyAutoAdjustLegacy is
+// on (llsettingsvo.cpp). The sun and the ambient stay the settings' sRGB
+// colors (atmosphericsFuncs.glsl calcAtmosphericVarsLinear), so
+// `frame.sunColor` (with the sun 1.35 times brighter) and
+// `frame.skyAmbient` hold those then; they're added in sRGB and decoded
+// after.
+bool classicMode()
+{
+    return frame.moonInfo.z > 0.5;
+}
+
+// What the surfaces' light comes to in the end (softenLightF.glsl,
+// alphaF.glsl final_scale), and local lights' (the light shaders').
+float classicScale()
+{
+    return classicMode() ? 1.1 : 1.0;
+}
+
+float classicLocalScale()
+{
+    return classicMode() ? 0.9 : 1.0;
+}
+
+// A legacy face's diffuse light in classic mode: ambient `amblit`, and the
+// sun at `nDotL` in `shadow` (softenLightF.glsl, materialF.glsl).
+vec3 classicLight(vec3 amblit, float nDotL, float shadow)
+{
+    const float sun = min(pow(max(nDotL, 0.0), 1.2), shadow);
+    return srgbToLinear(amblit * 0.9 + srgbFromLinear(vec3(sun)) * frame.sunColor.rgb * 0.7);
+}
+
+// The sun's light for a legacy highlight in classic mode.
+vec3 classicSunlight()
+{
+    return srgbToLinear(frame.sunColor.rgb);
+}
+
+// A PBR face in classic mode, but for the probes' reflection
+// (deferredUtil.glsl pbrBaseLight): ambient and sun, each in sRGB, added in
+// sRGB. The ambient takes no occlusion there.
+vec3 classicPbr(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float metallic,
+                vec3 amblit, float shadow)
+{
+    const float nDotL = clamp(dot(n, l), 0.001, 1.0);
+    const float da = min(pow(nDotL, 1.2), shadow);
+    const vec3 sun = srgbToLinear(srgbFromLinear(vec3(da)) * frame.sunColor.rgb * 0.7) * PI;
+    // The official viewer's highlight keeps a little roughness for the sun.
+    const vec3 punctual =
+        pbrPunctual(n, v, l, baseColor, max(roughness, 8.0 / 255.0), metallic);
+    const vec3 lit = clamp(sun * punctual * shadow, vec3(0.0), vec3(10.0));
+    const vec3 ambient = srgbToLinear(amblit * 0.9) * baseColor * 0.96 * (1.0 - metallic);
+    return srgbToLinear(srgbFromLinear(ambient) + srgbFromLinear(lit) * 1.1);
+}
+
 // Haze between the camera and a surface (the windlight model, as the
 // official viewer's atmosphericsFuncs.glsl, Z up): the surface's color is
 // dimmed by `atten`, and the light the air scatters towards us is added.

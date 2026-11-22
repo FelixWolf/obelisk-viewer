@@ -20,6 +20,7 @@ namespace
 // fallback for a missing setting).
 constexpr float kSunlightScale = 1.0f;
 constexpr float kAmbientScale = 1.0f;
+constexpr float kClassicSunlight = 1.35f;
 
 glm::vec3 srgbToLinear(glm::vec3 c)
 {
@@ -150,7 +151,7 @@ void EnvironmentManager::handle(const Reply& reply)
         return;
     }
     const bool pbr = std::any_of(cycle->skies.begin(), cycle->skies.end(),
-                                 [](const auto& sky) { return sky.probeAmbiance > 0.0f; });
+                                 [](const auto& sky) { return !sky.classic; });
     log::info("environment: day cycle '{}', {} skies ({}), {} s per day, offset {} s", cycle->name,
               cycle->skies.size(), pbr ? "made for PBR" : "legacy", cycle->dayLength,
               cycle->dayOffset);
@@ -230,6 +231,20 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
     // (ambientLighting).
     lighting.skyAmbient = glm::vec3(gray);
     lighting.groundAmbient = glm::vec3(gray);
+    // Skies made before PBR: the official viewer's "classic mode"
+    // (RenderSkyAutoAdjustLegacy off, its default). The sun, 1.35 times
+    // brighter, and the ambient in its color stay sRGB (softenLightF.glsl,
+    // atmosphericsFuncs.glsl calcAtmosphericVarsLinear).
+    lighting.classic = sky.classic;
+    if(sky.classic)
+    {
+        lighting.sunColor = light.lightDirection.z > 0.0f
+                                ? light.lightColor * kSunlightScale * kClassicSunlight
+                                : glm::vec3(0.0f);
+        const glm::vec3 amblit = glm::pow(light.ambient, glm::vec3(0.9f)) * 0.57f * kAmbientScale;
+        lighting.skyAmbient = amblit;
+        lighting.groundAmbient = amblit;
+    }
 
     lighting.exposure = exposure_;
     // Skies made for PBR (with a probe ambiance) get the official viewer's

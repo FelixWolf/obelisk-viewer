@@ -73,15 +73,29 @@ void main()
     vec3 v = normalize(frame.cameraPosition.xyz - inWorldPosition);
 
     const float shadow = sunShadow(shadowMap, inWorldPosition, gl_FrontFacing ? inNormal : -inNormal);
-    vec3 color = pbrDirect(n, v, frame.sunDirection.xyz, baseColor.rgb, roughness, metallic,
-                           frame.sunColor.rgb) * shadow;
-    color += occlusion * pbrProbeLight(inWorldPosition, n, v, baseColor.rgb, roughness, metallic,
-                                       frame.skyAmbient.rgb * ambientLighting(n, frame.sunDirection.xyz),
-                                       frame.groundAmbient.rgb * ambientLighting(n, frame.sunDirection.xyz));
+    const vec3 l = frame.sunDirection.xyz;
+    const float amb = ambientLighting(n, l);
+    vec3 color;
+    if(classicMode())
+    {
+        color = classicPbr(n, v, l, baseColor.rgb, roughness, metallic, frame.skyAmbient.rgb * amb,
+                           shadow) +
+                occlusion * pbrProbeSpecular(inWorldPosition, n, v, baseColor.rgb, roughness,
+                                             metallic);
+    }
+    else
+    {
+        color = pbrDirect(n, v, l, baseColor.rgb, roughness, metallic, frame.sunColor.rgb) * shadow;
+        color += occlusion * pbrProbeLight(inWorldPosition, n, v, baseColor.rgb, roughness,
+                                           metallic, frame.skyAmbient.rgb * amb,
+                                           frame.groundAmbient.rgb * amb);
+    }
+    color += texture(emissiveMap, inUv).rgb * material.emissiveTint.rgb * material.emissiveTint.a;
+    color *= classicScale();
     // Local lights: diffuse, and GGX highlights.
     const LocalLighting local = localLights(inWorldPosition, n, v, true, 0.0,
                                             mix(vec3(0.04), baseColor.rgb, metallic), roughness);
-    color += baseColor.rgb * (1.0 - metallic) * local.diffuse + local.specular;
-    color += texture(emissiveMap, inUv).rgb * material.emissiveTint.rgb * material.emissiveTint.a;
+    color += (baseColor.rgb * (1.0 - metallic) * local.diffuse + local.specular) *
+             classicLocalScale();
     outColor = vec4(applyAtmosphere(color, inWorldPosition), baseColor.a);
 }

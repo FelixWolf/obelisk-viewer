@@ -149,6 +149,16 @@ TEST_CASE("Sky settings: probe ambiance tells skies made for PBR from older ones
     CHECK(s.probeAmbiance == doctest::Approx(1.0f));
     CHECK(s.gamma == doctest::Approx(2.0f));
     CHECK(blend(SkySettings::fromLlsd(older), s, 0.5f).probeAmbiance == doctest::Approx(0.5f));
+
+    // Classic mode: older skies only, by the key being there at all (an
+    // ambiance of 0 set in a PBR sky isn't one); a blend takes the target's.
+    CHECK(SkySettings::fromLlsd(older).classic);
+    CHECK_FALSE(s.classic);
+    llsd::Value zero = skyFrame(1.0f, 0.6);
+    zero["reflection_probe_ambiance"] = 0.0;
+    CHECK_FALSE(SkySettings::fromLlsd(zero).classic);
+    CHECK_FALSE(blend(SkySettings::fromLlsd(older), s, 0.2f).classic);
+    CHECK(blend(s, SkySettings::fromLlsd(older), 0.8f).classic);
 }
 
 TEST_CASE("Water settings: read from a frame, the official defaults otherwise")
