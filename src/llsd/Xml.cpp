@@ -421,7 +421,20 @@ std::expected<Value, std::string> parse(std::string_view data)
     case Format::Xml:
         return fromXml(data);
     case Format::Notation:
+    {
+        // Without its "<? LLSD/Notation ?>" header, if it has one.
+        const size_t start = data.find_first_not_of(" \t\r\n\xEF\xBB\xBF");
+        if(start != std::string_view::npos && data[start] == '<')
+        {
+            const size_t end = data.find("?>", start);
+            if(end == std::string_view::npos)
+            {
+                return std::unexpected(std::string("LLSD: notation header without its end"));
+            }
+            return fromNotation(data.substr(end + 2));
+        }
         return fromNotation(data);
+    }
     case Format::Binary:
     {
         // Skip the "<?llsd/binary?>" line.

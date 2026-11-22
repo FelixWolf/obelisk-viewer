@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace viewer
 {
@@ -53,6 +54,39 @@ EnvironmentManager::EnvironmentManager(net::HttpClient& http)
 void EnvironmentManager::update(std::optional<uint64_t> region, std::string_view capability,
                                 std::optional<ParcelKey> parcel)
 {
+    // The sky asset asked for, once.
+    if(skyAsset_ && !skyRequested_ && !viewerAssetUrl_.empty())
+    {
+        skyRequested_ = true;
+        skyRequests_ = std::make_unique<net::HttpRequestGroup>(http_);
+        net::HttpRequest request{.url = viewerAssetUrl_ + "/?settings_id=" + skyAsset_->toString()};
+        skyRequests_->send(std::move(request), [replies = skyReplies_](net::HttpResponse&& response)
+                           { replies->push(std::move(response)); });
+    }
+    skyReplies_->drain(skyDrained_);
+    for(const net::HttpResponse& r : skyDrained_)
+    {
+        const auto parsed = r.ok() ? llsd::parse(r.bodyText())
+                                   : std::expected<llsd::Value, std::string>(
+                                         std::unexpected(std::format("HTTP {}", r.status)));
+        if(!parsed || (*parsed)["type"].asString() != "sky")
+        {
+            log::warn("environment: the sky asset {} couldn't be had ({})", skyAsset_->toString(),
+                      parsed ? "not a sky" : parsed.error());
+            continue;
+        }
+        fixedSky_ = environment::SkySettings::fromLlsd(*parsed);
+        const environment::SkySettings& k = *fixedSky_;
+        log::info("environment: using the sky '{}' ({}): ambient ({:.3f} {:.3f} {:.3f}), "
+                  "sunlight ({:.3f} {:.3f} {:.3f}), blue density ({:.3f} {:.3f} {:.3f}), "
+                  "blue horizon ({:.3f} {:.3f} {:.3f}), haze {:.3f}/{:.3f}, gamma {:.2f}",
+                  (*parsed)["name"].asString(), k.classic ? "legacy" : "made for PBR",
+                  k.ambient.r, k.ambient.g, k.ambient.b, k.sunlightColor.r, k.sunlightColor.g,
+                  k.sunlightColor.b, k.blueDensity.r, k.blueDensity.g, k.blueDensity.b,
+                  k.blueHorizon.r, k.blueHorizon.g, k.blueHorizon.b, k.hazeDensity,
+                  k.hazeHorizon, k.gamma);
+    }
+
     replies_->drain(drained_);
     for(const Reply& r : drained_)
     {
@@ -179,6 +213,11 @@ void EnvironmentManager::apply(render::Lighting& lighting, double unixSeconds, f
         status_.fromRegion = true;
         sky = cycle->skyAt(status_.position, altitude);
         water_ = cycle->waterAt(status_.position);
+        if(fixedSky_)
+        {
+            sky = *fixedSky_;
+            status_.name = "sky asset";
+        }
     }
     else
     {

@@ -312,4 +312,9 @@ TEST_CASE("LLSD headers with spaces")
     REQUIRE(parsed.has_value());
     CHECK((*parsed)["a"].asInteger() == 7);
     CHECK(detectFormat("<? llsd/notation ?>\n{}") == Format::Notation);
+    // Settings assets: notation after its header.
+    const auto sky = parse("<? LLSD/Notation ?>\n{'type':'sky','gamma':r1.5}");
+    REQUIRE(sky.has_value());
+    CHECK((*sky)["type"].asString() == "sky");
+    CHECK((*sky)["gamma"].asReal() == doctest::Approx(1.5));
 }

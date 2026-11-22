@@ -99,6 +99,7 @@ struct AppOptions
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
     std::string teleport;                       // teleport here 5 s after logging in ("home" too)
     std::optional<float> walk;     // walk this way (degrees from east) once in (after --teleport)
+    std::optional<Uuid> skyAsset; // a sky settings asset instead of the region's
     std::optional<float> dayTime;  // a fixed time of day, 0..1 (0.5 is midday in most cycles)
     bool shadows = true;           // --no-shadows: off (for comparing)
     uint32_t textureMemory = 2048; // --texture-memory: GPU memory for textures, MiB

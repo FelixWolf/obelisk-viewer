@@ -47,6 +47,12 @@ public:
     // follow the clock.
     void setDayPosition(std::optional<float> position) { fixedPosition_ = position; }
     std::optional<float> dayPosition() const { return fixedPosition_; }
+    // For comparisons: a sky settings asset used instead of the region's
+    // and parcel's skies (as the official viewer's personal lighting), its
+    // sun where the sky puts it; fetched from the ViewerAsset capability
+    // (?settings_id=) once it's known. The water stays the region's.
+    void setSkyAsset(std::optional<Uuid> asset) { skyAsset_ = asset; }
+    void setViewerAssetUrl(std::string url) { viewerAssetUrl_ = std::move(url); }
     // Exposure for the tonemap (the official viewer's RenderExposure, 1),
     // before the dynamic exposure.
     void setExposure(float exposure) { exposure_ = exposure; }
@@ -90,6 +96,14 @@ private:
     std::optional<ParcelKey> parcel_;                  // asked for
     std::optional<environment::DayCycle> parcelCycle_; // the parcel's own
     std::optional<float> fixedPosition_;
+    std::optional<Uuid> skyAsset_;
+    std::string viewerAssetUrl_;
+    bool skyRequested_ = false;
+    std::optional<environment::SkySettings> fixedSky_;
+    std::unique_ptr<net::HttpRequestGroup> skyRequests_;
+    std::shared_ptr<MessageQueue<net::HttpResponse>> skyReplies_ =
+        std::make_shared<MessageQueue<net::HttpResponse>>();
+    std::vector<net::HttpResponse> skyDrained_;
     float exposure_ = 1.0f;
     // Clouds drift by the sky's scroll rate; accumulated here so a change of
     // sky doesn't make them jump (as llenvironment.cpp updateCloudScroll).

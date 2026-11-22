@@ -149,11 +149,15 @@ ProbeLight sampleProbes(vec3 position, vec3 n, vec3 r, float roughness, bool wan
         distanceWeights[group] += dw;
     }
 
-    // The default probe smooths over between automatic ones: a small weight,
-    // so anything nearer outweighs it.
+    // The default probe (the sky's) is always one of the automatic ones
+    // (reflectionProbeF.glsl preProbeSample), weighed as they are: by one
+    // over the distance to it, 64 m above the camera (touch_default_probe),
+    // its radius of 4096 m too big to fade. Far from local probes' middles
+    // it's most of the light.
     if(!inBox && probesReady())
     {
-        const float w = 1e-3;
+        const vec3 defaultOrigin = frame.cameraPosition.xyz + vec3(0.0, 0.0, 64.0);
+        const float w = 1.0 / max(length(position - defaultOrigin), 0.001);
         vec3 irr = textureLod(probeIrradiance, vec4(probeLookup(n), 0.0), 0.0).rgb;
         irradiance[0] += mix(amblit, irr * skyAmbiance, min(skyAmbiance, 1.0)) * w;
         radiance[0] += textureLod(probeRadiance, vec4(probeLookup(r), 0.0), lod).rgb * w;

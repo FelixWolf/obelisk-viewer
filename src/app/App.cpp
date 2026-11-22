@@ -92,7 +92,7 @@ void printUsage()
     std::println(stderr,
                  "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
-                 "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
+                 "[--walk DEGREES] [--day-time 0..1] [--sky ASSET] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
                  "[--say TEXT] [--say-at SECONDS] [--dump-avatar NAME|self|UUID] [--dump-at "
                  "SECONDS] [--front-view] [--no-occlusion] [--stereo-benchmark [SIZE]] "
@@ -314,6 +314,11 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
             // The official viewer's range (getMaxBandwidthKbps).
             options.bandwidth = std::clamp(std::strtof(args[i], nullptr), 100.0f, 10000.0f);
         }
+        else if(arg == "--sky" && hasValue)
+        {
+            i++;
+            options.skyAsset = Uuid::parse(args[i]);
+        }
         else if(arg == "--day-time" && hasValue)
         {
             i++;
@@ -527,6 +532,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
     app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
     app->environment_->setDayPosition(options.dayTime);
+    app->environment_->setSkyAsset(options.skyAsset);
     app->shadows_ = options.shadows;
     app->bandwidth_ = options.bandwidth;
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
@@ -1635,6 +1641,7 @@ void App::updateSession()
         viewerAsset = home_->assetUrl; // the lobby's, until the region's is in
     }
     textures_->setViewerAssetUrl(viewerAsset);
+    environment_->setViewerAssetUrl(viewerAsset);
     if(avatars_)
     {
         const auto* login = session_->login();
