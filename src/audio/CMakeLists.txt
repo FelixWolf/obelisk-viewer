@@ -1,9 +1,8 @@
 # The third-party implementations, without our warnings.
 add_library(viewer_audio_thirdparty STATIC
   MiniaudioImpl.c
-  StbVorbisImpl.c
 )
-target_link_libraries(viewer_audio_thirdparty PUBLIC viewer::miniaudio viewer::stb)
+target_link_libraries(viewer_audio_thirdparty PUBLIC viewer::miniaudio)
 target_compile_definitions(viewer_audio_thirdparty PUBLIC
   MA_NO_ENCODING
   MA_NO_FLAC
@@ -24,5 +23,5 @@ add_library(viewer::audio ALIAS viewer_audio)
 target_include_directories(viewer_audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(viewer_audio
   PUBLIC viewer::core glm::glm
-  PRIVATE viewer_audio_thirdparty viewer_warnings
+  PRIVATE viewer_audio_thirdparty vorbisfile viewer_warnings
 )

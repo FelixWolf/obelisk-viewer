@@ -17,6 +17,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -50,6 +51,7 @@ public:
         // (global), half its size's length, its rotation and half its size.
         struct Prim
         {
+            world::ObjectKey key;
             glm::dvec3 center{0.0};
             float radius = 0.0f;
             glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
@@ -78,6 +80,15 @@ public:
 
     const std::unordered_map<CellKey, Cell, CellKeyHash>& cells() const { return cells_; }
     const LinkSet* linkSet(const world::ObjectKey& root) const;
+    // The highest still prim surface on the line from `top` straight down
+    // `depth` meters (global coordinates), taking prims as their boxes: for
+    // footsteps (what's underfoot).
+    struct Ground
+    {
+        double height = 0.0;
+        world::ObjectKey prim;
+    };
+    std::optional<Ground> groundBelow(const glm::dvec3& top, double depth) const;
     // Moving link sets' roots.
     const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& moving() const
     {

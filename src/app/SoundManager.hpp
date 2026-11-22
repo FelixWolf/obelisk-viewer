@@ -15,6 +15,12 @@
 // - Distance: OpenAL's inverse distance as the official viewer's (reference
 //   1 m, rolloff 1).
 // - The listener is the camera.
+// - Footsteps: a step's sound where a foot came down, by what's underfoot
+//   (land, or the object's physical material), quietly (llvoavatar.cpp).
+// - Wind: noise around the listener while flying, louder and higher the
+//   faster the air goes past (the region's wind at half strength, less our
+//   own motion), from the side it comes from (llvieweraudio.cpp,
+//   llaudioengine.cpp mapWindVecTo*).
 // Sync (llLoopSoundMaster/Slave) plays as plain loops for now.
 
 #include "SoundAssets.hpp"
@@ -47,6 +53,13 @@ public:
 
     // A sound played once at a place (scene coordinates), at a gain.
     void trigger(const Uuid& sound, const glm::vec3& position, float gain);
+    // A foot came down here, on an object of this physical material
+    // (nothing: land).
+    void footstep(const glm::vec3& position, std::optional<uint8_t> material);
+    // Once a frame: the region's wind where we are and our own velocity
+    // (scene axes), whether we fly, and the frame's length.
+    void updateWind(const glm::vec3& weather, const glm::vec3& velocity, bool flying,
+                    float seconds);
     // Loads it ahead (PreloadSound).
     void preload(const Uuid& sound) { assets_.get(sound); }
 
@@ -116,6 +129,9 @@ private:
     std::unordered_map<world::ObjectKey, Playing, world::ObjectKeyHash> objects_;
     std::vector<Trigger> triggers_; // waiting for their sounds to load
     glm::vec3 listener_{0.0f};
+    glm::vec3 forward_{0.0f, 1.0f, 0.0f};
+    glm::vec3 up_{0.0f, 0.0f, 1.0f};
+    float windVolume_ = 0.0f; // fades in while flying
     float master_ = 1.0f;
     float sounds_ = 1.0f;
 };

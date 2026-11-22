@@ -56,6 +56,13 @@ public:
     // Everything's volume (0..1).
     void setVolume(float volume);
 
+    // Wind noise around the listener (not positioned): filtered pink noise
+    // whose loudness, pitch and left/right balance follow these (gain
+    // 0..1, the filter's center frequency in Hz, right channel share
+    // 0..1), easing towards them. Starts silent.
+    void setWind(float gain, float frequency, float panRight);
+    struct Wind; // (the generator; opaque)
+
     // Forgets voices that ended. Once a frame.
     void update();
     size_t voices() const { return voices_.size(); }

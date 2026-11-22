@@ -179,6 +179,9 @@ struct Object
     uint32_t parentId = 0; // local id of the parent, 0 for root objects
     uint32_t updateFlags = 0;
     uint8_t clickAction = ClickAction::Touch;
+    // Its physical material (llmaterialtable.h LL_MCODE_*: 0 stone, 1 metal,
+    // 2 glass, 3 wood, 4 flesh, 5 plastic, 6 rubber), for footsteps.
+    uint8_t material = 0;
 
     // Relative to the parent if there is one, otherwise to the region.
     glm::vec3 position{0.0f};

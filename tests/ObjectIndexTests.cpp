@@ -92,3 +92,24 @@ TEST_CASE("Object index: link sets in cells, kept up from each snapshot's change
     CHECK(index.prims() == 4);
     CHECK_FALSE(index.linkSet(world::ObjectKey{kRegion, 4}));
 }
+
+TEST_CASE("Object index: the ground under a point, from still prims' boxes")
+{
+    world::World w;
+    w.apply(prim(1, 0, glm::vec3(10.0f, 10.0f, 20.0f))); // a 1 m cube, top at 20.5
+    w.apply(prim(2, 0, glm::vec3(10.0f, 10.0f, 19.0f))); // under it
+    w.apply(prim(3, 0, glm::vec3(30.0f, 30.0f, 20.0f), glm::vec3(1.0f, 0.0f, 0.0f))); // moving
+    ObjectIndex index;
+    index.update(w);
+    const glm::dvec3 corner(1000.0 * 256, 1000.0 * 256, 0.0);
+
+    // From just above: the top one's top.
+    const auto hit = index.groundBelow(corner + glm::dvec3(10.2, 9.8, 21.0), 1.0);
+    REQUIRE(hit);
+    CHECK(hit->height == doctest::Approx(20.5));
+    CHECK(hit->prim.localId == 1);
+    // Out of reach, off to the side, and moving prims: nothing.
+    CHECK_FALSE(index.groundBelow(corner + glm::dvec3(10.0, 10.0, 22.0), 1.0));
+    CHECK_FALSE(index.groundBelow(corner + glm::dvec3(12.0, 10.0, 21.0), 1.0));
+    CHECK_FALSE(index.groundBelow(corner + glm::dvec3(30.0, 30.0, 21.0), 1.0));
+}

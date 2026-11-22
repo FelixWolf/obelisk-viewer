@@ -292,6 +292,7 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
         o.parentId = b.ParentID;
         o.updateFlags = b.UpdateFlags;
         o.clickAction = b.ClickAction;
+        o.material = b.Material & 0x0F; // LL_MCODE_MASK
         o.scale = glm::vec3(b.Scale.x, b.Scale.y, b.Scale.z);
 
         // Motion: 60 bytes (position, velocity, acceleration, rotation as

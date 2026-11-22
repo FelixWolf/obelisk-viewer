@@ -3427,6 +3427,76 @@ void App::updateSounds(const render::Scene& scene)
     };
     const render::Camera& c = scene.camera;
     sounds_->update(objects_->soundSources(), locate, c.position, c.forward(), c.up);
+
+    const uint64_t origin = *originHandle_;
+    const glm::dvec3 corner(static_cast<double>(origin >> 32),
+                            static_cast<double>(origin & 0xFFFFFFFFu), 0.0);
+    // A scene position's region and where in it.
+    auto regionAt = [&](const glm::vec3& p)
+    {
+        const glm::dvec3 g = corner + glm::dvec3(p);
+        constexpr double kWidth = world::kRegionWidth;
+        const double rx = std::floor(g.x / kWidth) * kWidth;
+        const double ry = std::floor(g.y / kWidth) * kWidth;
+        return std::pair(static_cast<uint64_t>(rx) << 32 | static_cast<uint64_t>(ry),
+                         glm::vec2(static_cast<float>(g.x - rx), static_cast<float>(g.y - ry)));
+    };
+
+    // Footsteps: on the highest of the land and the objects under a foot.
+    if(avatars_)
+    {
+        const AvatarView::GroundBelow ground = [&](const glm::vec3& top,
+                                                   float depth) -> std::optional<AvatarView::Ground>
+        {
+            std::optional<AvatarView::Ground> best;
+            const auto [handle, local] = regionAt(top);
+            if(const world::RegionTerrain* terrain = world_->terrain(handle))
+            {
+                const float land = terrain->heightAt(local.x, local.y);
+                if(land <= top.z && land >= top.z - depth)
+                {
+                    best = AvatarView::Ground{land, std::nullopt};
+                }
+            }
+            if(const auto hit = objects_->groundBelow(corner + glm::dvec3(top), depth))
+            {
+                const auto height = static_cast<float>(hit->height);
+                if(!best || height > best->height)
+                {
+                    const world::Object* o = world_->object(hit->prim.region, hit->prim.localId);
+                    best = AvatarView::Ground{height, static_cast<uint8_t>(o ? o->material : 0)};
+                }
+            }
+            return best;
+        };
+        for(const AvatarView::Footstep& step : avatars_->footsteps(*world_, origin, ground))
+        {
+            sounds_->footstep(step.position, step.material);
+        }
+    }
+
+    // Wind: the region's where we are, less our own motion.
+    const uint64_t ticks = SDL_GetTicksNS();
+    const float seconds = lastSoundTicks_
+                              ? std::min(static_cast<float>(ticks - lastSoundTicks_) * 1e-9f, 0.25f)
+                              : 0.0f;
+    lastSoundTicks_ = ticks;
+    glm::vec3 weather(0.0f);
+    glm::vec3 velocity(0.0f);
+    if(agentKey_)
+    {
+        if(const world::Object* me = world_->object(agentKey_->region, agentKey_->localId))
+        {
+            velocity = me->velocity;
+            if(const world::WindField* wind = world_->wind(agentKey_->region);
+               wind && me->parentId == 0)
+            {
+                weather = world::windVelocity(*wind, glm::vec2(me->position),
+                                              static_cast<float>(world::kRegionWidth));
+            }
+        }
+    }
+    sounds_->updateWind(weather, velocity, agent_.flying(), seconds);
 }
 
 void App::peopleAction(const PeopleView::Action& action)

@@ -404,6 +404,7 @@ private:
     std::unique_ptr<SoundAssets> soundAssets_;
     std::unique_ptr<SoundManager> sounds_;
     void updateSounds(const render::Scene& scene);
+    uint64_t lastSoundTicks_ = 0;
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;
     // What the mouse points at, and touching it.

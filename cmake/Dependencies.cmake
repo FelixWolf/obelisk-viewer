@@ -230,6 +230,30 @@ if(stb_ADDED)
   add_library(viewer::stb ALIAS viewer_stb)
 endif()
 
+# --- libogg and libvorbis: decoding sounds (viewer::audio) -------------------
+# The reference decoder: Second Life's oldest sounds use Vorbis features
+# (floor 0) lighter decoders leave out.
+CPMAddPackage(
+  NAME ogg
+  GITHUB_REPOSITORY xiph/ogg
+  GIT_TAG v1.3.5
+  OPTIONS
+    # Asks for an old CMake that current ones refuse otherwise.
+    "CMAKE_POLICY_VERSION_MINIMUM 3.5"
+    "BUILD_SHARED_LIBS OFF"
+    "INSTALL_DOCS OFF"
+    "BUILD_TESTING OFF"
+)
+CPMAddPackage(
+  NAME vorbis
+  GITHUB_REPOSITORY xiph/vorbis
+  GIT_TAG v1.3.7
+  OPTIONS
+    "CMAKE_POLICY_VERSION_MINIMUM 3.5"
+    "BUILD_SHARED_LIBS OFF"
+    "BUILD_TESTING OFF"
+)
+
 # --- miniaudio: sound output, mixing and 3D positioning (viewer::audio) -----
 # One header, compiled once in src/audio/MiniaudioImpl.c; its own decoders
 # aren't used (Ogg Vorbis goes through stb_vorbis).
@@ -324,4 +348,6 @@ viewer_license("TinyXML-2" "${tinyxml2_SOURCE_DIR}/LICENSE.txt")
 viewer_license("GLM" "${glm_SOURCE_DIR}/copying.txt")
 viewer_license("stb" "${stb_SOURCE_DIR}/LICENSE")
 viewer_license("miniaudio" "${miniaudio_SOURCE_DIR}/LICENSE")
+viewer_license("libogg" "${ogg_SOURCE_DIR}/COPYING")
+viewer_license("libvorbis" "${vorbis_SOURCE_DIR}/COPYING")
 viewer_license("keychain" "${keychain_SOURCE_DIR}/LICENSE")

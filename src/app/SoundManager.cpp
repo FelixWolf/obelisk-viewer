@@ -3,6 +3,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <cmath>
 
 namespace viewer
 {
@@ -14,6 +15,23 @@ namespace
 // objects' one-offs (llviewermessage.cpp waits 15 s for an object).
 constexpr auto kTriggerWait = std::chrono::seconds(10);
 constexpr auto kObjectWait = std::chrono::seconds(15);
+
+// Footsteps (llvoavatar.cpp sStepSoundOnLand, sStepSounds by LL_MCODE_*).
+constexpr float kStepGain = 0.1f;
+const Uuid kStepOnLand = *Uuid::parse("e8af4a28-aa83-4310-a7c4-c047e15ea0df");
+const Uuid kStepOn[] = {
+    *Uuid::parse("25a863e8-dc42-4e8a-a357-e76422ace9b5"), // stone
+    *Uuid::parse("8761f73f-6cf9-4186-8aaa-0948ed002db1"), // metal
+    *Uuid::parse("2de4da5a-faf8-46be-bac6-c4d74f1e5767"), // glass
+    *Uuid::parse("7d1826f4-24c4-4aac-8c2e-eff45df37783"), // wood
+    *Uuid::parse("68d62208-e257-4d0c-bbe2-20c9ea9760bb"), // flesh
+    *Uuid::parse("75cf3ade-9a5b-4c4d-bb35-f9799bda7fb2"), // plastic
+    *Uuid::parse("153c8bf7-fb89-4d89-b263-47e58b1b4774"), // rubber
+};
+// The weather's share of the wind sound (AudioLevelWind), and how long it
+// takes to fade in or out (WIND_SOUND_TRANSITION_TIME).
+constexpr float kWeatherWind = 0.5f;
+constexpr float kWindFade = 2.0f;
 
 } // namespace
 
@@ -32,6 +50,44 @@ void SoundManager::trigger(const Uuid& sound, const glm::vec3& position, float g
     }
     assets_.get(sound);
     triggers_.push_back({sound, position, std::clamp(gain, 0.0f, 1.0f), Clock::now()});
+}
+
+void SoundManager::footstep(const glm::vec3& position, std::optional<uint8_t> material)
+{
+    const Uuid& sound = !material ? kStepOnLand : kStepOn[std::min<size_t>(*material, 6)];
+    trigger(sound, position, kStepGain);
+}
+
+void SoundManager::updateWind(const glm::vec3& weather, const glm::vec3& velocity, bool flying,
+                              float seconds)
+{
+    // Walking north, the air goes south past us.
+    const glm::vec3 wind = weather * kWeatherWind - velocity;
+    if(!engine_)
+    {
+        return;
+    }
+    // Fades in while flying, out otherwise.
+    const float most = master_ > 0.0f ? 1.0f : 0.0f; // (the master volume applies on top)
+    const float delta = seconds / kWindFade * most;
+    windVolume_ =
+        flying ? std::min(windVolume_ + delta, most) : std::max(windVolume_ - delta, 0.0f);
+    if(windVolume_ <= 0.0f && !flying)
+    {
+        engine_->setWind(0.0f, 100.0f, 0.5f);
+        return;
+    }
+    // In the listener's frame: how fast (to 20 m/s), and the angle from its
+    // right (0 from the right, 1 from the left); straight on or from behind
+    // sounds highest.
+    const float speed = glm::length(wind);
+    const float strength = std::min(speed, 20.0f) / 20.0f;
+    const glm::vec3 right = glm::normalize(glm::cross(forward_, up_));
+    const float side = speed > 1e-4f ? glm::dot(wind / speed, right) : 0.0f;
+    const float theta = std::acos(std::clamp(side, -1.0f, 1.0f)) / 3.14159265f;
+    const float across = theta > 0.5f ? 1.0f - theta : theta;
+    const float frequency = 80.0f * std::pow(1.0f + across, 2.5f * (strength + 1.0f));
+    engine_->setWind(strength * windVolume_, frequency, theta);
 }
 
 void SoundManager::setVolumes(float master, float sounds)
@@ -124,6 +180,8 @@ void SoundManager::update(
         return;
     }
     listener_ = listener;
+    forward_ = forward;
+    up_ = up;
     engine_->setListener(listener, forward, up);
     engine_->update();
 

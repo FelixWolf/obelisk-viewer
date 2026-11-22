@@ -205,8 +205,36 @@ private:
         float eyeHeight = 0.0f;       // unanimated: how high the eyes are above the feet
         bool hasEyes = false;
         uint64_t seen = 0; // frame last updated
+        world::ObjectKey key;
+        // Footsteps: whether each foot was on the ground last frame.
+        bool leftDown = false;
+        bool rightDown = false;
     };
 
+public:
+    // A foot coming down while walking, running or landing
+    // (LLVOAvatar::updateFootstepSounds): where (scene coordinates), and on
+    // what: an object's physical material, or nothing for land.
+    struct Footstep
+    {
+        Uuid avatar;
+        glm::vec3 position{0.0f};
+        std::optional<uint8_t> material;
+    };
+    // What's under a point, looking from `top` down `depth` meters (scene
+    // coordinates): the surface's height, and its material (nothing: land);
+    // nothing if neither is within reach.
+    struct Ground
+    {
+        float height = 0.0f;
+        std::optional<uint8_t> material;
+    };
+    using GroundBelow = std::function<std::optional<Ground>(const glm::vec3& top, float depth)>;
+    // The footsteps of avatars drawn this frame (after addTo).
+    std::vector<Footstep> footsteps(const world::World& world, uint64_t originHandle,
+                                    const GroundBelow& ground);
+
+private:
     // One of the avatar's bakes (texture entry index `slot`), nullptr while
     // it loads or if it has none.
     const render::GpuTexture* bake(const world::World& world, const world::Object& avatar, int slot,

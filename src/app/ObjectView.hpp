@@ -97,6 +97,12 @@ public:
     // space for HUD attachments.
     std::optional<glm::mat4> objectFrame(const world::Object& object, const world::World& world,
                                          uint64_t originHandle, const AvatarView* avatars) const;
+    // The highest still prim surface straight down from `top` within
+    // `depth` meters (global coordinates; prims as their boxes).
+    std::optional<ObjectIndex::Ground> groundBelow(const glm::dvec3& top, double depth) const
+    {
+        return index_.groundBelow(top, depth);
+    }
     // Prims playing a sound (or set to), for SoundManager.
     const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& soundSources() const
     {

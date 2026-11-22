@@ -770,6 +770,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         Avatar& a = avatars_[object.id];
         a.seen = frame_;
+        a.key = key;
 
         // Reshape when the appearance changed.
         const world::World::Appearance* appearance = world.appearance(object.id);
@@ -889,6 +890,58 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
     // Frames asked for while posing were of the old poses.
     rootFrames_.clear();
     attachmentFrames_.clear();
+}
+
+std::vector<AvatarView::Footstep>
+AvatarView::footsteps(const world::World& world, uint64_t originHandle, const GroundBelow& ground)
+{
+    // Walking, running or landing (the server's ids; others' motions map
+    // to these too).
+    static const Uuid kSteps[] = {*Uuid::parse("6ed24bd8-91aa-4b12-ccc7-c97c857ab4e0"),
+                                  *Uuid::parse("05ddbff8-aaa9-92a1-2b74-8fe77a29b445"),
+                                  *Uuid::parse("7a17b059-12b2-41b1-570a-186368b6aa6f")};
+    std::vector<Footstep> steps;
+    for(auto& [id, a] : avatars_)
+    {
+        if(a.seen != frame_)
+        {
+            continue;
+        }
+        const auto* playing = world.animations(id);
+        const bool stepping =
+            playing && std::ranges::any_of(*playing, [](const world::PlayingAnimation& p)
+                                           { return std::ranges::contains(kSteps, p.id); });
+        if(!stepping)
+        {
+            continue;
+        }
+        const world::Object* object = world.object(a.key.region, a.key.localId);
+        if(!object || object->id != id)
+        {
+            continue;
+        }
+        // A foot is down within 5 cm of what's under it (looking half a
+        // meter up and down).
+        auto foot = [&](const char* joint, bool& wasDown)
+        {
+            const auto at = jointPosition(*object, world, joint, originHandle);
+            if(!at)
+            {
+                return;
+            }
+            const auto under = ground(*at + glm::vec3(0.0f, 0.0f, 0.5f), 1.0f);
+            const float elevation = under ? std::max(-0.2f, at->z - under->height) : 1.0f;
+            const bool down = elevation <= 0.05f;
+            if(down && !wasDown)
+            {
+                steps.push_back({id, *at, under->material});
+            }
+            wasDown = down;
+        };
+        foot("mFootLeft", a.leftDown);
+        foot("mFootRight", a.rightDown);
+    }
+    return steps;
 }
 
 } // namespace viewer

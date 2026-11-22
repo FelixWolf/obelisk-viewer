@@ -4,15 +4,135 @@
 
 #include <miniaudio.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cfloat>
+#include <cmath>
 #include <utility>
 
 namespace viewer::audio
 {
 
+// Wind: noise made on the audio thread, steered from the main one.
+struct AudioEngine::Wind
+{
+    ma_data_source_base base{}; // first: miniaudio sees this as the data source
+    uint32_t sampleRate = 48000;
+    std::atomic<float> targetGain{0.0f};
+    std::atomic<float> targetFrequency{100.0f};
+    std::atomic<float> targetPan{0.5f};
+    // Audio thread only.
+    uint32_t random = 0x12345678u;
+    float pink[3] = {0.0f, 0.0f, 0.0f};
+    float y1 = 0.0f;
+    float y2 = 0.0f;
+    float gain = 0.0f;
+    float frequency = 100.0f;
+    float pan = 0.5f;
+    float last = 0.0f;
+    float step = 0.0f;
+    int sub = 0;
+
+    float noise()
+    {
+        // xorshift32, centered on 0 (-0.5..0.5).
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        return static_cast<float>(random) / 4294967296.0f - 0.5f;
+    }
+
+    // One synthesized sample (made at half the output rate, then eased
+    // between): pink noise through a resonant two-pole filter at the
+    // frequency, at the gain.
+    float synthesize()
+    {
+        const float white = noise();
+        pink[0] = 0.99765f * pink[0] + white * 0.0990460f;
+        pink[1] = 0.96300f * pink[1] + white * 0.2965164f;
+        pink[2] = 0.57000f * pink[2] + white * 1.0526913f;
+        const float x = pink[0] + pink[1] + pink[2] + white * 0.1848f;
+
+        const float period = 2.0f / static_cast<float>(sampleRate);
+        const float target = targetFrequency.load(std::memory_order_relaxed);
+        frequency = std::abs(target - frequency) < frequency * 0.112f
+                        ? target
+                        : 0.999f * frequency + 0.001f * target;
+        // Pole radius squared from a 50 Hz bandwidth; the gain keeps the
+        // peak near unity.
+        constexpr float kTwoPi = 6.28318530718f;
+        const float r2 = std::exp(-kTwoPi * 50.0f * period);
+        const float b1 = -4.0f * r2 / (1.0f + r2) * std::cos(kTwoPi * frequency * period);
+        const float a0 = (1.0f - r2) * std::sqrt(std::max(0.0f, 1.0f - b1 * b1 / (4.0f * r2)));
+        const float y = a0 * x - b1 * y1 - r2 * y2;
+        y2 = y1;
+        y1 = y;
+
+        gain = 0.999f * gain + 0.001f * targetGain.load(std::memory_order_relaxed);
+        pan = 0.999f * pan + 0.001f * targetPan.load(std::memory_order_relaxed);
+        return y * gain;
+    }
+
+    void read(float* out, ma_uint64 frames)
+    {
+        for(ma_uint64 i = 0; i < frames; i++)
+        {
+            if(sub == 0)
+            {
+                step = (synthesize() - last) * 0.5f;
+                sub = 2;
+            }
+            last += step;
+            sub--;
+            const float right = last * pan;
+            out[2 * i] = last - right;
+            out[2 * i + 1] = right;
+        }
+    }
+};
+
+namespace
+{
+
+ma_result windRead(ma_data_source* source, void* out, ma_uint64 frames, ma_uint64* read)
+{
+    static_cast<AudioEngine::Wind*>(source)->read(static_cast<float*>(out), frames);
+    if(read)
+    {
+        *read = frames;
+    }
+    return MA_SUCCESS;
+}
+
+ma_result windSeek(ma_data_source*, ma_uint64)
+{
+    return MA_SUCCESS;
+}
+
+ma_result windFormat(ma_data_source* source, ma_format* format, ma_uint32* channels,
+                     ma_uint32* sampleRate, ma_channel* channelMap, size_t channelMapCap)
+{
+    *format = ma_format_f32;
+    *channels = 2;
+    *sampleRate = static_cast<AudioEngine::Wind*>(source)->sampleRate;
+    if(channelMap && channelMapCap >= 2)
+    {
+        channelMap[0] = MA_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+    }
+    return MA_SUCCESS;
+}
+
+ma_data_source_vtable kWindSource = {windRead, windSeek, windFormat, nullptr, nullptr, nullptr, 0};
+
+} // namespace
+
 struct AudioEngine::Impl
 {
     ma_engine engine{};
+    std::unique_ptr<Wind> wind;
+    ma_sound windSound{};
+    bool windReady = false;
 };
 
 struct AudioEngine::VoiceData
@@ -60,7 +180,42 @@ AudioEngine::AudioEngine(std::unique_ptr<Impl> impl) : impl_(std::move(impl))
 AudioEngine::~AudioEngine()
 {
     voices_.clear(); // before the engine
+    if(impl_->windReady)
+    {
+        ma_sound_uninit(&impl_->windSound);
+        ma_data_source_uninit(&impl_->wind->base);
+    }
     ma_engine_uninit(&impl_->engine);
+}
+
+void AudioEngine::setWind(float gain, float frequency, float panRight)
+{
+    if(!impl_->windReady)
+    {
+        // Made the first time it's wanted.
+        auto wind = std::make_unique<Wind>();
+        wind->sampleRate = ma_engine_get_sample_rate(&impl_->engine);
+        ma_data_source_config config = ma_data_source_config_init();
+        config.vtable = &kWindSource;
+        if(ma_data_source_init(&config, &wind->base) != MA_SUCCESS)
+        {
+            return;
+        }
+        if(ma_sound_init_from_data_source(&impl_->engine, &wind->base,
+                                          MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr,
+                                          &impl_->windSound) != MA_SUCCESS)
+        {
+            ma_data_source_uninit(&wind->base);
+            return;
+        }
+        impl_->wind = std::move(wind);
+        impl_->windReady = true;
+        ma_sound_start(&impl_->windSound);
+    }
+    Wind& w = *impl_->wind;
+    w.targetGain.store(std::clamp(gain, 0.0f, 2.0f), std::memory_order_relaxed);
+    w.targetFrequency.store(std::clamp(frequency, 20.0f, 4000.0f), std::memory_order_relaxed);
+    w.targetPan.store(std::clamp(panRight, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
 AudioEngine::VoiceData* AudioEngine::find(Voice voice) const

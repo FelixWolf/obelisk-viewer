@@ -250,7 +250,7 @@ void ObjectIndex::place(const world::World& world, const world::ObjectKey& root)
             set.radius = std::max(set.radius,
                                   static_cast<float>(glm::length(position - rootPosition)) + size);
             const glm::quat rotation = m == root ? r->rotation : r->rotation * member->rotation;
-            set.prims.push_back({position, size * 0.5f, rotation, member->scale * 0.5f});
+            set.prims.push_back({m, position, size * 0.5f, rotation, member->scale * 0.5f});
             if(size >= kBig)
             {
                 set.big.push_back(m);
@@ -293,6 +293,70 @@ void ObjectIndex::boundCell(const CellKey& key)
         cell.hi = glm::max(cell.hi, set.center + glm::dvec3(set.radius));
         cell.hasBig = cell.hasBig || !set.big.empty();
     }
+}
+
+std::optional<ObjectIndex::Ground> ObjectIndex::groundBelow(const glm::dvec3& top,
+                                                            double depth) const
+{
+    std::optional<Ground> best;
+    for(const auto& [key, cell] : cells_)
+    {
+        if(top.x < cell.lo.x || top.x > cell.hi.x || top.y < cell.lo.y || top.y > cell.hi.y ||
+           top.z < cell.lo.z || top.z - depth > cell.hi.z)
+        {
+            continue;
+        }
+        for(const world::ObjectKey& root : cell.roots)
+        {
+            const auto set = sets_.find(root);
+            if(set == sets_.end())
+            {
+                continue;
+            }
+            for(const LinkSet::Prim& prim : set->second.prims)
+            {
+                // Down the segment in the box's frame: where it enters.
+                const glm::vec3 from = glm::vec3(top - prim.center);
+                if(glm::length(glm::vec2(from)) > prim.radius)
+                {
+                    continue; // off to the side of its bounding sphere
+                }
+                const glm::quat toLocal = glm::inverse(prim.rotation);
+                const glm::vec3 p = toLocal * from;
+                const glm::vec3 d = toLocal * glm::vec3(0.0f, 0.0f, -static_cast<float>(depth));
+                float enter = 0.0f;
+                float leave = 1.0f;
+                bool hit = true;
+                for(int i = 0; i < 3 && hit; i++)
+                {
+                    if(glm::abs(d[i]) < 1e-9f)
+                    {
+                        hit = glm::abs(p[i]) <= prim.half[i];
+                        continue;
+                    }
+                    float t0 = (-prim.half[i] - p[i]) / d[i];
+                    float t1 = (prim.half[i] - p[i]) / d[i];
+                    if(t0 > t1)
+                    {
+                        std::swap(t0, t1);
+                    }
+                    enter = std::max(enter, t0);
+                    leave = std::min(leave, t1);
+                    hit = enter <= leave;
+                }
+                if(!hit)
+                {
+                    continue;
+                }
+                const double height = top.z - static_cast<double>(enter) * depth;
+                if(!best || height > best->height)
+                {
+                    best = Ground{height, prim.key};
+                }
+            }
+        }
+    }
+    return best;
 }
 
 } // namespace viewer
