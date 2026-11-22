@@ -385,6 +385,16 @@ void Animator::evaluate(double now, size_t jointCount, std::vector<JointPose>& p
             pose[j].position = position;
         }
     }
+
+    // What no animation moves stays as the last one left it.
+    held_.resize(jointCount);
+    for(size_t j = 0; j < jointCount; j++)
+    {
+        JointPose& p = pose[j];
+        JointPose& h = held_[j];
+        p.rotation ? void(h.rotation = p.rotation) : void(p.rotation = h.rotation);
+        p.position ? void(h.position = p.position) : void(p.position = h.position);
+    }
 }
 
 } // namespace viewer::avatar

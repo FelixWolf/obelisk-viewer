@@ -1796,8 +1796,21 @@ and out with a cubic step, animations that don't loop stopping early enough
 to ease out by their end. Per joint, the highest priority (then latest)
 animation comes first and lower ones only fill what's left of a total weight
 of one (llpose.cpp's LLJointStateBlender). Animated rotations replace the
-joint's; animated positions replace the shaped ones. Attachments follow the
-animated skeleton.
+joint's; animated positions replace the shaped ones.
+
+A joint no animation moves keeps the rotation and position the last one gave
+it, even after that animation has stopped. The official viewer's blender
+starts from the joint as it is and only touches joints some playing motion
+moves. It resets the skeleton only when an avatar's visual muting changes,
+or on "reset skeleton" (`Animator::resetHeld`).
+
+Animation "deformers" depend on this. A gryphon avatar has no joint
+positions in its meshes at all. A priority 1 animation lasting 0 seconds,
+with position keys for nearly every joint, reshapes the skeleton, and its
+HUD stops and restarts it. Without held values, every stop snapped the
+avatar back to the human skeleton.
+
+Attachments follow the animated skeleton.
 
 Rigged mesh: `MeshManager` also loads a mesh's skin block (`.skin` in the
 disk cache): joint names, inverse bind matrices, the bind shape matrix and

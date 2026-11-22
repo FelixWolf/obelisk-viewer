@@ -79,8 +79,14 @@ public:
     size_t count() const { return playing_.size(); }
 
     // The blended pose at `now`, one entry per joint; drops animations that
-    // have finished easing out.
+    // have finished easing out. A joint no animation moves now keeps the
+    // rotation and position the last one gave it, as the official viewer's
+    // joints do (LLJointStateBlender starts from the joint as it is and only
+    // blends joints some motion moves): animation "deformers", played once
+    // and stopped, keep the skeleton as they left it.
     void evaluate(double now, size_t jointCount, std::vector<JointPose>& pose);
+    // Forgets what the joints were left with (the official "reset skeleton").
+    void resetHeld() { held_.clear(); }
 
 private:
     struct Playing
@@ -94,6 +100,8 @@ private:
 
     std::vector<Playing> playing_;
     uint64_t nextOrder_ = 0;
+    // Per joint: the rotation and position animations last gave it.
+    std::vector<JointPose> held_;
 };
 
 } // namespace viewer::avatar

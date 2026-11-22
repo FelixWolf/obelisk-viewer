@@ -242,5 +242,14 @@ TEST_CASE("Animation: parse, sample, ease and blend")
     CHECK(animator.count() == 2);
     animator.evaluate(2.6, avatar->skeleton.joints.size(), pose);
     CHECK(animator.count() == 0);
+    // Gone, the joint keeps what they last gave it (an animation deformer's
+    // positions stay): b's, the higher priority.
+    REQUIRE(pose[static_cast<size_t>(pelvis)].rotation.has_value());
+    CHECK(angleAboutZ(*pose[static_cast<size_t>(pelvis)].rotation) < 0.0f);
+    REQUIRE(pose[static_cast<size_t>(pelvis)].position.has_value());
+    CHECK(pose[static_cast<size_t>(pelvis)].position->z == doctest::Approx(0.1f).epsilon(0.01));
+    CHECK_FALSE(pose[static_cast<size_t>(avatar->skeleton.find("mHead"))].rotation.has_value());
+    animator.resetHeld();
+    animator.evaluate(2.7, avatar->skeleton.joints.size(), pose);
     CHECK_FALSE(pose[static_cast<size_t>(pelvis)].rotation.has_value());
 }
