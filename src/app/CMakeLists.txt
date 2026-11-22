@@ -61,6 +61,8 @@ add_executable(viewer
   Offers.cpp
   InventoryBrowser.cpp
   ChatView.cpp
+  People.cpp
+  PeopleView.cpp
   CurrentOutfit.cpp
   ParcelInfo.cpp
   MainMenu.cpp

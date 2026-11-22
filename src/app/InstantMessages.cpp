@@ -111,6 +111,20 @@ ImConversation& InstantMessages::conversation(const Uuid& session, ImConversatio
     return *it;
 }
 
+Uuid InstantMessages::start(const Uuid& self, const Uuid& other, std::string_view name,
+                            std::chrono::system_clock::time_point now)
+{
+    const Uuid session = directSession(self, other);
+    ImConversation& c = conversation(session, ImConversation::Kind::Direct, other, name);
+    if(c.lines.empty())
+    {
+        c.latest = now;
+        version_++;
+        sortByLatest();
+    }
+    return session;
+}
+
 void InstantMessages::add(ImConversation& c, ImMessage message)
 {
     c.latest = std::max(c.latest, message.when);

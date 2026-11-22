@@ -284,6 +284,63 @@
             </div>
         </div>
 
+        <!-- People: friends (online first) or who's nearby (nearest first)
+             on the left; the one picked on the right, with what can be done. -->
+        <div data-if="tab == 'people'" class="chat people">
+            <div class="chat-list people-list">
+                <div class="people-switch">
+                    <div class="toggle" data-class-on="peopleList == 'friends'" data-event-click="peopleList = 'friends'">Friends</div>
+                    <div class="toggle" data-class-on="peopleList == 'nearby'" data-event-click="peopleList = 'nearby'">Nearby</div>
+                </div>
+                <div class="people-rows">
+                    <div class="quiet" data-if="peopleNote != ''">{{ peopleNote }}</div>
+                    <div data-for="r : peopleRows"
+                         data-attr-class="'conversation person' + (r.id == peopleChosen ? ' active' : '') + (r.online ? ' online' : '')"
+                         data-event-click="peopleChosen = r.id">
+                        <span class="dot"></span>
+                        <span class="conversation-name">{{ r.name }}</span>
+                        <span class="person-detail">{{ r.detail }}</span>
+                        <span class="friend-mark" data-if="peopleList == 'nearby' &amp;&amp; r.isFriend">Friend</span>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-main person-card">
+                <div class="quiet" data-if="peopleCard.name == ''">Pick someone to see what you can do.</div>
+                <div data-if="peopleCard.name != ''">
+                    <div class="detail-name">{{ peopleCard.name }}</div>
+                    <div class="muted" data-if="peopleCard.username != ''">{{ peopleCard.username }}</div>
+                    <div data-attr-class="'person-status' + (peopleCard.online ? ' online' : '')">{{ peopleCard.status }}</div>
+                    <div class="actions person-actions">
+                        <div class="teleport" data-event-click="peopleMessage">Message</div>
+                        <div class="teleport add" data-if="peopleCard.online" data-event-click="peopleOfferTeleport">Offer teleport</div>
+                        <div class="teleport add" data-if="peopleCard.online" data-event-click="peopleRequestTeleport">Ask to teleport</div>
+                    </div>
+                    <div data-if="peopleCard.isFriend" class="rights">
+                        <h3>You let them</h3>
+                        <div class="toggle right" data-class-on="peopleCard.givesOnline" data-event-click="peopleRight(1)">See when you're online</div>
+                        <div class="toggle right" data-class-on="peopleCard.givesMap" data-event-click="peopleRight(2)">Find you on the map</div>
+                        <div class="toggle right" data-class-on="peopleCard.givesModify" data-event-click="peopleRight(4)">Edit, delete or take your objects</div>
+                        <div class="muted they">{{ peopleCard.theyLetUs }}</div>
+                    </div>
+                    <div class="actions friendship" data-if="!peopleCard.isFriend">
+                        <div class="teleport add" data-event-click="peopleAddFriend">Offer friendship</div>
+                    </div>
+                    <div class="friendship" data-if="peopleCard.isFriend">
+                        <div class="actions" data-if="!peopleConfirmEnd">
+                            <div class="teleport detach" data-event-click="peopleEnd">End friendship</div>
+                        </div>
+                        <div data-if="peopleConfirmEnd">
+                            <div class="muted confirm">End your friendship with {{ peopleCard.name }}?</div>
+                            <div class="actions">
+                                <div class="teleport detach" data-event-click="peopleEnd">End it</div>
+                                <div class="teleport add" data-event-click="peopleKeep">Keep</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div data-if="tab == 'parcel'" class="parcel">
             <div data-if="!parcelKnown" class="soon">
                 <h2>Parcel</h2>
@@ -328,7 +385,7 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'chat' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
+        <div data-if="tab != 'home' &amp;&amp; tab != 'chat' &amp;&amp; tab != 'people' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

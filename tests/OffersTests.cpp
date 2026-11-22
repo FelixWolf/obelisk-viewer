@@ -140,6 +140,8 @@ TEST_CASE("Offers: friendship and group invitations")
     REQUIRE(answers.size() == 1);
     CHECK(answers[0].friendship == true);
     CHECK(answers[0].transaction == kTransaction);
+    // A friendship formed: for the friends list.
+    CHECK(offers.takeFriendships() == std::vector<Uuid>{kAnn});
 
     // Offered while away: by capability (nothing sent as a message).
     auto away = im(ImDialog::FriendshipOffered, "Later?");
@@ -147,6 +149,10 @@ TEST_CASE("Offers: friendship and group invitations")
     offers.handle(away, 0);
     offers.decline();
     CHECK(offers.takeAnswers().empty());
+    CHECK(offers.takeFriendships().empty()); // declined
+    // Ours accepted.
+    offers.handle(im(ImDialog::FriendshipAccepted, ""), 0);
+    CHECK(offers.takeFriendships() == std::vector<Uuid>{kAnn});
 
     // A group invitation: the fee (big-endian) and the role in the bucket.
     std::vector<uint8_t> bucket{0, 0, 0x01, 0x2c}; // L$300
@@ -204,6 +210,10 @@ TEST_CASE("Offers: group notices, with and without an attachment")
     CHECK(offers.front()->group == kGroup);
     offers.decline();
     CHECK(offers.takeAnswers().empty());
+    CHECK(offers.takeFriendships().empty()); // declined
+    // Ours accepted.
+    offers.handle(im(ImDialog::FriendshipAccepted, ""), 0);
+    CHECK(offers.takeFriendships() == std::vector<Uuid>{kAnn});
 }
 
 TEST_CASE("Offers: not offers, and what came while away")

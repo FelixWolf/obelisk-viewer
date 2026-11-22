@@ -613,3 +613,42 @@ input.chat-field selection { background-color: #3a6ae0; color: #ffffff; }
 .send.wide { margin-left: 0; }
 .chat-line.self .who { color: #c0a0ff; }
 .typing { font-size: 14dp; color: #8b96ab; padding: 0 4dp 6dp 4dp; flex-shrink: 0; }
+
+/* People: the Chat tab's layout, with friends or who's nearby on the left
+   and the one picked on the right. */
+.people-list { width: 300dp; display: flex; flex-direction: column; }
+.people-switch { display: flex; flex-direction: row; margin-bottom: 12dp; flex-shrink: 0; }
+.people-switch .toggle { flex: 1 1 0; text-align: center; }
+.people-switch .toggle + .toggle { margin-left: 8dp; }
+.people-rows { flex: 1; overflow-y: auto; }
+.people-rows .quiet { color: #7c879c; padding: 20dp 10dp; text-align: center; }
+.person .dot
+{
+    width: 9dp;
+    height: 9dp;
+    border-radius: 5dp;
+    margin-right: 10dp;
+    background-color: #4a5266;
+    flex-shrink: 0;
+}
+.person.online .dot { background-color: #4cc070; }
+.person-detail { font-size: 14dp; color: #7c879c; margin-left: 8dp; }
+.friend-mark
+{
+    font-size: 12dp;
+    color: #c0a0ff;
+    margin-left: 8dp;
+    padding: 1dp 6dp;
+    border-radius: 6dp;
+    border: 1dp #c0a0ff60;
+}
+.person-card { padding: 22dp 24dp; }
+.person-card .quiet { color: #7c879c; padding-top: 30dp; text-align: center; }
+.person-status { color: #8b96ab; margin: 8dp 0 18dp 0; }
+.person-status.online { color: #4cc070; }
+.person-actions { margin-bottom: 22dp; }
+.rights h3 { margin: 0 0 10dp 0; }
+.rights .right { margin-bottom: 8dp; padding: 10dp 14dp; }
+.rights .they { margin-top: 8dp; font-size: 15dp; }
+.person-card .confirm { margin-bottom: 10dp; }
+.person-card .friendship { margin-top: 26dp; }

@@ -105,6 +105,8 @@ struct OfferAnswer
     bool godlike = false;
     // Offer a teleport to them.
     std::optional<Uuid> offerTeleportTo;
+    // Offer them friendship (with our calling card folder).
+    std::optional<Uuid> offerFriendshipTo;
     // Friendship by message: accept (into the calling card folder) or not.
     std::optional<bool> friendship;
     Uuid transaction;
@@ -149,6 +151,9 @@ public:
 
     // What to send, once (answers, and what's done as offers come).
     std::vector<OfferAnswer> takeAnswers() { return std::exchange(answers_, {}); }
+    // Friendships formed, once: offers of theirs we accepted, and ours
+    // they accepted (LLAvatarTracker::formFriendship).
+    std::vector<Uuid> takeFriendships() { return std::exchange(friendships_, {}); }
 
     // Sends what goes by capability. Once a frame.
     void update(const session::Session& session);
@@ -164,6 +169,7 @@ private:
     uint64_t serial_ = 0;
     uint64_t version_ = 0;
     std::vector<OfferAnswer> answers_;
+    std::vector<Uuid> friendships_;
 
     // Capability answers: friendship (from), group invitations (group).
     struct ByCapability

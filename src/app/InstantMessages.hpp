@@ -152,6 +152,12 @@ public:
                                  std::string_view ourName,
                                  std::chrono::system_clock::time_point now);
 
+    // Starts a one-to-one conversation with `other` (named `name` until
+    // they say theirs), if there isn't one, at the top of the list; its
+    // session.
+    Uuid start(const Uuid& self, const Uuid& other, std::string_view name,
+               std::chrono::system_clock::time_point now);
+
     // Asks for what came while away (once a login, when the region has the
     // capability), accepts invitations, and takes the answers. Once a frame.
     void update(const session::Session& session);

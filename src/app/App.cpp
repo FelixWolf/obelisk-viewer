@@ -1297,6 +1297,55 @@ void App::updateSession()
         if(m.kind == session::RegionMessage::Kind::RegionRemoved)
         {
             worldThread_->postRegionRemoved(m.regionHandle);
+            nearby_.removeRegion(m.regionHandle);
+        }
+        else if(m.event.is<protocol::msg::CoarseLocationUpdate>())
+        {
+            const auto update = m.event.decode<protocol::msg::CoarseLocationUpdate>();
+            if(const auto* login = session_->login(); update && login)
+            {
+                nearby_.update(m.regionHandle, *update, login->agentId);
+            }
+        }
+        else if(m.event.is<protocol::msg::OnlineNotification>() ||
+                m.event.is<protocol::msg::OfflineNotification>())
+        {
+            const bool online = m.event.is<protocol::msg::OnlineNotification>();
+            std::vector<Uuid> ids;
+            if(online)
+            {
+                if(const auto n = m.event.decode<protocol::msg::OnlineNotification>())
+                {
+                    for(const auto& b : n->AgentBlock)
+                    {
+                        ids.push_back(b.AgentID);
+                    }
+                }
+            }
+            else if(const auto n = m.event.decode<protocol::msg::OfflineNotification>())
+            {
+                for(const auto& b : n->AgentBlock)
+                {
+                    ids.push_back(b.AgentID);
+                }
+            }
+            friends_.setOnline(ids, online);
+        }
+        else if(m.event.is<protocol::msg::ChangeUserRights>())
+        {
+            const auto change = m.event.decode<protocol::msg::ChangeUserRights>();
+            if(const auto* login = session_->login(); change && login)
+            {
+                friends_.rightsChanged(*change, login->agentId);
+            }
+        }
+        else if(m.event.is<protocol::msg::TerminateFriendship>())
+        {
+            if(const auto ended = m.event.decode<protocol::msg::TerminateFriendship>())
+            {
+                log::info("a friendship ended");
+                friends_.remove(ended->ExBlock.OtherID);
+            }
         }
         else if(m.event.is<protocol::msg::ObjectProperties>())
         {
@@ -1918,6 +1967,9 @@ void App::endSession()
     keyboardForChat_.reset();
     ims_->clear();
     offers_->clear();
+    friends_.clear();
+    friendsLoaded_ = false;
+    nearby_.clear();
     offerAnswers_.clear();
     if(animations_)
     {
@@ -3196,7 +3248,7 @@ bool App::carryOut(const OfferAnswer& a, double waited)
         }
     }
     std::optional<Uuid> callingCards;
-    if(a.friendship && *a.friendship)
+    if((a.friendship && *a.friendship) || a.offerFriendshipTo)
     {
         callingCards = systemFolder(inventory::kCallingCardFolder, waited);
         if(!callingCards)
@@ -3251,6 +3303,13 @@ bool App::carryOut(const OfferAnswer& a, double waited)
     {
         session_->answerFriendship(a.transaction, *a.friendship, callingCards.value_or(Uuid()));
     }
+    if(a.offerFriendshipTo)
+    {
+        // LLAvatarActions::requestFriendship: our calling card folder as
+        // the message's id.
+        session_->sendInstantMessage(*a.offerFriendshipTo, callingCards.value_or(Uuid()),
+                                     ImDialog::FriendshipOffered, "Would you be my friend?");
+    }
     if(a.trash && trash && *trash != Uuid())
     {
         session_->moveInventoryItem(*a.trash, *trash);
@@ -3283,8 +3342,73 @@ void App::updateOfferAnswers()
     {
         offerAnswers_.push_back({std::move(a), now});
     }
+    // Friends: the login's list once, then friendships formed.
+    if(const auto* login = session_ ? session_->login() : nullptr; login && !friendsLoaded_)
+    {
+        friends_.load(login->reply["buddy-list"]);
+        friendsLoaded_ = true;
+        log::info("{} friends", friends_.all().size());
+    }
+    for(const Uuid& id : offers_->takeFriendships())
+    {
+        friends_.form(id);
+    }
     std::erase_if(offerAnswers_,
                   [&](const PendingAnswer& p) { return carryOut(p.answer, now - p.since); });
+}
+
+void App::peopleAction(const PeopleView::Action& action)
+{
+    const auto* login = session_->login();
+    if(!login)
+    {
+        return;
+    }
+    using Kind = PeopleView::Action::Kind;
+    switch(action.kind)
+    {
+    case Kind::Message:
+    {
+        const Uuid session =
+            ims_->start(login->agentId, action.who, action.name, std::chrono::system_clock::now());
+        mainMenu_->chat().open(session.toString());
+        mainMenu_->showTab("chat");
+        break;
+    }
+    case Kind::OfferTeleport:
+    {
+        log::info("offering '{}' a teleport", action.name);
+        OfferAnswer a;
+        a.offerTeleportTo = action.who;
+        offerAnswers_.push_back({std::move(a), static_cast<double>(SDL_GetTicksNS()) * 1e-9});
+        break;
+    }
+    case Kind::RequestTeleport:
+        // LLAvatarActions::teleportRequest: IM_TELEPORT_REQUEST, no id.
+        log::info("asking '{}' for a teleport", action.name);
+        session_->sendInstantMessage(action.who, Uuid(), ImDialog::TeleportRequest,
+                                     "Can I teleport to you?");
+        break;
+    case Kind::OfferFriendship:
+    {
+        log::info("offering '{}' friendship", action.name);
+        OfferAnswer a;
+        a.offerFriendshipTo = action.who;
+        offerAnswers_.push_back({std::move(a), static_cast<double>(SDL_GetTicksNS()) * 1e-9});
+        break;
+    }
+    case Kind::EndFriendship:
+    {
+        log::info("ending the friendship with '{}'", action.name);
+        session_->endFriendship(action.who);
+        friends_.remove(action.who);
+        break;
+    }
+    case Kind::SetRights:
+        session_->grantRights(action.who, action.rights);
+        friends_.setRightsGiven(action.who, action.rights);
+        break;
+    }
 }
 
 bool App::pageEvent(gui::Surface& surface, const glm::vec4& rect, glm::ivec2 size, bool& pressed,
@@ -3453,7 +3577,22 @@ void App::updateMainMenu()
         status.self = login->agentId;
     }
     status.headset = headset_ && headset_->running();
+    status.friends = &friends_;
+    status.nearby = &nearby_;
+    status.names = [this](const Uuid& id) { return avatarNames_->get(id); };
+    if(session_ && session_->state() == session::SessionState::Connected)
+    {
+        if(const auto handle = session_->agentRegion())
+        {
+            const protocol::Vector3 p = session_->agentPosition();
+            status.here = globalPosition(*handle, glm::vec3(p.x, p.y, p.z));
+        }
+    }
     mainMenu_->update(status);
+    if(const auto action = mainMenu_->people().takeAction(); action && session_)
+    {
+        peopleAction(*action);
+    }
     // Attaching from inventory, or taking off: the COF follows once the
     // simulator has done it (CurrentOutfit).
     if(const auto action = mainMenu_->takeInventoryAction(); action && session_)

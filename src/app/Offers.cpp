@@ -337,6 +337,7 @@ bool Offers::handle(const protocol::msg::ImprovedInstantMessage& m, uint64_t reg
         return true;
     case ImDialog::FriendshipAccepted:
         log::info("'{}' accepted our friendship offer", o.fromName);
+        friendships_.push_back(o.from);
         return true;
     case ImDialog::GroupInvitationAccept:
     case ImDialog::GroupInvitationDecline:
@@ -371,6 +372,10 @@ void Offers::answer(const Offer& o, bool accepted)
         a.offerTeleportTo = o.from;
         break;
     case Offer::Kind::Friendship:
+        if(accepted)
+        {
+            friendships_.push_back(o.from);
+        }
         // Offered while we were away: by capability (no transaction then).
         if(o.offline || o.transaction.isNull())
         {
@@ -535,6 +540,7 @@ void Offers::clear()
 {
     waiting_.clear();
     answers_.clear();
+    friendships_.clear();
     byCapability_.clear();
     if(requests_)
     {

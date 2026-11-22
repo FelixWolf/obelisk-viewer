@@ -82,7 +82,7 @@ std::vector<std::string> defaultLoginOptions()
     return {
         "inventory-root",  "inventory-lib-root", "inventory-lib-owner", "display_names",
         "adult_compliant", "advanced-mode",      "max_groups",          "max-agent-groups",
-        "map-server-url",  "login-flags",
+        "map-server-url",  "login-flags",        "buddy-list",
     };
 }
 

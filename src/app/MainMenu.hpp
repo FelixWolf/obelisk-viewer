@@ -9,7 +9,8 @@
 // places, and a place alone, to teleport to; Parcel, the one we're on (its
 // picture, owner, group, size, rules, description, and its estate);
 // Inventory, its folders as a file explorer shows them, and an item's
-// details; About, the
+// details; Chat, local chat and instant messages; People, friends and
+// who's nearby; About, the
 // version and the licenses of everything in the viewer (gathered by the
 // build: cmake/Licenses.cmake). The other tabs are still to come.
 //
@@ -22,6 +23,7 @@
 #include "GridPopulation.hpp"
 #include "InventoryBrowser.hpp"
 #include "ParcelInfo.hpp"
+#include "PeopleView.hpp"
 
 #include "viewer/gui/Gui.hpp"
 
@@ -100,6 +102,12 @@ public:
         const InstantMessages* ims = nullptr;
         Uuid self;
         bool headset = false;
+        // Friends and who's around (People), their names, and where we are
+        // on the grid (nothing: not in the world).
+        const Friends* friends = nullptr;
+        const Nearby* nearby = nullptr;
+        PeopleView::Names names;
+        std::optional<glm::dvec3> here;
     };
     // The page's values, then its layout and animations (once a frame
     // while open, before render()).
@@ -135,6 +143,8 @@ public:
     gui::Surface& surface() { return *surface_; }
     // The Chat tab: what it said, and whether it wants the VR keyboard.
     ChatView& chat() { return chat_; }
+    // The People tab: what it asked for.
+    PeopleView& people() { return people_; }
     // Reads the document and its style sheets again.
     void reload();
 
@@ -232,6 +242,7 @@ private:
     bool logOut_ = false;
     Rml::DataModelHandle model_;
     ChatView chat_;
+    PeopleView people_;
     bool open_ = false;
 
     std::vector<Tab> tabs_;

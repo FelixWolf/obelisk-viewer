@@ -21,6 +21,8 @@
 #include "ObjectView.hpp"
 #include "Offers.hpp"
 #include "OutfitAttachments.hpp"
+#include "People.hpp"
+#include "PeopleView.hpp"
 #include "PointerController.hpp"
 #include "SceneAssets.hpp"
 #include "ScriptDialogPage.hpp"
@@ -111,7 +113,7 @@ struct AppOptions
     std::string dumpAvatar;
     float dumpAt = 45.0f;
     bool frontView = false; // --front-view: the camera close in front of our avatar
-    Uuid pointAt; // or at this object (its center)
+    Uuid pointAt;           // or at this object (its center)
     // For testing: say this in local chat this many seconds in (typing
     // for 3 seconds before).
     std::string say;
@@ -426,6 +428,12 @@ private:
     LocalChat localChat_;
     // Instant messages, group and ad-hoc chats (the Chat tab shows them).
     std::unique_ptr<InstantMessages> ims_;
+    // Friends (from the login reply on) and who's around (People tab).
+    Friends friends_;
+    bool friendsLoaded_ = false;
+    Nearby nearby_;
+    // What the People tab asked for.
+    void peopleAction(const PeopleView::Action& action);
     // Says it in a conversation (ChatView::kNearby: local chat).
     void sayIn(const std::string& conversation, std::string_view typed);
     // An object's instant message: local chat, as said to us alone.

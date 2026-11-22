@@ -38,6 +38,12 @@ public:
     // document is loaded); then the model's handle.
     void bind(Rml::DataModelConstructor& model);
     void setHandle(Rml::DataModelHandle handle) { model_ = handle; }
+    // Shows this conversation (kNearby, or a session's id).
+    void open(const std::string& id)
+    {
+        open_ = id;
+        model_.DirtyVariable("chatOpen");
+    }
 
     // Once a frame: the conversations (their lines shown only while
     // `shown`: the tab is), and how typing goes (`headset`: on the VR

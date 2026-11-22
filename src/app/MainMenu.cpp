@@ -79,10 +79,11 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     {
         return nullptr;
     }
-    menu->tabs_ = {
-        {"home", "Home"},           {"chat", "Chat"},       {"destinations", "Destinations"},
-        {"inventory", "Inventory"}, {"outfits", "Outfits"}, {"parcel", "Parcel"},
-        {"media", "Media"},         {"options", "Options"}, {"about", "About"}};
+    menu->tabs_ = {{"home", "Home"},           {"chat", "Chat"},
+                   {"people", "People"},       {"destinations", "Destinations"},
+                   {"inventory", "Inventory"}, {"outfits", "Outfits"},
+                   {"parcel", "Parcel"},       {"media", "Media"},
+                   {"options", "Options"},     {"about", "About"}};
     menu->readLicenses();
     menu->tabName_ = "Home";
 
@@ -343,8 +344,10 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     model.BindEventCallback("logOut", [m](Rml::DataModelHandle, Rml::Event&,
                                           const Rml::VariantList&) { m->logOut_ = true; });
     m->chat_.bind(model);
+    m->people_.bind(model);
     menu->model_ = model.GetModelHandle();
     m->chat_.setHandle(menu->model_);
+    m->people_.setHandle(menu->model_);
 
     if(!menu->surface_->load("main_menu.rml"))
     {
@@ -942,6 +945,10 @@ void MainMenu::update(const Status& status)
     {
         chat_.update(*status.chat, *status.ims, status.self, tab_ == "chat", status.headset,
                      surface_->document());
+    }
+    if(tab_ == "people" && status.friends && status.nearby && status.names)
+    {
+        people_.update(*status.friends, *status.nearby, status.names, status.here);
     }
     if(tab_ == "inventory")
     {

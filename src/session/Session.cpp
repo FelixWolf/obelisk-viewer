@@ -992,6 +992,34 @@ void Session::answerFriendship(const Uuid& transaction, bool accept, const Uuid&
     }
 }
 
+void Session::endFriendship(const Uuid& other)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    msg::TerminateFriendship m;
+    m.AgentData.AgentID = login_->agentId;
+    m.AgentData.SessionID = login_->sessionId;
+    m.ExBlock.OtherID = other;
+    send(*main, m, true);
+}
+
+void Session::grantRights(const Uuid& other, int32_t rights)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    msg::GrantUserRights m;
+    m.AgentData.AgentID = login_->agentId;
+    m.AgentData.SessionID = login_->sessionId;
+    m.Rights.push_back({other, rights});
+    send(*main, m, true);
+}
+
 void Session::moveInventoryItem(const Uuid& item, const Uuid& folder)
 {
     const Region* main = mainRegion();

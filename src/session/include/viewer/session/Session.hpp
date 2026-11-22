@@ -371,6 +371,11 @@ public:
     void offerTeleport(const Uuid& to, std::string_view message);
     void answerFriendship(const Uuid& transaction, bool accept, const Uuid& callingCards);
     void moveInventoryItem(const Uuid& item, const Uuid& folder);
+    // Friends: ending a friendship (TerminateFriendship), and what we let
+    // a friend do (GrantUserRights: FriendRights bits; the region answers
+    // with ChangeUserRights).
+    void endFriendship(const Uuid& other);
+    void grantRights(const Uuid& other, int32_t rights);
 
     // Answers to scripts, to the region that asked (gone: not sent; the
     // script's object went with it). A dialog's button (ScriptDialogReply:
