@@ -899,7 +899,7 @@ void Session::say(std::string_view text, int32_t channel, uint8_t type)
 }
 
 void Session::sendInstantMessage(const Uuid& to, const Uuid& session, uint8_t dialog,
-                                 std::string_view text)
+                                 std::string_view text, std::span<const uint8_t> bucket)
 {
     const Region* main = mainRegion();
     if(!main || !login_)
@@ -919,8 +919,92 @@ void Session::sendInstantMessage(const Uuid& to, const Uuid& session, uint8_t di
                                  : login_->name.first + " " + login_->name.last;
     im.MessageBlock.FromAgentName = protocol::fromString(name);
     im.MessageBlock.Message = protocol::fromString(text);
-    im.MessageBlock.BinaryBucket = {0}; // empty (EMPTY_BINARY_BUCKET)
+    if(bucket.empty())
+    {
+        im.MessageBlock.BinaryBucket = {0}; // empty (EMPTY_BINARY_BUCKET)
+    }
+    else
+    {
+        im.MessageBlock.BinaryBucket.assign(bucket.begin(), bucket.end());
+    }
     send(*main, im, true);
+}
+
+void Session::teleportViaLure(const Uuid& lure, bool godlike)
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || teleport_.state != TeleportState::None || !main)
+    {
+        return;
+    }
+    // TELEPORT_FLAGS_VIA_LURE; a summons: VIA_GODLIKE_LURE | DISABLE_CANCEL
+    // (llteleportflags.h; the region works them out itself now).
+    msg::TeleportLureRequest request;
+    request.Info.AgentID = login_->agentId;
+    request.Info.SessionID = login_->sessionId;
+    request.Info.LureID = lure;
+    request.Info.TeleportFlags = godlike ? (1u << 8 | 1u << 11) : 1u << 2;
+    send(*main, request, true);
+    teleport_ = {.state = TeleportState::Requested};
+    teleportDeadline_ = Clock::now() + kTeleportTimeout;
+    log::info("teleport: by an offer");
+}
+
+void Session::offerTeleport(const Uuid& to, std::string_view message)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    msg::StartLure lure;
+    lure.AgentData.AgentID = login_->agentId;
+    lure.AgentData.SessionID = login_->sessionId;
+    lure.Info.LureType = 0; // the region fills it in
+    lure.Info.Message = protocol::fromString(message);
+    lure.TargetData.push_back({to});
+    send(*main, lure, true);
+}
+
+void Session::answerFriendship(const Uuid& transaction, bool accept, const Uuid& callingCards)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    if(accept)
+    {
+        msg::AcceptFriendship m;
+        m.AgentData.AgentID = login_->agentId;
+        m.AgentData.SessionID = login_->sessionId;
+        m.TransactionBlock.TransactionID = transaction;
+        m.FolderData.push_back({callingCards});
+        send(*main, m, true);
+    }
+    else
+    {
+        msg::DeclineFriendship m;
+        m.AgentData.AgentID = login_->agentId;
+        m.AgentData.SessionID = login_->sessionId;
+        m.TransactionBlock.TransactionID = transaction;
+        send(*main, m, true);
+    }
+}
+
+void Session::moveInventoryItem(const Uuid& item, const Uuid& folder)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    msg::MoveInventoryItem m;
+    m.AgentData.AgentID = login_->agentId;
+    m.AgentData.SessionID = login_->sessionId;
+    m.AgentData.Stamp = false;
+    m.InventoryData.push_back({item, folder, protocol::fromString("")});
+    send(*main, m, true);
 }
 
 void Session::replyToScriptDialog(uint64_t regionHandle, const Uuid& object, int32_t channel,

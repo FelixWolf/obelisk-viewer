@@ -14,7 +14,7 @@
 //   they go to local chat, as said to us alone.
 // - What came while we were away is read once after logging in
 //   (ReadOfflineMsgs), marked as saved.
-// Offers (teleports, inventory, friendship, groups) aren't handled here yet.
+// Offers (teleports, inventory, friendship, groups) are Offers'.
 
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/core/Uuid.hpp"
@@ -47,9 +47,32 @@ class Session;
 namespace ImDialog
 {
 inline constexpr uint8_t NothingSpecial = 0; // one to one
-inline constexpr uint8_t SessionSend = 17;   // a group or ad-hoc chat's message
-inline constexpr uint8_t FromTask = 19;      // an object's (llInstantMessage)
+inline constexpr uint8_t MessageBox = 1;     // from the grid
+inline constexpr uint8_t GroupInvitation = 3;
+inline constexpr uint8_t InventoryOffered = 4; // by someone
+inline constexpr uint8_t InventoryAccepted = 5;
+inline constexpr uint8_t InventoryDeclined = 6;
+inline constexpr uint8_t TaskInventoryOffered = 9; // by an object
+inline constexpr uint8_t TaskInventoryAccepted = 10;
+inline constexpr uint8_t TaskInventoryDeclined = 11;
+inline constexpr uint8_t SessionSend = 17; // a group or ad-hoc chat's message
+inline constexpr uint8_t FromTask = 19;    // an object's (llInstantMessage)
 inline constexpr uint8_t BusyAutoResponse = 20;
+inline constexpr uint8_t LureUser = 22; // a teleport offered
+inline constexpr uint8_t LureAccepted = 23;
+inline constexpr uint8_t LureDeclined = 24;
+inline constexpr uint8_t GodlikeLureUser = 25; // a summons
+inline constexpr uint8_t TeleportRequest = 26; // asking to be offered one
+inline constexpr uint8_t GotoUrl = 28;
+inline constexpr uint8_t FromTaskAsAlert = 31;
+inline constexpr uint8_t GroupNotice = 32;
+inline constexpr uint8_t GroupNoticeInventoryAccepted = 33;
+inline constexpr uint8_t GroupNoticeInventoryDeclined = 34;
+inline constexpr uint8_t GroupInvitationAccept = 35;
+inline constexpr uint8_t GroupInvitationDecline = 36;
+inline constexpr uint8_t GroupNoticeRequested = 37;
+inline constexpr uint8_t FriendshipOffered = 38;
+inline constexpr uint8_t FriendshipAccepted = 39;
 inline constexpr uint8_t TypingStart = 41;
 inline constexpr uint8_t TypingStop = 42;
 } // namespace ImDialog
@@ -138,6 +161,9 @@ public:
     {
         return std::exchange(offlineFromObjects_, {});
     }
+    // The rest of what came while away (offers and the like), as the
+    // region would have sent them, once.
+    std::vector<protocol::msg::ImprovedInstantMessage> takeOfflineOthers();
 
     // Newest activity first.
     const std::vector<ImConversation>& conversations() const { return conversations_; }
@@ -172,6 +198,10 @@ private:
     bool offlineAsked_ = false;
     std::vector<Uuid> toAccept_;
     std::vector<FromObject> offlineFromObjects_;
+    std::vector<protocol::msg::ImprovedInstantMessage> offlineOthers_;
 };
+
+// ReadOfflineMsgs' record of a message as the region sends it (Offline set).
+protocol::msg::ImprovedInstantMessage offlineMessage(const llsd::Value& record);
 
 } // namespace viewer

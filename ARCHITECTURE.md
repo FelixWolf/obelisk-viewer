@@ -1017,9 +1017,50 @@ new messages.
   to us alone.
 - What came while away is read once a login (ReadOfflineMsgs), marked
   saved, with its own time.
-Other dialogs (offers of teleports, inventory, friendship and groups,
-group notices) are logged and not handled yet. Not yet either: starting a
+Offers and the grid's notices are `Offers`' (below). Not yet: starting a
 conversation (no people list), leaving a group chat, muting.
+
+### Offers
+
+`Offers` queues what people and objects offer us, which also comes as
+instant messages (live, or ReadOfflineMsgs' records turned back into
+messages by `offlineMessage`). The App gives each message to `Offers`
+first, then to `InstantMessages`. The notice page shows the oldest offer
+when no script dialog is waiting, with one or two answers. Answers become
+`OfferAnswer`s, which the App carries out. As the official viewer
+(llimprocessing.cpp, llviewermessage.cpp):
+
+| Offer (dialog) | First answer | Other answer |
+| --- | --- | --- |
+| Teleport (22) | TeleportLureRequest | IM 24 |
+| Summons (25) | taken at once, no notice | |
+| Teleport asked for (26) | StartLure to them | nothing |
+| Friendship (38) | AcceptFriendship (calling card folder) | DeclineFriendship |
+| Group invitation (3) | IM 35 to the group (the fee is on the notice) | IM 36 |
+| Inventory from someone (4) | kept (accepted on arrival: IM 5) | moved to the Trash |
+| Inventory from an object (9) | IM 10 into its type's folder | IM 11 |
+| Group notice (32) with an attachment | IM 33 into its type's folder | IM 34 |
+| Web page from the grid (28) | opened in the browser | nothing |
+| Grid message (1), object alert (31) | OK | |
+
+Friendships offered while we were away go by the AcceptFriendship and
+DeclineFriendship capabilities. So do group invitations that came while
+away with no transaction (AcceptGroupInvite, DeclineGroupInvite).
+
+A folder for accepted inventory is the system folder of the item's type
+(the folder type number equals the asset type). Our inventory model doesn't
+know the system folders until the root's contents are fetched, so answers
+that need one ask for them (`InventoryBrowser::root`). They wait until the
+folders are known, or for 15 seconds, then fall back to the root the login
+named.
+
+Differences from the official viewer:
+- An object's offer that is declined is declined. The official viewer takes
+  it into the Trash instead.
+- No muting and no do-not-disturb.
+- No checks of the region's rating before teleporting: the region refuses,
+  and the teleport fails with its reason.
+- Others' answers to our offers (accepted, declined) are only logged.
 
 ### HUDs
 

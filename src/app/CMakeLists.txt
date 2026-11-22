@@ -58,6 +58,7 @@ add_executable(viewer
   ViewerConfig.cpp
   GridPopulation.cpp
   InstantMessages.cpp
+  Offers.cpp
   InventoryBrowser.cpp
   ChatView.cpp
   CurrentOutfit.cpp

@@ -20,6 +20,7 @@ add_executable(viewer_tests
   Ktx2Tests.cpp
   LlsdTests.cpp
   InstantMessagesTests.cpp
+  OffersTests.cpp
   LocalChatTests.cpp
   LoginTests.cpp
   LegacyMaterialTests.cpp
@@ -52,6 +53,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarNames.cpp
   ${PROJECT_SOURCE_DIR}/src/app/InstantMessages.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/Offers.cpp
   ${PROJECT_SOURCE_DIR}/src/app/LocalChat.cpp
   ${PROJECT_SOURCE_DIR}/src/app/FlexibleView.cpp
   ${PROJECT_SOURCE_DIR}/src/app/FaceUpload.cpp

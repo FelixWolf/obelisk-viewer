@@ -1,5 +1,7 @@
 #include "ScriptDialogPage.hpp"
 
+#include "InventoryBrowser.hpp"
+
 #include "viewer/core/Log.hpp"
 
 #include <RmlUi/Core/Context.h>
@@ -28,6 +30,7 @@ void ScriptDialogPage::act(Action::Kind kind, size_t button)
     }
     Action a;
     a.kind = kind;
+    a.offer = offer_;
     a.serial = serial_;
     a.button = button;
     if(kind == Action::Kind::Send)
@@ -70,6 +73,10 @@ bool ScriptDialogPage::setUp()
     model.Bind("caution", &caution_);
     model.Bind("experience", &experience_);
     model.Bind("url", &url_);
+    model.Bind("subtitle", &subtitle_);
+    model.Bind("details", &details_);
+    model.Bind("acceptLabel", &acceptLabel_);
+    model.Bind("declineLabel", &declineLabel_);
     model.Bind("more", &more_);
     model.Bind("reply", &reply_);
     model.Bind("headset", &headset_);
@@ -95,6 +102,8 @@ bool ScriptDialogPage::setUp()
     on("open", Action::Kind::Open);
     on("ignore", Action::Kind::Ignore);
     on("type", Action::Kind::Keyboard);
+    on("accept", Action::Kind::Accept);
+    on("decline", Action::Kind::Decline);
     model_ = model.GetModelHandle();
     if(!surface_->load("script_dialog.rml"))
     {
@@ -112,12 +121,13 @@ std::optional<ScriptDialogPage::Action> ScriptDialogPage::takeAction()
 void ScriptDialogPage::fill(const ScriptNotice* n, size_t waiting)
 {
     const uint64_t serial = n ? n->serial : 0;
-    if(serial != serial_)
+    if(serial != serial_ || offer_)
     {
         reply_.clear(); // a new one: no text typed into it yet
         model_.DirtyVariable("reply");
     }
     serial_ = serial;
+    offer_ = false;
     kind_.clear();
     rows_.clear();
     permissions_.clear();
@@ -160,18 +170,118 @@ void ScriptDialogPage::fill(const ScriptNotice* n, size_t waiting)
     model_.DirtyAllVariables();
 }
 
-void ScriptDialogPage::update(const ScriptDialogs& dialogs, bool headset, bool keyboard,
-                              bool pointHint)
+namespace
 {
-    const ScriptNotice* n = dialogs.front();
-    // A web page's owner's name may come after it.
-    const bool ownerArrived = n && n->kind == ScriptNotice::Kind::LoadUrl && names_ &&
-                              !n->groupOwned && names_(n->ownerId) != shownOwner_;
-    if(shownVersion_ != dialogs.version() || ownerArrived)
+
+// "a notecard", by asset type.
+std::string kindOf(int assetType)
+{
+    const std::string_view name = inventoryKind(assetType, -1).name;
+    return name.empty() ? std::string("item") : std::string(name);
+}
+
+} // namespace
+
+void ScriptDialogPage::fill(const Offer& o, size_t waiting)
+{
+    serial_ = o.serial;
+    offer_ = true;
+    kind_ = "offer";
+    rows_.clear();
+    permissions_.clear();
+    details_.clear();
+    more_ = waiting > 1 ? static_cast<int>(waiting - 1) : 0;
+    objectName_ = o.fromName.empty() ? std::string("Someone") : o.fromName;
+    owner_.clear();
+    message_ = o.message;
+    subtitle_.clear();
+    acceptLabel_ = "OK";
+    declineLabel_.clear();
+    url_.clear();
+    const std::string item =
+        o.itemName.empty() ? kindOf(o.assetType) : o.itemName + " (" + kindOf(o.assetType) + ")";
+    using Kind = Offer::Kind;
+    switch(o.kind)
     {
-        fill(n, dialogs.waiting());
-        shownVersion_ = dialogs.version();
+    case Kind::Teleport:
+        subtitle_ = "offers you a teleport";
+        if(!o.rating.empty())
+        {
+            details_.push_back("The region is rated " + o.rating + ".");
+        }
+        acceptLabel_ = "Teleport";
+        declineLabel_ = "Decline";
+        break;
+    case Kind::TeleportRequest:
+        subtitle_ = "asks you to teleport them to you";
+        acceptLabel_ = "Offer a teleport";
+        declineLabel_ = "Decline";
+        break;
+    case Kind::Friendship:
+        subtitle_ = "offers you friendship";
+        acceptLabel_ = "Accept";
+        declineLabel_ = "Decline";
+        break;
+    case Kind::GroupInvite:
+        subtitle_ = "invites you to a group";
+        details_.push_back(o.fee > 0 ? "Joining costs L$" + std::to_string(o.fee) + "."
+                                     : std::string("Joining is free."));
+        acceptLabel_ = o.fee > 0 ? "Join and pay L$" + std::to_string(o.fee) : "Join";
+        declineLabel_ = "Decline";
+        break;
+    case Kind::Inventory:
+        subtitle_ = "gave you an item";
+        message_ = item;
+        details_.push_back("It's in your inventory.");
+        acceptLabel_ = "Keep";
+        declineLabel_ = "Discard";
+        break;
+    case Kind::ObjectInventory:
+    {
+        const std::string owner = nameOf(o.from);
+        subtitle_ = owner.empty() ? std::string("An object") : "Owned by " + owner;
+        message_ = "It offers you " + item + ".";
+        acceptLabel_ = "Keep";
+        declineLabel_ = "Decline";
+        break;
     }
+    case Kind::GroupNotice:
+        objectName_ = o.subject.empty() ? std::string("Group notice") : o.subject;
+        subtitle_ = o.fromName.empty() ? std::string("A group notice")
+                                       : "A group notice from " + o.fromName;
+        if(o.assetType >= 0)
+        {
+            details_.push_back("Attached: " + item);
+            acceptLabel_ = "Keep the attachment";
+            declineLabel_ = "Close";
+        }
+        break;
+    case Kind::Url:
+        url_ = o.url;
+        details_.push_back(o.url);
+        if(headset_)
+        {
+            details_.push_back("It opens on your desktop.");
+        }
+        acceptLabel_ = "Open in browser";
+        declineLabel_ = "Not now";
+        break;
+    case Kind::Message:
+        if(o.fromName.empty() && !o.fromObject)
+        {
+            objectName_ = "Second Life";
+        }
+        break;
+    }
+    shownOwner_ = o.kind == Kind::ObjectInventory ? nameOf(o.from) : std::string();
+    caution_ = false;
+    experience_ = false;
+    model_.DirtyAllVariables();
+}
+
+void ScriptDialogPage::update(const ScriptDialogs& dialogs, const Offers& offers, bool headset,
+                              bool keyboard, bool pointHint)
+{
     if(headset != headset_ || keyboard != keyboard_ || pointHint != pointHint_)
     {
         headset_ = headset;
@@ -180,6 +290,29 @@ void ScriptDialogPage::update(const ScriptDialogs& dialogs, bool headset, bool k
         model_.DirtyVariable("headset");
         model_.DirtyVariable("keyboard");
         model_.DirtyVariable("pointHint");
+        shownVersions_.reset(); // (an offered page's hint)
+    }
+    // Scripts' first, then offers.
+    const ScriptNotice* n = dialogs.front();
+    const Offer* o = n ? nullptr : offers.front();
+    const size_t waiting = dialogs.waiting() + offers.waiting();
+    // An owner's name may come after the notice.
+    const bool ownerArrived =
+        (n && n->kind == ScriptNotice::Kind::LoadUrl && names_ && !n->groupOwned &&
+         names_(n->ownerId) != shownOwner_) ||
+        (o && o->kind == Offer::Kind::ObjectInventory && nameOf(o->from) != shownOwner_);
+    const std::pair versions{dialogs.version(), offers.version()};
+    if(shownVersions_ != versions || ownerArrived)
+    {
+        if(o)
+        {
+            fill(*o, waiting);
+        }
+        else
+        {
+            fill(n, waiting);
+        }
+        shownVersions_ = versions;
     }
     surface_->update();
 }

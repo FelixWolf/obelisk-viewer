@@ -592,6 +592,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     }
     app->outfit_ = std::make_unique<OutfitAttachments>(*app->http_);
     app->ims_ = std::make_unique<InstantMessages>(app->http_.get());
+    app->offers_ = std::make_unique<Offers>(app->http_.get());
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     {
         const char* base = SDL_GetBasePath();
@@ -959,7 +960,7 @@ int App::run()
                 {
                     mainMenu_->render(frame->commands); // before the panel shows it
                 }
-                if(dialogPage_ && scriptDialogs_.front())
+                if(dialogPage_ && noticeWaiting())
                 {
                     dialogPage_->render(frame->commands);
                 }
@@ -1005,7 +1006,7 @@ int App::run()
             {
                 mainMenu_->render(frame->commands);
             }
-            if(dialogPage_ && scriptDialogs_.front())
+            if(dialogPage_ && noticeWaiting())
             {
                 dialogPage_->render(frame->commands);
             }
@@ -1206,6 +1207,17 @@ void App::updateSession()
     {
         objectMessage(m);
     }
+    // Offers that came while away, and answers by capability.
+    for(const auto& m : ims_->takeOfflineOthers())
+    {
+        if(!offers_->handle(m, 0))
+        {
+            log::info("saved message of a kind not handled yet (dialog {}) from '{}'",
+                      static_cast<int>(m.MessageBlock.Dialog),
+                      protocol::toString(m.MessageBlock.FromAgentName));
+        }
+    }
+    offers_->update(*session_);
 
     // Events for us (the parcel we're on).
     session_->drainRegionEvents(regionEvents_);
@@ -1244,8 +1256,12 @@ void App::updateSession()
             const auto im = m.event.decode<protocol::msg::ImprovedInstantMessage>();
             if(const auto* login = session_->login(); im && login)
             {
-                if(const auto object =
-                       ims_->handle(*im, login->agentId, std::chrono::system_clock::now()))
+                if(offers_->handle(*im, m.regionHandle))
+                {
+                    // an offer (for the notice page)
+                }
+                else if(const auto object =
+                            ims_->handle(*im, login->agentId, std::chrono::system_clock::now()))
                 {
                     objectMessage(*object);
                 }
@@ -1833,6 +1849,8 @@ void App::endSession()
     keyboardForDialog_.reset();
     keyboardForChat_.reset();
     ims_->clear();
+    offers_->clear();
+    offerAnswers_.clear();
     if(animations_)
     {
         animations_->setViewerAssetUrl({});
@@ -2851,7 +2869,7 @@ bool App::mainMenuEvent(const SDL_Event& event)
 
 bool App::dialogOverWindow() const
 {
-    return dialogPage_ && scriptDialogs_.front() && !camera_.firstPerson() &&
+    return dialogPage_ && noticeWaiting() && !camera_.firstPerson() &&
            !(headset_ && headset_->running()) && !loginScreenShown();
 }
 
@@ -2889,7 +2907,7 @@ bool App::typingOnPage() const
 {
     return (lobby_ && loginScreen_ && loginScreen_->surface().typing()) ||
            (mainMenu_ && mainMenu_->isOpen() && mainMenu_->surface().typing()) ||
-           (dialogPage_ && scriptDialogs_.front() && dialogPage_->surface().typing());
+           (dialogPage_ && noticeWaiting() && dialogPage_->surface().typing());
 }
 
 bool App::panelTypingEvent(const SDL_Event& event)
@@ -2958,18 +2976,24 @@ void App::say(std::string_view typed)
     }
 }
 
+bool App::noticeWaiting() const
+{
+    return scriptDialogs_.front() || (offers_ && offers_->front());
+}
+
 void App::updateScriptDialogs()
 {
+    updateOfferAnswers();
     if(!dialogPage_)
     {
         return;
     }
     const bool headset = headset_ && headset_->running();
-    const bool shown = scriptDialogs_.front() && !loginScreenShown();
+    const bool shown = noticeWaiting() && !loginScreenShown();
     const bool onPanel = shown && (camera_.firstPerson() || headset);
     if(shown)
     {
-        dialogPage_->update(scriptDialogs_, headset, headset,
+        dialogPage_->update(scriptDialogs_, *offers_, headset, headset,
                             camera_.firstPerson() && !headset && !cursorFree());
     }
     if(onPanel != controls_.noticeOpen())
@@ -2977,8 +3001,21 @@ void App::updateScriptDialogs()
         onPanel ? controls_.openNotice() : controls_.closeNotice();
     }
 
-    // What was clicked: the answer to the script.
     const auto action = dialogPage_->takeAction();
+    if(action && action->offer)
+    {
+        // An offer's answer (if it's still the one shown).
+        const Offer* offer = offers_->front();
+        if(!scriptDialogs_.front() && offer && offer->serial == action->serial)
+        {
+            action->kind == ScriptDialogPage::Action::Kind::Accept ? offers_->accept()
+                                                                   : offers_->decline();
+            updateOfferAnswers();
+        }
+        return;
+    }
+
+    // What was clicked: the answer to the script.
     const ScriptNotice* notice = scriptDialogs_.front();
     if(!action || !notice || notice->serial != action->serial)
     {
@@ -3028,7 +3065,142 @@ void App::updateScriptDialogs()
         keyboardForDialog_ = action->serial;
         controls_.openKeyboard();
         break;
+    case Kind::Accept:
+    case Kind::Decline:
+        break; // offers' (above)
     }
+}
+
+std::optional<Uuid> App::systemFolder(int type, double waited)
+{
+    // Asking for the root's contents (the Inventory tab does too): the
+    // system folders.
+    const std::optional<Uuid> root = inventoryBrowser_ ? inventoryBrowser_->root() : std::nullopt;
+    if(root)
+    {
+        if(type >= 0)
+        {
+            if(const inventory::Folder* folder = inventory_->folderOfType(type))
+            {
+                return folder->id;
+            }
+        }
+        return root;
+    }
+    if(waited < 15.0)
+    {
+        return std::nullopt;
+    }
+    const auto* login = session_ ? session_->login() : nullptr;
+    return login ? login->reply["inventory-root"][0]["folder_id"].asUuid() : Uuid();
+}
+
+bool App::carryOut(const OfferAnswer& a, double waited)
+{
+    if(!session_ || !session_->login())
+    {
+        return true; // logged out: gone
+    }
+    // What needs a folder first, all or nothing.
+    std::optional<Uuid> imFolder;
+    if(a.im && a.im->folderType)
+    {
+        imFolder = systemFolder(*a.im->folderType, waited);
+        if(!imFolder)
+        {
+            return false;
+        }
+    }
+    std::optional<Uuid> callingCards;
+    if(a.friendship && *a.friendship)
+    {
+        callingCards = systemFolder(inventory::kCallingCardFolder, waited);
+        if(!callingCards)
+        {
+            return false;
+        }
+    }
+    std::optional<Uuid> trash;
+    if(a.trash)
+    {
+        trash = systemFolder(inventory::kTrash, waited);
+        if(!trash)
+        {
+            return false;
+        }
+    }
+
+    if(a.im)
+    {
+        std::vector<uint8_t> bucket;
+        if(imFolder)
+        {
+            bucket.assign(imFolder->bytes.begin(), imFolder->bytes.end());
+        }
+        session_->sendInstantMessage(a.im->to, a.im->id, a.im->dialog, "", bucket);
+    }
+    if(a.lure)
+    {
+        session_->teleportViaLure(*a.lure, a.godlike);
+    }
+    if(a.offerTeleportTo)
+    {
+        // "Join me in Region" and where (the region fills in the lure).
+        std::string text = "Join me";
+        const auto handle = session_->agentRegion();
+        if(const session::Region* region = handle ? session_->regionByHandle(*handle) : nullptr;
+           region && !region->name.empty())
+        {
+            const protocol::Vector3 p = session_->agentPosition();
+            std::string escaped;
+            for(const char c : region->name)
+            {
+                escaped += c == ' ' ? std::string("%20") : std::string(1, c);
+            }
+            text += std::format(" in {}\r\nhttps://maps.secondlife.com/secondlife/{}/{}/{}/{}",
+                                region->name, escaped, static_cast<int>(p.x), static_cast<int>(p.y),
+                                static_cast<int>(p.z));
+        }
+        session_->offerTeleport(*a.offerTeleportTo, text);
+    }
+    if(a.friendship)
+    {
+        session_->answerFriendship(a.transaction, *a.friendship, callingCards.value_or(Uuid()));
+    }
+    if(a.trash && trash && *trash != Uuid())
+    {
+        session_->moveInventoryItem(*a.trash, *trash);
+        if(const inventory::Item* item = inventory_->item(*a.trash))
+        {
+            inventory::Item moved = *item;
+            moved.parent = *trash;
+            inventory_->put(std::move(moved));
+        }
+    }
+    if(a.url)
+    {
+        log::info("opening {} in the web browser (offered by the grid)", *a.url);
+        if(!SDL_OpenURL(a.url->c_str()))
+        {
+            log::warn("the web browser couldn't be opened: {}", SDL_GetError());
+        }
+    }
+    return true;
+}
+
+void App::updateOfferAnswers()
+{
+    if(!offers_)
+    {
+        return;
+    }
+    const double now = static_cast<double>(SDL_GetTicksNS()) * 1e-9;
+    for(OfferAnswer& a : offers_->takeAnswers())
+    {
+        offerAnswers_.push_back({std::move(a), now});
+    }
+    std::erase_if(offerAnswers_,
+                  [&](const PendingAnswer& p) { return carryOut(p.answer, now - p.since); });
 }
 
 bool App::pageEvent(gui::Surface& surface, const glm::vec4& rect, glm::ivec2 size, bool& pressed,

@@ -357,9 +357,20 @@ public:
     void say(std::string_view text, int32_t channel = 0, uint8_t type = 1);
     // An instant message (ImprovedInstantMessage) to `to` (a person, or a
     // group or ad-hoc chat's session) in `session`, as the official
-    // pack_instant_message: from our name, online, no binary bucket.
+    // pack_instant_message: from our name, online, with this binary
+    // bucket (none: an empty one).
     void sendInstantMessage(const Uuid& to, const Uuid& session, uint8_t dialog,
-                            std::string_view text);
+                            std::string_view text, std::span<const uint8_t> bucket = {});
+
+    // Offers: teleporting by a lure offered (TeleportLureRequest; as
+    // teleportTo, ignored unless Connected and not teleporting), offering
+    // ours (StartLure), answering friendship (AcceptFriendship with the
+    // calling card folder, or DeclineFriendship) and moving an item to a
+    // folder (MoveInventoryItem: the Trash, for one discarded).
+    void teleportViaLure(const Uuid& lure, bool godlike);
+    void offerTeleport(const Uuid& to, std::string_view message);
+    void answerFriendship(const Uuid& transaction, bool accept, const Uuid& callingCards);
+    void moveInventoryItem(const Uuid& item, const Uuid& folder);
 
     // Answers to scripts, to the region that asked (gone: not sent; the
     // script's object went with it). A dialog's button (ScriptDialogReply:

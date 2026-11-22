@@ -9,7 +9,8 @@
     <div class="top">
         <div class="who">
             <div class="object">{{ objectName }}</div>
-            <div class="owner" data-if="owner != ''">Owned by {{ owner }}</div>
+            <div class="owner" data-if="kind != 'offer' &amp;&amp; owner != ''">Owned by {{ owner }}</div>
+            <div class="owner" data-if="kind == 'offer' &amp;&amp; subtitle != ''">{{ subtitle }}</div>
         </div>
         <div class="more" data-if="more > 0">{{ more }} more</div>
     </div>
@@ -24,6 +25,12 @@
             <div class="message" data-if="experience">It would like to take you into an experience, and to:</div>
             <div data-for="p : permissions" class="permission">{{ p }}</div>
             <div class="caution" data-if="caution">Only allow this if you trust the object and its owner: it can take money from you.</div>
+        </div>
+
+        <!-- An offer (a teleport, friendship, inventory, a group's notice, ...). -->
+        <div data-if="kind == 'offer'">
+            <div class="message" data-if="message != ''">{{ message }}</div>
+            <div data-for="d : details" class="detail">{{ d }}</div>
         </div>
 
         <!-- A web page. -->
@@ -55,6 +62,11 @@
         <div class="row" data-if="kind == 'permissions'">
             <div class="primary" data-event-click="allow">Allow</div>
             <div class="secondary" data-event-click="deny">Deny</div>
+        </div>
+
+        <div class="row" data-if="kind == 'offer'">
+            <div class="primary" data-event-click="accept">{{ acceptLabel }}</div>
+            <div class="secondary" data-if="declineLabel != ''" data-event-click="decline">{{ declineLabel }}</div>
         </div>
 
         <div class="row" data-if="kind == 'url'">

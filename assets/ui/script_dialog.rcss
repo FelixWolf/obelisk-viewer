@@ -67,6 +67,7 @@ body
 }
 .url { font-size: 16dp; color: #8fb0ff; word-break: break-all; }
 .hint { font-size: 14dp; color: #8b96ab; margin-top: 8dp; }
+.detail { font-size: 15dp; color: #a9b4c8; margin-bottom: 6dp; word-break: break-all; }
 
 .answers { flex-shrink: 0; margin-top: 12dp; }
 

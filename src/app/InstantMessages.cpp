@@ -290,8 +290,7 @@ std::vector<InstantMessages::FromObject> InstantMessages::offline(const llsd::Va
         }
         if(dialog != ImDialog::NothingSpecial || from.isNull())
         {
-            log::info("saved message of a kind not handled yet (dialog {}) from '{}'",
-                      static_cast<int>(dialog), name);
+            offlineOthers_.push_back(offlineMessage(msg));
             continue;
         }
         if(session.isNull())
@@ -414,11 +413,52 @@ void InstantMessages::update(const session::Session& session)
     }
 }
 
+std::vector<protocol::msg::ImprovedInstantMessage> InstantMessages::takeOfflineOthers()
+{
+    return std::exchange(offlineOthers_, {});
+}
+
+protocol::msg::ImprovedInstantMessage offlineMessage(const llsd::Value& record)
+{
+    protocol::msg::ImprovedInstantMessage m;
+    m.AgentData.AgentID = record["from_agent_id"].asUuid();
+    auto& b = m.MessageBlock;
+    const llsd::Value& group = record["from_group"];
+    b.FromGroup = group.type() == llsd::Value::Type::String ? group.asString() == "Y"
+                                                            : group.asInteger() != 0;
+    b.ToAgentID = record["to_agent_id"].asUuid();
+    b.Offline = record.has("offline") ? static_cast<uint8_t>(record["offline"].asInteger()) : 1;
+    b.Dialog = static_cast<uint8_t>(record["dialog"].asInteger());
+    b.ID = record["transaction-id"].asUuid();
+    if(b.ID.isNull() && b.Dialog == ImDialog::FromTask)
+    {
+        b.ID = record["asset_id"].asUuid();
+    }
+    b.Timestamp = static_cast<uint32_t>(record["timestamp"].asInteger());
+    b.FromAgentName = protocol::fromString(record["from_agent_name"].asString());
+    b.Message = protocol::fromString(record["message"].asString());
+    b.ParentEstateID = record.has("parent_estate_id")
+                           ? static_cast<uint32_t>(record["parent_estate_id"].asInteger())
+                           : 1;
+    b.RegionID = record["region_id"].asUuid();
+    if(record.has("binary_bucket"))
+    {
+        const llsd::Binary bucket = record["binary_bucket"].asBinary();
+        b.BinaryBucket.assign(bucket.begin(), bucket.end());
+    }
+    else
+    {
+        b.BinaryBucket = {0};
+    }
+    return m;
+}
+
 void InstantMessages::clear()
 {
     conversations_.clear();
     toAccept_.clear();
     offlineFromObjects_.clear();
+    offlineOthers_.clear();
     offlineAsked_ = false;
     generation_++;
     if(requests_)

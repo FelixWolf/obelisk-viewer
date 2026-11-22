@@ -33,6 +33,8 @@ enum AssetType : int
 // Folder types (llfoldertype.h).
 enum FolderType : int
 {
+    kCallingCardFolder = 2,
+    kTrash = 14,
     kCurrentOutfit = 46,
     kOutfit = 47,
     kMyOutfits = 48,

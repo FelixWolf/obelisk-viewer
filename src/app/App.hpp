@@ -19,6 +19,7 @@
 #include "MaterialManager.hpp"
 #include "ObjectProperties.hpp"
 #include "ObjectView.hpp"
+#include "Offers.hpp"
 #include "OutfitAttachments.hpp"
 #include "PointerController.hpp"
 #include "SceneAssets.hpp"
@@ -263,6 +264,8 @@ private:
     // Or into a chat conversation (ChatView::kNearby, or a session's id).
     std::optional<std::string> keyboardForChat_;
     void updateScriptDialogs();
+    // A script's notice or an offer waits (the notice page shows).
+    bool noticeWaiting() const;
     // Local chat as typed (the Chat tab, the VR keyboard): "/5 text" on
     // channel 5.
     void say(std::string_view typed);
@@ -412,6 +415,22 @@ private:
     void sayIn(const std::string& conversation, std::string_view typed);
     // An object's instant message: local chat, as said to us alone.
     void objectMessage(const InstantMessages::FromObject& m);
+    // Offers: what they're answered with, done (some wait for the
+    // inventory's system folders to be known: since when, in seconds).
+    std::unique_ptr<Offers> offers_;
+    struct PendingAnswer
+    {
+        OfferAnswer answer;
+        double since = 0.0;
+    };
+    std::vector<PendingAnswer> offerAnswers_;
+    void updateOfferAnswers();
+    // False if it waits for a folder.
+    bool carryOut(const OfferAnswer& answer, double waited);
+    // The folder of a folder type (-1: the root): the system folder once
+    // the root's contents are known; after a while without them, the root
+    // the login named. Nothing while waiting.
+    std::optional<Uuid> systemFolder(int type, double waited);
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
 
     // The VR controls (radial menu, keyboard): the controllers point at
