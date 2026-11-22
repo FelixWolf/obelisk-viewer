@@ -12,8 +12,11 @@
 // desktop head turns as the official viewer's look-at (llheadrotmotion.cpp
 // LLHeadRotMotion): towards the point, at most 72 degrees, the torso
 // taking 35% of it and the neck and head the rest, and the eyes follow
-// (LLEyeMotion, at most 27 degrees). All on top of the animation: blended
-// in by each goal's weight.
+// (LLEyeMotion, at most 27 degrees). The look-at is a priority 1 motion
+// there: it sets the torso's, neck's, head's and eyes' rotations, and gets
+// only what animations of priority 1 or more leave of each joint (a
+// quadruped's stand holding the torso keeps its front legs still). The
+// rest goes on top of the animation, blended in by each goal's weight.
 
 #include "viewer/avatar/BaseAvatar.hpp"
 #include "viewer/avatar/Shape.hpp"
@@ -89,8 +92,12 @@ std::optional<glm::vec3> chainPole(const IkJoints& joints, std::span<const int> 
                                    std::span<const JointFrame> frames);
 
 // The goals applied to an animated pose (one entry per joint; local
-// rotations are set on the joints they move).
+// rotations are set on the joints they move). `claims`: per joint, the
+// rotation weight animations of priority 1 or more hold on it
+// (Animator::rotationClaims): the desktop look-at only gets what's left,
+// as the official one (a priority 1 motion) does; none: all of it.
 void applyIk(const BaseAvatar& base, const Shape& shape, const IkJoints& joints,
-             const IkGoals& goals, std::vector<JointPose>& pose);
+             const IkGoals& goals, std::vector<JointPose>& pose,
+             std::span<const float> claims = {});
 
 } // namespace viewer::avatar

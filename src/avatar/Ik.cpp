@@ -175,15 +175,28 @@ void solveChain(const BaseAvatar& base, const Shape& shape, const IkJoints& join
     reach(base, shape, chain, c.goal, chainPole(joints, chain, frames), pose);
 }
 
-// The desktop look-at (LLHeadRotMotion, LLEyeMotion).
+// The desktop look-at (LLHeadRotMotion, LLEyeMotion): the rotations it
+// sets, each joint getting what animations of priority 1 or more leave
+// of it (`claims`).
 void lookAt(const BaseAvatar& base, const Shape& shape, const IkJoints& j, const glm::vec3& target,
-            float weight, std::vector<JointPose>& pose)
+            float weight, std::span<const float> claims, std::vector<JointPose>& pose)
 {
     const Skeleton& skeleton = base.skeleton;
     if(weight <= 0.0f || j.torso < 0 || j.chest < 0 || j.neck < 0 || j.head < 0)
     {
         return;
     }
+    const glm::quat identity(1.0f, 0.0f, 0.0f, 0.0f);
+    // As LLJointStateBlender: the animations' share first, the look-at's
+    // filling the rest.
+    auto set = [&](int joint, const glm::quat& look)
+    {
+        const size_t i = static_cast<size_t>(joint);
+        const float claim = i < claims.size() ? claims[i] : 0.0f;
+        const glm::quat animated = pose[i].rotation.value_or(identity);
+        pose[i].rotation = glm::normalize(nlerp(look, animated, claim));
+    };
+
     std::vector<JointFrame> frames = poseFrames(base, shape, pose);
     glm::vec3 look = target - frames[static_cast<size_t>(j.head)].position;
     const float distance = glm::length(look);
@@ -204,26 +217,20 @@ void lookAt(const BaseAvatar& base, const Shape& shape, const IkJoints& j, const
     left = glm::normalize(left);
     const glm::vec3 headUp = glm::cross(look, left);
     const glm::quat target_ = constrain(glm::quat_cast(glm::mat3(look, left, headUp)), kHeadLimit);
-    const glm::quat headWorld = nlerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), target_, weight);
+    const glm::quat headWorld = nlerp(identity, target_, weight);
 
-    // The torso a part of the way, then the neck and head the rest
-    // (relative to the chest), on top of what's animated.
-    JointPose& torso = pose[static_cast<size_t>(j.torso)];
-    torso.rotation =
-        glm::normalize(nlerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), headWorld, kTorsoShare) *
-                       localOf(pose, skeleton, j.torso));
+    // The torso a part of the way (its own rotation, in avatar space), then
+    // the neck and head the rest, from the neck's parent as it's posed.
+    set(j.torso, nlerp(identity, headWorld, kTorsoShare));
     frames = poseFrames(base, shape, pose);
     const glm::quat rest =
-        glm::normalize(glm::inverse(frames[static_cast<size_t>(j.chest)].rotation) * headWorld);
-    const glm::quat neckTurn = nlerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), rest, kNeckShare);
-    const glm::quat headTurn = nlerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), rest, 1.0f - kNeckShare);
-    pose[static_cast<size_t>(j.neck)].rotation =
-        glm::normalize(neckTurn * localOf(pose, skeleton, j.neck));
-    pose[static_cast<size_t>(j.head)].rotation =
-        glm::normalize(headTurn * localOf(pose, skeleton, j.head));
+        glm::normalize(glm::inverse(parentRotation(frames, skeleton, j.neck)) * headWorld);
+    set(j.neck, nlerp(identity, rest, kNeckShare));
+    set(j.head, nlerp(identity, rest, 1.0f - kNeckShare));
 
-    // The eyes the rest of the way, a little.
+    // The eyes the rest of the way, a little, from where the head faces.
     frames = poseFrames(base, shape, pose);
+    const glm::quat head = frames[static_cast<size_t>(j.head)].rotation;
     for(const int eye : {j.eyeLeft, j.eyeRight})
     {
         if(eye < 0)
@@ -231,11 +238,10 @@ void lookAt(const BaseAvatar& base, const Shape& shape, const IkJoints& j, const
             continue;
         }
         const JointFrame& e = frames[static_cast<size_t>(eye)];
-        const glm::vec3 forward = e.rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+        const glm::vec3 forward = head * glm::vec3(1.0f, 0.0f, 0.0f);
         const glm::quat turn = constrain(arc(forward, target - e.position), kEyeLimit);
-        const glm::quat world = nlerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), turn, weight) * e.rotation;
-        pose[static_cast<size_t>(eye)].rotation =
-            glm::normalize(glm::inverse(parentRotation(frames, skeleton, eye)) * world);
+        const glm::quat world = nlerp(identity, turn, weight) * head;
+        set(eye, glm::normalize(glm::inverse(parentRotation(frames, skeleton, eye)) * world));
     }
 }
 
@@ -354,7 +360,7 @@ IkJoints IkJoints::find(const Skeleton& skeleton)
 }
 
 void applyIk(const BaseAvatar& base, const Shape& shape, const IkJoints& joints,
-             const IkGoals& goals, std::vector<JointPose>& pose)
+             const IkGoals& goals, std::vector<JointPose>& pose, std::span<const float> claims)
 {
     if(pose.size() != base.skeleton.joints.size())
     {
@@ -368,7 +374,7 @@ void applyIk(const BaseAvatar& base, const Shape& shape, const IkJoints& joints,
     }
     else if(goals.lookAt)
     {
-        lookAt(base, shape, joints, *goals.lookAt, goals.lookAtWeight, pose);
+        lookAt(base, shape, joints, *goals.lookAt, goals.lookAtWeight, claims, pose);
     }
     if(goals.leftHand && joints.leftArm[0] >= 0)
     {

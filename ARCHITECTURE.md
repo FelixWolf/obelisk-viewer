@@ -1905,8 +1905,17 @@ before the joints become matrices (so attachments and rigged mesh follow).
   llheadrotmotion.cpp LLHeadRotMotion: the head turned upright towards the
   point, at most 72 degrees from the body, the torso taking 35% and the neck
   and head half each of the rest; the eyes turn the rest of the way, at
-  most 27 degrees (LLEyeMotion). Composed with what's animated rather than
-  replacing it. While pressing on something in the world (touching), the
+  most 27 degrees (LLEyeMotion). As there, the look-at is a priority 1
+  motion. It sets those joints' rotations, but each joint only gets what
+  animations of priority 1 or more leave of it
+  (`Animator::rotationClaims`, the rotation weight those hold). Where no
+  such animation holds a joint, the look-at's own rotation replaces the
+  animated one; a stand that holds the joint keeps it.
+  - A quadruped's stand holds the torso, so the front legs stay still and
+    only the neck and head turn.
+  - An AO animating the head at priority 4 leaves it no head to turn.
+
+  While pressing on something in the world (touching), the
   left hand reaches for the point pressed (the arm the official viewer
   points with, lleditingmotion.cpp) (easing in and out, 0.08 s
   half-life), following the drag: the pointer's point on what was pressed,

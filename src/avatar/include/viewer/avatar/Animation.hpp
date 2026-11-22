@@ -87,6 +87,12 @@ public:
     void evaluate(double now, size_t jointCount, std::vector<JointPose>& pose);
     // Forgets what the joints were left with (the official "reset skeleton").
     void resetHeld() { held_.clear(); }
+    // From the last evaluate(), per joint: the rotation weight (0 to 1)
+    // animations of at least this priority hold on it, what the official
+    // viewer's look-at (a MEDIUM, 1, priority motion, started before any
+    // animation so they win ties) can't have.
+    static constexpr int kLookAtPriority = 1;
+    const std::vector<float>& rotationClaims() const { return claims_; }
 
 private:
     struct Playing
@@ -102,6 +108,7 @@ private:
     uint64_t nextOrder_ = 0;
     // Per joint: the rotation and position animations last gave it.
     std::vector<JointPose> held_;
+    std::vector<float> claims_;
 };
 
 } // namespace viewer::avatar

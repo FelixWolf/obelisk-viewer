@@ -134,6 +134,47 @@ TEST_CASE("IK: the head looks at a point, up to a limit; the eyes follow")
     CHECK(glm::length(facing(near, r.joints.head) - facing(rest, r.joints.head)) < 1e-5f);
 }
 
+TEST_CASE("IK: the look-at only gets what animations of priority 1 or more leave")
+{
+    const Rig r = rig();
+    std::vector<JointPose> animated(r.base->skeleton.joints.size());
+    // A stand holding the torso bent forward (a quadruped's), at a priority
+    // above the look-at's: the torso stays as animated, the neck and head
+    // turn to look.
+    const glm::quat bent = glm::angleAxis(glm::radians(60.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    animated[static_cast<size_t>(r.joints.torso)].rotation = bent;
+    std::vector<float> claims(animated.size(), 0.0f);
+    claims[static_cast<size_t>(r.joints.torso)] = 1.0f;
+    const glm::vec3 head = at(r, animated, r.joints.head);
+
+    std::vector<JointPose> pose = animated;
+    IkGoals goals;
+    goals.lookAt = head + glm::vec3(1.0f, 2.0f, 0.0f);
+    applyIk(*r.base, r.shape, r.joints, goals, pose, claims);
+    const glm::quat torso = *pose[static_cast<size_t>(r.joints.torso)].rotation;
+    CHECK(std::abs(glm::dot(torso, bent)) > 0.9999f);
+    const glm::vec3 look =
+        poseFrames(*r.base, r.shape, pose)[static_cast<size_t>(r.joints.head)].rotation *
+        glm::vec3(1.0f, 0.0f, 0.0f);
+    CHECK(look.y > 0.5f);
+
+    // Half held (easing out): halfway between.
+    claims[static_cast<size_t>(r.joints.torso)] = 0.5f;
+    std::vector<JointPose> half = animated;
+    applyIk(*r.base, r.shape, r.joints, goals, half, claims);
+    const float halfDot =
+        std::abs(glm::dot(*half[static_cast<size_t>(r.joints.torso)].rotation, bent));
+    CHECK(halfDot < 0.9999f);
+    CHECK(halfDot > 0.5f);
+
+    // Held by nothing (or priority 0 alone): the look-at's own rotation
+    // replaces the animated one.
+    claims.assign(claims.size(), 0.0f);
+    std::vector<JointPose> free = animated;
+    applyIk(*r.base, r.shape, r.joints, goals, free, claims);
+    CHECK(std::abs(glm::dot(*free[static_cast<size_t>(r.joints.torso)].rotation, bent)) < 0.9f);
+}
+
 TEST_CASE("IK: in VR the spine reaches for the headset, the head taking its rotation")
 {
     const Rig r = rig();

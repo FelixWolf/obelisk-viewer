@@ -329,12 +329,20 @@ void Animator::evaluate(double now, size_t jointCount, std::vector<JointPose>& p
 
     // Per joint, as LLJointStateBlender: highest priority (then latest)
     // first; each later state only fills what's left of a total weight of 1.
+    claims_.assign(jointCount, 0.0f);
     for(size_t j = 0; j < jointCount; j++)
     {
         auto& list = states[j];
         if(list.empty())
         {
             continue;
+        }
+        for(const State& s : list)
+        {
+            if(s.priority >= kLookAtPriority && !s.curve->rotations.empty())
+            {
+                claims_[j] = std::min(1.0f, claims_[j] + s.weight);
+            }
         }
         std::ranges::sort(
             list, [](const State& a, const State& b)

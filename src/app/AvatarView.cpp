@@ -602,7 +602,7 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
         {
             a.pose.resize(base_.skeleton.joints.size());
         }
-        avatar::applyIk(base_, shape, ikJoints_, goals, a.pose);
+        avatar::applyIk(base_, shape, ikJoints_, goals, a.pose, a.animator.rotationClaims());
     }
     // First person: the head shrunk to nothing (the eyes noted first).
     if(firstPerson_ && *firstPerson_ == id)

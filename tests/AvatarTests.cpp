@@ -228,6 +228,10 @@ TEST_CASE("Animation: parse, sample, ease and blend")
     CHECK(angleAboutZ(*pose[static_cast<size_t>(pelvis)].rotation) ==
           doctest::Approx(quarter / 2.0f).epsilon(0.01));
     CHECK_FALSE(pose[static_cast<size_t>(avatar->skeleton.find("mHead"))].rotation.has_value());
+    // Priority 2 holds the pelvis from the look-at (priority 1), once in;
+    // the head is free.
+    CHECK(animator.rotationClaims()[static_cast<size_t>(pelvis)] == doctest::Approx(1.0f));
+    CHECK(animator.rotationClaims()[static_cast<size_t>(avatar->skeleton.find("mHead"))] == 0.0f);
 
     animator.start(b, highShared, 1.0);
     animator.evaluate(2.0, avatar->skeleton.joints.size(), pose); // b fully in, 1 s along
