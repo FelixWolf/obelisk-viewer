@@ -192,8 +192,12 @@ vec3 pbrDirect(vec3 n, vec3 v, vec3 l, vec3 baseColor, float roughness, float me
     vec3 f0 = mix(vec3(0.04), baseColor, metallic);
     vec3 f = fresnelSchlick(vDotH, f0);
     vec3 specular = f * distributionGgx(nDotH, alpha) * visibilitySmithGgx(nDotL, nDotV, alpha);
-    vec3 diffuse = (1.0 - f) * (1.0 - metallic) * baseColor / PI;
-    return (diffuse + specular) * lightColor * nDotL;
+    // The diffuse color is the base color less the 4% a dielectric reflects
+    // (deferredUtil.glsl calcDiffuseSpecular), and the sun is taken 3 times
+    // over its color, not pi (pbrBaseLight): `lightColor` comes pi times the
+    // sunlight here.
+    vec3 diffuse = (1.0 - f) * (1.0 - metallic) * baseColor * 0.96 / PI;
+    return (diffuse + specular) * lightColor * nDotL * (3.0 / PI);
 }
 
 // Ambient for PBR before the reflection probe is ready (probes.glsl):

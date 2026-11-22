@@ -494,7 +494,10 @@ bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& obje
     p.albedo = fetch(assets::kBaseColorTexture, false);
     p.albedoLoading = !p.albedo && !m.textures[assets::kBaseColorTexture].isNull();
     p.normal = fetch(assets::kNormalTexture, true);
-    // glTF's metallic-roughness map: G roughness, B metallic (R unused).
+    // The packed map: R occlusion, G roughness, B metallic. (glTF leaves R
+    // unused, but Second Life's materials pack occlusion there and the
+    // official viewer applies it to the image-based light: pbropaqueF.glsl,
+    // softenLightF.glsl ao = orm.r.)
     p.orm = fetch(assets::kMetallicRoughnessTexture, true);
     p.emissive = fetch(assets::kEmissiveTexture, false);
     p.baseColorFactor = m.baseColor;
@@ -502,7 +505,7 @@ bool ObjectView::pbrMaterial(render::ObjectDraw& draw, const world::Object& obje
     p.emissiveStrength = 1.0f;
     p.roughness = m.roughness;
     p.metallic = m.metallic;
-    p.occlusionStrength = 0.0f;
+    p.occlusionStrength = 1.0f;
     p.alphaCutoff = m.alphaMode == assets::MaterialAlpha::Mask ? m.alphaCutoff : -1.0f;
     p.blend = m.alphaMode == assets::MaterialAlpha::Blend;
     p.doubleSided = m.doubleSided;
@@ -1159,7 +1162,11 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const float radius = glm::length(object.scale) * 0.5f;
         if(!hud && moving)
         {
-            probeObjects_.push_back({position, radius}); // still ones: from the index
+            // (Still ones: from the index.)
+            const glm::mat3 axes(glm::normalize(glm::vec3((*frame)[0])),
+                                 glm::normalize(glm::vec3((*frame)[1])),
+                                 glm::normalize(glm::vec3((*frame)[2])));
+            probeObjects_.push_back({position, radius, glm::quat_cast(axes), object.scale * 0.5f});
         }
         const glm::vec3 toObject = position - camera;
         const float distance = glm::length(toObject);
@@ -1681,9 +1688,10 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 continue;
             }
             // Where prims are dense (automatic reflection probes): all of them.
-            for(const auto& [center, half] : set->spheres)
+            for(const auto& prim : set->prims)
             {
-                probeObjects_.push_back({toScene(center), half});
+                probeObjects_.push_back(
+                    {toScene(prim.center), prim.radius, prim.rotation, prim.half});
             }
             if(cellReach == Reach::None || (cellReach == Reach::Big && set->big.empty()))
             {

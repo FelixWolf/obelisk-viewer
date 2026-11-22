@@ -14,6 +14,7 @@
 #include "viewer/world/World.hpp"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
 #include <unordered_map>
@@ -45,9 +46,16 @@ public:
         glm::dvec3 center{0.0};
         float radius = 0.0f;
         std::vector<world::ObjectKey> big;
-        // Each member's center (global) and half size, for automatic
-        // reflection probes (where prims are dense).
-        std::vector<std::pair<glm::dvec3, float>> spheres;
+        // Each member's box, for automatic reflection probes: its center
+        // (global), half its size's length, its rotation and half its size.
+        struct Prim
+        {
+            glm::dvec3 center{0.0};
+            float radius = 0.0f;
+            glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+            glm::vec3 half{0.0f};
+        };
+        std::vector<Prim> prims;
     };
     struct CellKey
     {

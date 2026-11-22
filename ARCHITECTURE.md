@@ -1135,19 +1135,41 @@ point, 128² per face, one face a frame. There are three kinds:
   ambiance, near clip, box or sphere), a sphere their X size across or their
   box. They're usually where builders want rooms lit from inside.
 - Automatic probes (`AutomaticProbes.cpp`), where the official octree puts
-  them: one in every 32 m node. A prim settles in the node whose half-size s
-  has s < r <= 2s, where r is its bin radius (max(radius, 3); lloctree.h
-  `contains`, llvovolume.cpp `getBinRadius`). Smaller prims pass down
-  through the 32 m node, which creates it. So every 32 m cell holding a prim
-  with a bin radius up to 32 m gets a probe, however few prims it has; the
-  128-object capacity only pushes prims further down. (We used to place
-  probes only where a 64 m cell held more than 128 prims. Sparse places
-  such as skyboxes then had none, and everything there was lit by the
-  sky-only default probe: too bright and too blue.) A grid stands in for
-  the octree. A probe
-  sits at the middle of its prims' bounds, its radius reaches their
-  corners (8 m at least), and it's at least 2 m above the ground and high
-  enough that its near clip (half its radius) clears it.
+  them: one in every 32 m node. These were checked against an instrumented
+  official viewer: probe positions and radii, octree nodes, and per-face
+  irradiance.
+  - **Which nodes exist.** A prim settles in the node whose half-size s has
+    s < r <= 2s, where r is its bin radius (lloctree.h `contains`). Smaller
+    prims pass down through the 32 m node and create it. So every 32 m cell
+    with such a prim gets a probe, however few prims it has; the
+    128-object capacity only pushes prims further down a full node.
+  - **Bin radius.** Prims count as shrink-wrapped, so r is a quarter of
+    their radius. The official viewer shrink-wraps a prim once its texture
+    entry, scale, texture or glow changes after it's made (llvovolume.cpp
+    `getBinRadius`, `shrinkWrap`), which depends on the session's history.
+    A skybox's 64 m floor counted in practice, which only a quarter radius
+    allows.
+  - **Cell alignment.** The official octree's root starts centred on 0,
+    1 m from its middle to each side, and grows by moving its centre one
+    half-size towards each new object. Its 32 m nodes therefore have sides
+    at 32n - 1 m, not 32n. A grid aligned that way stands in for the
+    octree.
+  - **Position.** A probe starts at the centre of its prims' bounds, the
+    box around their boxes. Rays towards the bounds' 8 corners stop at the
+    first prim box they meet, and the probe moves to the middle of where
+    they stopped (`autoAdjustOrigin`; the official rays hit prim surfaces,
+    ours their boxes). It's at least 2 m above the ground and high enough
+    that its near clip, half its radius, clears it. Its radius reaches the
+    bounds' corners, 8 m at least.
+  - **Result.** At a skybox platform, our probe now lands exactly where
+    the official one does, (227.82, 35.18, 3003.78) with radius 45.3. Its
+    irradiance matches within about 5% upwards and towards the sun.
+
+  We used to place probes only where 128+ prims crowded a 64 m cell, with
+  the grid 1 m off and without the floor. Sparse places then had none
+  nearby, and everything there was lit by a far-off probe, too dimly
+  against the sun: a low sun lit the scene orange with hard shadows, where
+  the official viewer shows it soft.
 
 Local probes (manual and automatic, `Scene::probes`) see objects (not
 avatars or worn mesh) out to 64 m (RenderReflectionProbeDrawDistance). The
@@ -1336,6 +1358,15 @@ Four material families, each its own pipeline:
 | `PbrMaterial` (PBR objects) | object.vert + pbr.frag | albedo, packed occlusion/roughness/metallic (RGB), emissive with tint, MikkTSpace normal; roughness and metallic factors |
 | `TerrainBlinnPhongMaterial` | terrain.vert + terrain_blinnphong.frag | one 4-layer array of diffuse textures |
 | `TerrainPbrMaterial` | terrain.vert + terrain_pbr.frag | 4-layer arrays of albedo, ORM, emissive and normal, with per-layer factors |
+
+The packed occlusion/roughness/metallic map's R channel is occlusion, and
+it darkens the image-based light (diffuse and specular from the probes).
+That holds on PBR objects and PBR terrain alike. glTF leaves R unused, but
+Second Life's materials pack occlusion there, and the official viewer
+applies it: pbropaqueF.glsl passes it on, and softenLightF.glsl uses
+`ao = orm.r`; pbrterrainF.glsl does the same at the default
+RenderTerrainPBRDetail. Ignoring it made PBR floors lit mostly by ambient
+light, such as a skybox's under a low sun, more than twice too bright.
 
 A legacy face's color (the texture entry's tint) is sRGB, like its
 texture. The official viewer multiplies the two and makes the product

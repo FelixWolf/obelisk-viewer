@@ -44,8 +44,8 @@ TEST_CASE("Automatic probes: in every 32 m cell with objects up to its size")
     CHECK_FALSE(p.manual);
     CHECK_FALSE(p.box.has_value());
 
-    // Objects up to 32 m across settle in the 32 m node itself; bigger ones
-    // stay above it.
+    // Objects count as shrink-wrapped (a quarter of their radius): up to
+    // 128 m they settle in or below the 32 m node; bigger ones stay above.
     auto objects = cluster(200);
     for(auto& o : objects)
     {
@@ -56,9 +56,44 @@ TEST_CASE("Automatic probes: in every 32 m cell with objects up to its size")
     {
         o.radius = 40.0f;
     }
+    CHECK(placeAutomaticProbes(objects, flat, 0).size() == 1);
+    for(auto& o : objects)
+    {
+        o.radius = 130.0f;
+    }
     CHECK(placeAutomaticProbes(objects, flat, 0).empty());
 
     // Ids follow the cell.
     CHECK(placeAutomaticProbes(cluster(150), flat, 0)[0].id == probes[0].id);
     CHECK(placeAutomaticProbes(cluster(150), flat, 7)[0].id != probes[0].id);
+}
+
+TEST_CASE("Automatic probes: a floor counts, and the probe moves into the space over it")
+{
+    const auto flat = [](glm::vec2) { return 0.0f; };
+    // A 60 m floor (a box half a meter thick, its top at 100.25) and a
+    // post standing on it.
+    std::vector<ProbeObject> objects;
+    ProbeObject floor;
+    floor.center = glm::vec3(47.0f, 47.0f, 100.0f);
+    floor.half = glm::vec3(30.0f, 30.0f, 0.25f);
+    floor.radius = glm::length(floor.half);
+    objects.push_back(floor);
+    ProbeObject box; // a post off to one side, up to 116
+    box.center = glm::vec3(35.0f, 35.0f, 108.0f);
+    box.half = glm::vec3(0.5f, 0.5f, 8.0f);
+    box.radius = glm::length(box.half);
+    objects.push_back(box);
+
+    const auto probes = placeAutomaticProbes(objects, flat, 0);
+    REQUIRE(probes.size() == 1);
+    const auto& p = probes[0];
+    // Over the floor's middle...
+    CHECK(p.origin.x == doctest::Approx(47.0f).epsilon(0.01));
+    CHECK(p.origin.y == doctest::Approx(47.0f).epsilon(0.01));
+    // ...and up from the bounds' middle (107.875): halfway between where
+    // the downward rays meet the floor's top (100.25) and the bounds' top.
+    CHECK(p.origin.z == doctest::Approx(108.125f).epsilon(0.001));
+    // Reaching the floor's corners.
+    CHECK(p.radius > 42.0f);
 }

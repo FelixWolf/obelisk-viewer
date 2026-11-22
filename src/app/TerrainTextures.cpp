@@ -129,7 +129,9 @@ TerrainView::Material TerrainTextures::material(const world::RegionTerrain& regi
         layer.emissiveStrength = 1.0f;
         layer.roughness = source.roughness;
         layer.metallic = source.metallic;
-        layer.occlusionStrength = 0.0f; // as objects' (no occlusion map read)
+        // R occlusion, applied to the image-based light (pbrterrainF.glsl at
+        // the default RenderTerrainPBRDetail 0).
+        layer.occlusionStrength = 1.0f;
         layerTransform(source.transforms[assets::kBaseColorTexture], layer.uvRow0, layer.uvRow1);
     }
     return m;

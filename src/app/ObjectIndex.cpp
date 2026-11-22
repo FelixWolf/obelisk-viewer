@@ -206,7 +206,7 @@ void ObjectIndex::place(const world::World& world, const world::ObjectKey& root)
         return;
     }
     set.big.clear();
-    set.spheres.clear();
+    set.prims.clear();
     const world::Object* r = world.object(root.region, root.localId);
     // Worn, or under a parent not known yet: looked at every frame.
     set.moving = !r || r->parentId != 0 || r->animatedMesh;
@@ -243,7 +243,8 @@ void ObjectIndex::place(const world::World& world, const world::ObjectKey& root)
             const float size = glm::length(member->scale);
             set.radius = std::max(set.radius,
                                   static_cast<float>(glm::length(position - rootPosition)) + size);
-            set.spheres.emplace_back(position, size * 0.5f);
+            const glm::quat rotation = m == root ? r->rotation : r->rotation * member->rotation;
+            set.prims.push_back({position, size * 0.5f, rotation, member->scale * 0.5f});
             if(size >= kBig)
             {
                 set.big.push_back(m);
