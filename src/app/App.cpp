@@ -94,7 +94,8 @@ void printUsage()
                  "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
                  "[--walk DEGREES] [--day-time 0..1] [--no-shadows] [--texture-memory MIB] "
                  "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
-                 "[--say TEXT] [--say-at SECONDS] [--no-occlusion] [--stereo-benchmark [SIZE]] "
+                 "[--say TEXT] [--say-at SECONDS] [--dump-avatar NAME|self|UUID] [--dump-at "
+                 "SECONDS] [--front-view] [--no-occlusion] [--stereo-benchmark [SIZE]] "
                  "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
                  "[--ui-dir DIR] [--home-scene PATH] [--viewerconfig URL|off] "
                  "[--main-menu [TAB]] [--developer] "
@@ -273,6 +274,20 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
             i++;
             options.clickAt = std::strtof(args[i], nullptr);
         }
+        else if(arg == "--dump-avatar" && hasValue)
+        {
+            i++;
+            options.dumpAvatar = args[i];
+        }
+        else if(arg == "--front-view")
+        {
+            options.frontView = true;
+        }
+        else if(arg == "--dump-at" && hasValue)
+        {
+            i++;
+            options.dumpAt = std::strtof(args[i], nullptr);
+        }
         else if(arg == "--teleport" && hasValue)
         {
             i++;
@@ -308,6 +323,7 @@ std::optional<AppOptions> parseArguments(std::span<char*> args)
         {
             i++;
             options.loginUri = args[i];
+            options.gridGiven = true;
         }
         else
         {
@@ -491,6 +507,9 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->pointerOverride_ = options.pointer;
     app->pointAt_ = options.pointAt;
     app->clickAt_ = options.clickAt;
+    app->dumpAvatar_ = options.dumpAvatar;
+    app->dumpAt_ = options.dumpAt;
+    app->frontView_ = options.frontView;
     app->say_ = options.say;
     app->occlusion_ = options.occlusion;
     app->stereoSize_ = options.stereoSize;
@@ -650,6 +669,12 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     {
         if(auto credentials = session::readCredentialsFile(options.loginFile))
         {
+            if(options.gridGiven)
+            {
+                credentials->loginUri = options.loginUri.empty()
+                                            ? std::string(session::kAgniLoginUri)
+                                            : options.loginUri;
+            }
             app->handleLoginAction(app->loginScreen_ ? app->loginScreen_->logInWith(*credentials)
                                                      : app->loginPanel_->logInWith(*credentials));
         }
@@ -852,6 +877,36 @@ int App::run()
                 std::ranges::count_if(frameTimes_, [&](float ms) { return ms > average * 1.25f; });
             log::info("  {} of the last {} frames late; slowest: {}", late, frameTimes_.size(),
                       FrameProfile::describe(profile_.worst()));
+        }
+        // --dump-avatar: asks for its attachments' names a while before.
+        if(!dumpAvatar_.empty() && !dumped_ && world_)
+        {
+            const float seconds = static_cast<float>(now - startTicks_) * 1e-9f;
+            const auto target = dumpTarget();
+            const world::Object* avatar =
+                target ? world_->object(target->region, target->localId) : nullptr;
+            if(avatar && session_ && seconds >= dumpAt_ - 10.0f)
+            {
+                for(const auto& [key, o] : world_->objects())
+                {
+                    if(o.parentId == avatar->localId && o.region == avatar->region)
+                    {
+                        objectProperties_.get(*session_, o.region, o.localId, o.id);
+                    }
+                }
+            }
+            if(seconds >= dumpAt_)
+            {
+                dumped_ = true;
+                if(avatar)
+                {
+                    dumpAvatar(*avatar);
+                }
+                else
+                {
+                    log::warn("dump: no avatar '{}' in view", dumpAvatar_);
+                }
+            }
         }
         // --click-at: press at the given time, let go a moment later.
         if(clickAt_ && !clickedTicks_ && static_cast<float>(now - startTicks_) * 1e-9f >= *clickAt_)
@@ -1586,8 +1641,14 @@ void App::handleArrival(const session::Arrival& arrival)
     {
         return;
     }
-    // Behind the avatar, looking where it faces.
+    // Behind the avatar, looking where it faces (--front-view: close in
+    // front, looking at it).
     const auto& p = arrival.position;
+    if(frontView_)
+    {
+        camera_.lookAt(glm::vec3(p.x, p.y, p.z + 0.4f), 2.2f, agent_.yaw() + 180.0f, 8.0f);
+        return;
+    }
     camera_.lookAt(glm::vec3(p.x, p.y, p.z + 0.3f), 5.0f, agent_.yaw(), 12.0f);
 }
 
@@ -2080,7 +2141,14 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         }
         profile_.mark(FrameProfile::Avatars);
         placeHud(scene);
-        objects_->inspectWorn(developer_ && showWornMesh_ ? agentKey_ : std::nullopt);
+        if(const auto target = dumpTarget())
+        {
+            objects_->inspectWorn(target);
+        }
+        else
+        {
+            objects_->inspectWorn(developer_ && showWornMesh_ ? agentKey_ : std::nullopt);
+        }
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         *legacyMaterials_, avatars_.get(), 128.0f);
         addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
@@ -4153,15 +4221,10 @@ void App::drawFpsOverlay()
     ImGui::End();
 }
 
-// What was decided for the rigged mesh we wear (ObjectView::wornReports),
-// as text to copy: for finding why some draws wrong.
-void App::drawWornMeshWindow()
+// What was decided for the rigged mesh worn by the avatar inspected
+// (ObjectView::wornReports), as text: for finding why some draws wrong.
+std::string App::wornMeshText()
 {
-    if(!ImGui::Begin("Worn mesh", &showWornMesh_))
-    {
-        ImGui::End();
-        return;
-    }
     const auto shortId = [](const Uuid& id) { return id.toString().substr(0, 8); };
     const auto modeName = [](assets::DiffuseAlphaMode mode) -> std::string_view
     {
@@ -4230,6 +4293,17 @@ void App::drawWornMeshWindow()
                 static_cast<double>(f.tintAlpha), static_cast<double>(f.glow));
         }
     }
+    return text;
+}
+
+void App::drawWornMeshWindow()
+{
+    if(!ImGui::Begin("Worn mesh", &showWornMesh_))
+    {
+        ImGui::End();
+        return;
+    }
+    std::string text = wornMeshText();
     if(text.empty())
     {
         text = agentKey_ ? "No rigged mesh worn (or none in view)." : "Not in world.";
@@ -4246,6 +4320,211 @@ void App::drawWornMeshWindow()
     ImGui::Separator();
     ImGui::TextUnformatted(text.c_str());
     ImGui::End();
+}
+
+std::optional<world::ObjectKey> App::dumpTarget() const
+{
+    if(dumpAvatar_.empty() || dumped_ || !world_)
+    {
+        return std::nullopt;
+    }
+    if(dumpAvatar_ == "self")
+    {
+        return agentKey_;
+    }
+    const auto id = Uuid::parse(dumpAvatar_);
+    auto lower = [](std::string t)
+    {
+        std::ranges::transform(t, t.begin(), [](unsigned char c) { return std::tolower(c); });
+        return t;
+    };
+    const std::string wanted = lower(dumpAvatar_);
+    for(const auto& [key, o] : world_->objects())
+    {
+        if(o.type != world::ObjectType::Avatar)
+        {
+            continue;
+        }
+        if(id ? o.id == *id
+              : lower(o.firstName + " " + o.lastName).find(wanted) != std::string::npos)
+        {
+            return key;
+        }
+    }
+    return std::nullopt;
+}
+
+void App::dumpAvatar(const world::Object& avatar)
+{
+    const world::World& world = *world_;
+    std::string text =
+        std::format("avatar {} {} ({})\n", avatar.firstName, avatar.lastName, avatar.id.toString());
+    auto faceText = [&](const world::TextureFace& f)
+    {
+        std::string t = f.texture.toString();
+        if(avatars_)
+        {
+            if(const auto bake = avatars_->bakeId(world, avatar, f.texture))
+            {
+                t += " (bake -> " + bake->toString() + ")";
+            }
+        }
+        t += std::format(" color {:.3f} {:.3f} {:.3f} {:.3f}", f.color.r, f.color.g, f.color.b,
+                         f.color.a);
+        if(f.fullbright())
+        {
+            t += " fullbright";
+        }
+        if(f.shiny() || f.bump())
+        {
+            t += std::format(" shiny {} bump {}", f.shiny(), f.bump());
+        }
+        if(f.glow > 0.0f)
+        {
+            t += std::format(" glow {:.2f}", f.glow);
+        }
+        if(!f.material.isNull())
+        {
+            t += " legacy material " + f.material.toString();
+        }
+        if(f.repeats != glm::vec2(1.0f) || f.offset != glm::vec2(0.0f) || f.rotation != 0.0f)
+        {
+            t += std::format(" repeats {:.3f} {:.3f} offset {:.3f} {:.3f} rotation {:.3f}",
+                             f.repeats.x, f.repeats.y, f.offset.x, f.offset.y, f.rotation);
+        }
+        if(f.mediaTexGen)
+        {
+            t += std::format(" mediaTexGen {:#x}", f.mediaTexGen);
+        }
+        return t;
+    };
+
+    // The appearance: its bakes (texture entry), visual parameters, hover.
+    if(const world::World::Appearance* a = world.appearance(avatar.id))
+    {
+        text += std::format("appearance: {} visual params, hover {:.3f}\n", a->visualParams.size(),
+                            a->hover.z);
+        for(size_t i = 0; i < a->faces.size(); i++)
+        {
+            if(!a->faces[i].texture.isNull())
+            {
+                text += std::format("  slot {}: {}\n", i, faceText(a->faces[i]));
+            }
+        }
+        std::string params;
+        for(const uint8_t v : a->visualParams)
+        {
+            params += std::format("{} ", v);
+        }
+        text += "  visual params: " + params + "\n";
+    }
+    else
+    {
+        text += "no appearance yet\n";
+    }
+    if(const auto* playing = world.animations(avatar.id))
+    {
+        text += "animations:";
+        for(const auto& p : *playing)
+        {
+            text += " " + p.id.toString();
+        }
+        text += "\n";
+    }
+
+    // Its attachments, prim by prim, as received.
+    std::vector<const world::Object*> roots;
+    for(const auto& [key, o] : world.objects())
+    {
+        if(o.region == avatar.region && o.parentId == avatar.localId)
+        {
+            roots.push_back(&o);
+        }
+    }
+    for(const world::Object* root : roots)
+    {
+        std::string name = "?";
+        if(session_)
+        {
+            if(const auto* info =
+                   objectProperties_.get(*session_, root->region, root->localId, root->id))
+            {
+                name = info->name;
+            }
+        }
+        const int point = ((root->state & 0xF0) >> 4) | ((root->state & 0x0F) << 4);
+        text += std::format("attachment '{}' at point {} (local {})\n", name, point, root->localId);
+        std::vector<const world::Object*> prims{root};
+        for(const auto& [key, o] : world.objects())
+        {
+            if(o.region == root->region && o.parentId == root->localId)
+            {
+                prims.push_back(&o);
+            }
+        }
+        for(const world::Object* o : prims)
+        {
+            const bool mesh = (o->sculptType & world::SculptType::Mask) == world::SculptType::Mesh;
+            text += std::format("  prim {}{}: {} {}, scale {:.3f} {:.3f} {:.3f}{}\n", o->localId,
+                                o == root ? " (root)" : "", mesh ? "mesh" : "prim",
+                                mesh ? o->sculptTexture.toString() : std::string(), o->scale.x,
+                                o->scale.y, o->scale.z, o->animatedMesh ? ", animesh" : "");
+            const world::FaceOverrides* overrides =
+                world.materialOverrides({o->region, o->localId});
+            // Faces past the last that differs from the one after it all
+            // look alike: up to 8 for mesh.
+            const size_t faces = mesh ? 8 : 9;
+            for(size_t i = 0; i < faces; i++)
+            {
+                std::string line = faceText(o->faces[i]);
+                for(const auto& [face, material] : o->materials)
+                {
+                    if(face == i)
+                    {
+                        line += " PBR " + material.toString();
+                    }
+                }
+                if(overrides)
+                {
+                    for(const auto& [face, ov] : *overrides)
+                    {
+                        if(face != i)
+                        {
+                            continue;
+                        }
+                        line += " override:";
+                        if(ov.baseColor)
+                        {
+                            line += std::format(" bc {:.3f} {:.3f} {:.3f} {:.3f}", ov.baseColor->r,
+                                                ov.baseColor->g, ov.baseColor->b, ov.baseColor->a);
+                        }
+                        for(size_t t = 0; t < ov.textures.size(); t++)
+                        {
+                            if(ov.textures[t])
+                            {
+                                line += std::format(" tex{} {}", t, ov.textures[t]->toString());
+                            }
+                        }
+                        if(ov.alphaMode)
+                        {
+                            line += std::format(" am {}", static_cast<int>(*ov.alphaMode));
+                        }
+                        if(ov.metallic)
+                        {
+                            line += std::format(" mf {:.2f}", *ov.metallic);
+                        }
+                        if(ov.roughness)
+                        {
+                            line += std::format(" rf {:.2f}", *ov.roughness);
+                        }
+                    }
+                }
+                text += std::format("    face {}: {}\n", i, line);
+            }
+        }
+    }
+    text += "as drawn:\n" + wornMeshText();
+    log::info("dump:\n{}", text);
 }
 
 void App::drawEnvironmentWindow()

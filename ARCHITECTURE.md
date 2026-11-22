@@ -641,6 +641,19 @@ tonemapping. `--pointer X,Y` (fractions of the window) and
 `--click-at SECONDS` stand in for the mouse when testing, and
 `--point-at UUID` points from the camera at an object.
 
+To compare an avatar with the official viewer:
+- `--dump-avatar NAME|self|UUID` logs everything about the avatar's look
+  once, `--dump-at SECONDS` in (default 45):
+  - its bakes and visual parameters;
+  - the animations it plays;
+  - each attachment, prim by prim, with each face's texture (and the bake it
+    stands for), tint, legacy and PBR materials and overrides;
+  - what was decided for each rigged face when drawn: the "Worn mesh"
+    developer window's text.
+- `--front-view` puts the camera close in front of our avatar after logging
+  in.
+- An explicit `--grid` now overrides a login file's grid.
+
 The tooltip uses the script's own words for the action (llSetTouchText,
 llSetSitText) and shows the object's name: those come in ObjectProperties,
 which regions send only for selected prims, so once the pointer has rested
@@ -1278,6 +1291,13 @@ Four material families, each its own pipeline:
 | `PbrMaterial` (PBR objects) | object.vert + pbr.frag | albedo, packed occlusion/roughness/metallic (RGB), emissive with tint, MikkTSpace normal; roughness and metallic factors |
 | `TerrainBlinnPhongMaterial` | terrain.vert + terrain_blinnphong.frag | one 4-layer array of diffuse textures |
 | `TerrainPbrMaterial` | terrain.vert + terrain_pbr.frag | 4-layer arrays of albedo, ORM, emissive and normal, with per-layer factors |
+
+A legacy face's color (the texture entry's tint) is sRGB, like its
+texture. The official viewer multiplies the two and makes the product
+linear (alphaF.glsl, diffuseF.glsl). `BlinnPhongMaterial::diffuseTint` is
+therefore made linear too (the shader takes linear), which gives the same
+result. Taking the tint as linear made every tinted face too light: a dark
+tint of 0.23 came out about three times as bright.
 
 Missing textures fall back to neutral defaults (white, flat normal, no
 emission). A base color texture that is coming but not in yet shows as the

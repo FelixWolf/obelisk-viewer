@@ -79,6 +79,7 @@ struct AppOptions
     bool mainMenu = false;           // --main-menu: open it at the start
     std::string mainMenuTab;         // on this tab (--main-menu TAB)
     std::string loginUri;            // empty = Second Life main grid
+    bool gridGiven = false;          // --grid: also over a login file's
     std::filesystem::path loginFile; // optional: log in at startup (see Credentials.hpp)
     bool testScene = false;          // show the material test scene
     bool pbrTerrain = false;         // start with the PBR terrain shader
@@ -106,6 +107,10 @@ struct AppOptions
     // top left) instead of the mouse, and click there this many seconds in.
     std::optional<std::array<float, 2>> pointer;
     std::optional<float> clickAt;
+    // For finding why an avatar looks wrong: log it this many seconds in.
+    std::string dumpAvatar;
+    float dumpAt = 45.0f;
+    bool frontView = false; // --front-view: the camera close in front of our avatar
     Uuid pointAt; // or at this object (its center)
     // For testing: say this in local chat this many seconds in (typing
     // for 3 seconds before).
@@ -182,6 +187,12 @@ private:
     bool developer_ = false;
     void drawEnvironmentWindow();
     void drawWornMeshWindow();
+    std::string wornMeshText();
+    // --dump-avatar: everything about one avatar's look, logged once (its
+    // appearance's textures, animations, and each attachment's faces as
+    // received and as drawn), to compare with the official viewer.
+    void dumpAvatar(const world::Object& avatar);
+    std::optional<world::ObjectKey> dumpTarget() const;
 
     struct SdlRuntime
     {
@@ -397,6 +408,10 @@ private:
     Uuid pointAt_;
     bool loggedHoverInfo_ = false;
     std::optional<float> clickAt_;
+    std::string dumpAvatar_; // --dump-avatar: a name ("self": ours), or an id
+    float dumpAt_ = 45.0f;
+    bool dumped_ = false;
+    bool frontView_ = false;
     std::string say_; // --say, and when
     float sayAt_ = 0.0f;
     int said_ = 0;                     // 1: typing, 2: said

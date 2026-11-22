@@ -329,7 +329,10 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
         return std::nullopt; // the bake still loading (or none)
     }
     m.diffuseLoading = !m.diffuse && !face.texture.isNull();
-    m.diffuseTint = face.color;
+    // The face's color is sRGB, as the texture is: the official viewer
+    // multiplies the two, then makes the product linear (alphaF.glsl), the
+    // same as multiplying both made linear (the shader takes linear).
+    m.diffuseTint = glm::vec4(srgbToLinear(glm::vec3(face.color)), face.color.a);
     m.fullbright = face.fullbright();
     // Legacy faces have no highlight, as in the official viewer, unless
     // they're "shiny" (low, medium, high): then specular color, glossiness
