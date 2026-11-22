@@ -61,6 +61,8 @@ add_executable(viewer
   Offers.cpp
   InventoryBrowser.cpp
   ChatView.cpp
+  SoundAssets.cpp
+  SoundManager.cpp
   People.cpp
   PeopleView.cpp
   CurrentOutfit.cpp
@@ -92,6 +94,7 @@ target_link_libraries(viewer PRIVATE
   viewer::world
   viewer::environment
   viewer::avatar
+  viewer::audio
   viewer::volume
   viewer::render
   viewer::ui

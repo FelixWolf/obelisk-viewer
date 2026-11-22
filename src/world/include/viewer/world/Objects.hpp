@@ -147,6 +147,27 @@ inline constexpr uint8_t Disabled = 8; // not even a touch
 inline constexpr uint8_t Ignore = 9;   // clicks go through it
 } // namespace ClickAction
 
+// Sound flags (llaudioengine.h LL_SOUND_FLAG_*).
+namespace SoundFlags
+{
+inline constexpr uint8_t Loop = 0x01;
+inline constexpr uint8_t SyncMaster = 0x02;
+inline constexpr uint8_t SyncSlave = 0x04;
+inline constexpr uint8_t SyncPending = 0x08;
+inline constexpr uint8_t Queue = 0x10;
+inline constexpr uint8_t Stop = 0x20;
+} // namespace SoundFlags
+
+struct ObjectSound
+{
+    Uuid id{}; // null: none
+    Uuid owner{};
+    float gain = 0.0f;
+    uint8_t flags = 0;   // SoundFlags
+    float radius = 0.0f; // heard only within this of the listener (under 0.1: anywhere)
+    bool operator==(const ObjectSound&) const = default;
+};
+
 struct Object
 {
     Uuid id{};
@@ -193,6 +214,13 @@ struct Object
     float textureAnimationFrames = 0.0f;
     // Its particle system (llParticleSystem), if it has one.
     std::optional<ParticleSystem> particles{};
+    // The sound it plays (llPlaySound, llLoopSound, ...), from its full and
+    // compressed updates and AttachedSound. Each of those sets it again
+    // (`soundEvents` counts them), as the official viewer calls
+    // setAttachedSound for each: a null sound stops a loop, the same sound
+    // not looping plays again. AttachedSoundGainChange only changes the gain.
+    ObjectSound sound{};
+    uint32_t soundEvents = 0;
     // Avatars: their legacy name and group title (from NameValue).
     std::string firstName{};
     std::string lastName{};
@@ -229,6 +257,9 @@ struct ObjectUpdateData
     // A compressed update that says the object's particle system is as it
     // was (flag 0x400 without the legacy block): keep it.
     bool keepParticles = false;
+    // From the object cache: a sound it had then plays only if it loops (a
+    // one-off would play again each time it's loaded).
+    bool fromCache = false;
     // Terse:
     uint8_t state = 0;
     glm::vec3 position{0.0f};

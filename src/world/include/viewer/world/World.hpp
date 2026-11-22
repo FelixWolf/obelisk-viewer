@@ -145,6 +145,14 @@ struct WorldUpdate
     // An object's PBR material overrides, per face (GenericStreamingMessage
     // 0x4175): the whole set, replacing the last. `raw` is the message's
     // LLSD notation, for the object cache.
+    // An object's sound set (AttachedSound), or only its gain changed
+    // (AttachedSoundGainChange: `set` empty).
+    struct Sound
+    {
+        Uuid object;
+        std::optional<ObjectSound> set;
+        float gain = 0.0f;
+    };
     struct MaterialOverrides
     {
         uint32_t localId = 0;
@@ -155,7 +163,7 @@ struct WorldUpdate
     uint64_t region = 0;
     // monostate: nothing for the world (or a message that didn't decode).
     std::variant<std::monostate, Objects, Kill, Terrain, Handshake, Appearance, Animations,
-                 RegionRemoved, MaterialOverrides, Wind>
+                 RegionRemoved, MaterialOverrides, Wind, Sound>
         change;
 };
 
@@ -296,6 +304,14 @@ private:
     std::map<uint64_t, std::shared_ptr<const WindField>> wind_; // apart: it changes often
     ObjectMap objects_;
     IdIndex ids_;
+    // AttachedSound for objects not here yet: applied if they come within
+    // 15 s (llviewermessage.cpp PostponedSoundData).
+    struct PendingSound
+    {
+        ObjectSound sound;
+        std::chrono::steady_clock::time_point until;
+    };
+    std::unordered_map<Uuid, PendingSound> pendingSounds_;
     std::unordered_map<Uuid, std::shared_ptr<const Appearance>> appearances_;
     uint64_t appearanceSerial_ = 0;
     Changes changes_;

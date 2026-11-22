@@ -2,6 +2,7 @@ add_executable(viewer_tests
   main.cpp
   AvatarNameTests.cpp
   AvatarTests.cpp
+  AudioTests.cpp
   IkTests.cpp
   ViewerEffectsTests.cpp
   OutfitAttachmentsTests.cpp
@@ -91,6 +92,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::world
   viewer::environment
   viewer::avatar
+  viewer::audio
   viewer::volume
   viewer::render
   viewer::text

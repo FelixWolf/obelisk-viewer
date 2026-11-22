@@ -230,6 +230,21 @@ if(stb_ADDED)
   add_library(viewer::stb ALIAS viewer_stb)
 endif()
 
+# --- miniaudio: sound output, mixing and 3D positioning (viewer::audio) -----
+# One header, compiled once in src/audio/MiniaudioImpl.c; its own decoders
+# aren't used (Ogg Vorbis goes through stb_vorbis).
+CPMAddPackage(
+  NAME miniaudio
+  GITHUB_REPOSITORY mackron/miniaudio
+  GIT_TAG 0.11.22
+  DOWNLOAD_ONLY YES
+)
+if(miniaudio_ADDED)
+  add_library(viewer_miniaudio INTERFACE)
+  target_include_directories(viewer_miniaudio SYSTEM INTERFACE ${miniaudio_SOURCE_DIR})
+  add_library(viewer::miniaudio ALIAS viewer_miniaudio)
+endif()
+
 # --- keychain: the system credential store (saved logins) -------------------
 # Secret Service through libsecret on Linux (GNOME Keyring, KWallet), the
 # Keychain on macOS, the Credential Manager on Windows.
@@ -308,4 +323,5 @@ viewer_license("curl" "${curl_SOURCE_DIR}/COPYING")
 viewer_license("TinyXML-2" "${tinyxml2_SOURCE_DIR}/LICENSE.txt")
 viewer_license("GLM" "${glm_SOURCE_DIR}/copying.txt")
 viewer_license("stb" "${stb_SOURCE_DIR}/LICENSE")
+viewer_license("miniaudio" "${miniaudio_SOURCE_DIR}/LICENSE")
 viewer_license("keychain" "${keychain_SOURCE_DIR}/LICENSE")

@@ -453,7 +453,7 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
     o.position = r.vec3();
     o.rotation = quatFromVector(r.vec3());
     const uint32_t flags = r.u32();
-    r.uuid(); // owner
+    const Uuid owner = r.uuid();
     if(flags & 0x80)
     {
         o.angularVelocity = r.vec3();
@@ -512,10 +512,11 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
     }
     if(flags & 0x10)
     {
-        r.uuid(); // sound
-        r.f32();  // gain
-        r.u8();   // flags
-        r.f32();  // radius
+        o.sound.id = r.uuid();
+        o.sound.owner = owner;
+        o.sound.gain = r.f32();
+        o.sound.flags = r.u8();
+        o.sound.radius = r.f32();
     }
     if(flags & 0x100)
     {
@@ -618,6 +619,7 @@ bool applyUpdate(Object& object, const ObjectUpdateData& update)
     const uint32_t revision = object.revision;
     const uint32_t shapeRevision = object.shapeRevision;
     const uint32_t contentRevision = object.contentRevision;
+    const uint32_t soundEvents = object.soundEvents;
     std::optional<ParticleSystem> particles = std::move(object.particles);
     object = next;
     if(update.keepParticles)
@@ -626,6 +628,11 @@ bool applyUpdate(Object& object, const ObjectUpdateData& update)
     }
     object.revision = revision;
     object.contentRevision = contentRevision;
+    if(update.fromCache && !(object.sound.flags & SoundFlags::Loop))
+    {
+        object.sound.id = Uuid();
+    }
+    object.soundEvents = soundEvents + 1;
     object.shapeRevision = shapeRevision + (shapeChanged ? 1 : 0);
     return shapeChanged;
 }

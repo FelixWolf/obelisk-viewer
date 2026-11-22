@@ -97,6 +97,11 @@ public:
     // space for HUD attachments.
     std::optional<glm::mat4> objectFrame(const world::Object& object, const world::World& world,
                                          uint64_t originHandle, const AvatarView* avatars) const;
+    // Prims playing a sound (or set to), for SoundManager.
+    const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& soundSources() const
+    {
+        return index_.soundSources();
+    }
     // Whether the object is attached at a HUD point (its link set's root is).
     bool onHud(const world::Object& object, const world::World& world,
                const AvatarView* avatars) const;

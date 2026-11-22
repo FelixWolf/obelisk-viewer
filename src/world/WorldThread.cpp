@@ -96,6 +96,7 @@ void WorldThread::answerProbes(uint64_t region, const protocol::CircuitEvent& ev
             cached ? decodeCompressedObject(cached->data, probe.UpdateFlags) : std::nullopt;
         if(update)
         {
+            update->fromCache = true;
             hits_++;
             if(!world_.object(region, probe.ID))
             {

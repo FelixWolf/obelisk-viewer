@@ -27,6 +27,8 @@
 #include "SceneAssets.hpp"
 #include "ScriptDialogPage.hpp"
 #include "ScriptDialogs.hpp"
+#include "SoundAssets.hpp"
+#include "SoundManager.hpp"
 #include "TerrainTextures.hpp"
 #include "TerrainView.hpp"
 #include "TextureBrowser.hpp"
@@ -398,6 +400,10 @@ private:
     std::unique_ptr<AvatarNames> avatarNames_;     // display names, for name tags
     ObjectMotion motion_;                          // before the views that read it
     std::unique_ptr<AnimationManager> animations_; // with avatars_
+    // Sounds: their assets, and what plays (nothing without audio output).
+    std::unique_ptr<SoundAssets> soundAssets_;
+    std::unique_ptr<SoundManager> sounds_;
+    void updateSounds(const render::Scene& scene);
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;
     // What the mouse points at, and touching it.

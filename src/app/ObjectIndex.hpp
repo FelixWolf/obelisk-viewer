@@ -97,6 +97,11 @@ public:
     {
         return particleSources_;
     }
+    // Prims playing a sound (or set to).
+    const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& soundSources() const
+    {
+        return soundSources_;
+    }
     size_t prims() const { return rootOf_.size(); }
 
 private:
@@ -119,6 +124,7 @@ private:
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> lights_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> probes_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> particleSources_;
+    std::unordered_set<world::ObjectKey, world::ObjectKeyHash> soundSources_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> dirty_;
     // Link sets whose root's parent wasn't known: placed again once it is.
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> orphans_;

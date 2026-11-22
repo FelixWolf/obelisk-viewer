@@ -172,6 +172,21 @@ void World::applyObject(uint64_t regionHandle, const ObjectUpdateData& update,
         const auto since = object.textureAnimationSince;
         const float frames = object.textureAnimationFrames;
         applyUpdate(object, update);
+        // A sound set before it came.
+        if(!pendingSounds_.empty())
+        {
+            if(const auto pending = pendingSounds_.find(object.id); pending != pendingSounds_.end())
+            {
+                if(pending->second.until > std::chrono::steady_clock::now())
+                {
+                    const float radius = object.sound.radius;
+                    object.sound = pending->second.sound;
+                    object.sound.radius = radius;
+                    object.soundEvents++;
+                }
+                pendingSounds_.erase(pending);
+            }
+        }
         // An update with a texture animation restarts it, unless the one
         // running was smooth: that carries on (LLVOVolume).
         if(object.textureAnimation)
@@ -324,6 +339,7 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
         }
         o.textureAnimation = decodeTextureAnimation(b.TextureAnim, true);
         o.particles = decodeParticleSystem(b.PSBlock);
+        o.sound = {b.Sound, b.OwnerID, b.Gain, b.Flags, b.Radius};
         o.hoverTextColor = b.TextColor;
         o.hoverTextColor[3] = static_cast<uint8_t>(255 - o.hoverTextColor[3]); // sent flipped
         if(o.type == ObjectType::Prim)
@@ -493,6 +509,22 @@ WorldUpdate decodeMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
             }
         }
     }
+    else if(event.is<msg::AttachedSound>())
+    {
+        if(const auto m = event.decode<msg::AttachedSound>())
+        {
+            const auto& d = m->DataBlock;
+            out.change = WorldUpdate::Sound{
+                d.ObjectID, ObjectSound{d.SoundID, d.OwnerID, d.Gain, d.Flags, 0.0f}, d.Gain};
+        }
+    }
+    else if(event.is<msg::AttachedSoundGainChange>())
+    {
+        if(const auto m = event.decode<msg::AttachedSoundGainChange>())
+        {
+            out.change = WorldUpdate::Sound{m->DataBlock.ObjectID, std::nullopt, m->DataBlock.Gain};
+        }
+    }
     else if(event.is<msg::KillObject>())
     {
         if(const auto m = event.decode<msg::KillObject>())
@@ -616,6 +648,40 @@ void World::apply(WorldUpdate update)
         }
         objectsRevision_++;
         contentsRevision_++;
+    }
+    else if(auto* sound = std::get_if<WorldUpdate::Sound>(&update.change))
+    {
+        const IdIndex& index = ids();
+        const auto it = index.keys.find(sound->object);
+        const auto found = it == index.keys.end() ? objects_.end() : objects_.find(it->second);
+        if(found == objects_.end())
+        {
+            if(sound->set)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                std::erase_if(pendingSounds_, [&](const auto& p) { return p.second.until <= now; });
+                pendingSounds_[sound->object] = {*sound->set, std::chrono::steady_clock::now() +
+                                                                  std::chrono::seconds(15)};
+            }
+        }
+        else
+        {
+            changed(found->first);
+            Object& object = writable(found->second);
+            if(sound->set)
+            {
+                // The cutoff radius comes only with object updates.
+                const float radius = object.sound.radius;
+                object.sound = *sound->set;
+                object.sound.radius = radius;
+                object.soundEvents++;
+            }
+            else
+            {
+                object.sound.gain = sound->gain;
+            }
+            objectsRevision_++;
+        }
     }
     else if(auto* animations = std::get_if<WorldUpdate::Animations>(&update.change))
     {

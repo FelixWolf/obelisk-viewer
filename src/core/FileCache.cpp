@@ -28,6 +28,8 @@ const char* directoryFor(CacheKind kind)
         return "objects";
     case CacheKind::Material:
         return "materials";
+    case CacheKind::Sound:
+        return "sounds";
     }
     return "other";
 }
@@ -68,6 +70,9 @@ fs::path FileCache::pathFor(const CacheKey& key) const
         break;
     case CacheKind::Material:
         name = id + ".material";
+        break;
+    case CacheKind::Sound:
+        name = id + ".ogg";
         break;
     }
     return root_ / directoryFor(key.kind) / id.substr(0, 2) / name;

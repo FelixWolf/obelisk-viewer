@@ -427,3 +427,78 @@ TEST_CASE("World thread: PBR material overrides, streamed and cached")
     thread.flush();
     CHECK(thread.snapshot()->materialOverrides({region, 10}) == nullptr);
 }
+
+TEST_CASE("World: objects' sounds from their updates and AttachedSound")
+{
+    world::World world;
+    const uint64_t region = 0x0003E8000003E800ull;
+    const Uuid sound = *Uuid::parse("aaaaaaaa-0000-0000-0000-000000000001");
+    const Uuid other = *Uuid::parse("aaaaaaaa-0000-0000-0000-000000000002");
+    const Uuid owner = *Uuid::parse("bbbbbbbb-0000-0000-0000-000000000001");
+
+    // A full update with a looping sound: set, one event.
+    msg::ObjectUpdate update = objectUpdate(7, 1.0f);
+    update.ObjectData[0].Sound = sound;
+    update.ObjectData[0].OwnerID = owner;
+    update.ObjectData[0].Gain = 0.5f;
+    update.ObjectData[0].Flags = world::SoundFlags::Loop;
+    update.ObjectData[0].Radius = 10.0f;
+    world.handleMessage(region, event(update));
+    const world::Object* o = world.object(region, 7);
+    REQUIRE(o);
+    CHECK(o->sound.id == sound);
+    CHECK(o->sound.owner == owner);
+    CHECK(o->sound.gain == doctest::Approx(0.5f));
+    CHECK(o->sound.radius == doctest::Approx(10.0f));
+    CHECK(o->soundEvents == 1);
+
+    // Each update sets it again (without one: none).
+    world.handleMessage(region, event(objectUpdate(7, 2.0f)));
+    o = world.object(region, 7);
+    CHECK(o->sound.id.isNull());
+    CHECK(o->soundEvents == 2);
+
+    // AttachedSound sets it (keeping the radius), the gain change only the gain.
+    msg::AttachedSound attached;
+    attached.DataBlock = {other, o->id, owner, 0.8f, world::SoundFlags::Queue};
+    world.handleMessage(region, event(attached));
+    o = world.object(region, 7);
+    CHECK(o->sound.id == other);
+    CHECK(o->sound.flags == world::SoundFlags::Queue);
+    CHECK(o->soundEvents == 3);
+    msg::AttachedSoundGainChange gain;
+    gain.DataBlock = {o->id, 0.25f};
+    world.handleMessage(region, event(gain));
+    o = world.object(region, 7);
+    CHECK(o->sound.gain == doctest::Approx(0.25f));
+    CHECK(o->soundEvents == 3);
+
+    // For an object not here yet: once it comes.
+    msg::ObjectUpdate later = objectUpdate(8, 1.0f);
+    attached.DataBlock.ObjectID = later.ObjectData[0].FullID;
+    world.handleMessage(region, event(attached));
+    world.handleMessage(region, event(later));
+    o = world.object(region, 8);
+    REQUIRE(o);
+    CHECK(o->sound.id == other);
+    CHECK(o->soundEvents == 2); // its update, then the sound it waited with
+
+    // From the object cache, a one-off doesn't play again; a loop does.
+    world::ObjectUpdateData cached;
+    cached.localId = 9;
+    cached.full.id = *Uuid::parse("00000000-0000-0000-0000-000000000009");
+    cached.full.localId = 9;
+    cached.full.type = world::ObjectType::Prim;
+    cached.full.sound = {sound, owner, 1.0f, 0, 0.0f};
+    cached.fromCache = true;
+    world::WorldUpdate::Objects objects;
+    objects.updates.push_back(cached);
+    cached.localId = 10;
+    cached.full.localId = 10;
+    cached.full.id = *Uuid::parse("00000000-0000-0000-0000-00000000000a");
+    cached.full.sound.flags = world::SoundFlags::Loop;
+    objects.updates.push_back(cached);
+    world.apply(world::WorldUpdate{.region = region, .change = std::move(objects)});
+    CHECK(world.object(region, 9)->sound.id.isNull());
+    CHECK(world.object(region, 10)->sound.id == sound);
+}

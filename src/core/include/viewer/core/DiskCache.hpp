@@ -38,6 +38,7 @@ enum class CacheKind : uint8_t
     // width and height (little-endian 32-bit) then the bytes, top row
     // first. Stored with the textures too.
     TextureMask,
+    Sound, // sound assets (Ogg Vorbis) as downloaded
 };
 
 struct CacheKey

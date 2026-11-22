@@ -634,6 +634,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
     app->accountPicture_ = std::make_unique<AccountPicture>(*app->http_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
+    app->soundAssets_ = std::make_unique<SoundAssets>(*app->http_, *app->jobs_, *app->diskCache_);
+    app->sounds_ = std::make_unique<SoundManager>(audio::AudioEngine::create(), *app->soundAssets_);
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
         const char* base = SDL_GetBasePath();
@@ -1377,6 +1379,31 @@ void App::updateSession()
                 }
             }
         }
+        else if(m.event.is<protocol::msg::SoundTrigger>())
+        {
+            const auto t = m.event.decode<protocol::msg::SoundTrigger>();
+            if(t && originHandle_)
+            {
+                const auto& d = t->SoundData;
+                // Where, in its region (the message's handle, else the one
+                // that sent it).
+                const uint64_t handle = d.Handle != 0 ? d.Handle : m.regionHandle;
+                sounds_->trigger(d.SoundID,
+                                 regionOffset(handle, *originHandle_) +
+                                     glm::vec3(d.Position.x, d.Position.y, d.Position.z),
+                                 d.Gain);
+            }
+        }
+        else if(m.event.is<protocol::msg::PreloadSound>())
+        {
+            if(const auto p = m.event.decode<protocol::msg::PreloadSound>())
+            {
+                for(const auto& b : p->DataBlock)
+                {
+                    sounds_->preload(b.SoundID);
+                }
+            }
+        }
         else if(m.event.is<protocol::msg::ScriptDialog>())
         {
             if(const auto dialog = m.event.decode<protocol::msg::ScriptDialog>())
@@ -1642,6 +1669,7 @@ void App::updateSession()
     }
     textures_->setViewerAssetUrl(viewerAsset);
     environment_->setViewerAssetUrl(viewerAsset);
+    soundAssets_->setViewerAssetUrl(viewerAsset);
     if(avatars_)
     {
         const auto* login = session_->login();
@@ -1974,6 +2002,8 @@ void App::endSession()
     keyboardForChat_.reset();
     ims_->clear();
     offers_->clear();
+    sounds_->clear();
+    soundAssets_->clear();
     friends_.clear();
     friendsLoaded_ = false;
     nearby_.clear();
@@ -2227,6 +2257,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         objects_->addTo(scene, *world_, *originHandle_, *textures_, *meshes_, *materials_,
                         *legacyMaterials_, avatars_.get(), 128.0f);
         addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
+        updateSounds(scene);
         if(avatars_)
         {
             const auto* login = session_ ? session_->login() : nullptr;
@@ -3362,6 +3393,40 @@ void App::updateOfferAnswers()
     }
     std::erase_if(offerAnswers_,
                   [&](const PendingAnswer& p) { return carryOut(p.answer, now - p.since); });
+}
+
+void App::updateSounds(const render::Scene& scene)
+{
+    soundAssets_->update();
+    if(!world_ || !originHandle_)
+    {
+        return;
+    }
+    const auto locate = [&](const world::ObjectKey& key) -> std::optional<SoundManager::Source>
+    {
+        const world::Object* o = world_->object(key.region, key.localId);
+        if(!o)
+        {
+            return std::nullopt;
+        }
+        SoundManager::Source s;
+        s.object = o->id;
+        s.sound = o->sound;
+        s.events = o->soundEvents;
+        s.hud = objects_->onHud(*o, *world_, avatars_.get());
+        if(!s.hud)
+        {
+            const auto frame = objects_->objectFrame(*o, *world_, *originHandle_, avatars_.get());
+            if(!frame)
+            {
+                return std::nullopt; // its parent isn't here yet
+            }
+            s.position = glm::vec3((*frame)[3]);
+        }
+        return s;
+    };
+    const render::Camera& c = scene.camera;
+    sounds_->update(objects_->soundSources(), locate, c.position, c.forward(), c.up);
 }
 
 void App::peopleAction(const PeopleView::Action& action)
