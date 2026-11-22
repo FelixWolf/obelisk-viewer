@@ -475,7 +475,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
             }
             else
             {
-                app->say(text);
+                const auto into = std::exchange(app->keyboardForChat_, std::nullopt);
+                app->sayIn(into.value_or(ChatView::kNearby), text);
             }
         });
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
@@ -590,6 +591,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         log::warn("no script dialogs: the interface couldn't be set up");
     }
     app->outfit_ = std::make_unique<OutfitAttachments>(*app->http_);
+    app->ims_ = std::make_unique<InstantMessages>(app->http_.get());
     app->legacyMaterials_ = std::make_unique<LegacyMaterialManager>(*app->http_);
     {
         const char* base = SDL_GetBasePath();
@@ -1198,6 +1200,13 @@ void App::updateSession()
         }
     }
 
+    // Instant messages' requests (what came while away, chats joined).
+    ims_->update(*session_);
+    for(const auto& m : ims_->takeOfflineFromObjects())
+    {
+        objectMessage(m);
+    }
+
     // Events for us (the parcel we're on).
     session_->drainRegionEvents(regionEvents_);
     for(const session::RegionEvent& e : regionEvents_)
@@ -1205,6 +1214,11 @@ void App::updateSession()
         if(e.name == "ParcelProperties")
         {
             parcel_.parcelProperties(e.regionHandle, session_->agentRegion().value_or(0), e.body);
+        }
+        else if(e.name == "ChatterBoxInvitation" && session_->login())
+        {
+            // A group or ad-hoc chat's first message: joined (accepted).
+            ims_->invitation(e.body, session_->login()->agentId, std::chrono::system_clock::now());
         }
     }
 
@@ -1224,6 +1238,18 @@ void App::updateSession()
         else if(m.event.is<protocol::msg::ChatFromSimulator>())
         {
             localChat_.handle(m.event, *avatarNames_, LocalChat::Clock::now());
+        }
+        else if(m.event.is<protocol::msg::ImprovedInstantMessage>())
+        {
+            const auto im = m.event.decode<protocol::msg::ImprovedInstantMessage>();
+            if(const auto* login = session_->login(); im && login)
+            {
+                if(const auto object =
+                       ims_->handle(*im, login->agentId, std::chrono::system_clock::now()))
+                {
+                    objectMessage(*object);
+                }
+            }
         }
         else if(m.event.is<protocol::msg::ScriptDialog>())
         {
@@ -1805,6 +1831,8 @@ void App::endSession()
     localChat_.clear();
     scriptDialogs_.clear();
     keyboardForDialog_.reset();
+    keyboardForChat_.reset();
+    ims_->clear();
     if(animations_)
     {
         animations_->setViewerAssetUrl({});
@@ -2491,6 +2519,7 @@ MenuItem App::radialMenu()
                           [this]
                           {
                               keyboardForDialog_.reset();
+                              keyboardForChat_.reset(); // local chat
                               controls_.openKeyboard();
                           }),
             MenuItem::submenu(
@@ -2896,6 +2925,30 @@ bool App::scriptDialogEvent(const SDL_Event& event)
                      event);
 }
 
+void App::sayIn(const std::string& conversation, std::string_view typed)
+{
+    const auto* login = session_ ? session_->login() : nullptr;
+    const auto session = Uuid::parse(conversation);
+    if(conversation == ChatView::kNearby || !session || !login)
+    {
+        say(typed);
+        return;
+    }
+    const std::string name =
+        login->name.last.empty() ? login->name.first : login->name.first + " " + login->name.last;
+    if(const auto out =
+           ims_->send(*session, typed, login->agentId, name, std::chrono::system_clock::now()))
+    {
+        session_->sendInstantMessage(out->to, out->session, out->dialog, out->text);
+    }
+}
+
+void App::objectMessage(const InstantMessages::FromObject& m)
+{
+    localChat_.handle(ChatSource::Object, ChatType::Owner, 1, m.object, m.owner, m.name, m.text,
+                      nullptr, LocalChat::Clock::now());
+}
+
 void App::say(std::string_view typed)
 {
     // "/5 text": on channel 5 (as the official chat bar).
@@ -3138,6 +3191,11 @@ void App::updateMainMenu()
     }
     destinations_->update();
     status.chat = &localChat_;
+    status.ims = ims_.get();
+    if(const auto* login = session_ ? session_->login() : nullptr)
+    {
+        status.self = login->agentId;
+    }
     status.headset = headset_ && headset_->running();
     mainMenu_->update(status);
     // Attaching from inventory, or taking off: the COF follows once the
@@ -3191,13 +3249,14 @@ void App::updateMainMenu()
         }
     }
     // Chat typed on the Chat tab, or the VR keyboard asked for to type it.
-    if(const auto typed = mainMenu_->chat().takeSay(); typed && session_)
+    if(const auto said = mainMenu_->chat().takeSay(); said && session_)
     {
-        say(*typed);
+        sayIn(said->conversation, said->text);
     }
-    if(mainMenu_->chat().takeKeyboard())
+    if(const auto into = mainMenu_->chat().takeKeyboard())
     {
         keyboardForDialog_.reset();
+        keyboardForChat_ = *into;
         controls_.openKeyboard();
     }
     if(mainMenu_->takeLogOut() && session_)

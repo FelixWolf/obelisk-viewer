@@ -9,6 +9,7 @@
 #include "CurrentOutfit.hpp"
 #include "EnvironmentManager.hpp"
 #include "FrameProfile.hpp"
+#include "InstantMessages.hpp"
 #include "LegacyMaterialManager.hpp"
 #include "LobbyBoards.hpp"
 #include "LocalChat.hpp"
@@ -259,6 +260,8 @@ private:
     // The VR keyboard types a text box's reply (that notice's serial), not
     // local chat.
     std::optional<uint64_t> keyboardForDialog_;
+    // Or into a chat conversation (ChatView::kNearby, or a session's id).
+    std::optional<std::string> keyboardForChat_;
     void updateScriptDialogs();
     // Local chat as typed (the Chat tab, the VR keyboard): "/5 text" on
     // channel 5.
@@ -403,6 +406,12 @@ private:
     MeshManager::Stats uiMeshStats_{};
     uint64_t uiStatsTicks_ = 0;
     LocalChat localChat_;
+    // Instant messages, group and ad-hoc chats (the Chat tab shows them).
+    std::unique_ptr<InstantMessages> ims_;
+    // Says it in a conversation (ChatView::kNearby: local chat).
+    void sayIn(const std::string& conversation, std::string_view typed);
+    // An object's instant message: local chat, as said to us alone.
+    void objectMessage(const InstantMessages::FromObject& m);
     uint64_t clickedTicks_ = 0; // --click-at's press, released a moment later
 
     // The VR controls (radial menu, keyboard): the controllers point at

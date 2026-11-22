@@ -94,9 +94,11 @@ public:
         // The outfit worn last (null: none), and an outfit being put on.
         Uuid baseOutfit;
         bool outfitChanging = false;
-        // Local chat heard, and whether we're in a headset (typing on the
-        // VR keyboard).
+        // Local chat heard, instant messages, our id, and whether we're in
+        // a headset (typing on the VR keyboard).
         const LocalChat* chat = nullptr;
+        const InstantMessages* ims = nullptr;
+        Uuid self;
         bool headset = false;
     };
     // The page's values, then its layout and animations (once a frame

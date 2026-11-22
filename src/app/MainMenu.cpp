@@ -938,9 +938,10 @@ void MainMenu::update(const Status& status)
 {
     updateDestinations(status);
     updateParcel(status);
-    if(status.chat)
+    if(status.chat && status.ims)
     {
-        chat_.update(*status.chat, tab_ == "chat", status.headset, surface_->document());
+        chat_.update(*status.chat, *status.ims, status.self, tab_ == "chat", status.headset,
+                     surface_->document());
     }
     if(tab_ == "inventory")
     {

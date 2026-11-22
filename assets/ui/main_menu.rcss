@@ -611,3 +611,5 @@ input.chat-field selection { background-color: #3a6ae0; color: #ffffff; }
 }
 .send:hover { decorator: linear-gradient(180deg, #4a7af0, #3a5fce); }
 .send.wide { margin-left: 0; }
+.chat-line.self .who { color: #c0a0ff; }
+.typing { font-size: 14dp; color: #8b96ab; padding: 0 4dp 6dp 4dp; flex-shrink: 0; }

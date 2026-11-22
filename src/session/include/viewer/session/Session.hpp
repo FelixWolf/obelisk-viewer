@@ -355,6 +355,11 @@ public:
     // what people hear), whispered (0), said (1) or shouted (2); 4 and 5
     // tell others we started or stopped typing.
     void say(std::string_view text, int32_t channel = 0, uint8_t type = 1);
+    // An instant message (ImprovedInstantMessage) to `to` (a person, or a
+    // group or ad-hoc chat's session) in `session`, as the official
+    // pack_instant_message: from our name, online, no binary bucket.
+    void sendInstantMessage(const Uuid& to, const Uuid& session, uint8_t dialog,
+                            std::string_view text);
 
     // Answers to scripts, to the region that asked (gone: not sent; the
     // script's object went with it). A dialog's button (ScriptDialogReply:

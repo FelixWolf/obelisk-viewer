@@ -6,6 +6,7 @@
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/Input.h>
 
+#include <algorithm>
 #include <ctime>
 #include <format>
 
@@ -15,8 +16,7 @@ namespace viewer
 namespace
 {
 
-// "14:05", local time.
-std::string clockTime(std::chrono::system_clock::time_point when)
+std::tm localTime(std::chrono::system_clock::time_point when)
 {
     const std::time_t t = std::chrono::system_clock::to_time_t(when);
     std::tm local{};
@@ -25,7 +25,22 @@ std::string clockTime(std::chrono::system_clock::time_point when)
 #else
     localtime_r(&t, &local);
 #endif
-    return std::format("{:02}:{:02}", local.tm_hour, local.tm_min);
+    return local;
+}
+
+// "14:05" local time, or "Nov 18 14:05" if it's not today.
+std::string clockTime(std::chrono::system_clock::time_point when)
+{
+    static constexpr const char* kMonths[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    const std::tm local = localTime(when);
+    const std::tm today = localTime(std::chrono::system_clock::now());
+    if(local.tm_year == today.tm_year && local.tm_yday == today.tm_yday)
+    {
+        return std::format("{:02}:{:02}", local.tm_hour, local.tm_min);
+    }
+    return std::format("{} {} {:02}:{:02}", kMonths[local.tm_mon % 12], local.tm_mday,
+                       local.tm_hour, local.tm_min);
 }
 
 } // namespace
@@ -49,6 +64,8 @@ void ChatView::bind(Rml::DataModelConstructor& model)
     model.RegisterArray<std::vector<Line>>();
     model.Bind("chatConversations", &conversations_);
     model.Bind("chatOpen", &open_);
+    model.Bind("chatTitle", &title_);
+    model.Bind("chatTyping", &typing_);
     model.Bind("chatLines", &lines_);
     model.Bind("chatShowObjects", &showObjects_);
     model.Bind("chatDraft", &draft_);
@@ -57,7 +74,7 @@ void ChatView::bind(Rml::DataModelConstructor& model)
     {
         if(parseChatInput(draft_))
         {
-            say_ = draft_;
+            say_ = Said{open_, draft_};
             toBottom_ = true; // what we say shows at the bottom
         }
         draft_.clear();
@@ -77,10 +94,10 @@ void ChatView::bind(Rml::DataModelConstructor& model)
                                 }
                             });
     model.BindEventCallback("chatType", [this](Rml::DataModelHandle, Rml::Event&,
-                                               const Rml::VariantList&) { keyboard_ = true; });
+                                               const Rml::VariantList&) { keyboard_ = open_; });
 }
 
-void ChatView::fill(const LocalChat& chat)
+void ChatView::fillNearby(const LocalChat& chat, const Uuid& self)
 {
     lines_.clear();
     for(const ChatLine& c : chat.log())
@@ -95,54 +112,138 @@ void ChatView::fill(const LocalChat& chat)
         line.text = c.text;
         line.kind = toUs                                 ? "owner"
                     : c.sourceType == ChatSource::Object ? "object"
-                    : c.sourceType == ChatSource::Agent  ? "avatar"
+                    : c.sourceType == ChatSource::Agent  ? (c.source == self ? "self" : "avatar")
                                                          : "system";
         line.when = clockTime(c.when);
         lines_.push_back(std::move(line));
     }
-    model_.DirtyVariable("chatLines");
 }
 
-void ChatView::update(const LocalChat& chat, bool shown, bool headset,
-                      Rml::ElementDocument* document)
+void ChatView::fillConversation(const ImConversation& c)
+{
+    lines_.clear();
+    for(const ImMessage& m : c.lines)
+    {
+        Line line;
+        const bool emote = m.text.starts_with("/me ") || m.text.starts_with("/me'");
+        line.name = emote ? std::string() : m.fromName;
+        line.text = emote ? m.fromName + m.text.substr(3) : m.text;
+        if(m.saved)
+        {
+            line.text = "(saved) " + line.text;
+        }
+        line.kind = m.response ? "system" : m.ours ? "self" : "avatar";
+        line.when = clockTime(m.when);
+        lines_.push_back(std::move(line));
+    }
+}
+
+void ChatView::update(const LocalChat& chat, const InstantMessages& ims, const Uuid& self,
+                      bool shown, bool headset, Rml::ElementDocument* document)
 {
     if(headset != headset_)
     {
         headset_ = headset;
         model_.DirtyVariable("chatHeadset");
     }
-    // What wasn't seen: lines since the tab last showed them.
-    if(shown && open_ == "nearby")
+    // The one shown, if it went (logged out): Nearby.
+    const std::string open = open_;
+    Uuid openSession;
+    const ImConversation* conversation = nullptr;
+    if(open != kNearby)
     {
-        seen_ = chat.added();
+        if(const auto id = Uuid::parse(open))
+        {
+            openSession = *id;
+            conversation = ims.find(openSession);
+        }
+        if(!conversation)
+        {
+            open_ = kNearby;
+            model_.DirtyVariable("chatOpen");
+        }
     }
-    const int unread = static_cast<int>(
-        std::min<uint64_t>(chat.added() - std::min(seen_, chat.added()), chat.log().size()));
-    if(conversations_[0].unread != unread)
+    const std::string openId = open_;
+    // What's shown is seen.
+    if(shown)
     {
-        conversations_[0].unread = unread;
+        seen_[openId] = conversation ? conversation->added : chat.added();
+    }
+
+    // The list: Nearby, then the others newest first, each with what wasn't
+    // seen.
+    auto unseen = [&](const std::string& id, uint64_t added, size_t kept)
+    {
+        const auto it = seen_.find(id);
+        const uint64_t seen = it == seen_.end() ? 0 : std::min(it->second, added);
+        return static_cast<size_t>(std::min<uint64_t>(added - seen, kept));
+    };
+    std::vector<Conversation> list;
+    list.push_back(
+        {kNearby, "Nearby", static_cast<int>(unseen(kNearby, chat.added(), chat.log().size()))});
+    for(const ImConversation& c : ims.conversations())
+    {
+        // Ours don't count.
+        const std::string id = c.session.toString();
+        const size_t newer = unseen(id, c.added, c.lines.size());
+        const int unread = static_cast<int>(
+            std::count_if(c.lines.end() - static_cast<std::ptrdiff_t>(newer), c.lines.end(),
+                          [](const ImMessage& m) { return !m.ours; }));
+        list.push_back({id, c.name.empty() ? std::string("Someone") : c.name, unread});
+    }
+    if(list != conversations_)
+    {
+        conversations_ = std::move(list);
         model_.DirtyVariable("chatConversations");
     }
     if(!shown)
     {
         return;
     }
-    Rml::Element* scroll = document ? document->GetElementById("chat-lines") : nullptr;
-    if(shown_ != chat.added() || shownObjects_ != showObjects_)
+
+    // The chosen one's title, whether they're typing, and its lines.
+    const std::string title =
+        conversation ? (conversation->name.empty() ? std::string("Someone") : conversation->name)
+                     : std::string("Nearby");
+    if(title_ != title)
+    {
+        title_ = title;
+        model_.DirtyVariable("chatTitle");
+    }
+    const std::string typing = conversation && conversation->typing
+                                   ? conversation->name + " is typing\xE2\x80\xA6"
+                                   : std::string();
+    if(typing_ != typing)
+    {
+        typing_ = typing;
+        model_.DirtyVariable("chatTyping");
+    }
+    const uint64_t added = conversation ? conversation->added : chat.added();
+    const bool switched = shownOpen_ != openId;
+    if(switched || shownAdded_ != added || shownObjects_ != showObjects_ ||
+       (conversation && shownImVersion_ != ims.version()))
     {
         // Following the newest lines unless scrolled back to read.
-        if(scroll &&
-           scroll->GetScrollTop() + scroll->GetClientHeight() >= scroll->GetScrollHeight() - 8.0f)
+        Rml::Element* scroll = document ? document->GetElementById("chat-lines") : nullptr;
+        if(switched || shownObjects_ != showObjects_ ||
+           (scroll &&
+            scroll->GetScrollTop() + scroll->GetClientHeight() >= scroll->GetScrollHeight() - 8.0f))
         {
             toBottom_ = true;
         }
-        if(shown_ == ~uint64_t{0} || shownObjects_ != showObjects_)
-        {
-            toBottom_ = true; // first shown, or filtered anew
-        }
-        shown_ = chat.added();
+        shownOpen_ = openId;
+        shownAdded_ = added;
         shownObjects_ = showObjects_;
-        fill(chat);
+        shownImVersion_ = ims.version();
+        if(conversation)
+        {
+            fillConversation(*conversation);
+        }
+        else
+        {
+            fillNearby(chat, self);
+        }
+        model_.DirtyVariable("chatLines");
     }
 }
 

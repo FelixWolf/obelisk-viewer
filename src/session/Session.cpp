@@ -898,6 +898,31 @@ void Session::say(std::string_view text, int32_t channel, uint8_t type)
     send(*main, chat, true);
 }
 
+void Session::sendInstantMessage(const Uuid& to, const Uuid& session, uint8_t dialog,
+                                 std::string_view text)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    msg::ImprovedInstantMessage im;
+    im.AgentData.AgentID = login_->agentId;
+    im.AgentData.SessionID = login_->sessionId;
+    im.MessageBlock.FromGroup = false;
+    im.MessageBlock.ToAgentID = to;
+    im.MessageBlock.Offline = 0; // online: the grid keeps it if they aren't
+    im.MessageBlock.Dialog = dialog;
+    im.MessageBlock.ID = session;
+    const std::string name = login_->name.last.empty()
+                                 ? login_->name.first
+                                 : login_->name.first + " " + login_->name.last;
+    im.MessageBlock.FromAgentName = protocol::fromString(name);
+    im.MessageBlock.Message = protocol::fromString(text);
+    im.MessageBlock.BinaryBucket = {0}; // empty (EMPTY_BINARY_BUCKET)
+    send(*main, im, true);
+}
+
 void Session::replyToScriptDialog(uint64_t regionHandle, const Uuid& object, int32_t channel,
                                   int32_t button, std::string_view label)
 {

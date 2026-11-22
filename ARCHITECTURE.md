@@ -986,16 +986,40 @@ whispers and bold shouts (no such fonts yet), muting.
 
 Chat is read and written on the main menu's Chat tab (`ChatView`), not in
 popups: objects can chat a lot, and a window over the view doesn't suit a
-headset. Conversations are on the left (Nearby now; instant messages and
-group chats to come), each with how many lines weren't seen; the chosen
+headset. Conversations are on the left (Nearby, then instant messages and
+group chats, newest first), each with how many lines weren't seen (ours
+don't count); the chosen
 one's lines on the right (time, name, text; newest at the bottom, followed
 unless scrolled back), and a line to type into (Enter or Send). Objects'
 chat can be left out; what's said to us alone (llOwnerSay) always shows,
 marked. What's typed goes through `parseChatInput`: "/5 text" is said on
 channel 5, as the official chat bar; anything else on 0 ("/me" included).
 In a headset the field is a button that opens the VR keyboard, whose Enter
-says the line (as the radial menu's Chat). Not yet: typing starts and stops
-sent while typing on the tab, a sound for new messages.
+says the line in that conversation (the radial menu's Chat: local chat).
+Not yet: typing starts and stops sent while typing on the tab, a sound for
+new messages.
+
+### Instant messages
+
+`InstantMessages` keeps conversations as the official viewer
+(llimprocessing.cpp, llimview.cpp):
+- One to one: ImprovedInstantMessage dialog 0; the session is the two
+  agents' ids XORed (`directSession`). What we send (`Session::
+  sendInstantMessage`: online, from our name, an empty binary bucket) shows
+  at once, as the region doesn't send it back. Typing starts and stops (41,
+  42) show under the conversation; do-not-disturb answers (20) are marked.
+- Group and ad-hoc chats: the first message comes as ChatterBoxInvitation
+  on the event queue (the chat's name in the binary bucket), which is
+  accepted (ChatSessionRequest "accept invitation"); later messages are
+  dialog 17 (IM_SESSION_SEND), taken only for chats we're in. Ours go to
+  the session (to and id both its id) and show when it sends them back.
+- Objects' messages (llInstantMessage, dialog 19) go to local chat, as said
+  to us alone.
+- What came while away is read once a login (ReadOfflineMsgs), marked
+  saved, with its own time.
+Other dialogs (offers of teleports, inventory, friendship and groups,
+group notices) are logged and not handled yet. Not yet either: starting a
+conversation (no people list), leaving a group chat, muting.
 
 ### HUDs
 

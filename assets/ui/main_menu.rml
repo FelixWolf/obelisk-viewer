@@ -262,8 +262,8 @@
             </div>
             <div class="chat-main">
                 <div class="chat-head">
-                    <div class="chat-title">Nearby</div>
-                    <div class="toggle" data-class-on="chatShowObjects"
+                    <div class="chat-title">{{ chatTitle }}</div>
+                    <div class="toggle" data-if="chatOpen == 'nearby'" data-class-on="chatShowObjects"
                          data-event-click="chatShowObjects = !chatShowObjects">Objects' chat</div>
                 </div>
                 <div id="chat-lines" class="chat-lines">
@@ -274,6 +274,7 @@
                         <span class="said">{{ l.text }}</span>
                     </div>
                 </div>
+                <div class="typing" data-if="chatTyping != ''">{{ chatTyping }}</div>
                 <div class="chat-input">
                     <input type="text" class="chat-field" maxlength="1023" data-if="!chatHeadset"
                            data-value="chatDraft" data-event-keydown="chatKey"/>

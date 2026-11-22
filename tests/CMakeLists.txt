@@ -19,6 +19,7 @@ add_executable(viewer_tests
   JobSystemTests.cpp
   Ktx2Tests.cpp
   LlsdTests.cpp
+  InstantMessagesTests.cpp
   LocalChatTests.cpp
   LoginTests.cpp
   LegacyMaterialTests.cpp
@@ -50,6 +51,7 @@ add_executable(viewer_tests
   # App code with no dependencies of its own, tested as is.
   ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarNames.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/InstantMessages.cpp
   ${PROJECT_SOURCE_DIR}/src/app/LocalChat.cpp
   ${PROJECT_SOURCE_DIR}/src/app/FlexibleView.cpp
   ${PROJECT_SOURCE_DIR}/src/app/FaceUpload.cpp
