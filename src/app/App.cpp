@@ -1958,7 +1958,6 @@ void App::updateOutfit()
         }
         outfit_->forget(id);
     }
-    profilePicture_ = {};
     session_->detach(off);
     if(!outfitAttachQueue_.empty())
     {
@@ -1981,6 +1980,7 @@ void App::updateOutfit()
 void App::endSession()
 {
     accountPicture_->clear();
+    profilePicture_ = {};
     population_.clear(); // the next login may be another grid
     parcel_.clear();
     inventoryBrowser_->clear();
@@ -3663,13 +3663,6 @@ std::string maturityPreference(const session::LoginSuccess& login)
 void App::updateMainMenu()
 {
     if(!mainMenu_ || !mainMenu_->isOpen())
-            const AvatarName* own = avatarNames_->get(login->agentId);
-            status.displayName = own && !own->displayName.empty() ? own->displayName
-                                 : login->name.last.empty() || login->name.last == "Resident"
-                                     ? login->name.first
-                                     : login->name.first + " " + login->name.last;
-            status.picture = profilePicture_;
-            status.balance = session_->balance();
     {
         return;
     }
@@ -3692,6 +3685,13 @@ void App::updateMainMenu()
         if(const session::LoginSuccess* login = session_->login())
         {
             status.name = login->name.first;
+            const AvatarName* own = avatarNames_->get(login->agentId);
+            status.displayName = own && !own->displayName.empty() ? own->displayName
+                                 : login->name.last.empty() || login->name.last == "Resident"
+                                     ? login->name.first
+                                     : login->name.first + " " + login->name.last;
+            status.picture = profilePicture_;
+            status.balance = session_->balance();
             status.maturity = maturityPreference(*login);
         }
         status.inWorld = session_->state() == session::SessionState::Connected;
@@ -5062,7 +5062,6 @@ void App::updateCursor()
             show(SDL_SYSTEM_CURSOR_DEFAULT);
             cursorShown_.reset();
         }
-                                    profilePicture_ = image;
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
         return;
     }
@@ -5149,6 +5148,7 @@ void App::drawUi()
         accountPicture_->update(login->agentId, session_->capability("AgentProfile").value_or(""),
                                 [this](const Uuid& image)
                                 {
+                                    profilePicture_ = image;
                                     if(const auto account = loginFlow_->account())
                                     {
                                         savedLogins_->setImage(*account, image);

@@ -306,8 +306,8 @@ private:
     // The login screen (RmlUi; the ImGui panel if it couldn't be made):
     // shown until we're in the world.
     std::unique_ptr<LoginScreen> loginScreen_;
-    Uuid profilePicture_; // ours, this login (null: none, or not known yet)
     std::unique_ptr<AccountPicture> accountPicture_;
+    Uuid profilePicture_; // ours, this login (null: none, or not known yet)
     bool loginScreenShown() const;
     bool loginScreenEvent(const SDL_Event& event);
     bool pageIsLogin_ = false; // the VR page shows the login screen
