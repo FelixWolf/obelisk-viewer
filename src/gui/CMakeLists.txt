@@ -4,6 +4,7 @@ viewer_embed_shaders(${gui_shader_header}
   NAMESPACE viewer::gui::shaders
   DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shaders
   SOURCES gui.vert gui_color.frag gui_texture.frag gui_gradient.frag gui_blit.vert gui_blit.frag
+    gui_quad.vert gui_copy.frag gui_matrix.frag gui_blur.frag gui_shadow.frag gui_mask.frag
 )
 
 add_library(viewer_gui STATIC
