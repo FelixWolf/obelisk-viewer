@@ -5,21 +5,48 @@
     <link type="text/rcss" href="main_menu.rcss"/>
 </head>
 <body>
-<div id="menu" data-model="menu">
+<div id="menu" class="frame" data-model="menu">
+    <!-- Who we are on the left (the picture over the tabs), what we have
+         and how fast we're drawing on the right. -->
+    <header id="top">
+        <div id="portrait">
+            <div class="rim">
+                <div class="picture" data-if="picture != ''"
+                     data-style-decorator="'image(' + picture + ' cover)'"></div>
+                <svg class="picture none" data-if="picture == ''" src="icons/callingcard.svg"></svg>
+            </div>
+        </div>
+        <div id="who">
+            <div class="name" data-if="displayName != ''">{{ displayName }}</div>
+            <div class="name" data-if="displayName == ''">TestViewer</div>
+            <div class="where">{{ tabName }}</div>
+        </div>
+        <div id="readouts">
+            <div class="balance" data-if="balance != ''">{{ balance }}</div>
+            <div class="spacer"></div>
+            <div class="fps">{{ viewerFpsText }} fps</div>
+        </div>
+    </header>
+
+    <div id="body">
+    <!-- The tabs: each a raised button sunk into a well in the frame. -->
     <nav id="tabs">
-        <div class="title">TestViewer</div>
-        <div class="tab" data-for="t : tabs" data-class-active="t.id == tab"
-             data-event-click="tab = t.id; category = ''; chosen = -1"><span>{{ t.name }}</span></div>
+        <div class="well" data-for="t : tabs">
+            <div class="tab key orange" data-class-active="t.id == tab"
+                 data-event-click="tab = t.id; category = ''; chosen = -1"><span>{{ t.name }}</span></div>
+        </div>
         <div class="spacer"></div>
-        <div class="close" data-event-click="close">Close</div>
+        <footer id="foot">
+            <div class="well"><div class="key close" data-event-click="close">Close</div></div>
+            <div class="well" data-if="inWorld"><div class="key red logout" data-event-click="logOut">Log out</div></div>
+        </footer>
     </nav>
 
-    <div id="page">
+    <div id="page" class="inset">
         <div data-if="tab == 'home'">
             <div class="card banner">
                 <div class="headline">Welcome back</div>
                 <div>{{ greeting }}</div>
-                <div class="button logout" data-if="inWorld" data-event-click="logOut">Log out</div>
             </div>
 
             <div class="row">
@@ -70,7 +97,7 @@
                     <div>
                         <h2>Destinations</h2>
                     </div>
-                    <div class="button" data-event-click="refresh">Refresh</div>
+                    <div class="button key" data-event-click="refresh">Refresh</div>
                 </div>
                 <div class="category" data-for="c : categories"
                      data-event-click="category = c.id; chosen = -1">
@@ -85,12 +112,12 @@
 
             <div class="places" data-if="category != ''" data-class-hidden="chosen >= 0">
                 <div class="places-head">
-                    <div class="button back" data-event-click="category = ''; chosen = -1">‹ Back</div>
+                    <div class="button key back" data-event-click="category = ''; chosen = -1">‹ Back</div>
                     <div class="head-text">
                         <h2>{{ categoryName }}</h2>
                         <div class="muted">{{ categoryText }}</div>
                     </div>
-                    <div class="button" data-event-click="refresh">Refresh</div>
+                    <div class="button key" data-event-click="refresh">Refresh</div>
                 </div>
                 <div class="note" data-if="placesNote != ''">{{ placesNote }}</div>
                 <div class="place" data-for="p : places" data-event-click="chosen = it_index">
@@ -103,12 +130,12 @@
                         <span class="people">{{ p.people }}</span>
                     </div>
                 </div>
-                <div class="more" data-if="hasMore" data-event-click="more">Show more</div>
+                <div class="more key" data-if="hasMore" data-event-click="more">Show more</div>
                 <div class="note" data-if="loadingMore">Finding more...</div>
             </div>
 
             <div class="place-page" data-if="category != '' &amp;&amp; chosen >= 0">
-                <div class="button back" data-event-click="chosen = -1">‹ Back</div>
+                <div class="button key back" data-event-click="chosen = -1">‹ Back</div>
                 <div class="place-top">
                     <div class="shot hero" data-if="pick.largeImage != ''"
                          data-style-decorator="'image(' + pick.largeImage + ' cover)'"></div>
@@ -122,8 +149,8 @@
                             <span class="people">{{ pick.people }}</span>
                         </div>
                         <div class="spacer"></div>
-                        <div class="teleport" data-if="inWorld" data-event-click="teleport">Teleport</div>
-                        <div class="teleport off" data-if="!inWorld">Log in to teleport</div>
+                        <div class="teleport key orange" data-if="inWorld" data-event-click="teleport">Teleport</div>
+                        <div class="teleport key off" data-if="!inWorld">Log in to teleport</div>
                     </div>
                 </div>
                 <div class="description"><div class="text">{{ pick.description }}</div></div>
@@ -155,11 +182,11 @@
             <!-- A folder's contents (kept, hidden, while an item's shown). -->
             <div class="places" data-class-hidden="invItemShown">
                 <div class="places-head">
-                    <div class="button back" data-if="invCrumbs.size > 1" data-event-click="invBack">‹ Back</div>
+                    <div class="button key back" data-if="invCrumbs.size > 1" data-event-click="invBack">‹ Back</div>
                     <div class="head-text crumbs">
                         <span class="crumb" data-for="c : invCrumbs" data-event-click="invUp(it_index)"><span class="sep" data-if="it_index > 0">›</span>{{ c }}</span>
                     </div>
-                    <div class="button" data-event-click="invRefresh">Refresh</div>
+                    <div class="button key" data-event-click="invRefresh">Refresh</div>
                 </div>
                 <div class="inv-row" data-for="e : invEntries" data-event-click="invOpen(it_index)">
                     <svg class="icon" data-attr-src="'icons/' + e.icon + '.svg'"></svg>
@@ -171,7 +198,7 @@
             </div>
 
             <div class="place-page" data-if="invItemShown">
-                <div class="button back" data-event-click="invBack">‹ Back</div>
+                <div class="button key back" data-event-click="invBack">‹ Back</div>
                 <div class="place-top">
                     <div class="shot hero" data-if="invItem.image != ''"
                          data-style-decorator="'image(' + invItem.image + ' contain)'"></div>
@@ -186,18 +213,18 @@
                         </div>
                         <div class="spacer"></div>
                         <div data-if="invItem.clothing || invItem.bodyPart">
-                            <div class="teleport off" data-if="invItem.changing">Working...</div>
-                            <div class="teleport off" data-if="!invItem.changing &amp;&amp; invItem.bodyPart &amp;&amp; invItem.worn">Worn</div>
+                            <div class="teleport key off" data-if="invItem.changing">Working...</div>
+                            <div class="teleport key off" data-if="!invItem.changing &amp;&amp; invItem.bodyPart &amp;&amp; invItem.worn">Worn</div>
                             <div class="actions" data-if="!invItem.changing &amp;&amp; !invItem.worn">
-                                <div class="teleport" data-event-click="invWear">Wear</div>
-                                <div class="teleport add" data-if="invItem.clothing" data-event-click="invAdd">Add</div>
+                                <div class="teleport key orange" data-event-click="invWear">Wear</div>
+                                <div class="teleport key" data-if="invItem.clothing" data-event-click="invAdd">Add</div>
                             </div>
-                            <div class="teleport detach" data-if="!invItem.changing &amp;&amp; invItem.clothing &amp;&amp; invItem.worn" data-event-click="invTakeOff">Take off</div>
+                            <div class="teleport key red" data-if="!invItem.changing &amp;&amp; invItem.clothing &amp;&amp; invItem.worn" data-event-click="invTakeOff">Take off</div>
                         </div>
                         <div data-if="invItem.attachable">
-                            <div class="teleport off" data-if="invItem.changing">Working...</div>
-                            <div class="teleport" data-if="!invItem.changing &amp;&amp; !invItem.worn" data-event-click="invAttach">Attach</div>
-                            <div class="teleport detach" data-if="!invItem.changing &amp;&amp; invItem.worn" data-event-click="invDetach">Detach</div>
+                            <div class="teleport key off" data-if="invItem.changing">Working...</div>
+                            <div class="teleport key orange" data-if="!invItem.changing &amp;&amp; !invItem.worn" data-event-click="invAttach">Attach</div>
+                            <div class="teleport key red" data-if="!invItem.changing &amp;&amp; invItem.worn" data-event-click="invDetach">Detach</div>
                         </div>
                     </div>
                 </div>
@@ -225,7 +252,7 @@
             </div>
 
             <div class="place-page" data-if="outfitPage">
-                <div class="button back" data-event-click="outfitBack">‹ Back</div>
+                <div class="button key back" data-event-click="outfitBack">‹ Back</div>
                 <div class="place-top">
                     <div class="shot snapshot" data-if="outfit.image != ''"
                          data-style-decorator="'image(' + outfit.image + ' cover)'"></div>
@@ -234,8 +261,8 @@
                         <div class="detail-name">{{ outfit.name }}</div>
                         <div class="muted" data-if="outfit.worn">The outfit you last put on</div>
                         <div class="spacer"></div>
-                        <div class="teleport off" data-if="outfitChanging">Putting it on...</div>
-                        <div class="teleport" data-if="!outfitChanging" data-event-click="outfitWear">Wear</div>
+                        <div class="teleport key off" data-if="outfitChanging">Putting it on...</div>
+                        <div class="teleport key orange" data-if="!outfitChanging" data-event-click="outfitWear">Wear</div>
                     </div>
                 </div>
                 <div class="description">
@@ -263,7 +290,7 @@
             <div class="chat-main">
                 <div class="chat-head">
                     <div class="chat-title">{{ chatTitle }}</div>
-                    <div class="toggle" data-if="chatOpen == 'nearby'" data-class-on="chatShowObjects"
+                    <div class="toggle key" data-if="chatOpen == 'nearby'" data-class-on="chatShowObjects"
                          data-event-click="chatShowObjects = !chatShowObjects">Objects' chat</div>
                 </div>
                 <div id="chat-lines" class="chat-lines">
@@ -276,10 +303,10 @@
                 </div>
                 <div class="typing" data-if="chatTyping != ''">{{ chatTyping }}</div>
                 <div class="chat-input">
-                    <input type="text" class="chat-field" maxlength="1023" data-if="!chatHeadset"
+                    <input type="text" class="chat-field field" maxlength="1023" data-if="!chatHeadset"
                            data-value="chatDraft" data-event-keydown="chatKey"/>
-                    <div class="send" data-if="!chatHeadset" data-event-click="chatSend">Send</div>
-                    <div class="send wide" data-if="chatHeadset" data-event-click="chatType">Type a message</div>
+                    <div class="send key orange" data-if="!chatHeadset" data-event-click="chatSend">Send</div>
+                    <div class="send key orange wide" data-if="chatHeadset" data-event-click="chatType">Type a message</div>
                 </div>
             </div>
         </div>
@@ -289,8 +316,8 @@
         <div data-if="tab == 'people'" class="chat people">
             <div class="chat-list people-list">
                 <div class="people-switch">
-                    <div class="toggle" data-class-on="peopleList == 'friends'" data-event-click="peopleList = 'friends'">Friends</div>
-                    <div class="toggle" data-class-on="peopleList == 'nearby'" data-event-click="peopleList = 'nearby'">Nearby</div>
+                    <div class="toggle key" data-class-on="peopleList == 'friends'" data-event-click="peopleList = 'friends'">Friends</div>
+                    <div class="toggle key" data-class-on="peopleList == 'nearby'" data-event-click="peopleList = 'nearby'">Nearby</div>
                 </div>
                 <div class="people-rows">
                     <div class="quiet" data-if="peopleNote != ''">{{ peopleNote }}</div>
@@ -311,29 +338,29 @@
                     <div class="muted" data-if="peopleCard.username != ''">{{ peopleCard.username }}</div>
                     <div data-attr-class="'person-status' + (peopleCard.online ? ' online' : '')">{{ peopleCard.status }}</div>
                     <div class="actions person-actions">
-                        <div class="teleport" data-event-click="peopleMessage">Message</div>
-                        <div class="teleport add" data-if="peopleCard.online" data-event-click="peopleOfferTeleport">Offer teleport</div>
-                        <div class="teleport add" data-if="peopleCard.online" data-event-click="peopleRequestTeleport">Ask to teleport</div>
+                        <div class="teleport key orange" data-event-click="peopleMessage">Message</div>
+                        <div class="teleport key" data-if="peopleCard.online" data-event-click="peopleOfferTeleport">Offer teleport</div>
+                        <div class="teleport key" data-if="peopleCard.online" data-event-click="peopleRequestTeleport">Ask to teleport</div>
                     </div>
                     <div data-if="peopleCard.isFriend" class="rights">
                         <h3>You let them</h3>
-                        <div class="toggle right" data-class-on="peopleCard.givesOnline" data-event-click="peopleRight(1)">See when you're online</div>
-                        <div class="toggle right" data-class-on="peopleCard.givesMap" data-event-click="peopleRight(2)">Find you on the map</div>
-                        <div class="toggle right" data-class-on="peopleCard.givesModify" data-event-click="peopleRight(4)">Edit, delete or take your objects</div>
+                        <div class="toggle key right" data-class-on="peopleCard.givesOnline" data-event-click="peopleRight(1)">See when you're online</div>
+                        <div class="toggle key right" data-class-on="peopleCard.givesMap" data-event-click="peopleRight(2)">Find you on the map</div>
+                        <div class="toggle key right" data-class-on="peopleCard.givesModify" data-event-click="peopleRight(4)">Edit, delete or take your objects</div>
                         <div class="muted they">{{ peopleCard.theyLetUs }}</div>
                     </div>
                     <div class="actions friendship" data-if="!peopleCard.isFriend">
-                        <div class="teleport add" data-event-click="peopleAddFriend">Offer friendship</div>
+                        <div class="teleport key" data-event-click="peopleAddFriend">Offer friendship</div>
                     </div>
                     <div class="friendship" data-if="peopleCard.isFriend">
                         <div class="actions" data-if="!peopleConfirmEnd">
-                            <div class="teleport detach" data-event-click="peopleEnd">End friendship</div>
+                            <div class="teleport key red" data-event-click="peopleEnd">End friendship</div>
                         </div>
                         <div data-if="peopleConfirmEnd">
                             <div class="muted confirm">End your friendship with {{ peopleCard.name }}?</div>
                             <div class="actions">
-                                <div class="teleport detach" data-event-click="peopleEnd">End it</div>
-                                <div class="teleport add" data-event-click="peopleKeep">Keep</div>
+                                <div class="teleport key red" data-event-click="peopleEnd">End it</div>
+                                <div class="teleport key" data-event-click="peopleKeep">Keep</div>
                             </div>
                         </div>
                     </div>
@@ -389,6 +416,7 @@
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>
+    </div>
     </div>
 </div>
 </body>

@@ -1958,6 +1958,7 @@ void App::updateOutfit()
         }
         outfit_->forget(id);
     }
+    profilePicture_ = {};
     session_->detach(off);
     if(!outfitAttachQueue_.empty())
     {
@@ -2774,7 +2775,7 @@ VrControls::Page App::pageOf(gui::Surface& surface, glm::ivec2 size, float meter
 {
     VrControls::Page page;
     page.size = glm::vec2(size);
-    page.metersPerPixel = metersPerPixel; // the menu's: about 58 cm across
+    page.metersPerPixel = metersPerPixel;
     page.image = surface.texture();
     page.point = [&surface](std::optional<glm::vec2> pixel)
     {
@@ -3662,6 +3663,13 @@ std::string maturityPreference(const session::LoginSuccess& login)
 void App::updateMainMenu()
 {
     if(!mainMenu_ || !mainMenu_->isOpen())
+            const AvatarName* own = avatarNames_->get(login->agentId);
+            status.displayName = own && !own->displayName.empty() ? own->displayName
+                                 : login->name.last.empty() || login->name.last == "Resident"
+                                     ? login->name.first
+                                     : login->name.first + " " + login->name.last;
+            status.picture = profilePicture_;
+            status.balance = session_->balance();
     {
         return;
     }
@@ -5054,6 +5062,7 @@ void App::updateCursor()
             show(SDL_SYSTEM_CURSOR_DEFAULT);
             cursorShown_.reset();
         }
+                                    profilePicture_ = image;
         io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
         return;
     }

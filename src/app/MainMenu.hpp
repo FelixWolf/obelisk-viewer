@@ -76,6 +76,11 @@ public:
         std::string region;   // its name
         std::string position; // where in it
         std::string name;     // ours (first name), for the greeting
+        // The header's: our display name, profile picture (null: none or
+        // not known yet) and L$ (nothing: not heard yet).
+        std::string displayName;
+        Uuid picture;
+        std::optional<int32_t> balance;
         // The maturity of places to show ("g", "gm" or "gma": the
         // resident's preference), and whether we can teleport.
         std::string maturity = "g";
@@ -261,6 +266,9 @@ private:
     std::string region_;
     std::string position_;
     std::string greeting_;
+    std::string displayName_;   // the header's
+    std::string picture_;       // its picture's source (empty: none)
+    std::string balance_;       // "L$1,234" (empty: not known)
     double lastNumbers_ = -1.0; // when the numbers were last shown (seconds)
     // Destinations: the categories; one's places (category_ isn't empty);
     // one place alone (chosen_ isn't -1). The page picks them.

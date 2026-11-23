@@ -65,6 +65,22 @@ Clocks clocks()
     return c;
 }
 
+// 1234567 as "1,234,567".
+std::string groupThousands(int32_t value)
+{
+    const std::string digits = std::to_string(value < 0 ? -static_cast<int64_t>(value) : value);
+    std::string out = value < 0 ? "-" : "";
+    for(size_t i = 0; i < digits.size(); i++)
+    {
+        if(i > 0 && (digits.size() - i) % 3 == 0)
+        {
+            out += ',';
+        }
+        out += digits[i];
+    }
+    return out;
+}
+
 } // namespace
 
 std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinations,
@@ -118,6 +134,9 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     model.Bind("region", &m->region_);
     model.Bind("position", &m->position_);
     model.Bind("greeting", &m->greeting_);
+    model.Bind("displayName", &m->displayName_);
+    model.Bind("picture", &m->picture_);
+    model.Bind("balance", &m->balance_);
     if(auto place = model.RegisterStruct<Place>())
     {
         place.RegisterMember("name", &Place::name);
@@ -986,6 +1005,12 @@ void MainMenu::update(const Status& status)
                                           : "Good evening";
     set("greeting", greeting_,
         status.name.empty() ? std::string(part) + "." : std::format("{}, {}.", part, status.name));
+    set("displayName", displayName_, status.displayName);
+    set("picture", picture_,
+        status.picture.isNull() ? std::string()
+                                : std::format("asset://{}?size=256", status.picture.toString()));
+    set("balance", balance_,
+        status.balance ? "L$" + groupThousands(*status.balance) : std::string());
     set("region", region_, status.region.empty() ? "Not in a region" : status.region);
     set("position", position_, status.position);
 

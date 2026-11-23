@@ -23,8 +23,10 @@ constexpr float kStickBack = 0.35f;
 // The page this far ahead of the eyes and down.
 constexpr float kPageAhead = 0.7f;
 constexpr float kPageBelow = 0.08f;
-// A notice this far ahead, and to the right (beside the page, not on it).
+// A notice this far ahead, and to the right: beside the page (as wide as
+// the page is), this far clear of its edge; this far right without one.
 constexpr float kNoticeAhead = 0.6f;
+constexpr float kNoticeGap = 0.03f;
 constexpr float kNoticeRight = 0.42f;
 // A controller's stick pushed all the way on the page scrolls this many
 // lines a second.
@@ -113,8 +115,19 @@ void VrControls::openNotice()
 {
     const glm::vec3 ahead = level(last_.forward);
     const glm::vec3 right = glm::normalize(glm::cross(ahead, glm::vec3(0.0f, 0.0f, 1.0f)));
+    // Where the page's right edge is seen, at the notice's distance, then
+    // half the notice further.
+    const Page& page = pages_[0].page;
+    const Page& notice = pages_[kNotice].page;
+    float aside = kNoticeRight;
+    if(page.size.x > 0.0f && notice.size.x > 0.0f)
+    {
+        const float pageHalf = 0.5f * page.size.x * page.metersPerPixel;
+        const float noticeHalf = 0.5f * notice.size.x * notice.metersPerPixel;
+        aside = pageHalf / kPageAhead * kNoticeAhead + kNoticeGap + noticeHalf;
+    }
     const glm::vec3 at =
-        last_.eye + ahead * kNoticeAhead + right * kNoticeRight - glm::vec3(0.0f, 0.0f, kPageBelow);
+        last_.eye + ahead * kNoticeAhead + right * aside - glm::vec3(0.0f, 0.0f, kPageBelow);
     pages_[kNotice].frame = panelFacing(at, last_.eye);
     pages_[kNotice].anchor = last_.anchor;
     pages_[kNotice].open = true;

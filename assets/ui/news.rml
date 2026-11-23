@@ -5,19 +5,19 @@
     <link type="text/rcss" href="boards.rcss"/>
 </head>
 <body>
-<div class="board" data-model="news">
+<div class="board frame" data-model="news">
     <div class="top">
-        <div class="back" data-if="opened" data-event-click="back">‹ Back</div>
-        <div class="heading">News</div>
+        <div class="back key" data-if="opened" data-event-click="back">‹ Back</div>
+        <div class="heading frame-title">News</div>
     </div>
 
-    <div id="scroll" class="scroll">
+    <div id="scroll" class="scroll inset">
         <div class="quiet" data-if="state == 'loading'">Getting the news...</div>
         <div class="quiet" data-if="state == 'empty'">No news right now.</div>
 
         <!-- The list. -->
         <div data-if="state == 'shown' && !opened">
-            <div class="entry" data-for="e : entries" data-class-pinned="e.pinned"
+            <div class="entry card" data-for="e : entries" data-class-pinned="e.pinned"
                  data-event-click="show(it_index)">
                 <div class="picture" data-if="e.image != ''"
                      data-style-decorator="'image(' + e.image + ' cover)'"></div>
@@ -38,7 +38,7 @@
             <div class="meta">{{ openSource }}<span data-if="openWhen != ''"> · {{ openWhen }}</span></div>
             <div class="text body">{{ openText }}</div>
             <div class="link" data-if="openLink">
-                <div class="primary" data-event-click="browse">Open in browser</div>
+                <div class="primary key orange" data-event-click="browse">Open in browser</div>
                 <div class="hint" data-if="headset">It opens on your desktop: take off the headset, or use your headset's desktop view.</div>
             </div>
         </div>

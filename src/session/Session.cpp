@@ -792,6 +792,13 @@ void Session::handleAgentMovementComplete(Region& region, const protocol::Circui
     // Throttles and view, once the region has the agent (as the official
     // viewer, on every AgentMovementComplete): before that it may drop them.
     sendAgentSetup(region);
+    if(arrival.kind == Arrival::Kind::Login)
+    {
+        msg::MoneyBalanceRequest request;
+        request.AgentData.AgentID = login_->agentId;
+        request.AgentData.SessionID = login_->sessionId;
+        send(region, request, true);
+    }
 }
 
 void Session::teleportTo(const Location& location)
@@ -1346,6 +1353,14 @@ void Session::handleCircuitEvent(const protocol::CircuitEvent& event)
                       static_cast<double>(m->Info.Position.x),
                       static_cast<double>(m->Info.Position.y),
                       static_cast<double>(m->Info.Position.z));
+        }
+    }
+    else if(event.is<msg::MoneyBalanceReply>())
+    {
+        if(const auto m = event.decode<msg::MoneyBalanceReply>();
+           m && m->MoneyData.AgentID == login_->agentId)
+        {
+            balance_ = m->MoneyData.MoneyBalance;
         }
     }
     else if(event.is<msg::SimStats>())

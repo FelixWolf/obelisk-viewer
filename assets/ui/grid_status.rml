@@ -5,30 +5,30 @@
     <link type="text/rcss" href="boards.rcss"/>
 </head>
 <body>
-<div class="board" data-model="status">
+<div class="board frame" data-model="status">
     <div class="top">
-        <div class="heading">Grid status</div>
+        <div class="heading frame-title">Grid status</div>
     </div>
 
-    <div class="scroll">
+    <div class="scroll inset">
         <div class="quiet" data-if="state == 'loading'">Checking the grid...</div>
 
         <div data-if="state == 'shown'">
             <!-- Linden Lab's own summary. -->
-            <div data-attr-class="'overall ' + indicator">
+            <div data-attr-class="'overall card ' + indicator">
                 <div class="dot"></div>
                 <div class="what">{{ description }}</div>
             </div>
             <div class="quiet small" data-if="stale">Linden Lab's status page hasn't answered lately: this may be out of date.</div>
 
             <!-- Ours: from the viewer's team, not Linden Lab. -->
-            <div data-for="a : announcements" data-attr-class="'notice ' + a.kind">
+            <div data-for="a : announcements" data-attr-class="'notice card ' + a.kind">
                 <div class="from">From the TestViewer team<span data-if="a.when != ''"> · {{ a.when }}</span></div>
                 <div class="title">{{ a.title }}</div>
                 <div class="text" data-if="a.body != ''">{{ a.body }}</div>
             </div>
 
-            <div data-for="n : incidents" data-attr-class="'notice ' + n.kind + (n.link ? ' clickable' : '')"
+            <div data-for="n : incidents" data-attr-class="'notice card ' + n.kind + (n.link ? ' clickable' : '')"
                  data-event-click="incident(it_index)">
                 <div class="from">{{ n.status }}<span data-if="n.when != ''"> · {{ n.when }}</span></div>
                 <div class="title">{{ n.title }}</div>
@@ -46,7 +46,7 @@
 
             <div class="checked" data-if="checked != ''">Checked {{ checked }}</div>
             <div class="link" data-if="hasPage">
-                <div class="button" data-event-click="statusPage">Open history</div>
+                <div class="button key" data-event-click="statusPage">Open history</div>
                 <div class="hint" data-if="headset">It opens on your desktop.</div>
             </div>
         </div>

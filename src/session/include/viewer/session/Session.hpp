@@ -271,6 +271,10 @@ public:
     uint64_t arrivals() const { return arrivals_; }
     const Arrival& lastArrival() const { return lastArrival_; }
 
+    // Our L$ (MoneyBalanceReply: asked for on arriving at login, then sent
+    // whenever it changes). Nothing: not heard yet.
+    std::optional<int32_t> balance() const { return balance_; }
+
     // Teleports. Ignored unless Connected and no teleport is under way; the
     // outcome shows in teleport() and, on success, arrivals().
     // By region name: the map gives us its handle first.
@@ -563,6 +567,7 @@ private:
     protocol::Vector3 agentPosition_{};
     uint64_t arrivals_ = 0;
     Arrival lastArrival_{};
+    std::optional<int32_t> balance_;
     std::optional<CameraView> camera_;
 
     TeleportStatus teleport_;

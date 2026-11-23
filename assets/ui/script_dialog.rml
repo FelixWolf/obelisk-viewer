@@ -5,7 +5,7 @@
     <link type="text/rcss" href="script_dialog.rcss"/>
 </head>
 <body>
-<div class="notice" data-model="dialog">
+<div class="notice frame" data-model="dialog">
     <div class="top">
         <div class="who">
             <div class="object">{{ objectName }}</div>
@@ -15,6 +15,7 @@
         <div class="more" data-if="more > 0">{{ more }} more</div>
     </div>
 
+    <div class="body inset">
     <div class="scroll">
         <!-- A dialog's or text box's message. -->
         <div class="message" data-if="(kind == 'dialog' || kind == 'textbox') &amp;&amp; message != ''">{{ message }}</div>
@@ -23,7 +24,7 @@
         <div data-if="kind == 'permissions'">
             <div class="message" data-if="!experience">It would like to:</div>
             <div class="message" data-if="experience">It would like to take you into an experience, and to:</div>
-            <div data-for="p : permissions" class="permission">{{ p }}</div>
+            <div data-for="p : permissions" class="permission card">{{ p }}</div>
             <div class="caution" data-if="caution">Only allow this if you trust the object and its owner: it can take money from you.</div>
         </div>
 
@@ -45,7 +46,7 @@
         <!-- A dialog: llDialog's buttons, three to a row, the first along the bottom. -->
         <div data-if="kind == 'dialog'">
             <div class="buttons" data-for="r : rows">
-                <div class="choice" data-for="b : r.buttons" data-event-click="choose(b.index)">{{ b.label }}</div>
+                <div class="well" data-for="b : r.buttons"><div class="choice key" data-event-click="choose(b.index)">{{ b.label }}</div></div>
             </div>
         </div>
 
@@ -54,30 +55,31 @@
             <input type="text" class="field" data-value="reply" data-if="!keyboard"/>
             <div class="typed" data-if="keyboard &amp;&amp; reply != ''">{{ reply }}</div>
             <div class="row">
-                <div class="primary" data-if="keyboard" data-event-click="type">Type a reply</div>
-                <div class="primary" data-if="!keyboard" data-event-click="send">Send</div>
+                <div class="primary key orange" data-if="keyboard" data-event-click="type">Type a reply</div>
+                <div class="primary key orange" data-if="!keyboard" data-event-click="send">Send</div>
             </div>
         </div>
 
         <div class="row" data-if="kind == 'permissions'">
-            <div class="primary" data-event-click="allow">Allow</div>
-            <div class="secondary" data-event-click="deny">Deny</div>
+            <div class="primary key orange" data-event-click="allow">Allow</div>
+            <div class="secondary key" data-event-click="deny">Deny</div>
         </div>
 
         <div class="row" data-if="kind == 'offer'">
-            <div class="primary" data-event-click="accept">{{ acceptLabel }}</div>
-            <div class="secondary" data-if="declineLabel != ''" data-event-click="decline">{{ declineLabel }}</div>
+            <div class="primary key orange" data-event-click="accept">{{ acceptLabel }}</div>
+            <div class="secondary key" data-if="declineLabel != ''" data-event-click="decline">{{ declineLabel }}</div>
         </div>
 
         <div class="row" data-if="kind == 'url'">
-            <div class="primary" data-event-click="open">Open in browser</div>
-            <div class="secondary" data-event-click="ignore">Not now</div>
+            <div class="primary key orange" data-event-click="open">Open in browser</div>
+            <div class="secondary key" data-event-click="ignore">Not now</div>
         </div>
 
         <div class="foot">
             <div class="hint" data-if="pointHint">Hold Tab to point at it.</div>
-            <div class="ignore" data-if="kind == 'dialog' || kind == 'textbox'" data-event-click="ignore">Ignore</div>
+            <div class="ignore key" data-if="kind == 'dialog' || kind == 'textbox'" data-event-click="ignore">Ignore</div>
         </div>
+    </div>
     </div>
 </div>
 </body>

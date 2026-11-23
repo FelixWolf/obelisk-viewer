@@ -306,6 +306,7 @@ private:
     // The login screen (RmlUi; the ImGui panel if it couldn't be made):
     // shown until we're in the world.
     std::unique_ptr<LoginScreen> loginScreen_;
+    Uuid profilePicture_; // ours, this login (null: none, or not known yet)
     std::unique_ptr<AccountPicture> accountPicture_;
     bool loginScreenShown() const;
     bool loginScreenEvent(const SDL_Event& event);
@@ -349,7 +350,11 @@ private:
     bool pageEvent(gui::Surface& surface, const glm::vec4& rect, glm::ivec2 size, bool& pressed,
                    const SDL_Event& event);
     // The panel (first person, VR) shows `surface`.
-    void setPanelPage(gui::Surface& surface, glm::ivec2 size, float metersPerPixel = 0.00045f);
+    // The main menu's size on its panel: about 77 cm across, 70 cm away
+    // (big enough to read and point at in a headset).
+    static constexpr float kMenuMetersPerPixel = 0.0006f;
+    void setPanelPage(gui::Surface& surface, glm::ivec2 size,
+                      float metersPerPixel = kMenuMetersPerPixel);
     VrControls::Page pageOf(gui::Surface& surface, glm::ivec2 size, float metersPerPixel);
     // The lobby's boards as the VR controls' standing pages while the home
     // scene shows (again when it's read again: boardsMoved_).

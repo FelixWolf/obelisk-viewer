@@ -1,5 +1,14 @@
 /* The viewer's interface: shared look. RmlUi has no built-in styles for
-   HTML's elements, so blocks are said to be blocks here. */
+   HTML's elements, so blocks are said to be blocks here.
+
+   Every page is a blue frame (.frame) with its contents sunk into it
+   (.inset), cards raised from those (.card), and keys to press (.key)
+   standing up from either, some in wells (.well) cut into the frame.
+
+   Relief is drawn with borders: a raised thing is lit along its top and
+   left and shaded along its bottom and right; a sunk one the other way
+   round. Raised things cast a soft shadow (box-shadow), and sunk ones
+   have one cast into them from their top edge (inset). */
 
 body, div, h1, h2, h3, p, section, header, nav, footer
 {
@@ -15,17 +24,184 @@ body
 
 h1 { font-size: 30dp; margin: 0 0 12dp 0; }
 h2 { font-size: 24dp; margin: 0 0 10dp 0; }
-h3 { font-size: 16dp; color: #9aa6bd; margin: 0 0 6dp 0; text-transform: uppercase; letter-spacing: 1dp; }
+h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: uppercase; letter-spacing: 1dp; }
 
-.card
+.muted { color: #c0cae8; }
+
+/* The frame: a page's outside, raised. */
+.frame
 {
-    background-color: #1a2030e0;
-    border-radius: 14dp;
-    padding: 18dp 22dp;
-    border: 1dp #ffffff14;
+    box-sizing: border-box;
+    border-radius: 22dp;
+    background-color: #3a4c8e;
+    decorator: linear-gradient(180deg, #4b60aa 0%, #3c4e90 40%, #2e3d74 100%);
+    border-width: 2dp;
+    border-color: #7f93d8 #24305c #1a2346 #5b6fb6;
+}
+/* A heading on the frame, embossed. */
+.frame-title
+{
+    font-size: 40dp;
+    color: #f4f6fc;
+    font-effect: shadow(0 2dp #1a2346);
 }
 
-.muted { color: #8b96ab; }
+/* An inset: where a page's contents are, sunk into the frame. */
+.inset
+{
+    border-radius: 16dp;
+    background-color: #5468aa;
+    decorator: linear-gradient(180deg, #485ca0 0%, #586cb0 30%, #6478bc 100%);
+    border-width: 2dp;
+    border-color: #1c2550 #8ea0e0 #9cb0ec #222c5c;
+    box-shadow: #0a103080 0 4dp 10dp 0 inset;
+}
+
+/* A card: raised a little from an inset. */
+.card
+{
+    background-color: #2a3a78c8;
+    border-radius: 14dp;
+    padding: 18dp 22dp;
+    border-width: 1dp;
+    border-color: #a0b2ee80 #1a234680 #121a3a90 #8094d870;
+    box-shadow: #0a103060 0 3dp 8dp 0;
+}
+
+/* A well: a dark hole, for a key to sit in or text to be read in. */
+.well
+{
+    padding: 3dp;
+    border-radius: 11dp;
+    background-color: #1e2852;
+    decorator: linear-gradient(180deg, #1a2348, #2a3768);
+    border-width: 1dp;
+    border-color: #141b38 #6a7ec4 #8496da #1c2550;
+    box-shadow: #000000a0 0 2dp 4dp 0 inset;
+}
+/* Something to read, sunk the same way (no gradient: it may scroll). */
+.sunk
+{
+    border-radius: 12dp;
+    background-color: #1c2550c0;
+    border-width: 2dp;
+    border-color: #121a3a #6a7ec4 #8496da #161e44;
+    box-shadow: #00000080 0 3dp 6dp 0 inset;
+}
+
+/* A key: a raised, bevelled button. Slate unless it's orange (the thing
+   to do) or red (what ends or undoes something: muted until pointed at,
+   so it doesn't shout). Pressed, or on (.on, .active), it sinks; one that
+   can't be pressed (.off) is flat. */
+.key
+{
+    display: block;
+    text-align: center;
+    border-radius: 9dp;
+    border-width: 1dp;
+    color: #ffffff;
+    cursor: pointer;
+    font-effect: shadow(0 1dp #1a2346);
+    background-color: #6a7cbc;
+    decorator: linear-gradient(180deg, #8c9ed8 0%, #6a7cbc 50%, #56689e 100%);
+    border-color: #c4d0f4 #3c4a80 #2c3866 #a0b2e8;
+    box-shadow: #0a103070 0 2dp 3dp 0;
+}
+.key:hover { decorator: linear-gradient(180deg, #9cb0e6 0%, #7a8cca 50%, #6476ac 100%); }
+.key:active, .key.on, .key.active
+{
+    box-shadow: none;
+    decorator: linear-gradient(180deg, #3e4c84 0%, #52629e 55%, #6070aa 100%);
+    border-color: #222c58 #7e90cc #b0c0ee #2e3a6a;
+}
+.key.on { color: #ffd676; }
+
+.key.orange
+{
+    font-effect: shadow(0 1dp #7a3e00);
+    background-color: #eda21c;
+    decorator: linear-gradient(180deg, #fbc85a 0%, #f0a422 50%, #de8a10 100%);
+    border-color: #ffe3a0 #c27410 #8e5004 #f6c25a;
+}
+.key.orange:hover { decorator: linear-gradient(180deg, #ffd676 0%, #f8b232 50%, #ea9a1c 100%); }
+.key.orange:active, .key.orange.on, .key.orange.active
+{
+    decorator: linear-gradient(180deg, #b86a06 0%, #d4880e 55%, #e49a1e 100%);
+    border-color: #7a4402 #e8a02c #ffd17a #94560a;
+    color: #fff4dc;
+}
+
+.key.red
+{
+    color: #f4dce2;
+    font-effect: shadow(0 1dp #3a1a28);
+    background-color: #8a6476;
+    decorator: linear-gradient(180deg, #a68494 0%, #8a6476 50%, #765264 100%);
+    border-color: #d4bcc8 #4e3442 #3c2634 #b8a0ae;
+}
+.key.red:hover
+{
+    color: #ffffff;
+    font-effect: shadow(0 1dp #5a0a0a);
+    decorator: linear-gradient(180deg, #f46a6a 0%, #dc3434 50%, #c01e1e 100%);
+    border-color: #ffb0b0 #9a1616 #700c0c #f07070;
+}
+.key.red:active
+{
+    decorator: linear-gradient(180deg, #a01414 0%, #c42424 55%, #d83a3a 100%);
+    border-color: #5e0808 #e04848 #ff9a9a #861010;
+}
+
+.key.off, .key.off:hover, .key.off:active
+{
+    decorator: none;
+    font-effect: none;
+    background-color: #3a4a86;
+    border-color: #4a5a98;
+    box-shadow: none;
+    color: #a8b4dc;
+    cursor: default;
+}
+
+/* A text field: sunk. */
+input.field
+{
+    box-sizing: border-box;
+    border-radius: 10dp;
+    background-color: #1c2550;
+    border-width: 2dp;
+    border-color: #121a3a #6a7ec4 #8496da #161e44;
+    box-shadow: #00000090 0 2dp 5dp 0 inset;
+    color: #ffffff;
+    cursor: text;
+}
+input.field:focus { border-bottom-color: #ffc24a; border-right-color: #ffc24a; }
+input.field selection { background-color: #e8961a; color: #ffffff; }
+
+/* A check box: a little well, an orange key in it when ticked. */
+.check
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    cursor: pointer;
+}
+.check .box
+{
+    width: 18dp;
+    height: 18dp;
+    margin-right: 12dp;
+    padding: 2dp;
+    border-radius: 6dp;
+    background-color: #1e2852;
+    border-width: 1dp;
+    border-color: #141b38 #6a7ec4 #8496da #1c2550;
+}
+.check.on .box
+{
+    decorator: linear-gradient(180deg, #fbc85a, #de8a10);
+    border-color: #ffe3a0 #c27410 #8e5004 #f6c25a;
+}
 
 /* Scrollbars: RmlUi gives them no size of their own (unstyled, one takes
    the whole width of what scrolls). */
@@ -42,19 +218,35 @@ scrollbarhorizontal
 scrollbarvertical slidertrack,
 scrollbarhorizontal slidertrack
 {
-    background-color: #ffffff0a;
+    background-color: #1c255080;
     border-radius: 6dp;
 }
 scrollbarvertical sliderbar,
 scrollbarhorizontal sliderbar
 {
-    background-color: #ffffff38;
+    background-color: #ffffff48;
     border-radius: 6dp;
 }
 scrollbarvertical sliderbar { min-height: 40dp; }
 scrollbarhorizontal sliderbar { min-width: 40dp; }
 scrollbarvertical sliderbar:hover,
-scrollbarhorizontal sliderbar:hover { background-color: #ffffff60; }
+scrollbarhorizontal sliderbar:hover { background-color: #ffffff70; }
 scrollbarvertical sliderbar:active,
-scrollbarhorizontal sliderbar:active { background-color: #5a86f0; }
+scrollbarhorizontal sliderbar:active { background-color: #f0a422; }
 scrollbarcorner { background-color: transparent; }
+
+/* A picture on a round white rim, raised; the picture's corners clipped to
+   it (overflow: hidden clips to the rounded border). */
+.rim
+{
+    border-radius: 999dp; /* scaled down to a circle */
+    border: 3dp #f2f4fa;
+    background-color: #2e3d74;
+    overflow: hidden;
+    box-shadow: #0a103080 0 3dp 6dp 0;
+}
+.rim .picture
+{
+    width: 100%;
+    height: 100%;
+}
