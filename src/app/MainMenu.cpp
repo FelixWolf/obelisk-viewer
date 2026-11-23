@@ -673,7 +673,7 @@ void MainMenu::updateParcel(const Status& status)
         rule("Voice", p.has(pf::kAllowVoice), false, "Allowed", "Not allowed"),
         rule("Access", !p.has(pf::kUseAccessGroup) && !p.has(pf::kUseAccessList),
              p.has(pf::kUseAccessGroup), "Open", "Restricted"),
-        rule("Avatars", p.seeAvatars, false, "Seen from outside", "Hidden from outside"),
+        rule("Privacy", p.seeAvatars, false, "Visible", "Hidden"),
         rule("Sounds", !p.has(pf::kSoundLocal), false, "Heard outside", "Kept inside"),
     };
     put("parcelRules", parcelRules_, std::move(rules));

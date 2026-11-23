@@ -44,11 +44,6 @@
 
     <div id="page" class="inset">
         <div data-if="tab == 'home'">
-            <div class="card banner">
-                <div class="headline">Welcome back</div>
-                <div>{{ greeting }}</div>
-            </div>
-
             <div class="row">
                 <div class="card">
                     <h3>Time</h3>

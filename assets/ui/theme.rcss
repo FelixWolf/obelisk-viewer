@@ -35,7 +35,7 @@ h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: upperca
     border-radius: 22dp;
     background-color: #3a4c8e;
     decorator: linear-gradient(180deg, #4b60aa 0%, #3c4e90 40%, #2e3d74 100%);
-    border-width: 2dp;
+    border-width: 1dp;
     border-color: #7f93d8 #24305c #1a2346 #5b6fb6;
 }
 /* A heading on the frame, embossed. */
@@ -52,7 +52,7 @@ h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: upperca
     border-radius: 16dp;
     background-color: #5468aa;
     decorator: linear-gradient(180deg, #485ca0 0%, #586cb0 30%, #6478bc 100%);
-    border-width: 2dp;
+    border-width: 1dp;
     border-color: #1c2550 #8ea0e0 #9cb0ec #222c5c;
     box-shadow: #0a103080 0 4dp 10dp 0 inset;
 }
@@ -84,7 +84,7 @@ h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: upperca
 {
     border-radius: 12dp;
     background-color: #1c2550c0;
-    border-width: 2dp;
+    border-width: 1dp;
     border-color: #121a3a #6a7ec4 #8496da #161e44;
     box-shadow: #00000080 0 3dp 6dp 0 inset;
 }
@@ -169,7 +169,7 @@ input.field
     box-sizing: border-box;
     border-radius: 10dp;
     background-color: #1c2550;
-    border-width: 2dp;
+    border-width: 1dp;
     border-color: #121a3a #6a7ec4 #8496da #161e44;
     box-shadow: #00000090 0 2dp 5dp 0 inset;
     color: #ffffff;
