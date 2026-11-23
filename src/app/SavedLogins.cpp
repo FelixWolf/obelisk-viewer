@@ -1,12 +1,14 @@
 #include "SavedLogins.hpp"
 
 #include "viewer/core/Log.hpp"
+#include "viewer/llsd/Serialization.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <sstream>
 #include <system_error>
 #include <utility>
 
@@ -107,6 +109,13 @@ SavedSecret decode(const std::string& text)
     return s;
 }
 
+// accounts.llsd's keys.
+constexpr std::string_view kAccounts = "accounts";
+constexpr std::string_view kLoginUri = "login_uri";
+constexpr std::string_view kFirst = "first_name";
+constexpr std::string_view kLast = "last_name";
+constexpr std::string_view kImage = "image";
+
 } // namespace
 
 std::unique_ptr<SecretStore> SecretStore::system()
@@ -135,24 +144,24 @@ fs::path SavedLogins::defaultListFile()
 #if defined(_WIN32)
     if(const char* appData = std::getenv("APPDATA"))
     {
-        return fs::path(appData) / kPackage / "accounts.txt";
+        return fs::path(appData) / kPackage / "accounts.llsd";
     }
 #elif defined(__APPLE__)
     if(const char* home = std::getenv("HOME"))
     {
-        return fs::path(home) / "Library" / "Application Support" / kPackage / "accounts.txt";
+        return fs::path(home) / "Library" / "Application Support" / kPackage / "accounts.llsd";
     }
 #else
     if(const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
     {
-        return fs::path(xdg) / kPackage / "accounts.txt";
+        return fs::path(xdg) / kPackage / "accounts.llsd";
     }
     if(const char* home = std::getenv("HOME"))
     {
-        return fs::path(home) / ".config" / kPackage / "accounts.txt";
+        return fs::path(home) / ".config" / kPackage / "accounts.llsd";
     }
 #endif
-    return fs::temp_directory_path() / kPackage / "accounts.txt";
+    return fs::temp_directory_path() / kPackage / "accounts.llsd";
 }
 
 std::string SavedLogins::service(const SavedAccount& account)
@@ -170,9 +179,83 @@ std::string SavedLogins::user(const SavedAccount& account)
 
 void SavedLogins::load()
 {
+    // {'accounts':[{'login_uri':..,'first_name':..,'last_name':..,
+    // 'image':u..}, ...]}, most recent first.
+    std::ifstream in(listFile_, std::ios::binary);
+    if(!in)
+    {
+        // None yet: perhaps the old tab-separated list.
+        const fs::path legacy = listFile_.parent_path() / "accounts.txt";
+        if(loadLegacy(legacy))
+        {
+            write();
+            std::error_code error;
+            if(fs::exists(listFile_, error))
+            {
+                fs::remove(legacy, error);
+            }
+        }
+        return;
+    }
+    std::stringstream text;
+    text << in.rdbuf();
+    const std::string data = text.str();
+    const auto parsed = llsd::detectFormat(data) ? llsd::parse(data) : llsd::fromNotation(data);
+    if(!parsed || !parsed->isMap())
+    {
+        log::warn("saved accounts: {} couldn't be read ({})", listFile_.string(),
+                  parsed ? std::string("not a map") : parsed.error());
+        return;
+    }
+    for(const auto& [key, value] : *parsed->get<llsd::Map>())
+    {
+        if(key != kAccounts)
+        {
+            unknown_.set(key, value);
+            continue;
+        }
+        const llsd::Array* list = value.get<llsd::Array>();
+        if(!list)
+        {
+            continue;
+        }
+        for(const llsd::Value& entry : *list)
+        {
+            const llsd::Map* fields = entry.get<llsd::Map>();
+            if(!fields)
+            {
+                continue;
+            }
+            SavedAccount a;
+            a.loginUri = entry[kLoginUri].asString();
+            a.name.first = entry[kFirst].asString();
+            a.name.last = entry[kLast].asString();
+            a.image = entry[kImage].asUuid();
+            if(a.loginUri.empty() || a.name.first.empty())
+            {
+                continue;
+            }
+            for(const auto& [field, v] : *fields)
+            {
+                if(field != kLoginUri && field != kFirst && field != kLast && field != kImage)
+                {
+                    a.unknown.set(field, v);
+                }
+            }
+            accounts_.push_back(std::move(a));
+        }
+    }
+}
+
+bool SavedLogins::loadLegacy(const fs::path& file)
+{
     // One account a line: the login URI, a tab, first and last name, and
     // (since profile pictures) a tab and its picture's id.
-    std::ifstream in(listFile_);
+    std::ifstream in(file);
+    if(!in)
+    {
+        return false;
+    }
     std::string line;
     while(std::getline(in, line))
     {
@@ -188,28 +271,51 @@ void SavedLogins::load()
             const Uuid image = imageTab == std::string::npos
                                    ? Uuid()
                                    : Uuid::parse(line.substr(imageTab + 1)).value_or(Uuid());
-            accounts_.push_back({line.substr(0, tab), std::move(*name), image});
+            accounts_.push_back({line.substr(0, tab), std::move(*name), image, {}});
         }
     }
+    return true;
 }
 
 void SavedLogins::write() const
 {
-    std::error_code error;
-    fs::create_directories(listFile_.parent_path(), error);
-    std::ofstream out(listFile_, std::ios::trunc);
+    llsd::Array list;
     for(const SavedAccount& a : accounts_)
     {
-        out << a.loginUri << '\t' << a.name.first << ' ' << a.name.last;
+        llsd::Map entry = a.unknown;
+        entry.set(std::string(kLoginUri), a.loginUri);
+        entry.set(std::string(kFirst), a.name.first);
+        entry.set(std::string(kLast), a.name.last);
         if(!a.image.isNull())
         {
-            out << '\t' << a.image.toString();
+            entry.set(std::string(kImage), a.image);
         }
-        out << '\n';
+        list.push_back(std::move(entry));
     }
-    if(!out)
+    llsd::Map out = unknown_;
+    out.set(std::string(kAccounts), std::move(list));
+    const std::string text =
+        llsd::toNotation(llsd::Value(std::move(out)), {.pretty = true, .header = true});
+
+    // Into a new file, then over the old one, so a crash can't leave half.
+    std::error_code error;
+    fs::create_directories(listFile_.parent_path(), error);
+    fs::path temporary = listFile_;
+    temporary += ".new";
     {
-        log::warn("couldn't write the saved accounts list {}", listFile_.string());
+        std::ofstream o(temporary, std::ios::binary | std::ios::trunc);
+        o << text;
+        if(!o)
+        {
+            log::warn("couldn't write the saved accounts list {}", temporary.string());
+            return;
+        }
+    }
+    fs::rename(temporary, listFile_, error);
+    if(error)
+    {
+        log::warn("couldn't replace the saved accounts list {}: {}", listFile_.string(),
+                  error.message());
     }
 }
 
@@ -232,9 +338,16 @@ bool SavedLogins::save(const SavedAccount& account, const SavedSecret& secret)
     SavedAccount saved = account;
     for(const SavedAccount& a : accounts_)
     {
-        if(saved.image.isNull() && a.loginUri == account.loginUri && user(a) == user(account))
+        if(a.loginUri == account.loginUri && user(a) == user(account))
         {
-            saved.image = a.image; // still its picture
+            if(saved.image.isNull())
+            {
+                saved.image = a.image; // still its picture
+            }
+            if(saved.unknown.empty())
+            {
+                saved.unknown = a.unknown;
+            }
         }
     }
     std::erase_if(accounts_, [&](const SavedAccount& a)

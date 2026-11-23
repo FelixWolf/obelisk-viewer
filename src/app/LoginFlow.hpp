@@ -95,7 +95,7 @@ public:
         {
             return std::nullopt;
         }
-        return SavedAccount{attempt_->loginUri, attempt_->name, {}};
+        return SavedAccount{attempt_->loginUri, attempt_->name, {}, {}};
     }
 
 private:

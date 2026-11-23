@@ -16,7 +16,7 @@ namespace
 struct ListFile
 {
     fs::path path = fs::temp_directory_path() / ("viewer-accounts-" + Uuid::random().toString()) /
-                    "accounts.txt";
+                    "accounts.llsd";
     ~ListFile()
     {
         std::error_code error;
@@ -42,13 +42,13 @@ TEST_CASE("Saved logins: the list in a file, the secrets in the store")
     {
         SavedLogins saved(file.path, std::move(store));
         CHECK(saved.accounts().empty());
-        const SavedAccount a{std::string(session::kAgniLoginUri), name("Ann", "Resident"), {}};
-        const SavedAccount b{std::string(session::kAditiLoginUri), name("Bob", "Tester"), {}};
+        const SavedAccount a{std::string(session::kAgniLoginUri), name("Ann", "Resident"), {}, {}};
+        const SavedAccount b{std::string(session::kAditiLoginUri), name("Bob", "Tester"), {}, {}};
         CHECK(saved.save(a, {"$1$aaa", "mfa-a"}));
         CHECK(saved.save(b, {"$1$bbb", ""}));
         // Most recent first; saving again moves it up (names compared without case).
         CHECK(saved.accounts().front() == b);
-        CHECK(saved.save({a.loginUri, name("ann", "resident"), {}}, {"$1$aaa", "mfa-a2"}));
+        CHECK(saved.save({a.loginUri, name("ann", "resident"), {}, {}}, {"$1$aaa", "mfa-a2"}));
         REQUIRE(saved.accounts().size() == 2);
         CHECK(saved.secret(a)->mfaHash == "mfa-a2");
         CHECK(saved.secret(b)->passwordHash == "$1$bbb");
@@ -57,7 +57,7 @@ TEST_CASE("Saved logins: the list in a file, the secrets in the store")
         const std::string text((std::istreambuf_iterator<char>(in)), {});
         CHECK(text.find("$1$") == std::string::npos);
         CHECK(text.find("mfa") == std::string::npos);
-        CHECK(text.find("Bob Tester") != std::string::npos);
+        CHECK(text.find("'Tester'") != std::string::npos);
         saved.forget(b);
         CHECK(saved.accounts().size() == 1);
         CHECK_FALSE(secrets->get("Second Life login: " + std::string(session::kAditiLoginUri),
@@ -74,13 +74,17 @@ TEST_CASE("Saved logins: a profile picture remembered, kept when saved again")
 {
     ListFile file;
     const Uuid picture = Uuid::random();
-    const SavedAccount a{std::string(session::kAgniLoginUri), name("Ann", "Resident"), {}};
+    const SavedAccount a{std::string(session::kAgniLoginUri), name("Ann", "Resident"), {}, {}};
     {
-        // A list from before pictures: no third column.
-        std::filesystem::create_directories(file.path.parent_path());
-        std::ofstream(file.path) << a.loginUri << "\tAnn Resident\n";
+        // The old tab-separated list from before pictures (no third
+        // column), beside where the new one goes: read and replaced.
+        const fs::path legacy = file.path.parent_path() / "accounts.txt";
+        fs::create_directories(file.path.parent_path());
+        std::ofstream(legacy) << a.loginUri << "\tAnn Resident\n";
         SavedLogins saved(file.path, SecretStore::memory());
         REQUIRE(saved.accounts().size() == 1);
+        CHECK(fs::exists(file.path));
+        CHECK_FALSE(fs::exists(legacy));
         CHECK(saved.accounts()[0].image.isNull());
         saved.setImage(a, picture);
         // Logged in again: saved without a picture, which keeps the old one.
@@ -91,6 +95,32 @@ TEST_CASE("Saved logins: a profile picture remembered, kept when saved again")
     REQUIRE(again.accounts().size() == 1);
     CHECK(again.accounts()[0].image == picture);
     CHECK(again.accounts()[0].name.last == "Resident");
+}
+
+TEST_CASE("Saved logins: what a newer viewer wrote is kept")
+{
+    ListFile file;
+    fs::create_directories(file.path.parent_path());
+    std::ofstream(file.path) << "<?llsd/notation?>\n"
+                                "{'accounts':[{'login_uri':'https://example/','first_name':'Ann',"
+                                "'last_name':'Resident','colour':i3},{'first_name':'NoGrid'}],"
+                                "'later':'yes'}";
+    const Uuid picture = Uuid::random();
+    {
+        SavedLogins saved(file.path, SecretStore::memory());
+        REQUIRE(saved.accounts().size() == 1); // the one without a grid skipped
+        CHECK(saved.accounts()[0].unknown.find("colour")->asInteger() == 3);
+        saved.setImage(saved.accounts()[0], picture);
+        // Saved again from a login (which knows nothing of it): still kept.
+        CHECK(saved.save({"https://example/", name("Ann", "Resident"), {}, {}}, {"$1$aaa", ""}));
+    }
+    SavedLogins again(file.path, SecretStore::memory());
+    REQUIRE(again.accounts().size() == 1);
+    CHECK(again.accounts()[0].image == picture);
+    CHECK(again.accounts()[0].unknown.find("colour")->asInteger() == 3);
+    std::ifstream in(file.path);
+    const std::string text((std::istreambuf_iterator<char>(in)), {});
+    CHECK(text.find("'later'") != std::string::npos);
 }
 
 TEST_CASE("Login flow: an authenticator code asked for, the MFA hash saved and reused")

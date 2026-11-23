@@ -27,7 +27,7 @@ LoginAction LoginFlow::logIn(Request request)
     p.version = version_;
     p.machine = machine_;
     // A remembered account's MFA hash, so its code isn't asked for again.
-    if(const auto secret = saved_.secret({p.loginUri, p.name, {}}))
+    if(const auto secret = saved_.secret({p.loginUri, p.name, {}, {}}))
     {
         p.mfaHash = secret->mfaHash;
     }
@@ -143,7 +143,7 @@ void LoginFlow::observe(const void* id, const session::LoginFailure* failure,
         savedAttempt_ = true;
         SavedSecret secret{attempt_->passwordHash,
                            login->mfaHash.empty() ? attempt_->mfaHash : login->mfaHash};
-        if(saved_.save({attempt_->loginUri, attempt_->name, {}}, secret))
+        if(saved_.save({attempt_->loginUri, attempt_->name, {}, {}}, secret))
         {
             log::info("login saved to the credential store");
         }

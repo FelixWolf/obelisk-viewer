@@ -269,7 +269,7 @@ logins (typed, a saved account, a credentials file), turns a session's
 failure into a prompt (`Code`, `Terms`, `Critical`, `Error`) and retries
 with the answer. The ImGui `LoginPanel` only shows it, so our own UI can
 replace the panel. Accounts logged in with "Remember me" are saved
-(`SavedLogins`): which ones in a plain list (`accounts.txt` in the
+(`SavedLogins`): which ones in a list (`accounts.llsd`, LLSD notation, in the
 platform's config directory: grid and name), their password hash and the
 MFA hash a two-factor login returns in the system's credential store
 (the keychain library: the Secret Service on Linux, the Keychain on

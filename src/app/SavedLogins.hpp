@@ -1,14 +1,14 @@
 #pragma once
 
-// Remembered accounts: which ones (grid and name, in a plain file, nothing
-// secret) and their secrets (the password's hash, and the MFA hash a
-// two-factor login returns, which spares the authenticator code for a
-// while) in the system's credential store: the Secret Service on Linux
-// (GNOME Keyring, KWallet), the Keychain on macOS, the Credential Manager
-// on Windows. Never the plain password: the viewer only ever needs its
-// hash.
+// Remembered accounts: which ones (grid, name and picture, in accounts.llsd,
+// LLSD notation like settings.llsd; nothing secret) and their secrets (the password's hash, and the
+// MFA hash a two-factor login returns, which spares the authenticator code for a while) in the
+// system's credential store: the Secret Service on Linux (GNOME Keyring, KWallet), the Keychain on
+// macOS, the Credential Manager on Windows. Never the plain password: the viewer only ever needs
+// its hash.
 
 #include "viewer/core/Uuid.hpp"
+#include "viewer/llsd/Value.hpp"
 #include "viewer/session/Login.hpp"
 
 #include <filesystem>
@@ -45,6 +45,9 @@ struct SavedAccount
     // Its profile picture (a texture), as last seen logged in; null: none
     // known. Not part of which account it is.
     Uuid image;
+    // What the file had for it that this version doesn't know (written by
+    // a newer viewer), kept so saving doesn't lose it.
+    llsd::Map unknown;
     bool operator==(const SavedAccount& o) const
     {
         return loginUri == o.loginUri && name.first == o.name.first && name.last == o.name.last;
@@ -60,7 +63,8 @@ struct SavedSecret
 class SavedLogins
 {
 public:
-    // `listFile`: the accounts list (created when one is saved).
+    // `listFile`: the accounts list (created when one is saved). An old
+    // accounts.txt beside it (tab separated) is read once and replaced.
     SavedLogins(std::filesystem::path listFile, std::unique_ptr<SecretStore> store);
 
     // The accounts remembered, most recently used first.
@@ -78,6 +82,7 @@ public:
 
 private:
     void load();
+    bool loadLegacy(const std::filesystem::path& file);
     void write() const;
     static std::string service(const SavedAccount& account);
     static std::string user(const SavedAccount& account);
@@ -85,6 +90,8 @@ private:
     std::filesystem::path listFile_;
     std::unique_ptr<SecretStore> store_;
     std::vector<SavedAccount> accounts_;
+    // The file's top-level entries other than the accounts (newer viewers').
+    llsd::Map unknown_;
 };
 
 } // namespace viewer
