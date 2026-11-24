@@ -594,6 +594,14 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
         ViewerConfig::Options{
             config.get(kViewerConfig) == "off" ? std::string() : config.get(kViewerConfig),
             cacheRoot / "viewerconfig", VIEWER_VERSION, std::string(platformName())});
+    if(config.get(kAutoUpdate) && config.get(kViewerConfig) != "off")
+    {
+        app->updater_ = Updater::create(
+            *app->http_, {config.get(kViewerConfig),
+                          std::format("{}/{} ({})", branding::kUserAgent, VIEWER_VERSION,
+                                      platformName()),
+                          options.arguments});
+    }
     if(app->gui_)
     {
         app->boards_ =
@@ -5440,7 +5448,23 @@ void App::drawUi()
     }
     else if(loginScreenShown())
     {
+        if(updater_)
+        {
+            loginScreen_->setUpdate(updater_->status());
+        }
         handleLoginAction(loginScreen_->update(session_.get()));
+        if(loginScreen_->takeRestart() && updater_)
+        {
+            if(updater_->restart())
+            {
+                running_ = false;
+            }
+            else
+            {
+                loginScreen_->setUpdateProblem(
+                    "It couldn't be installed now. Close any other viewers, then try again.");
+            }
+        }
     }
     // Our profile picture, for the account on the login screen.
     if(const auto* login = session_ ? session_->login() : nullptr)

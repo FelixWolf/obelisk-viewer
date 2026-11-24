@@ -37,6 +37,7 @@
 #include "TextureBrowser.hpp"
 #include "TextureManager.hpp"
 #include "TreeView.hpp"
+#include "Updater.hpp"
 #include "ViewerConfig.hpp"
 #include "ViewerEffects.hpp"
 #include "ViewerSettings.hpp"
@@ -121,6 +122,7 @@ struct AppOptions
         Desktop, // --force-desktop: on the screen only
     };
     Vr vr = Vr::Auto;
+    std::vector<std::string> arguments; // as given, to restart with after an update
 #if defined(VIEWER_TEST_OPTIONS)
     TestOptions test;
 #endif
@@ -388,6 +390,7 @@ private:
     // lobby's boards showing its news and status.
     std::unique_ptr<ViewerConfig> viewerConfig_;
     std::unique_ptr<LobbyBoards> boards_;
+    std::unique_ptr<Updater> updater_; // null: this build doesn't update itself
     GridPopulation population_; // people in regions, for the main menu
     ParcelInfo parcel_;         // the parcel we're on, for the main menu
     std::unique_ptr<TextureManager> textures_;

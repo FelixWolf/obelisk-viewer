@@ -157,4 +157,15 @@ input.field
     font-size: 22dp;
     cursor: pointer;
 }
+/* A newer version of the viewer. */
+.update
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 14dp 18dp;
+}
+.update-text { flex: 1 1 0; }
+.update .primary { flex-shrink: 0; }
+
 .form-error { color: #ffb0b0; margin-top: 10dp; }

@@ -108,7 +108,7 @@ std::vector<SettingDefinition> viewerSettings()
                        .label = "Viewer news and status service",
                        .description =
                            "Its .../api/v1/ address, or \"off\" to use only what's saved on "
-                           "disk.",
+                           "disk. Updates come from it too, so only use one you trust.",
                        .maxLength = 512,
                        .check = [](std::string_view s) -> std::string
                        {
@@ -118,6 +118,13 @@ std::vector<SettingDefinition> viewerSettings()
                            }
                            return "Must be an http(s):// address, or off.";
                        },
+                       .restart = true}),
+
+        defineSetting(kAutoUpdate, true,
+                      {.page = "Network",
+                       .label = "Download updates",
+                       .description = "Look for new versions of the viewer and download them, to "
+                                      "install when it next starts. Installed copies only.",
                        .restart = true}),
 
         // --- VR ---------------------------------------------------------------------

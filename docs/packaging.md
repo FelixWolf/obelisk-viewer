@@ -73,10 +73,24 @@ On Linux it is linked statically.
 dotnet tool install -g vpk --version 1.2.161
 ```
 
-Still to do: nothing checks for updates yet (Velopack's `UpdateManager`,
-pointed at wherever the releases folder is published); the packages aren't
-signed (`vpk pack --signTemplate`, e.g. with `osslsigncode`), so Windows
-SmartScreen warns about `Setup.exe`.
+Still to do: the packages aren't signed (`vpk pack --signTemplate`, e.g. with
+`osslsigncode`), so Windows SmartScreen warns about `Setup.exe`.
+
+## Updates
+
+Packaged builds update themselves from viewerconfig (`src/app/Updater.hpp`;
+the feed is in `docs/viewerconfig-api.md`, Updates). An update is downloaded
+in the background, then put in place by **Restart now** on the login screen,
+or the next time the viewer starts. On Windows it waits until no other copy
+of the viewer is running, since Velopack would end it.
+
+To release a version: raise it in `CMakeLists.txt`, run `./dist.sh` for each OS
+(keeping the `releases` folders, for delta packages), then
+`publishrelease.sh` in the viewerconfig project, whose README says the rest.
+
+To test: run viewerconfig locally, import a higher version there, and start an
+installed copy with
+`--setting network.viewerconfig http://127.0.0.1:8000/api/v1/`.
 
 ## Icon
 

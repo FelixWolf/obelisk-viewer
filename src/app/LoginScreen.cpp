@@ -94,6 +94,11 @@ std::unique_ptr<LoginScreen> LoginScreen::create(gui::Gui& gui, LoginFlow& flow,
     model.Bind("region", &s->region_);
     model.Bind("remember", &s->remember_);
     model.Bind("formError", &s->formError_);
+    model.Bind("updateText", &s->updateText_);
+    model.Bind("updateReady", &s->updateReady_);
+    model.Bind("updateProblem", &s->updateProblem_);
+    model.BindEventCallback("restart", [s](Rml::DataModelHandle, Rml::Event&,
+                                           const Rml::VariantList&) { s->restart_ = true; });
 
     // A remembered account: logged in with its saved secrets.
     model.BindEventCallback("logInAccount",
@@ -219,6 +224,28 @@ void LoginScreen::setStart(const std::string& where)
     }
     model_.DirtyVariable("start");
     model_.DirtyVariable("region");
+}
+
+void LoginScreen::setUpdate(const Updater::Status& status)
+{
+    using Stage = Updater::Status::Stage;
+    std::string text;
+    if(status.stage == Stage::Downloading)
+    {
+        text = std::format("Downloading version {}... {}%", status.version, status.progress);
+    }
+    else if(status.stage == Stage::Ready)
+    {
+        text = std::format("Version {} is ready. It's installed when the viewer next starts.",
+                           status.version);
+    }
+    put("updateText", updateText_, Rml::String(text));
+    put("updateReady", updateReady_, status.stage == Stage::Ready);
+}
+
+void LoginScreen::setUpdateProblem(const std::string& problem)
+{
+    put("updateProblem", updateProblem_, Rml::String(problem));
 }
 
 std::string LoginScreen::start() const

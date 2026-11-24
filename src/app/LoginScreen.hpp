@@ -12,6 +12,7 @@
 // takes its hash.
 
 #include "LoginFlow.hpp"
+#include "Updater.hpp"
 
 #include "viewer/core/Branding.hpp"
 #include "viewer/gui/Gui.hpp"
@@ -25,6 +26,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace viewer
@@ -58,6 +60,12 @@ public:
     LoginAction logInWith(const session::Credentials& credentials);
     // Where the next login starts: "last", "home" or "Region[/x/y/z]".
     void setStart(const std::string& where);
+
+    // The update shown: coming, or ready to restart into.
+    void setUpdate(const Updater::Status& status);
+    void setUpdateProblem(const std::string& problem);
+    // Restart to update was clicked (once).
+    bool takeRestart() { return std::exchange(restart_, false); }
 
     // A remembered account, as the page shows it.
     struct Account
@@ -103,6 +111,10 @@ private:
     bool remember_ = true;
     Rml::String formError_;
     std::vector<Rml::String> gridNames_;
+    Rml::String updateText_; // empty: no update
+    bool updateReady_ = false;
+    Rml::String updateProblem_;
+    bool restart_ = false;
 };
 
 } // namespace viewer

@@ -137,6 +137,43 @@ The file itself: binary LLSD, `Content-Type: application/octet-stream`. Its
 name holds its hash, so it never changes:
 `Cache-Control: max-age=31536000, immutable`.
 
+## Updates: `GET /api/v1/updates/<package id>/...`
+
+Velopack's feed and packages, for packaged builds (`docs/packaging.md`).
+
+- `releases.<channel>.json`: the feed, `max-age` 300. `channel` is Velopack's
+  (`win`, `linux`). An unknown package or channel has no assets (`200`).
+- `<file name>.nupkg`: a package, `application/octet-stream`.
+
+```json
+{
+  "schema": 1,
+  "Assets": [
+    {
+      "PackageId": "ObeliskViewer",
+      "Version": "0.4.0",
+      "Type": "Full",
+      "FileName": "ObeliskViewer-0.4.0-full.nupkg",
+      "SHA1": "EAA9...",
+      "SHA256": "F52E...",
+      "Size": 4492162
+    }
+  ]
+}
+```
+
+- **Names:** fields are Velopack's. `Type` is `Full` or `Delta`.
+- **Offered:** only packages of releases published in the admin. Unpublishing
+  a release stops its downloads (`404`).
+- **Immutable:** a package's contents never change under its name.
+- **Integrity:** the viewer checks `Size` and `SHA256`, and takes updates only
+  over `https` (or from this computer, to test). Packages aren't signed, so
+  trust rests on this service.
+- **Privacy:** Velopack's own HTTP source sends an installation id in the feed's
+  query, so the viewer doesn't use it: requests are as in General.
+- **When:** at startup and every 6 hours while running (15 minutes after a
+  failure), unless `network.auto_update` is off or the service is.
+
 ## News: `GET /api/v1/news`
 
 Fetched when the lobby shows, then every `refresh.news` seconds while it

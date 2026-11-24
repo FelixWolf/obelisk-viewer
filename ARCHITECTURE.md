@@ -840,6 +840,11 @@ viewer runs.
   shown until a newer one comes. A home scene it names is downloaded
   once, checked against its size and SHA-256, and replaces the built-in
   one (not one set with `paths.home_scene`).
+- Packaged builds update themselves (`Updater`; Velopack, with our
+  `HttpClient` as its source, on a thread of its own) from viewerconfig's
+  feed: downloaded in the background, shown on the login screen, put in
+  place on Restart or at the next start (`main()`), never with another
+  viewer running on Windows. `network.auto_update` turns it off.
 - The lobby's boards (`LobbyBoards`, `news.rml` and `grid_status.rml`)
   show viewerconfig's news and grid status on panels at the scene's
   `News` and `GridStatus` markers. They're `VrControls`' standing pages:

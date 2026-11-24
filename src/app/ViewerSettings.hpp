@@ -31,6 +31,7 @@ inline constexpr SettingKey<Uuid> kSkyAsset{"world.sky_asset"}; // null: the reg
 // Network.
 inline constexpr SettingKey<int32_t> kBandwidth{"network.bandwidth"}; // kbps
 inline constexpr SettingKey<std::string> kViewerConfig{"network.viewerconfig"};
+inline constexpr SettingKey<bool> kAutoUpdate{"network.auto_update"};
 // VR.
 inline constexpr SettingKey<double> kVrOverscan{"vr.overscan"}; // percent a side
 // Developer.

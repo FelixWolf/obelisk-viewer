@@ -55,6 +55,7 @@ add_executable(viewer
   LobbyBoards.cpp
   ScriptDialogPage.cpp
   ScriptDialogs.cpp
+  Updater.cpp
   ViewerConfig.cpp
   GridPopulation.cpp
   InstantMessages.cpp

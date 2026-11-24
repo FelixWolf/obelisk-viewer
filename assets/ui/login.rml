@@ -44,6 +44,15 @@
         </div>
 
         <div data-if="!busy && prompt != 'code' && prompt != 'terms' && prompt != 'critical'">
+            <!-- A newer version: coming, or ready. -->
+            <div class="card update" data-if="updateText != ''">
+                <div class="update-text">
+                    <div>{{ updateText }}</div>
+                    <div class="form-error" data-if="updateProblem != ''">{{ updateProblem }}</div>
+                </div>
+                <div class="primary key orange" data-if="updateReady" data-event-click="restart">Restart now</div>
+            </div>
+
             <!-- Why the last login failed. -->
             <div class="card error" data-if="prompt == 'error'">
                 <div>{{ promptText }}</div>

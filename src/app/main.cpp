@@ -1,4 +1,5 @@
 #include "App.hpp"
+#include "Updater.hpp"
 
 #include "viewer/core/Branding.hpp"
 
@@ -63,7 +64,10 @@ int main(int argc, char** argv)
     // Packaged builds (./dist.sh): the installer and updater start the viewer
     // with their own arguments to run these hooks, and it exits here then.
     // Also applies an update downloaded last time before going on.
-    Velopack::VelopackApp::Build().Run();
+    // Not with another viewer running, which applying it would end (Windows).
+    Velopack::VelopackApp::Build()
+        .SetAutoApplyOnStartup(!viewer::anotherInstanceRunning())
+        .Run();
 #endif
 #if defined(_WIN32)
     logToFileWithoutConsole();
@@ -72,11 +76,12 @@ int main(int argc, char** argv)
     // overrides them for this run.
     auto settings = std::make_unique<viewer::Settings>(viewer::viewerSettings(),
                                                        viewer::Settings::defaultFile());
-    const auto options = viewer::parseArguments({argv, static_cast<size_t>(argc)}, *settings);
+    auto options = viewer::parseArguments({argv, static_cast<size_t>(argc)}, *settings);
     if(!options)
     {
         return 2;
     }
+    options->arguments.assign(argv + 1, argv + argc);
     auto app = viewer::App::create(*options, std::move(settings));
     if(!app)
     {
