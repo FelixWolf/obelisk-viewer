@@ -113,7 +113,14 @@ struct AppOptions
     std::string loginUri;   // --grid: empty = Second Life main grid
     bool gridGiven = false; // also over a login file's
     std::string start;      // --start: last, home, Region[/x/y/z] (over login.start)
-    bool vr = false;        // --vr: show the world in a headset (OpenXR)
+    // Whether to show the world in a headset (OpenXR).
+    enum class Vr
+    {
+        Auto,    // if SteamVR has one
+        Force,   // --force-vr: try any OpenXR runtime's, starting it
+        Desktop, // --force-desktop: on the screen only
+    };
+    Vr vr = Vr::Auto;
 #if defined(VIEWER_TEST_OPTIONS)
     TestOptions test;
 #endif
@@ -221,7 +228,7 @@ private:
     std::array<std::unique_ptr<SDL_Cursor, CursorDeleter>, SDL_SYSTEM_CURSOR_COUNT> cursors_;
     std::optional<SDL_SystemCursor> cursorShown_;
     std::unique_ptr<render::Renderer> renderer_;
-    // --vr: the headset (its session goes before the GPU device). Its frame
+    // The headset, if any (its session goes before the GPU device). Its frame
     // under way, and each eye's camera this frame (buildScene).
     std::unique_ptr<xr::Headset> headset_;
     std::optional<xr::HeadsetFrame> headsetFrame_;

@@ -2,6 +2,7 @@
 # are the copy SDL builds with; SDL loads the OpenXR loader at run time.
 add_library(viewer_xr STATIC
   Headset.cpp
+  SteamVr.cpp
 )
 add_library(viewer::xr ALIAS viewer_xr)
 

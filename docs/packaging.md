@@ -20,7 +20,7 @@ expects (it finds `assets/` beside itself):
 
 ```
 obelisk(.exe)
-openxr_loader.dll                   (Windows: the OpenXR loader SDL opens for --vr)
+openxr_loader.dll                   (Windows: the OpenXR loader SDL opens for VR)
 assets/character/  assets/ui/  assets/home.scene
 LICENSE  LICENSE-artwork.txt  LICENSE-Inter.txt
 ```

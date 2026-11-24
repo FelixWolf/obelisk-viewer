@@ -43,6 +43,8 @@ We currently support Windows and Linux. Mac support should in theory work, but w
 * A VR headset is required to use VR - Though desktop support is there, it is VR first and may feel a bit awkward.
 * SteamVR - Currently the viewer only works through SteamVR. It is written to use OpenXR, so other headsets may work, but we have only tested SteamVR.
 
+The viewer starts in VR if SteamVR is installed and a headset is connected, and on the desktop otherwise. To choose yourself, use the `--force-vr` or `--force-desktop` command line option. Other OpenXR runtimes need `--force-vr`.
+
 ### How much AI is used in this project?
 A majority of the commits are done with the help of an AI in order to help speed stuff along and summarize commit messages.
 

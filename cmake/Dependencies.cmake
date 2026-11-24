@@ -335,7 +335,7 @@ CPMAddPackage(
     "CMAKE_DISABLE_FIND_PACKAGE_lunasvg ON"
 )
 
-# --- OpenXR loader (Windows): what SDL opens for --vr -------------------------
+# --- OpenXR loader (Windows): what SDL opens for VR --------------------------
 # SDL loads openxr_loader.dll at run time (no linking). Linux has it from the
 # system's OpenXR package; Windows has none (VR runtimes don't install one),
 # so the Khronos loader ships beside the viewer. Prebuilt (MSVC, but only

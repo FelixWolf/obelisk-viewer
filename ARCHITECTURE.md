@@ -191,7 +191,7 @@ git submodule update --init                 # the message template
 ./build.sh linux release                    # cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
 ./build/release/bin/obelisk [--grid LOGIN_URI] [--start last|home|Region/x/y/z|secondlife://...]
-    [--vr] [--setting NAME VALUE]...
+    [--force-vr | --force-desktop] [--setting NAME VALUE]...
     # testing (Debug and RelWithDebInfo builds only): [--login-file PATH]
     # [--screenshot OUT.png [--screenshot-delay S]] [--camera "X Y Z DISTANCE YAW PITCH"] ...
 ./build/release/bin/logintest --login-file ~/.config/obelisk/test-login.txt [--seconds N]
@@ -563,7 +563,12 @@ takes about a third off the draw calls.
 
 ### Stereo
 
-A headset (`--vr`; `xr::Headset`, src/xr) goes through SDL's GPU OpenXR
+By default the viewer uses a headset if SteamVR has one
+(`xr::steamVrHeadsetPresent` asks SteamVR's client library, which doesn't
+start SteamVR; OpenXR would). `--force-vr` skips the check and tries
+whatever OpenXR runtime is active; `--force-desktop` stays on the screen.
+
+A headset (`xr::Headset`, src/xr) goes through SDL's GPU OpenXR
 support: the GPU device is made with the headset's properties (SDL makes
 the OpenXR instance, on the GPU the headset uses; without a headset the
 device is made as usual and the viewer stays on the screen), then the

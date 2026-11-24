@@ -5,6 +5,7 @@
 #include "viewer/image/Png.hpp"
 #include "viewer/image/TextureProcessing.hpp"
 #include "viewer/protocol/Messages.hpp"
+#include "viewer/xr/SteamVr.hpp"
 
 #include "EmbeddedAssets.hpp"
 #include "FloatingText.hpp"
@@ -87,7 +88,8 @@ glm::vec3 regionOffset(uint64_t region, uint64_t origin)
 
 void printUsage()
 {
-    std::println(stderr, "usage: {} [--grid LOGIN_URI] [--start last|home|Region/x/y/z] [--vr] "
+    std::println(stderr, "usage: {} [--grid LOGIN_URI] [--start last|home|Region/x/y/z] "
+                         "[--force-vr | --force-desktop] "
                          "[--setting NAME VALUE]...",
                  branding::kExecutable);
 #if defined(VIEWER_TEST_OPTIONS)
@@ -281,9 +283,13 @@ std::optional<AppOptions> parseArguments(std::span<char*> args, Settings& settin
         {
             options.start = args[++i];
         }
-        else if(arg == "--vr")
+        else if(arg == "--force-vr")
         {
-            options.vr = true;
+            options.vr = AppOptions::Vr::Force;
+        }
+        else if(arg == "--force-desktop")
+        {
+            options.vr = AppOptions::Vr::Desktop;
         }
         else if(arg == "--grid" && hasValue)
         {
@@ -370,7 +376,17 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     renderOptions.gpuDebug = true;
 #endif
     renderOptions.vsync = config.get(kVsync);
-    if(options.vr)
+    bool vr = options.vr == AppOptions::Vr::Force;
+    if(options.vr == AppOptions::Vr::Auto)
+    {
+#if defined(VIEWER_TEST_OPTIONS)
+        // The stereo benchmark draws its own eyes.
+        vr = test.stereoSize == 0 && xr::steamVrHeadsetPresent();
+#else
+        vr = xr::steamVrHeadsetPresent();
+#endif
+    }
+    if(vr)
     {
         app->headset_ = xr::Headset::prepare(static_cast<float>(config.get(kVrOverscan) / 100.0));
         renderOptions.deviceProperties = [headset = app->headset_.get()](SDL_PropertiesID props)
@@ -384,7 +400,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     if(app->headset_ &&
        (!app->renderer_->extendedDevice() || !app->headset_->start(app->renderer_->device())))
     {
-        log::warn("--vr: no headset to show the world in; on the screen only");
+        log::warn("VR: no headset to show the world in; on the screen only");
         app->headset_.reset();
     }
 
@@ -962,7 +978,7 @@ int App::run()
         lastFrameTicks_ = now;
         logMemory(now);
         // --stereo-benchmark: what both eyes cost, every few seconds.
-        // --vr: the same for the headset.
+        // The same for the headset.
         if((stereoSize_ > 0 || headsetRunning) && now - stereoLoggedTicks_ > 5'000'000'000ull &&
            !frameTimes_.empty())
         {

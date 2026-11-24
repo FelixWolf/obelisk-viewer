@@ -130,7 +130,7 @@ if(TARGET keychain)
   target_compile_definitions(viewer PRIVATE VIEWER_HAVE_KEYCHAIN=1)
 endif()
 
-# Windows: the OpenXR loader SDL opens for --vr, beside the viewer (see
+# Windows: the OpenXR loader SDL opens for a headset, beside the viewer (see
 # cmake/Dependencies.cmake).
 if(WIN32)
   add_custom_command(TARGET viewer POST_BUILD
