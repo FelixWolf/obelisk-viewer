@@ -52,9 +52,13 @@ TEST_CASE("Saved logins: the list in a file, the secrets in the store")
         REQUIRE(saved.accounts().size() == 2);
         CHECK(saved.secret(a)->mfaHash == "mfa-a2");
         CHECK(saved.secret(b)->passwordHash == "$1$bbb");
-        // The file has no secrets.
-        std::ifstream in(file.path);
-        const std::string text((std::istreambuf_iterator<char>(in)), {});
+        // The file has no secrets. (Read in its own scope: Windows won't
+        // replace the list, as forget() below does, while it is open.)
+        std::string text;
+        {
+            std::ifstream in(file.path);
+            text.assign(std::istreambuf_iterator<char>(in), {});
+        }
         CHECK(text.find("$1$") == std::string::npos);
         CHECK(text.find("mfa") == std::string::npos);
         CHECK(text.find("'Tester'") != std::string::npos);

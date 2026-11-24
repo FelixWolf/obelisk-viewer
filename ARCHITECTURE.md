@@ -183,7 +183,7 @@ clicking it does something. The cache root defaults to
 
 ```
 git submodule update --init                 # the message template
-cmake --preset release && cmake --build --preset release
+./build.sh linux release                    # cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
 ./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
     [--login-file PATH] [--start last|home|Region/x/y/z|secondlife://...] [--test-scene]
@@ -192,6 +192,26 @@ ctest --test-dir build/release              # or ./build/release/bin/viewer_test
 ./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
+
+`./dist.sh <linux|windows> <release|debug>` builds and packs a Velopack
+installer (Windows `Setup.exe`, Linux AppImage) in `build/package-*`; see
+docs/packaging.md.
+
+`./build.sh <linux|windows> <debug|release|dist>` configures and builds
+one preset: `linux` uses `debug`, `release`, `dist` (`build/<config>`),
+`windows` the `windows-*` presets (`build/windows-<config>`), which
+cross-compile with MinGW-w64 (`cmake/toolchains/mingw-w64.cmake`; the
+`mingw-w64-gcc` package). The Windows build links the GCC runtime
+statically, so the `.exe` and `assets/` are all it needs, and renders
+through SDL GPU's Vulkan backend (the shaders are SPIR-V). The message
+code generator runs during the build, so cross-compiling it is built for
+the build machine as a separate project (`src/protocol/generator`).
+Only Debug builds of `viewer.exe` are console programs (a console window
+with the log); the others are GUI programs, and when stderr goes nowhere
+(started from Explorer) `main()` sends it to `%LOCALAPPDATA%\viewer\viewer.log`,
+the run before kept as `viewer.old.log`.
+`wine build/windows-release/bin/viewer.exe` runs it; `ctest` runs the
+tests through Wine.
 
 Package sources are cached in `build/_cpm-cache` unless the `CPM_SOURCE_CACHE`
 environment variable is set. Debug builds turn on SDL GPU validation; on Vulkan

@@ -306,6 +306,11 @@ CPMAddPackage(
 if(TARGET lunasvg AND NOT TARGET lunasvg::lunasvg)
   add_library(lunasvg::lunasvg ALIAS lunasvg)
 endif()
+# lunasvg defines this only for itself, so on Windows its users (RmlUi's SVG
+# plugin) would otherwise declare its functions dllimport.
+if(TARGET lunasvg AND NOT BUILD_SHARED_LIBS)
+  target_compile_definitions(lunasvg INTERFACE LUNASVG_BUILD_STATIC)
+endif()
 
 # --- RmlUi: the viewer's own interface (HTML/CSS-like documents) -------------
 # Its font engine takes FreeType as the target above (not an installed one).
@@ -330,6 +335,64 @@ CPMAddPackage(
     "CMAKE_DISABLE_FIND_PACKAGE_lunasvg ON"
 )
 
+# --- OpenXR loader (Windows): what SDL opens for --vr -------------------------
+# SDL loads openxr_loader.dll at run time (no linking). Linux has it from the
+# system's OpenXR package; Windows has none (VR runtimes don't install one),
+# so the Khronos loader ships beside viewer.exe. Prebuilt (MSVC, but only
+# loaded through its C interface; it needs only system DLLs).
+if(WIN32)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    message(FATAL_ERROR "OpenXR loader: only x64 Windows set up")
+  endif()
+  CPMAddPackage(
+    NAME openxr_loader
+    URL https://github.com/KhronosGroup/OpenXR-SDK-Source/releases/download/release-1.1.65/openxr_loader_windows-1.1.65.zip
+    URL_HASH SHA256=859d7de35b7a968112db770b09ed8bddeed3cb16fd8ae070643a857676bea6fd
+    DOWNLOAD_ONLY YES
+  )
+  set(VIEWER_OPENXR_LOADER_DLL "${openxr_loader_SOURCE_DIR}/x64/bin/openxr_loader.dll"
+      CACHE INTERNAL "")
+endif()
+
+# --- Velopack: installer and updater hooks (./dist.sh) -----------------------
+# Off for everyday builds; ./dist.sh turns it on. Its prebuilt C library:
+# a DLL on Windows (MSVC-built, but C-only, so MinGW links it; it needs only
+# system DLLs), a static library on Linux.
+option(VIEWER_VELOPACK "Link Velopack's app hooks (packaged builds; ./dist.sh)" OFF)
+if(VIEWER_VELOPACK)
+  set(VIEWER_VELOPACK_VERSION 1.2.161)
+  CPMAddPackage(
+    NAME velopack
+    URL https://github.com/velopack/velopack/releases/download/${VIEWER_VELOPACK_VERSION}/velopack_libc_${VIEWER_VELOPACK_VERSION}.zip
+    URL_HASH SHA256=31de8f2cf05a47bd5328a9f98b0c41aec1582156f6075f1058b26941f7f17c20
+    DOWNLOAD_ONLY YES
+  )
+  if(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    add_library(velopack SHARED IMPORTED GLOBAL)
+    set_target_properties(velopack PROPERTIES
+      IMPORTED_LOCATION "${velopack_SOURCE_DIR}/lib/velopack_libc_win_x64_msvc.dll"
+      IMPORTED_IMPLIB "${velopack_SOURCE_DIR}/lib/velopack_libc_win_x64_msvc.dll.lib")
+    # The name its import library links against (and so what has to be
+    # beside the viewer), not the file's in the zip.
+    set(VIEWER_VELOPACK_DLL_NAME velopack_libc.dll CACHE INTERNAL "")
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    add_library(velopack STATIC IMPORTED GLOBAL)
+    set_target_properties(velopack PROPERTIES
+      IMPORTED_LOCATION "${velopack_SOURCE_DIR}/lib-static/velopack_libc_linux_x64_gnu.a")
+    find_package(Threads REQUIRED)
+    target_link_libraries(velopack INTERFACE Threads::Threads ${CMAKE_DL_LIBS} m)
+  else()
+    message(FATAL_ERROR "VIEWER_VELOPACK: no Velopack library for ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR} here")
+  endif()
+  target_include_directories(velopack INTERFACE "${velopack_SOURCE_DIR}/include")
+  # The zip has no license; it is the repository's (MIT), at the same tag.
+  set(velopack_license "${CMAKE_BINARY_DIR}/velopack-LICENSE")
+  file(DOWNLOAD
+    https://raw.githubusercontent.com/velopack/velopack/${VIEWER_VELOPACK_VERSION}/LICENSE
+    "${velopack_license}"
+    EXPECTED_HASH SHA256=91845db83551c877ebbb1118e0fb92e4e527290d23b995c55dcd438b3293943f)
+endif()
+
 # --- The licenses of the libraries above that ship in the viewer ------------
 # (cmake/Licenses.cmake; the About page lists them). Not glslang (a build
 # tool) or doctest (the tests').
@@ -351,3 +414,9 @@ viewer_license("miniaudio" "${miniaudio_SOURCE_DIR}/LICENSE")
 viewer_license("libogg" "${ogg_SOURCE_DIR}/COPYING")
 viewer_license("libvorbis" "${vorbis_SOURCE_DIR}/COPYING")
 viewer_license("keychain" "${keychain_SOURCE_DIR}/LICENSE")
+if(WIN32)
+  viewer_license("OpenXR loader" "${openxr_loader_SOURCE_DIR}/share/doc/openxr/LICENSE")
+endif()
+if(VIEWER_VELOPACK)
+  viewer_license("Velopack" "${velopack_license}")
+endif()

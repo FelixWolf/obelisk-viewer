@@ -27,10 +27,44 @@
         "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG -fno-omit-frame-pointer",
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG -fno-omit-frame-pointer"
       }
+    },
+    {
+      "name": "dist",
+      "displayName": "Distribution (Release, no tools or tests, no testing options)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VIEWER_BUILD_TOOLS": "OFF",
+        "VIEWER_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "windows",
+      "hidden": true,
+      "toolchainFile": "${sourceDir}/cmake/toolchains/mingw-w64.cmake"
+    },
+    {
+      "name": "windows-debug",
+      "displayName": "Windows Debug (MinGW-w64 cross-compile)",
+      "inherits": ["windows", "debug"]
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows Release with debug info (MinGW-w64 cross-compile)",
+      "inherits": ["windows", "release"]
+    },
+    {
+      "name": "windows-dist",
+      "displayName": "Windows Distribution (MinGW-w64 cross-compile)",
+      "inherits": ["windows", "dist"]
     }
   ],
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "release", "configurePreset": "release" },
+    { "name": "dist", "configurePreset": "dist" },
+    { "name": "windows-debug", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "windows-dist", "configurePreset": "windows-dist" }
   ]
 }

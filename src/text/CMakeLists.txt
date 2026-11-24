@@ -30,3 +30,4 @@ target_link_libraries(viewer_text
 
 configure_file(${PROJECT_SOURCE_DIR}/assets/fonts/LICENSE-Inter.txt
                ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/LICENSE-Inter.txt COPYONLY)
+install(FILES ${PROJECT_SOURCE_DIR}/assets/fonts/LICENSE-Inter.txt DESTINATION . COMPONENT viewer)

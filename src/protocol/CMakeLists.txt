@@ -9,8 +9,27 @@ if(NOT EXISTS "${VIEWER_MESSAGE_TEMPLATE}")
     "Run: git submodule update --init")
 endif()
 
-add_executable(viewer_msggen generator/main.cpp)
-target_link_libraries(viewer_msggen PRIVATE viewer_warnings)
+# The generator runs during the build, so it must be built for the build
+# machine. Cross-compiling (Windows from Linux), it is a separate host build.
+if(CMAKE_CROSSCOMPILING)
+  include(ExternalProject)
+  set(msggen_host_dir "${CMAKE_CURRENT_BINARY_DIR}/msggen-host")
+  set(msggen_command "${msggen_host_dir}/viewer_msggen")
+  ExternalProject_Add(viewer_msggen_host
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generator"
+    BINARY_DIR "${msggen_host_dir}"
+    CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+    INSTALL_COMMAND ""
+    BUILD_BYPRODUCTS "${msggen_command}"
+    BUILD_ALWAYS ON
+  )
+  set(msggen_depends viewer_msggen_host)
+else()
+  add_executable(viewer_msggen generator/main.cpp)
+  target_link_libraries(viewer_msggen PRIVATE viewer_warnings)
+  set(msggen_command viewer_msggen)
+  set(msggen_depends viewer_msggen)
+endif()
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(generated_hpp "${generated_dir}/viewer/protocol/Messages.hpp")
@@ -18,8 +37,8 @@ set(generated_cpp "${generated_dir}/Messages.cpp")
 add_custom_command(
   OUTPUT "${generated_hpp}" "${generated_cpp}"
   COMMAND ${CMAKE_COMMAND} -E make_directory "${generated_dir}/viewer/protocol"
-  COMMAND viewer_msggen "${VIEWER_MESSAGE_TEMPLATE}" "${generated_hpp}" "${generated_cpp}"
-  DEPENDS viewer_msggen "${VIEWER_MESSAGE_TEMPLATE}"
+  COMMAND ${msggen_command} "${VIEWER_MESSAGE_TEMPLATE}" "${generated_hpp}" "${generated_cpp}"
+  DEPENDS ${msggen_depends} "${VIEWER_MESSAGE_TEMPLATE}"
   COMMENT "Generating message code from message_template.msg"
   VERBATIM
 )

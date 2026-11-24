@@ -15,6 +15,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# MinGW's libstdc++ keeps std::print's console output (__open_terminal,
+# __write_to_terminal) in a separate library.
+if(MINGW)
+  string(APPEND CMAKE_CXX_STANDARD_LIBRARIES " -lstdc++exp")
+endif()
+
 option(VIEWER_BUILD_TOOLS "Build developer tools (j2kbench, ...)" ON)
 option(VIEWER_BUILD_TESTS "Build unit tests" ON)
 
@@ -51,3 +57,16 @@ if(VIEWER_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()
+
+# A .zip of what `cmake --install --component viewer` puts in place (cpack in
+# the build directory). Velopack's installer packs that same folder instead;
+# see docs/packaging.md.
+set(CPACK_PACKAGE_NAME "TestViewer")
+set(CPACK_PACKAGE_VENDOR "TestViewer")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
+set(CPACK_INSTALL_CMAKE_PROJECTS "${PROJECT_BINARY_DIR};viewer;viewer;/")
+set(CPACK_PACKAGE_DIRECTORY "${PROJECT_BINARY_DIR}/package")
+set(CPACK_SOURCE_GENERATOR "")
+include(CPack)

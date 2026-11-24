@@ -1,9 +1,6 @@
 // Session against a fake grid: login server, seed capability and event queue
 // on the loopback HTTP server, simulators on loopback UDP (POSIX-only for now).
-#ifndef _WIN32
-
-#include "FakeSimulator.hpp"
-#include "LoopbackHttpServer.hpp"
+// The tests after the #endif need no network and run everywhere.
 
 #include "viewer/llsd/Serialization.hpp"
 #include "viewer/session/Session.hpp"
@@ -18,6 +15,12 @@
 using namespace viewer::session;
 using namespace std::chrono_literals;
 namespace llsd = viewer::llsd;
+
+#ifndef _WIN32
+
+#include "FakeSimulator.hpp"
+#include "LoopbackHttpServer.hpp"
+
 namespace msg = viewer::protocol::msg;
 using viewer::test::FakeSimulator;
 using viewer::test::LoopbackReply;

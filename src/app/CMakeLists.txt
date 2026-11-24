@@ -77,6 +77,10 @@ add_executable(viewer
   TextureBrowser.cpp
 )
 
+# Windows: a console window beside the viewer (its log) only in Debug builds;
+# the others are GUI programs (WinMain from SDL_main.h). No effect elsewhere.
+set_target_properties(viewer PROPERTIES WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)
+
 target_include_directories(viewer PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 # Licenses travel with the binary: ours (LGPL-2.1) and the artwork notice.
@@ -108,6 +112,30 @@ if(TARGET keychain)
   target_compile_definitions(viewer PRIVATE VIEWER_HAVE_KEYCHAIN=1)
 endif()
 
+# Windows: the OpenXR loader SDL opens for --vr, beside the viewer (see
+# cmake/Dependencies.cmake).
+if(WIN32)
+  add_custom_command(TARGET viewer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VIEWER_OPENXR_LOADER_DLL}" $<TARGET_FILE_DIR:viewer>
+    VERBATIM)
+  install(FILES "${VIEWER_OPENXR_LOADER_DLL}" DESTINATION . COMPONENT viewer)
+endif()
+
+# Packaged builds (./dist.sh): main() runs Velopack's install/update hooks
+# first, and its DLL (Windows) goes beside the viewer.
+if(VIEWER_VELOPACK)
+  target_link_libraries(viewer PRIVATE velopack)
+  target_compile_definitions(viewer PRIVATE VIEWER_VELOPACK=1)
+  if(WIN32)
+    add_custom_command(TARGET viewer POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:velopack>
+              $<TARGET_FILE_DIR:viewer>/${VIEWER_VELOPACK_DLL_NAME}
+      VERBATIM)
+    install(FILES $<TARGET_FILE:velopack> DESTINATION . RENAME ${VIEWER_VELOPACK_DLL_NAME}
+            COMPONENT viewer)
+  endif()
+endif()
+
 target_compile_definitions(viewer PRIVATE
   $<$<CONFIG:Debug>:VIEWER_GPU_DEBUG=1>
   VIEWER_VERSION="${PROJECT_VERSION}"
@@ -136,3 +164,18 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/default_scene/start.scene)
 endif()
 add_custom_target(viewer_data ALL ${VIEWER_COPY_ASSETS} VERBATIM)
 add_dependencies(viewer viewer_data)
+
+# What ships (cmake --install BUILD --component viewer; the "dist" preset):
+# the viewer, its runtime data and the licenses, laid out as in bin/ (it
+# finds assets/ beside itself). Only the "viewer" component: the
+# dependencies' own install rules (static libraries, headers) and the
+# developer tools and tests stay out.
+install(TARGETS viewer RUNTIME DESTINATION . COMPONENT viewer)
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/assets/character ${PROJECT_SOURCE_DIR}/assets/ui
+        DESTINATION assets COMPONENT viewer)
+if(EXISTS ${PROJECT_SOURCE_DIR}/default_scene/start.scene)
+  install(FILES ${PROJECT_SOURCE_DIR}/default_scene/start.scene
+          DESTINATION assets RENAME home.scene COMPONENT viewer)
+endif()
+install(FILES ${PROJECT_SOURCE_DIR}/LICENSE ${PROJECT_SOURCE_DIR}/assets/LICENSE-artwork.txt
+        DESTINATION . COMPONENT viewer)
