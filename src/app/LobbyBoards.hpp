@@ -14,6 +14,7 @@
 
 #include "ViewerConfig.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/core/JobSystem.hpp"
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/gui/Gui.hpp"
@@ -147,6 +148,7 @@ private:
     // The status page.
     Rml::String statusState_ = "loading"; // loading, shown
     Rml::String indicator_;               // none, minor, major, critical, maintenance
+    Rml::String appName_{branding::kName};
     Rml::String description_;
     Rml::String checked_; // when Linden Lab's status was fetched
     bool stale_ = false;

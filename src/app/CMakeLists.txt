@@ -82,6 +82,9 @@ add_executable(viewer
   TextureBrowser.cpp
 )
 
+# The program's own name (cmake/Branding.cmake); the target's stays.
+set_target_properties(viewer PROPERTIES OUTPUT_NAME "${VIEWER_EXECUTABLE}")
+
 # Windows: a console window beside the viewer (its log) only in Debug builds;
 # the others are GUI programs (WinMain from SDL_main.h). No effect elsewhere.
 set_target_properties(viewer PROPERTIES WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)

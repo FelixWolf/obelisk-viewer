@@ -1,5 +1,6 @@
 #include "App.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/core/Log.hpp"
 #include "viewer/image/Png.hpp"
 #include "viewer/image/TextureProcessing.hpp"
@@ -34,10 +35,6 @@ namespace fs = std::filesystem;
 namespace
 {
 
-// No product name yet; this is the directory name used under the platform's
-// cache location.
-constexpr const char* kAppDirectoryName = "viewer";
-
 // Without a home scene, where the login lobby starts (the test scene's
 // ground, around the origin), at eye height; the login panel stands in
 // front of it, north.
@@ -58,24 +55,24 @@ fs::path defaultCacheDirectory()
 #if defined(_WIN32)
     if(const char* local = std::getenv("LOCALAPPDATA"))
     {
-        return fs::path(local) / kAppDirectoryName / "cache";
+        return fs::path(local) / branding::kDirectory / "cache";
     }
 #elif defined(__APPLE__)
     if(const char* home = std::getenv("HOME"))
     {
-        return fs::path(home) / "Library" / "Caches" / kAppDirectoryName;
+        return fs::path(home) / "Library" / "Caches" / branding::kDirectory;
     }
 #else
     if(const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg)
     {
-        return fs::path(xdg) / kAppDirectoryName;
+        return fs::path(xdg) / branding::kDirectory;
     }
     if(const char* home = std::getenv("HOME"))
     {
-        return fs::path(home) / ".cache" / kAppDirectoryName;
+        return fs::path(home) / ".cache" / branding::kDirectory;
     }
 #endif
-    return fs::temp_directory_path() / kAppDirectoryName;
+    return fs::temp_directory_path() / branding::kDirectory;
 }
 
 // Where `region`'s corner is, in meters from `origin`'s.
@@ -90,8 +87,9 @@ glm::vec3 regionOffset(uint64_t region, uint64_t origin)
 
 void printUsage()
 {
-    std::println(stderr, "usage: viewer [--grid LOGIN_URI] [--start last|home|Region/x/y/z] [--vr] "
-                         "[--setting NAME VALUE]...");
+    std::println(stderr, "usage: {} [--grid LOGIN_URI] [--start last|home|Region/x/y/z] [--vr] "
+                         "[--setting NAME VALUE]...",
+                 branding::kExecutable);
 #if defined(VIEWER_TEST_OPTIONS)
     std::println(
         stderr,
@@ -341,7 +339,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     }
     app->sdl_.initialized = true;
 
-    app->window_.reset(SDL_CreateWindow("Viewer", 1600, 900,
+    app->window_.reset(SDL_CreateWindow(branding::kName, 1600, 900,
                                         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY));
     if(!app->window_)
     {
@@ -533,7 +531,8 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->startTicks_ = SDL_GetTicksNS();
     app->lastFrameTicks_ = app->startTicks_;
 
-    app->http_ = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
+    app->http_ = net::createHttpClient(
+        {.userAgent = std::format("{}/{}", branding::kUserAgent, VIEWER_VERSION)});
     // A second texture cache on the same store: each instance has one
     // results queue, and the texture browser drains its own.
     app->worldTextureCache_ =
@@ -673,7 +672,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->savedLogins_ =
         std::make_unique<SavedLogins>(SavedLogins::defaultListFile(), SecretStore::system());
     app->loginFlow_ = std::make_unique<LoginFlow>(*app->savedLogins_, session::queryMachineInfo(),
-                                                  "viewer", VIEWER_VERSION);
+                                                  branding::kChannel, VIEWER_VERSION);
     app->loginPanel_ = std::make_unique<LoginPanel>(*app->loginFlow_, options.loginUri);
     if(app->gui_)
     {

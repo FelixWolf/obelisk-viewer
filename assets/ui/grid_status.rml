@@ -23,7 +23,7 @@
 
             <!-- Ours: from the viewer's team, not Linden Lab. -->
             <div data-for="a : announcements" data-attr-class="'notice card ' + a.kind">
-                <div class="from">From the TestViewer team<span data-if="a.when != ''"> · {{ a.when }}</span></div>
+                <div class="from">From the {{ appName }} team<span data-if="a.when != ''"> · {{ a.when }}</span></div>
                 <div class="title">{{ a.title }}</div>
                 <div class="text" data-if="a.body != ''">{{ a.body }}</div>
             </div>

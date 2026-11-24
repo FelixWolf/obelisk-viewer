@@ -1,0 +1,21 @@
+#pragma once
+
+// Generated from src/core/Branding.hpp.in. What the viewer is called; set in
+// cmake/Branding.cmake.
+
+namespace viewer::branding
+{
+
+// What people see.
+inline constexpr const char* kName = "@VIEWER_NAME@";
+// The program's file name, without .exe.
+inline constexpr const char* kExecutable = "@VIEWER_EXECUTABLE@";
+// The folder for settings, cache and logs under the platform's own, and the
+// name in the system's credential store.
+inline constexpr const char* kDirectory = "@VIEWER_DIRECTORY@";
+// The channel login tells the grid.
+inline constexpr const char* kChannel = "@VIEWER_CHANNEL@";
+// The product in HTTP's User-Agent (no spaces).
+inline constexpr const char* kUserAgent = "@VIEWER_PACKAGE_ID@";
+
+} // namespace viewer::branding

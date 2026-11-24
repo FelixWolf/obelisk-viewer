@@ -6,7 +6,7 @@
 </head>
 <body>
 <div id="login" class="frame" data-model="login">
-    <div class="brand frame-title">TestViewer</div>
+    <div class="brand frame-title">{{ appName }}</div>
     <div id="middle" class="inset">
 
         <!-- A login on its way. -->

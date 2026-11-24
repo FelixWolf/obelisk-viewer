@@ -338,7 +338,7 @@ CPMAddPackage(
 # --- OpenXR loader (Windows): what SDL opens for --vr -------------------------
 # SDL loads openxr_loader.dll at run time (no linking). Linux has it from the
 # system's OpenXR package; Windows has none (VR runtimes don't install one),
-# so the Khronos loader ships beside viewer.exe. Prebuilt (MSVC, but only
+# so the Khronos loader ships beside the viewer. Prebuilt (MSVC, but only
 # loaded through its C interface; it needs only system DLLs).
 if(WIN32)
   if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")

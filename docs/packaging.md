@@ -1,5 +1,8 @@
 # Packaging
 
+The names below (`obelisk`, `ObeliskViewer`, the settings folders) are the
+defaults in `cmake/Branding.cmake`, where the viewer is renamed.
+
 The `dist` preset is the build that ships: `Release` (no `VIEWER_TEST_OPTIONS`,
 so no `--login-file`, `--screenshot`, ...), with no developer tools or tests.
 
@@ -16,7 +19,7 @@ cmake --install build/dist --component viewer --prefix build/dist/stage --strip
 expects (it finds `assets/` beside itself):
 
 ```
-viewer(.exe)
+obelisk(.exe)
 openxr_loader.dll                   (Windows: the OpenXR loader SDL opens for --vr)
 assets/character/  assets/ui/  assets/home.scene
 LICENSE  LICENSE-artwork.txt  LICENSE-Inter.txt
@@ -26,11 +29,11 @@ Only the `viewer` install component: the dependencies' own install rules
 (static libraries, headers) and the generator `viewer_msggen` stay out.
 Nothing per-user is written beside the program: settings, saved logins and
 ImGui's window layout (`imgui.ini`) go to the user's settings folder
-(`~/.config/viewer`, `%APPDATA%\viewer`), the cache to the user's cache folder.
+(`~/.config/obelisk`, `%APPDATA%\obelisk`), the cache to the user's cache folder.
 
 ## Zip
 
-`cpack` in `build/dist` makes `build/dist/package/TestViewer-<version>-<OS>.zip`
+`cpack` in `build/dist` makes `build/dist/package/ObeliskViewer-<version>-<OS>.zip`
 from the same component.
 
 ## Velopack
@@ -40,7 +43,7 @@ from the same component.
 ```
 
 builds and packs one installer into `build/package-<os>-<config>/releases`:
-on Windows `TestViewer-win-Setup.exe`, `TestViewer-win-Portable.zip` and the
+on Windows `ObeliskViewer-win-Setup.exe`, `ObeliskViewer-win-Portable.zip` and the
 update packages (`.nupkg`, `releases.win.json`); on Linux an AppImage and
 the same. It builds in its own folder, `build/package-<os>-<config>`, with
 `VIEWER_VELOPACK` on, then installs the `viewer` component (above) into
@@ -48,9 +51,9 @@ the same. It builds in its own folder, `build/package-<os>-<config>`, with
 version is `project()`'s in `CMakeLists.txt`; Velopack only updates to a
 higher one, so raise it for every release.
 
-- `release`: the `dist` preset, stripped. Pack id `TestViewer`.
+- `release`: the `dist` preset, stripped. Pack id `ObeliskViewer`.
 - `debug`: the `debug` preset (a console on Windows, the testing options,
-  symbols). Pack id `TestViewer-Debug`, so it installs beside the release
+  symbols). Pack id `ObeliskViewer-Debug`, so it installs beside the release
   one and neither updates into the other.
 
 `VIEWER_VELOPACK` (off in everyday builds) downloads Velopack's prebuilt C
@@ -59,7 +62,7 @@ defines `VIEWER_VELOPACK`, so `main()` calls
 `Velopack::VelopackApp::Build().Run()` first thing: the installer and
 updater start the viewer with their own arguments to run its hooks, and it
 exits there. On Windows the library is a DLL, installed beside
-`viewer.exe` as `velopack_libc.dll`, the name its import library links
+`obelisk.exe` as `velopack_libc.dll`, the name its import library links
 against (the zip's `velopack_libc_win_x64_msvc.dll`; MSVC-built,
 but a C interface, so the MinGW build links it; it needs only system DLLs).
 On Linux it is linked statically.

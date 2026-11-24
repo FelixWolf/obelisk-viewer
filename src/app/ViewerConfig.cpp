@@ -1,5 +1,6 @@
 #include "ViewerConfig.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/core/Log.hpp"
 #include "viewer/core/Sha256.hpp"
 #include "viewer/llsd/Serialization.hpp"
@@ -402,7 +403,8 @@ void ViewerConfig::wantHomeScene()
     net::HttpRequest request;
     request.url = ref.url;
     request.headers.add("User-Agent",
-                        std::format("TestViewer/{} ({})", options_.version, options_.platform));
+                        std::format("{}/{} ({})", branding::kUserAgent, options_.version,
+                                    options_.platform));
     request.timeout = std::chrono::minutes(5);
     auto answers = answers_;
     JobSystem* jobs = &jobs_;
@@ -439,7 +441,8 @@ void ViewerConfig::ask(Endpoint& e)
     request.url = options_.baseUrl + e.name;
     request.headers.add("Accept", "application/json");
     request.headers.add("User-Agent",
-                        std::format("TestViewer/{} ({})", options_.version, options_.platform));
+                        std::format("{}/{} ({})", branding::kUserAgent, options_.version,
+                                    options_.platform));
     if(!e.etag.empty())
     {
         request.headers.add("If-None-Match", e.etag);

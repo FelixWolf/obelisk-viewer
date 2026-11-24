@@ -12,6 +12,7 @@
 // --dump-layer-data writes each land LayerData message to DIR/layer_<region handle>_<n>.bin
 // (one byte layer type, then the packed data), for test fixtures.
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/protocol/Messages.hpp"
 #include "viewer/session/Credentials.hpp"
 #include "viewer/session/Session.hpp"
@@ -132,11 +133,12 @@ int main(int argc, char** argv)
     parameters.name = credentials->name;
     parameters.passwordHash = std::move(credentials->passwordHash);
     parameters.start = startLocation(start);
-    parameters.channel = "viewer";
+    parameters.channel = branding::kChannel;
     parameters.version = VIEWER_VERSION;
     parameters.machine = queryMachineInfo();
 
-    auto http = net::createHttpClient({.userAgent = std::format("viewer/{}", VIEWER_VERSION)});
+    auto http = net::createHttpClient(
+        {.userAgent = std::format("{}/{}", branding::kUserAgent, VIEWER_VERSION)});
     Session session(*http, std::move(parameters));
 
     // Log in and stay for the requested time (or until something ends it).

@@ -177,19 +177,24 @@ mode (default), a mask is cut out if the face is opaque, doesn't glow and
 isn't rigged (LLFace::canRenderAsMask), otherwise blended. A wholly
 transparent texture (default or blend) isn't drawn at all, only picked if
 clicking it does something. The cache root defaults to
-`$XDG_CACHE_HOME/viewer` (or `~/.cache/viewer`); override it with the `paths.cache` setting.
+`$XDG_CACHE_HOME/obelisk` (or `~/.cache/obelisk`); override it with the `paths.cache` setting.
 
 ## Building
+
+What the viewer is called (its displayed name, executable, config and cache
+folders, login channel, package id) is set in `cmake/Branding.cmake`; code
+uses `viewer/core/Branding.hpp`, never the names themselves. Below are the
+defaults.
 
 ```
 git submodule update --init                 # the message template
 ./build.sh linux release                    # cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
-./build/release/bin/viewer [--grid LOGIN_URI] [--start last|home|Region/x/y/z|secondlife://...]
+./build/release/bin/obelisk [--grid LOGIN_URI] [--start last|home|Region/x/y/z|secondlife://...]
     [--vr] [--setting NAME VALUE]...
     # testing (Debug and RelWithDebInfo builds only): [--login-file PATH]
     # [--screenshot OUT.png [--screenshot-delay S]] [--camera "X Y Z DISTANCE YAW PITCH"] ...
-./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
+./build/release/bin/logintest --login-file ~/.config/obelisk/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
 
@@ -206,11 +211,11 @@ statically, so the `.exe` and `assets/` are all it needs, and renders
 through SDL GPU's Vulkan backend (the shaders are SPIR-V). The message
 code generator runs during the build, so cross-compiling it is built for
 the build machine as a separate project (`src/protocol/generator`).
-Only Debug builds of `viewer.exe` are console programs (a console window
+Only Debug builds of `obelisk.exe` are console programs (a console window
 with the log); the others are GUI programs, and when stderr goes nowhere
-(started from Explorer) `main()` sends it to `%LOCALAPPDATA%\viewer\viewer.log`,
-the run before kept as `viewer.old.log`.
-`wine build/windows-release/bin/viewer.exe` runs it; `ctest` runs the
+(started from Explorer) `main()` sends it to `%LOCALAPPDATA%\obelisk\obelisk.log`,
+the run before kept as `obelisk.old.log`.
+`wine build/windows-release/bin/obelisk.exe` runs it; `ctest` runs the
 tests through Wine.
 
 Settings are defined in `src/app/ViewerSettings.cpp` (type, default,

@@ -40,8 +40,9 @@ sides follow it.
   copy built into the viewer.
 - **Privacy:**
   - Requests carry no identifiers, cookies or account details.
-  - The only thing that varies is the `User-Agent`: `TestViewer/<version>
-    (<os>)`, for example `TestViewer/0.4.0 (linux)`.
+  - The only thing that varies is the `User-Agent`: `ObeliskViewer/<version>
+    (<os>)`, for example `ObeliskViewer/0.4.0 (linux)`. The name is
+    `VIEWER_PACKAGE_ID` (`cmake/Branding.cmake`), so it follows a rename.
   - Flags and overrides are filtered by the viewer, not the server (see
     Config), so nothing about the viewer has to be sent to get them.
   - The server should not log client IP addresses, or should truncate them.

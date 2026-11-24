@@ -12,7 +12,7 @@
 // yet, and kept only if its size and SHA-256 are what the config said.
 //
 // Nothing about the viewer or its user is sent: the requests are the same
-// for everyone but the User-Agent ("TestViewer/<version> (<os>)"). Flags
+// for everyone but the User-Agent ("<name>/<version> (<os>)"). Flags
 // and settings come with the versions and platforms they're for, and are
 // picked here.
 

@@ -389,6 +389,7 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     model.Bind("estateName", &m->estateName_);
     model.Bind("estateOwner", &m->estateOwner_);
     model.Bind("estateCovenant", &m->estateCovenant_);
+    model.Bind("appName", &m->appName_);
     model.Bind("version", &m->version_);
     model.Bind("builtWith", &m->builtWith_);
     model.Bind("licenses", &m->licenseNames_);

@@ -24,11 +24,12 @@ endif()
 option(VIEWER_BUILD_TOOLS "Build developer tools (j2kbench, ...)" ON)
 option(VIEWER_BUILD_TESTS "Build unit tests" ON)
 
+include(cmake/Branding.cmake)
 include(cmake/CPM.cmake)
 include(cmake/Licenses.cmake)
 # Ours first (the About page lists them in this order), then the libraries'
 # (cmake/Dependencies.cmake).
-viewer_license("TestViewer" "${PROJECT_SOURCE_DIR}/LICENSE")
+viewer_license("${VIEWER_NAME}" "${PROJECT_SOURCE_DIR}/LICENSE")
 viewer_license("Inter (the font)" "${PROJECT_SOURCE_DIR}/assets/fonts/LICENSE-Inter.txt")
 viewer_license("Second Life viewer artwork" "${PROJECT_SOURCE_DIR}/assets/LICENSE-artwork.txt")
 include(cmake/Dependencies.cmake)
@@ -61,8 +62,8 @@ endif()
 # A .zip of what `cmake --install --component viewer` puts in place (cpack in
 # the build directory). Velopack's installer packs that same folder instead;
 # see docs/packaging.md.
-set(CPACK_PACKAGE_NAME "TestViewer")
-set(CPACK_PACKAGE_VENDOR "TestViewer")
+set(CPACK_PACKAGE_NAME "${VIEWER_PACKAGE_ID}")
+set(CPACK_PACKAGE_VENDOR "${VIEWER_NAME}")
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)

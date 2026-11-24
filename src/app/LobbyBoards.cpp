@@ -244,6 +244,7 @@ bool LobbyBoards::setUp()
     status.RegisterArray<std::vector<Component>>();
     status.Bind("state", &statusState_);
     status.Bind("indicator", &indicator_);
+    status.Bind("appName", &appName_);
     status.Bind("description", &description_);
     status.Bind("checked", &checked_);
     status.Bind("stale", &stale_);

@@ -30,6 +30,7 @@
 #include "PeopleView.hpp"
 #include "SettingsView.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/gui/Gui.hpp"
 
 #include <RmlUi/Core/DataModelHandle.h>
@@ -402,6 +403,7 @@ private:
     Rml::String primMediaNote_;
     std::optional<MediaAction> mediaAction_;
     // About.
+    std::string appName_{branding::kName};
     std::string version_;
     std::string builtWith_;
     std::vector<Rml::String> licenseNames_;

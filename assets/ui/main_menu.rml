@@ -18,7 +18,7 @@
         </div>
         <div id="who">
             <div class="name" data-if="displayName != ''">{{ displayName }}</div>
-            <div class="name" data-if="displayName == ''">TestViewer</div>
+            <div class="name" data-if="displayName == ''">{{ appName }}</div>
             <div class="where">{{ tabName }}</div>
         </div>
         <div id="readouts">
@@ -154,7 +154,7 @@
 
         <div data-if="tab == 'about'" class="about">
             <div class="card banner">
-                <div class="headline">TestViewer</div>
+                <div class="headline">{{ appName }}</div>
                 <div>Version {{ version }}</div>
             </div>
             <div class="card">

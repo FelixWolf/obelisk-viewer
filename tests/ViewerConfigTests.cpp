@@ -1,5 +1,6 @@
 #include "ViewerConfig.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/core/Sha256.hpp"
 
 #include <doctest/doctest.h>
@@ -169,7 +170,8 @@ TEST_CASE("viewerconfig: asks, keeps copies, and asks again with their ETags")
         // The config at once; nothing else outside the lobby.
         REQUIRE(http.sent.size() == 1);
         CHECK(http.sent[0].request.url == "https://vc.example/api/v1/config");
-        CHECK(http.sent[0].request.headers.find("User-Agent") == "TestViewer/0.4.0 (linux)");
+        CHECK(http.sent[0].request.headers.find("User-Agent") ==
+              std::string(branding::kUserAgent) + "/0.4.0 (linux)");
         CHECK_FALSE(http.sent[0].request.headers.find("If-None-Match"));
         http.answer(0, kConfig, 200, "\"c1\"");
         vc.update(t0, false);

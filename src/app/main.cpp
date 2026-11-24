@@ -1,5 +1,7 @@
 #include "App.hpp"
 
+#include "viewer/core/Branding.hpp"
+
 #include <SDL3/SDL_main.h>
 
 #if defined(VIEWER_VELOPACK)
@@ -10,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
 #include <system_error>
 
 #define WIN32_LEAN_AND_MEAN
@@ -22,9 +25,9 @@ namespace
 #if defined(_WIN32)
 // Release builds are GUI programs (see src/app/CMakeLists.txt): no console,
 // so the log (stderr) would go nowhere. Send it to
-// %LOCALAPPDATA%\viewer\viewer.log instead, keeping the run before as
-// viewer.old.log (the one to read after a crash). When stderr already goes
-// somewhere (Debug builds' console, `viewer.exe 2> file`) it stays there.
+// %LOCALAPPDATA%\<kDirectory>\<kExecutable>.log instead, keeping the run before as
+// <kExecutable>.old.log (the one to read after a crash). When stderr already goes
+// somewhere (Debug builds' console, `<kExecutable>.exe 2> file`) it stays there.
 void logToFileWithoutConsole()
 {
     namespace fs = std::filesystem;
@@ -38,11 +41,12 @@ void logToFileWithoutConsole()
     {
         return;
     }
-    const fs::path directory = fs::path(local) / "viewer";
-    const fs::path file = directory / "viewer.log";
+    const fs::path directory = fs::path(local) / viewer::branding::kDirectory;
+    const std::string name = viewer::branding::kExecutable;
+    const fs::path file = directory / (name + ".log");
     std::error_code error;
     fs::create_directories(directory, error);
-    fs::rename(file, directory / "viewer.old.log", error); // none the first time
+    fs::rename(file, directory / (name + ".old.log"), error); // none the first time
     if(_wfreopen(file.c_str(), L"w", stderr) != nullptr)
     {
         // Unbuffered: a crash loses no lines.

@@ -1,5 +1,6 @@
 #include "viewer/xr/Headset.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/core/Log.hpp"
 
 // OpenXR's own types first: SDL_openxr.h then uses them.
@@ -256,9 +257,9 @@ void Headset::addDeviceProperties(SDL_PropertiesID props)
     SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_ENABLE_BOOLEAN, true);
     SDL_SetPointerProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_INSTANCE_POINTER, &impl_->instance);
     SDL_SetPointerProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_SYSTEM_ID_POINTER, &impl_->system);
-    SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_APPLICATION_NAME_STRING, "Viewer");
+    SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_APPLICATION_NAME_STRING, branding::kName);
     SDL_SetNumberProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_APPLICATION_VERSION_NUMBER, 1);
-    SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_ENGINE_NAME_STRING, "Viewer");
+    SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_XR_ENGINE_NAME_STRING, branding::kName);
 }
 
 bool Headset::Impl::load()
@@ -677,7 +678,8 @@ bool Headset::Impl::createActions()
 {
     XrActionSetCreateInfo setInfo = make<XrActionSetCreateInfo>(XR_TYPE_ACTION_SET_CREATE_INFO);
     std::snprintf(setInfo.actionSetName, sizeof(setInfo.actionSetName), "viewer");
-    std::snprintf(setInfo.localizedActionSetName, sizeof(setInfo.localizedActionSetName), "Viewer");
+    std::snprintf(setInfo.localizedActionSetName, sizeof(setInfo.localizedActionSetName), "%s",
+                  branding::kName);
     if(XR_FAILED(createActionSet(instance, &setInfo, &actions)))
     {
         return false;

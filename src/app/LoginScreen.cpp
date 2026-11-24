@@ -66,6 +66,7 @@ std::unique_ptr<LoginScreen> LoginScreen::create(gui::Gui& gui, LoginFlow& flow,
         log::error("the login screen's data model couldn't be made");
         return nullptr;
     }
+    model.Bind("appName", &s->appName_);
     model.RegisterArray<std::vector<Rml::String>>();
     if(auto account = model.RegisterStruct<Account>())
     {

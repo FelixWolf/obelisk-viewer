@@ -13,6 +13,7 @@
 
 #include "LoginFlow.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/gui/Gui.hpp"
 #include "viewer/session/Credentials.hpp"
 #include "viewer/session/Session.hpp"
@@ -80,6 +81,7 @@ private:
     LoginFlow* flow_ = nullptr;
     std::unique_ptr<gui::Surface> surface_;
     Rml::DataModelHandle model_;
+    Rml::String appName_{branding::kName};
     LoginAction action_; // asked for by the page this frame
 
     // The page's values (data-model="login").

@@ -14,6 +14,8 @@
 // guarantee is what lets a Session be torn down safely mid-request; see
 // HttpRequestGroup.
 
+#include "viewer/core/Branding.hpp"
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -138,7 +140,7 @@ using HttpCallback = std::function<void(HttpResponse&& response)>;
 
 struct HttpClientOptions
 {
-    std::string userAgent = "viewer";
+    std::string userAgent = branding::kUserAgent;
     // Empty: the TLS backend's default trust store.
     std::string caBundlePath{};
     bool verifyPeer = true;

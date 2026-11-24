@@ -1,5 +1,6 @@
 #include "SavedLogins.hpp"
 
+#include "viewer/core/Branding.hpp"
 #include "viewer/core/Log.hpp"
 #include "viewer/llsd/Serialization.hpp"
 
@@ -24,7 +25,7 @@ namespace viewer
 namespace
 {
 
-constexpr const char* kPackage = "viewer"; // the app's name in the store
+constexpr const char* kPackage = branding::kDirectory; // the app's name in the store
 
 class MemoryStore final : public SecretStore
 {
@@ -144,24 +145,24 @@ fs::path SavedLogins::defaultListFile()
 #if defined(_WIN32)
     if(const char* appData = std::getenv("APPDATA"))
     {
-        return fs::path(appData) / kPackage / "accounts.llsd";
+        return fs::path(appData) / branding::kDirectory / "accounts.llsd";
     }
 #elif defined(__APPLE__)
     if(const char* home = std::getenv("HOME"))
     {
-        return fs::path(home) / "Library" / "Application Support" / kPackage / "accounts.llsd";
+        return fs::path(home) / "Library" / "Application Support" / branding::kDirectory / "accounts.llsd";
     }
 #else
     if(const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
     {
-        return fs::path(xdg) / kPackage / "accounts.llsd";
+        return fs::path(xdg) / branding::kDirectory / "accounts.llsd";
     }
     if(const char* home = std::getenv("HOME"))
     {
-        return fs::path(home) / ".config" / kPackage / "accounts.llsd";
+        return fs::path(home) / ".config" / branding::kDirectory / "accounts.llsd";
     }
 #endif
-    return fs::temp_directory_path() / kPackage / "accounts.llsd";
+    return fs::temp_directory_path() / branding::kDirectory / "accounts.llsd";
 }
 
 std::string SavedLogins::service(const SavedAccount& account)
