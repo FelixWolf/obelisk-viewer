@@ -11,7 +11,8 @@
 namespace viewer::ui
 {
 
-std::unique_ptr<ImGuiLayer> ImGuiLayer::create(SDL_Window* window, render::Renderer& renderer)
+std::unique_ptr<ImGuiLayer> ImGuiLayer::create(SDL_Window* window, render::Renderer& renderer,
+                                               const std::filesystem::path& iniFile)
 {
     IMGUI_CHECKVERSION();
     ImGuiContext* context = ImGui::CreateContext();
@@ -46,7 +47,10 @@ std::unique_ptr<ImGuiLayer> ImGuiLayer::create(SDL_Window* window, render::Rende
         return nullptr;
     }
 
-    return std::unique_ptr<ImGuiLayer>(new ImGuiLayer(context));
+    auto layer = std::unique_ptr<ImGuiLayer>(new ImGuiLayer(context));
+    layer->iniFile_ = iniFile.string();
+    io.IniFilename = layer->iniFile_.empty() ? nullptr : layer->iniFile_.c_str();
+    return layer;
 }
 
 ImGuiLayer::ImGuiLayer(ImGuiContext* context) : context_(context) {}

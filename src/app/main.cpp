@@ -64,12 +64,16 @@ int main(int argc, char** argv)
 #if defined(_WIN32)
     logToFileWithoutConsole();
 #endif
-    const auto options = viewer::parseArguments({argv, static_cast<size_t>(argc)});
+    // The settings (settings.llsd) first: the command line's --setting
+    // overrides them for this run.
+    auto settings = std::make_unique<viewer::Settings>(viewer::viewerSettings(),
+                                                       viewer::Settings::defaultFile());
+    const auto options = viewer::parseArguments({argv, static_cast<size_t>(argc)}, *settings);
     if(!options)
     {
         return 2;
     }
-    auto app = viewer::App::create(*options);
+    auto app = viewer::App::create(*options, std::move(settings));
     if(!app)
     {
         return 1;

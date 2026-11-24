@@ -27,6 +27,7 @@
 #include "SceneAssets.hpp"
 #include "ScriptDialogPage.hpp"
 #include "ScriptDialogs.hpp"
+#include "Settings.hpp"
 #include "SoundAssets.hpp"
 #include "SoundManager.hpp"
 #include "TerrainTextures.hpp"
@@ -36,6 +37,7 @@
 #include "TreeView.hpp"
 #include "ViewerConfig.hpp"
 #include "ViewerEffects.hpp"
+#include "ViewerSettings.hpp"
 #include "VrControls.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
@@ -66,50 +68,22 @@
 namespace viewer
 {
 
-struct AppOptions
+#if defined(VIEWER_TEST_OPTIONS)
+// For testing and measuring: only in Debug and RelWithDebInfo builds
+// (src/app/CMakeLists.txt), not in Release.
+struct TestOptions
 {
-    std::filesystem::path cacheDirectory;  // empty = platform default
-    std::filesystem::path importDirectory; // optional: texture browser import on startup
-    // --ui-dir: the interface's documents (empty: assets/ui next to the
-    // program; the source folder's, to edit them while running).
-    std::filesystem::path uiDirectory;
-    // --home-scene: the lobby's scene (empty: assets/home.scene next to the
-    // program; see world/HomeScene.hpp).
-    std::filesystem::path homeScene;
-    // --viewerconfig: the project's web service (docs/viewerconfig-api.md),
-    // its .../api/v1/ address; "off": not asked (its copies on disk only).
-    std::string viewerConfig = "https://viewerconfig.coyoteware.com/api/v1/";
-    bool developer = false;          // --developer: ImGui's windows (stats, textures, ...)
-    bool mainMenu = false;           // --main-menu: open it at the start
-    std::string mainMenuTab;         // on this tab (--main-menu TAB)
-    std::string loginUri;            // empty = Second Life main grid
-    bool gridGiven = false;          // --grid: also over a login file's
-    std::filesystem::path loginFile; // optional: log in at startup (see Credentials.hpp)
-    bool testScene = false;          // show the material test scene
-    bool pbrTerrain = false;         // start with the PBR terrain shader
-    bool firstPerson = false;        // go first person once in the world
-    bool vr = false;                 // --vr: show the world in a headset (OpenXR)
-    float vrOverscan = 0.1f; // --vr-overscan PERCENT: each eye drawn this much wider per side
-    // --vr-eye-height METRES: the wearer's eye height standing, which the
-    // headset's movements are scaled from to the avatar's (0: not scaled;
-    // unset: measured from the floor).
-    std::optional<float> vrEyeHeight;
-    bool vsync = true;                          // --no-vsync: uncapped, for measuring
-    std::string start;                          // login start: last, home, Region[/x/y/z]
-    std::filesystem::path screenshotPath;       // optional: save a screenshot, then quit
+    std::filesystem::path loginFile;            // log in at startup (see Credentials.hpp)
+    std::filesystem::path importDirectory;      // texture browser import on startup
+    bool mainMenu = false;                      // --main-menu: open it at the start
+    std::string mainMenuTab;                    // on this tab (--main-menu TAB)
+    std::filesystem::path screenshotPath;       // save a screenshot, then quit
     float screenshotDelay = 3.0f;               // seconds after startup
     std::optional<std::array<float, 6>> camera; // x y z distance yaw pitch
     std::string teleport;                       // teleport here 5 s after logging in ("home" too)
-    std::optional<float> walk;     // walk this way (degrees from east) once in (after --teleport)
-    std::optional<Uuid> skyAsset; // a sky settings asset instead of the region's
-    std::optional<float> dayTime;  // a fixed time of day, 0..1 (0.5 is midday in most cycles)
-    bool shadows = true;           // --no-shadows: off (for comparing)
-    uint32_t textureMemory = 2048; // --texture-memory: GPU memory for textures, MiB
-    // --bandwidth: downstream bandwidth to ask regions for, kbps (the official
-    // viewer's ThrottleBandwidthKBPS)
-    float bandwidth = session::kDefaultBandwidthKbps;
-    // For testing: point at this spot (fractions of the window, from the
-    // top left) instead of the mouse, and click there this many seconds in.
+    std::optional<float> walk; // walk this way (degrees from east) once in (after --teleport)
+    // Point at this spot (fractions of the window, from the top left)
+    // instead of the mouse, and click there this many seconds in.
     std::optional<std::array<float, 2>> pointer;
     std::optional<float> clickAt;
     // For finding why an avatar looks wrong: log it this many seconds in.
@@ -117,21 +91,35 @@ struct AppOptions
     float dumpAt = 45.0f;
     bool frontView = false; // --front-view: the camera close in front of our avatar
     Uuid pointAt;           // or at this object (its center)
-    // For testing: say this in local chat this many seconds in (typing
-    // for 3 seconds before).
+    // Say this in local chat this many seconds in (typing for 3 seconds
+    // before).
     std::string say;
     float sayAt = 20.0f;
-    bool occlusion = true; // --no-occlusion: draw what's hidden too
     // --stereo-benchmark [SIZE]: draw both eyes of a headset view, SIZE
     // pixels square each (2160), and log what it costs.
     uint32_t stereoSize = 0;
-    // --without shadows,lights,probes,glow,exposure,clusters,particles,water: leave passes out, to
-    // measure what they cost.
+    // --without shadows,lights,probes,glow,exposure,clusters,particles,water:
+    // leave passes out, to measure what they cost.
     std::vector<std::string> without;
 };
+#endif
 
-// Parses command-line arguments; returns nullopt (after printing usage) on error.
-std::optional<AppOptions> parseArguments(std::span<char*> args);
+// What the command line says for this run. Everything else is a setting
+// (ViewerSettings.hpp), set for a run with --setting NAME VALUE.
+struct AppOptions
+{
+    std::string loginUri;   // --grid: empty = Second Life main grid
+    bool gridGiven = false; // also over a login file's
+    std::string start;      // --start: last, home, Region[/x/y/z] (over login.start)
+    bool vr = false;        // --vr: show the world in a headset (OpenXR)
+#if defined(VIEWER_TEST_OPTIONS)
+    TestOptions test;
+#endif
+};
+
+// Parses command-line arguments, --setting's into `settings` (for this run,
+// not saved); returns nullopt (after printing usage) on error.
+std::optional<AppOptions> parseArguments(std::span<char*> args, Settings& settings);
 
 // Top-level owner of everything in the process. There are no singletons: every
 // subsystem is a member here (or of something owned here) and is handed
@@ -147,7 +135,10 @@ std::optional<AppOptions> parseArguments(std::span<char*> args);
 class App
 {
 public:
-    static std::unique_ptr<App> create(const AppOptions& options);
+    // `settings`: kept (and saved) while the app runs; most of what it
+    // starts with is read from them.
+    static std::unique_ptr<App> create(const AppOptions& options,
+                                       std::unique_ptr<Settings> settings);
     ~App() = default;
 
     App(const App&) = delete;
@@ -159,6 +150,9 @@ private:
     App() = default;
 
     void drawUi();
+    // Puts settings that changed (their names) into effect; those read only
+    // at the start wait for the next.
+    void applySettings(const std::vector<std::string>& names);
     void drawFpsOverlay();
     void handleLoginAction(LoginAction action);
     // Wears the Current Outfit Folder's attachments the region didn't
@@ -186,7 +180,7 @@ private:
     // Our avatar's position, in global meters; nothing until we see it.
     std::optional<glm::dvec3> agentGlobalPosition();
     void drawTeleportWindow();
-    // --developer: the debugging windows (stats, the FPS overlay, the
+    // developer.windows: the debugging windows (stats, the FPS overlay, the
     // texture browser, teleport, environment).
     void drawDeveloperWindows();
     bool developer_ = false;
@@ -253,7 +247,7 @@ private:
         float loggedScale = 1.0f;
     };
     Vr vr_;
-    std::optional<float> vrEyeHeight_; // --vr-eye-height
+    std::optional<float> vrEyeHeight_; // vr.eye_height (nothing: measured)
     // How much the headset's movements are scaled this frame (Vr::scale).
     float vrScale(const xr::HeadsetFrame& frame) const;
     // A pose from the headset's origin into the scene.
@@ -264,6 +258,9 @@ private:
     }
     // Our avatar's IK from the headset and controllers.
     void updateVrIk(const render::Scene& scene, const Uuid& self);
+    // The settings (settings.llsd): before the main menu, whose Settings
+    // tab shows them, so they outlive it.
+    std::unique_ptr<Settings> settings_;
     std::unique_ptr<ui::ImGuiLayer> ui_;
     // The viewer's own interface (RmlUi), and its main menu (before it goes).
     std::unique_ptr<gui::Gui> gui_;
@@ -279,6 +276,8 @@ private:
     std::optional<uint64_t> keyboardForDialog_;
     // Or into a chat conversation (ChatView::kNearby, or a session's id).
     std::optional<std::string> keyboardForChat_;
+    // Or a setting's (its name), asked for on the Settings tab.
+    std::optional<std::string> keyboardForSetting_;
     void updateScriptDialogs();
     // A script's notice or an offer waits (the notice page shows).
     bool noticeWaiting() const;
@@ -327,9 +326,9 @@ private:
     // panels.
     static constexpr uint64_t kHomeRegion = (uint64_t{256000} << 32) | uint64_t{256000};
     std::filesystem::path homeScenePath_;
-    // The built-in one (viewerconfig's replaces it, unless --home-scene).
+    // The built-in one (viewerconfig's replaces it, unless paths.home_scene).
     std::filesystem::path builtInHomeScene_;
-    bool homeSceneGiven_ = false;   // --home-scene
+    bool homeSceneGiven_ = false;   // paths.home_scene
     uint64_t homeSceneVersion_ = 0; // viewerconfig's, loaded
     std::optional<world::HomeScene> home_;
     std::shared_ptr<const world::World> homeWorld_;

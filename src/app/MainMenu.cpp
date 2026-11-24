@@ -84,9 +84,11 @@ std::string groupThousands(int32_t value)
 } // namespace
 
 std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinations,
-                                           GridPopulation& population, InventoryBrowser& inventory)
+                                           GridPopulation& population, InventoryBrowser& inventory,
+                                           Settings& settings)
 {
     std::unique_ptr<MainMenu> menu(new MainMenu);
+    menu->settings_ = std::make_unique<SettingsView>(settings);
     menu->inventory_ = &inventory;
     menu->destinations_ = &destinations;
     menu->population_ = &population;
@@ -99,7 +101,7 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
                    {"people", "People"},       {"destinations", "Destinations"},
                    {"inventory", "Inventory"}, {"outfits", "Outfits"},
                    {"parcel", "Parcel"},       {"media", "Media"},
-                   {"options", "Options"},     {"about", "About"}};
+                   {"settings", "Settings"},   {"about", "About"}};
     menu->readLicenses();
     menu->tabName_ = "Home";
 
@@ -364,9 +366,11 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
                                           const Rml::VariantList&) { m->logOut_ = true; });
     m->chat_.bind(model);
     m->people_.bind(model);
+    m->settings_->bind(model);
     menu->model_ = model.GetModelHandle();
     m->chat_.setHandle(menu->model_);
     m->people_.setHandle(menu->model_);
+    m->settings_->setHandle(menu->model_);
 
     if(!menu->surface_->load("main_menu.rml"))
     {
@@ -976,6 +980,10 @@ void MainMenu::update(const Status& status)
     if(tab_ == "outfits")
     {
         updateOutfits(status);
+    }
+    if(tab_ == "settings")
+    {
+        settings_->update(status.headset);
     }
     // The license picked on About.
     if(license_ != shownLicense_ && license_ >= 0 && license_ < static_cast<int>(licenses_.size()))

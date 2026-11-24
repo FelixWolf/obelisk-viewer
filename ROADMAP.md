@@ -62,8 +62,9 @@ sound yet.
   into images, as HUDs are, would let the same UI be a screen overlay on
   desktop and panels in VR.
 - ★ Login screen: an island with trees, and Second Life grid stats
-- Settings in a config file instead of hard-coded parameters, and key
-  bindings
+- Settings in a config file instead of hard-coded parameters (done:
+  settings.llsd beside accounts.llsd, defined in ViewerSettings.cpp, on the
+  main menu's Settings tab), and key bindings
 
 ## VR
 

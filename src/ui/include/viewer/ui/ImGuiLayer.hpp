@@ -4,7 +4,9 @@
 
 #include <SDL3/SDL_events.h>
 
+#include <filesystem>
 #include <memory>
+#include <string>
 
 struct ImGuiContext;
 
@@ -19,7 +21,10 @@ namespace viewer::ui
 class ImGuiLayer
 {
 public:
-    static std::unique_ptr<ImGuiLayer> create(SDL_Window* window, render::Renderer& renderer);
+    // `iniFile`: where ImGui keeps its windows' places and sizes (in the
+    // user's settings folder, not the working directory); empty, nowhere.
+    static std::unique_ptr<ImGuiLayer> create(SDL_Window* window, render::Renderer& renderer,
+                                              const std::filesystem::path& iniFile);
     ~ImGuiLayer();
 
     ImGuiLayer(const ImGuiLayer&) = delete;
@@ -47,6 +52,7 @@ private:
     explicit ImGuiLayer(ImGuiContext* context);
 
     ImGuiContext* context_ = nullptr;
+    std::string iniFile_; // io.IniFilename points into it
 };
 
 } // namespace viewer::ui

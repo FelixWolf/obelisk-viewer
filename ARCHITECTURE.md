@@ -143,8 +143,8 @@ as a power of two from 32 to 2048 (or whole). It grows at once and shrinks
 once a smaller size has done for 5 s. The KTX2 keeps every level, so a new
 size is a read of only the levels wanted (`maxDimension`), never a new
 decode. Only the copies asked for are uploaded (sRGB color, linear data, or
-for `data()` a CPU copy alone). GPU memory has a budget (`--texture-memory`,
-2048 MiB by default): over it, the least recently drawn textures not drawn
+for `data()` a CPU copy alone). GPU memory has a budget (the `graphics.texture_memory`
+setting, 2048 MiB by default): over it, the least recently drawn textures not drawn
 for 120 frames are evicted; if what's in view still doesn't fit, every
 texture is loaded at half the size (up to 1/16, every 2 s), back up once
 under half the budget for 10 s. Reads in flight (16) and decoded bytes
@@ -177,7 +177,7 @@ mode (default), a mask is cut out if the face is opaque, doesn't glow and
 isn't rigged (LLFace::canRenderAsMask), otherwise blended. A wholly
 transparent texture (default or blend) isn't drawn at all, only picked if
 clicking it does something. The cache root defaults to
-`$XDG_CACHE_HOME/viewer` (or `~/.cache/viewer`); override it with `--cache-dir`.
+`$XDG_CACHE_HOME/viewer` (or `~/.cache/viewer`); override it with the `paths.cache` setting.
 
 ## Building
 
@@ -185,10 +185,10 @@ clicking it does something. The cache root defaults to
 git submodule update --init                 # the message template
 ./build.sh linux release                    # cmake --preset release && cmake --build --preset release
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
-./build/release/bin/viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI]
-    [--login-file PATH] [--start last|home|Region/x/y/z|secondlife://...] [--test-scene]
-    [--pbr-terrain] [--no-vsync] [--screenshot OUT.png [--screenshot-delay S]]
-    [--camera "X Y Z DISTANCE YAW PITCH"] [--texture-memory MIB] [--bandwidth KBPS]
+./build/release/bin/viewer [--grid LOGIN_URI] [--start last|home|Region/x/y/z|secondlife://...]
+    [--vr] [--setting NAME VALUE]...
+    # testing (Debug and RelWithDebInfo builds only): [--login-file PATH]
+    # [--screenshot OUT.png [--screenshot-delay S]] [--camera "X Y Z DISTANCE YAW PITCH"] ...
 ./build/release/bin/logintest --login-file ~/.config/viewer/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
 ```
@@ -213,13 +213,23 @@ the run before kept as `viewer.old.log`.
 `wine build/windows-release/bin/viewer.exe` runs it; `ctest` runs the
 tests through Wine.
 
+Settings are defined in `src/app/ViewerSettings.cpp` (type, default,
+range, page) and kept in `settings.llsd` (pretty-printed LLSD notation,
+only what differs from the defaults) beside the saved accounts' list; the
+main menu's Settings tab edits them, except hidden ones (paths, testing),
+set in the file. `--setting NAME VALUE` sets any for one run without
+saving it; an unknown name prints them all. The testing and measuring
+options (`--login-file`, `--screenshot`, `--stereo-benchmark`, ...) are
+only in Debug and RelWithDebInfo builds (`VIEWER_TEST_OPTIONS`), not
+Release.
+
 Package sources are cached in `build/_cpm-cache` unless the `CPM_SOURCE_CACHE`
 environment variable is set. Debug builds turn on SDL GPU validation; on Vulkan
 this only does something if the Khronos validation layer is installed. They
 compile with `-Og`: unoptimized, the per-object math alone holds a busy
 region under 20 FPS. Release builds keep frame pointers, so
 `perf record --call-graph fp` attributes time to callers cheaply.
-`--no-vsync` shows how fast frames really are. `FrameProfile` times each
+`--setting graphics.vsync false` shows how fast frames really are. `FrameProfile` times each
 stage of the main thread's frame (session, textures, acquire, loading,
 terrain, avatars, objects, ui, render, submit); the FPS overlay shows the
 averages, and the screenshot log reports the frame rate, the averages and
@@ -321,7 +331,7 @@ After login the session is in several simulators at once. Each one is a
    session is `Connected`.
 
    Throttles (`AgentThrottle`) work as the official viewer's: a bandwidth
-   setting (`--bandwidth`, `Session::setBandwidth`; its
+   setting (`network.bandwidth`, `Session::setBandwidth`; its
    ThrottleBandwidthKBPS, 3000 by default), of which we ask for up to 1.5
    times (regions rarely fill every category at once), split across
    resend, land, wind, cloud, task, texture and asset as its presets
@@ -494,8 +504,8 @@ it never comes back to the CPU. Skies made for PBR (with
 2 sqrt(gamma); older skies get neither dynamic exposure nor tonemapping,
 as in the official viewer (RenderSkyAutoAdjustLegacy off). The tonemap
 dithers its output so the sky's slow gradients don't band. The Environment window shows the day cycle
-and can fix the time of day; `--day-time 0..1` does that from the command
-line.
+and can fix the time of day; the hidden `world.day_time` setting (0..1) does
+that too (`--setting world.day_time 0.5`).
 
 The sun and moon are textured quads as the official viewer's heavenly
 bodies (llvosky.cpp updateHeavenlyBodyGeometry, sunDiscF.glsl, moonF.glsl),
@@ -531,7 +541,7 @@ objects, rigged attachments, avatars and trees behind walls are skipped
 before any work (`ObjectView` asks first, with a generous radius). Hidden
 things still go into reflection probes that see them, and into shadow maps
 only if they're big (8 m radius): smaller ones behind a wall rarely cast a
-shadow into view. `--no-occlusion` turns it off.
+shadow into view. The `graphics.occlusion` setting turns it off.
 
 ### Instanced draws
 
@@ -578,7 +588,7 @@ within the 11.1 ms; now the larger of the two has to fit.
 
 When a frame is late anyway, SteamVR reprojects the last one to where the
 head has turned. So that it has image to show at the edges then, each eye
-is drawn wider than the display (overscan: `--vr-overscan PERCENT` per
+is drawn wider than the display (overscan: the `vr.overscan` setting, percent a
 side, 10 by default; the swapchains bigger to match, at the same pixels to
 the degree) and handed back with that wider field of view, which the
 runtime fits to the display.
@@ -587,7 +597,7 @@ The headset's movements are scaled to the avatar's size: by its standing
 eye height (unanimated, rigged mesh joint positions included) over the
 wearer's, which is the highest the head has been above the stage space's
 floor (heights under 1 m or over 2.3 m, a headset on a desk or a shelf,
-not counted), or `--vr-eye-height METRES` (0: not scaled). The head's and
+not counted), or the hidden `vr.eye_height` setting, metres (0: not scaled). The head's and
 eyes' positions (so their distance apart: a smaller avatar sees the world
 bigger) and the controllers' are scaled about the headset's origin.
 
@@ -737,14 +747,14 @@ the cursor; it's free while the menu is open).
 ### The viewer's own interface (RmlUi)
 
 The interface people use (not the ImGui debug windows, shown only with
-`--developer`: stats, the FPS overlay, the texture browser, teleport,
+the `developer.windows` setting: stats, the FPS overlay, the texture browser, teleport,
 environment, the session's details (regions, circuits, traffic) and the
 worn mesh inspector, which reports what was decided for each face of the
 rigged mesh we wear (alpha mode, its legacy material, mirroring); ImGui
 still draws the login window if the interface can't be set up) is made with RmlUi
 (`viewer::gui`, src/gui): pages written as documents (RML, like HTML) and
 style sheets (RCSS, like CSS) in `assets/ui`, read at run time and copied
-next to the program. `--ui-dir assets/ui` reads them from the source
+next to the program. `--setting paths.ui assets/ui` reads them from the source
 folder instead, and F5 reads them again, so they can be edited while the
 viewer runs.
 - `gui::Gui` sets RmlUi up: its system interface (time, log, clipboard,
@@ -794,7 +804,7 @@ viewer runs.
   Log out is on the main menu's Home tab. Screenshots are read back at the
   frame's end, so they show the pages over the window too.
 - The home scene (`world::loadHomeScene`, `assets/home.scene`, or
-  `--home-scene PATH`) is the lobby's scene: binary LLSD that
+  the `paths.home_scene` setting) is the lobby's scene: binary LLSD that
   `default_scene/sceneConvert.py` makes from an OXP export, shaped like a
   simulator's state (terrain heights, its textures and water, linksets of
   prims). It becomes the updates a region would send, applied to a
@@ -811,7 +821,7 @@ viewer runs.
   +Y) and the panels (facing their +Y). F5 in the lobby reads it again.
 - viewerconfig (`ViewerConfig`; the contract is `docs/viewerconfig-api.md`)
   is the project's own web service, asked instead of Linden Lab's sites
-  (`--viewerconfig URL`, or `off`): its config (flags, settings' defaults,
+  (the `network.viewerconfig` setting, or `off`): its config (flags, settings' defaults,
   the newest release, which home scene) at startup, its news and grid
   status when the lobby shows and every so often while it does. Requests
   carry nothing but the User-Agent; flags and settings are picked for our
@@ -819,7 +829,7 @@ viewer runs.
   cache folder's `viewerconfig/` with its ETag (sent back for a 304) and
   shown until a newer one comes. A home scene it names is downloaded
   once, checked against its size and SHA-256, and replaces the built-in
-  one (not one given with `--home-scene`).
+  one (not one set with `paths.home_scene`).
 - The lobby's boards (`LobbyBoards`, `news.rml` and `grid_status.rml`)
   show viewerconfig's news and grid status on panels at the scene's
   `News` and `GridStatus` markers. They're `VrControls`' standing pages:
@@ -1283,8 +1293,8 @@ Surfaces pick the cascade by their depth along the view, push the lookup
 shadow scales the sun's light only, and fades out over the last 10% of the
 distance. Measured at Ahern in late afternoon: about 17,000 shadow draws
 across the cascades, frames 3.0 ms without shadows, 5.0-7.3 ms with (most
-of it recording draws). `--no-shadows` and the Environment window turn
-them off.
+of it recording draws). The `graphics.shadows` setting and the Environment
+window turn them off.
 
 ### Local lights
 
@@ -2064,7 +2074,7 @@ before the joints become matrices (so attachments and rigged mesh follow).
 
 First person is the official viewer's mouselook (`App::setFirstPerson`). M
 toggles it; zooming all the way in enters it and zooming out leaves it;
-`--first-person` starts in it.
+the hidden `camera.first_person` setting starts in it.
 - The camera sits between our eyes (`AvatarView::eyePosition`, taken
   before the head shrinks), 5 cm near plane. The mouse is captured and turns
   it with no button held, and the body faces where it looks.

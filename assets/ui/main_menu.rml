@@ -407,7 +407,72 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'chat' &amp;&amp; tab != 'people' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'about'" class="soon">
+        <!-- Settings: the pages on the left, the chosen one's settings on the
+             right (scrolling), each as its type has it: a check box, a
+             number with - and +, a text field, or keys for its choices. -->
+        <div data-if="tab == 'settings'" class="chat settings">
+            <div class="chat-list settings-pages">
+                <div data-for="p, pi : settingPages"
+                     data-attr-class="'conversation' + (pi == settingPage ? ' active' : '')"
+                     data-event-click="settingPage = pi">
+                    <span class="conversation-name">{{ p }}</span>
+                </div>
+                <div class="settings-file">Saved in {{ settingsFile }}</div>
+            </div>
+            <div class="chat-main">
+                <div class="chat-head"><div class="chat-title">{{ settingPageName }}</div></div>
+                <div class="settings-rows">
+                    <div class="setting-block" data-for="s, si : settingRows">
+                        <h3 class="setting-heading" data-if="s.heading != ''">{{ s.heading }}</h3>
+                        <div class="setting">
+                            <div class="check setting-main" data-if="s.kind == 'check'" data-class-on="s.on"
+                                 data-event-click="settingToggle(si)">
+                                <div class="box"></div>
+                                <div class="setting-text">
+                                    <div class="setting-label">{{ s.label }}</div>
+                                    <div class="setting-help">{{ s.description }}</div>
+                                    <div class="setting-restart" data-if="s.restart">Takes effect when the viewer next starts.</div>
+                                    <div class="setting-restart" data-if="s.overridden">Set for this run by --setting; changing it here keeps the change.</div>
+                                </div>
+                            </div>
+                            <div class="setting-main" data-if="s.kind != 'check'">
+                                <div class="setting-text">
+                                    <div class="setting-label">{{ s.label }}</div>
+                                    <div class="setting-help">{{ s.description }}</div>
+                                    <div class="setting-restart" data-if="s.restart">Takes effect when the viewer next starts.</div>
+                                    <div class="setting-restart" data-if="s.overridden">Set for this run by --setting; changing it here keeps the change.</div>
+                                </div>
+                            </div>
+                            <div class="setting-control" data-if="s.kind == 'number'">
+                                <div class="key step" data-event-click="settingStep(si, -1)">−</div>
+                                <input type="text" class="field setting-number" data-if="!settingsHeadset"
+                                       data-class-invalid="s.error != ''" data-value="s.text"
+                                       data-event-blur="settingDone(si)" data-event-keydown="settingKey(si)"/>
+                                <div class="setting-shown setting-number" data-if="settingsHeadset">{{ s.text }}</div>
+                                <div class="key step" data-event-click="settingStep(si, 1)">+</div>
+                                <div class="setting-unit">{{ s.unit }}</div>
+                            </div>
+                            <div class="setting-control" data-if="s.kind == 'choice'">
+                                <div class="toggle key" data-for="c, ci : s.choices" data-class-on="c.value == s.chosen"
+                                     data-event-click="settingChoose(si, ci)">{{ c.label }}</div>
+                            </div>
+                            <div class="key reset" data-style-visibility="s.isDefault ? 'hidden' : 'visible'"
+                                 data-event-click="settingReset(si)">Reset</div>
+                        </div>
+                        <div class="setting-wide" data-if="s.kind == 'text'">
+                            <input type="text" class="field setting-field" data-if="!settingsHeadset"
+                                   data-class-invalid="s.error != ''" data-value="s.text"
+                                   data-event-blur="settingDone(si)" data-event-keydown="settingKey(si)"/>
+                            <div class="setting-shown setting-field" data-if="settingsHeadset">{{ s.text == '' ? s.placeholder : s.text }}</div>
+                            <div class="key type" data-if="settingsHeadset" data-event-click="settingKeyboard(si)">Type</div>
+                        </div>
+                        <div class="setting-error" data-if="s.error != ''">{{ s.error }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div data-if="tab != 'home' &amp;&amp; tab != 'chat' &amp;&amp; tab != 'people' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'settings' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

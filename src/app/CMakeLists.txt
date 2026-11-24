@@ -65,6 +65,9 @@ add_executable(viewer
   SoundManager.cpp
   People.cpp
   PeopleView.cpp
+  Settings.cpp
+  SettingsView.cpp
+  ViewerSettings.cpp
   CurrentOutfit.cpp
   ParcelInfo.cpp
   MainMenu.cpp
@@ -136,8 +139,13 @@ if(VIEWER_VELOPACK)
   endif()
 endif()
 
+# VIEWER_TEST_OPTIONS: the command line's testing and measuring options
+# (--login-file, --screenshot, --stereo-benchmark, ...; App.hpp's
+# TestOptions) in Debug and RelWithDebInfo builds (the presets'), not in
+# Release.
 target_compile_definitions(viewer PRIVATE
   $<$<CONFIG:Debug>:VIEWER_GPU_DEBUG=1>
+  $<$<CONFIG:Debug,RelWithDebInfo>:VIEWER_TEST_OPTIONS=1>
   VIEWER_VERSION="${PROJECT_VERSION}"
 )
 

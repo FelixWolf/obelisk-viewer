@@ -89,250 +89,226 @@ glm::vec3 regionOffset(uint64_t region, uint64_t origin)
 
 void printUsage()
 {
-    std::println(stderr,
-                 "usage: viewer [--cache-dir PATH] [--import-textures DIR] [--grid LOGIN_URI] "
-                 "[--login-file PATH] [--no-vsync] [--start LOCATION] [--teleport LOCATION] "
-                 "[--walk DEGREES] [--day-time 0..1] [--sky ASSET] [--no-shadows] [--texture-memory MIB] "
-                 "[--bandwidth KBPS] [--pointer X,Y] [--point-at UUID] [--click-at SECONDS] "
-                 "[--say TEXT] [--say-at SECONDS] [--dump-avatar NAME|self|UUID] [--dump-at "
-                 "SECONDS] [--front-view] [--no-occlusion] [--stereo-benchmark [SIZE]] "
-                 "[--first-person] [--vr] [--vr-overscan PERCENT] [--vr-eye-height METRES] "
-                 "[--ui-dir DIR] [--home-scene PATH] [--viewerconfig URL|off] "
-                 "[--main-menu [TAB]] [--developer] "
-                 "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
+    std::println(stderr, "usage: viewer [--grid LOGIN_URI] [--start last|home|Region/x/y/z] [--vr] "
+                         "[--setting NAME VALUE]...");
+#if defined(VIEWER_TEST_OPTIONS)
+    std::println(
+        stderr,
+        "  testing: [--login-file PATH] [--import-textures DIR] [--main-menu [TAB]] "
+        "[--screenshot OUT.png [--screenshot-delay S]] [--camera \"X Y Z DISTANCE YAW PITCH\"] "
+        "[--teleport LOCATION] [--walk DEGREES] [--pointer X,Y] [--point-at UUID] "
+        "[--click-at SECONDS] [--say TEXT] [--say-at SECONDS] [--dump-avatar NAME|self|UUID] "
+        "[--dump-at SECONDS] [--front-view] [--stereo-benchmark [SIZE]] "
+        "[--without shadows,lights,probes,glow,exposure,clusters,particles,water]");
+#endif
 }
+
+// What --setting can set: every setting's name, type and default.
+void printSettings(const Settings& settings)
+{
+    std::println(stderr, "settings (--setting NAME VALUE; * hidden from the Settings tab):");
+    for(const SettingDefinition& d : settings.definitions())
+    {
+        static constexpr const char* kTypes[] = {"bool",   "integer", "real",
+                                                 "string", "uuid",    "choice"};
+        std::string type = kTypes[static_cast<size_t>(d.type)];
+        if(d.type == SettingType::Choice)
+        {
+            for(size_t i = 0; i < d.choices.size(); i++)
+            {
+                type += (i == 0 ? " " : "|") + d.choices[i].value;
+            }
+        }
+        const std::string fallback = d.type == SettingType::Uuid && d.fallback.asUuid().isNull()
+                                         ? std::string()
+                                     : d.type == SettingType::Boolean
+                                         ? std::string(d.fallback.asBoolean() ? "true" : "false")
+                                         : d.fallback.asString();
+        std::println(stderr, "  {}{} ({}; default \"{}\")", d.hidden ? "*" : "", d.name, type,
+                     fallback);
+    }
+}
+
+#if defined(VIEWER_TEST_OPTIONS)
+enum class Parsed
+{
+    NotOne, // not a test option
+    Taken,
+    Bad,
+};
+
+// A testing option (args[i], and its value after it), into `t`.
+Parsed parseTestOption(std::span<char*> args, size_t& i, TestOptions& t)
+{
+    const std::string_view arg = args[i];
+    const bool hasValue = i + 1 < args.size();
+    if(arg == "--import-textures" && hasValue)
+    {
+        t.importDirectory = args[++i];
+    }
+    else if(arg == "--camera" && hasValue)
+    {
+        std::array<float, 6> c{};
+        if(std::sscanf(args[++i], "%f %f %f %f %f %f", &c[0], &c[1], &c[2], &c[3], &c[4], &c[5]) !=
+           6)
+        {
+            return Parsed::Bad;
+        }
+        t.camera = c;
+    }
+    else if(arg == "--main-menu")
+    {
+        t.mainMenu = true;
+        // And a tab to show ("destinations", ...).
+        if(hasValue && !std::string_view(args[i + 1]).starts_with("--"))
+        {
+            t.mainMenuTab = args[++i];
+        }
+    }
+    else if(arg == "--screenshot" && hasValue)
+    {
+        t.screenshotPath = args[++i];
+    }
+    else if(arg == "--screenshot-delay" && hasValue)
+    {
+        t.screenshotDelay = std::strtof(args[++i], nullptr);
+    }
+    else if(arg == "--login-file" && hasValue)
+    {
+        t.loginFile = args[++i];
+    }
+    else if(arg == "--pointer" && hasValue)
+    {
+        std::array<float, 2> p{};
+        if(std::sscanf(args[++i], "%f,%f", &p[0], &p[1]) != 2)
+        {
+            return Parsed::Bad;
+        }
+        t.pointer = p;
+    }
+    else if(arg == "--point-at" && hasValue)
+    {
+        const auto id = Uuid::parse(args[++i]);
+        if(!id)
+        {
+            return Parsed::Bad;
+        }
+        t.pointAt = *id;
+    }
+    else if(arg == "--stereo-benchmark")
+    {
+        t.stereoSize = 2160;
+        if(hasValue && args[i + 1][0] != '-')
+        {
+            t.stereoSize = static_cast<uint32_t>(std::strtoul(args[++i], nullptr, 10));
+        }
+    }
+    else if(arg == "--without" && hasValue)
+    {
+        std::string_view list = args[++i];
+        while(!list.empty())
+        {
+            const size_t comma = list.find(',');
+            t.without.emplace_back(list.substr(0, comma));
+            list = comma == std::string_view::npos ? std::string_view() : list.substr(comma + 1);
+        }
+    }
+    else if(arg == "--say" && hasValue)
+    {
+        t.say = args[++i];
+    }
+    else if(arg == "--say-at" && hasValue)
+    {
+        t.sayAt = std::strtof(args[++i], nullptr);
+    }
+    else if(arg == "--click-at" && hasValue)
+    {
+        t.clickAt = std::strtof(args[++i], nullptr);
+    }
+    else if(arg == "--dump-avatar" && hasValue)
+    {
+        t.dumpAvatar = args[++i];
+    }
+    else if(arg == "--dump-at" && hasValue)
+    {
+        t.dumpAt = std::strtof(args[++i], nullptr);
+    }
+    else if(arg == "--front-view")
+    {
+        t.frontView = true;
+    }
+    else if(arg == "--teleport" && hasValue)
+    {
+        t.teleport = args[++i];
+    }
+    else if(arg == "--walk" && hasValue)
+    {
+        t.walk = std::strtof(args[++i], nullptr);
+    }
+    else
+    {
+        return Parsed::NotOne;
+    }
+    return Parsed::Taken;
+}
+#endif
 
 } // namespace
 
-std::optional<AppOptions> parseArguments(std::span<char*> args)
+std::optional<AppOptions> parseArguments(std::span<char*> args, Settings& settings)
 {
     AppOptions options;
     for(size_t i = 1; i < args.size(); i++)
     {
         const std::string_view arg = args[i];
         const bool hasValue = i + 1 < args.size();
-        if(arg == "--cache-dir" && hasValue)
+        if(arg == "--setting" && i + 2 < args.size())
         {
-            i++;
-            options.cacheDirectory = args[i];
-        }
-        else if(arg == "--import-textures" && hasValue)
-        {
-            i++;
-            options.importDirectory = args[i];
-        }
-        else if(arg == "--camera" && hasValue)
-        {
-            i++;
-            std::array<float, 6> c{};
-            if(std::sscanf(args[i], "%f %f %f %f %f %f", &c[0], &c[1], &c[2], &c[3], &c[4],
-                           &c[5]) != 6)
+            // For this run (not saved).
+            const std::string_view name = args[i + 1];
+            const std::string wrong = settings.override(name, args[i + 2]);
+            if(!wrong.empty())
             {
-                printUsage();
+                std::println(stderr, "--setting {}: {}", name, wrong);
+                if(!settings.definition(name))
+                {
+                    printSettings(settings);
+                }
                 return std::nullopt;
             }
-            options.camera = c;
-        }
-        else if(arg == "--test-scene")
-        {
-            options.testScene = true;
+            i += 2;
         }
         else if(arg == "--start" && hasValue)
         {
-            i++;
-            options.start = args[i];
-        }
-        else if(arg == "--no-vsync")
-        {
-            options.vsync = false;
-        }
-        else if(arg == "--first-person")
-        {
-            options.firstPerson = true;
+            options.start = args[++i];
         }
         else if(arg == "--vr")
         {
             options.vr = true;
         }
-        else if(arg == "--vr-overscan" && hasValue)
-        {
-            i++;
-            options.vrOverscan = std::strtof(args[i], nullptr) / 100.0f;
-        }
-        else if(arg == "--developer")
-        {
-            options.developer = true;
-        }
-        else if(arg == "--main-menu")
-        {
-            options.mainMenu = true;
-            // And a tab to show ("destinations", ...).
-            if(hasValue && !std::string_view(args[i + 1]).starts_with("--"))
-            {
-                options.mainMenuTab = args[++i];
-            }
-        }
-        else if(arg == "--ui-dir" && hasValue)
-        {
-            i++;
-            options.uiDirectory = args[i];
-        }
-        else if(arg == "--home-scene" && hasValue)
-        {
-            i++;
-            options.homeScene = args[i];
-        }
-        else if(arg == "--viewerconfig" && hasValue)
-        {
-            i++;
-            options.viewerConfig =
-                std::string_view(args[i]) == "off" ? std::string() : std::string(args[i]);
-        }
-        else if(arg == "--vr-eye-height" && hasValue)
-        {
-            i++;
-            options.vrEyeHeight = std::strtof(args[i], nullptr);
-        }
-        else if(arg == "--pbr-terrain")
-        {
-            options.pbrTerrain = true;
-        }
-        else if(arg == "--screenshot" && hasValue)
-        {
-            i++;
-            options.screenshotPath = args[i];
-        }
-        else if(arg == "--screenshot-delay" && hasValue)
-        {
-            i++;
-            options.screenshotDelay = std::strtof(args[i], nullptr);
-        }
-        else if(arg == "--login-file" && hasValue)
-        {
-            i++;
-            options.loginFile = args[i];
-        }
-        else if(arg == "--pointer" && hasValue)
-        {
-            i++;
-            std::array<float, 2> p{};
-            if(std::sscanf(args[i], "%f,%f", &p[0], &p[1]) != 2)
-            {
-                printUsage();
-                return std::nullopt;
-            }
-            options.pointer = p;
-        }
-        else if(arg == "--point-at" && hasValue)
-        {
-            i++;
-            const auto id = Uuid::parse(args[i]);
-            if(!id)
-            {
-                printUsage();
-                return std::nullopt;
-            }
-            options.pointAt = *id;
-        }
-        else if(arg == "--stereo-benchmark")
-        {
-            options.stereoSize = 2160;
-            if(hasValue && args[i + 1][0] != '-')
-            {
-                i++;
-                options.stereoSize = static_cast<uint32_t>(std::strtoul(args[i], nullptr, 10));
-            }
-        }
-        else if(arg == "--without" && hasValue)
-        {
-            i++;
-            std::string_view list = args[i];
-            while(!list.empty())
-            {
-                const size_t comma = list.find(',');
-                options.without.emplace_back(list.substr(0, comma));
-                list =
-                    comma == std::string_view::npos ? std::string_view() : list.substr(comma + 1);
-            }
-        }
-        else if(arg == "--no-occlusion")
-        {
-            options.occlusion = false;
-        }
-        else if(arg == "--say" && hasValue)
-        {
-            i++;
-            options.say = args[i];
-        }
-        else if(arg == "--say-at" && hasValue)
-        {
-            i++;
-            options.sayAt = std::strtof(args[i], nullptr);
-        }
-        else if(arg == "--click-at" && hasValue)
-        {
-            i++;
-            options.clickAt = std::strtof(args[i], nullptr);
-        }
-        else if(arg == "--dump-avatar" && hasValue)
-        {
-            i++;
-            options.dumpAvatar = args[i];
-        }
-        else if(arg == "--front-view")
-        {
-            options.frontView = true;
-        }
-        else if(arg == "--dump-at" && hasValue)
-        {
-            i++;
-            options.dumpAt = std::strtof(args[i], nullptr);
-        }
-        else if(arg == "--teleport" && hasValue)
-        {
-            i++;
-            options.teleport = args[i];
-        }
-        else if(arg == "--walk" && hasValue)
-        {
-            i++;
-            options.walk = std::strtof(args[i], nullptr);
-        }
-        else if(arg == "--no-shadows")
-        {
-            options.shadows = false;
-        }
-        else if(arg == "--texture-memory" && hasValue)
-        {
-            i++;
-            options.textureMemory =
-                static_cast<uint32_t>(std::clamp(std::strtol(args[i], nullptr, 10), 16L, 65536L));
-        }
-        else if(arg == "--bandwidth" && hasValue)
-        {
-            i++;
-            // The official viewer's range (getMaxBandwidthKbps).
-            options.bandwidth = std::clamp(std::strtof(args[i], nullptr), 100.0f, 10000.0f);
-        }
-        else if(arg == "--sky" && hasValue)
-        {
-            i++;
-            options.skyAsset = Uuid::parse(args[i]);
-        }
-        else if(arg == "--day-time" && hasValue)
-        {
-            i++;
-            options.dayTime = std::strtof(args[i], nullptr);
-        }
         else if(arg == "--grid" && hasValue)
         {
-            i++;
-            options.loginUri = args[i];
+            options.loginUri = args[++i];
             options.gridGiven = true;
         }
         else
         {
+#if defined(VIEWER_TEST_OPTIONS)
+            const Parsed parsed = parseTestOption(args, i, options.test);
+            if(parsed == Parsed::Taken)
+            {
+                continue;
+            }
+            if(parsed == Parsed::Bad)
+            {
+                std::println(stderr, "{}: not a value it takes", arg);
+            }
+#endif
             printUsage();
+            if(arg == "--help" || arg == "--setting")
+            {
+                printSettings(settings);
+            }
             return std::nullopt;
         }
     }
@@ -347,9 +323,15 @@ App::SdlRuntime::~SdlRuntime()
     }
 }
 
-std::unique_ptr<App> App::create(const AppOptions& options)
+std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Settings> settings)
 {
     std::unique_ptr<App> app(new App());
+    app->settings_ = std::move(settings);
+    using namespace setting;
+    const Settings& config = *app->settings_;
+#if defined(VIEWER_TEST_OPTIONS)
+    const TestOptions& test = options.test;
+#endif
 
     if(!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
     {
@@ -370,10 +352,10 @@ std::unique_ptr<App> App::create(const AppOptions& options)
 #ifdef VIEWER_GPU_DEBUG
     renderOptions.gpuDebug = true;
 #endif
-    renderOptions.vsync = options.vsync;
+    renderOptions.vsync = config.get(kVsync);
     if(options.vr)
     {
-        app->headset_ = xr::Headset::prepare(options.vrOverscan);
+        app->headset_ = xr::Headset::prepare(static_cast<float>(config.get(kVrOverscan) / 100.0));
         renderOptions.deviceProperties = [headset = app->headset_.get()](SDL_PropertiesID props)
         { headset->addDeviceProperties(props); };
     }
@@ -389,7 +371,15 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         app->headset_.reset();
     }
 
-    app->ui_ = ui::ImGuiLayer::create(app->window_.get(), *app->renderer_);
+    {
+        // ImGui's window layout beside settings.llsd, not in the working
+        // directory (an installed viewer's may not be writable).
+        const fs::path settingsDir = Settings::defaultFile().parent_path();
+        std::error_code error;
+        fs::create_directories(settingsDir, error);
+        app->ui_ = ui::ImGuiLayer::create(app->window_.get(), *app->renderer_,
+                                          error ? fs::path() : settingsDir / "imgui.ini");
+    }
     if(!app->ui_)
     {
         return nullptr;
@@ -398,9 +388,9 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         // The viewer's own interface; without it, there's no main menu.
         const char* base = SDL_GetBasePath();
         gui::Gui::Options guiOptions;
-        guiOptions.documents = options.uiDirectory.empty()
-                                   ? fs::path(base ? base : "") / "assets" / "ui"
-                                   : options.uiDirectory;
+        const fs::path uiDirectory = config.get(kUiDirectory);
+        guiOptions.documents =
+            uiDirectory.empty() ? fs::path(base ? base : "") / "assets" / "ui" : uiDirectory;
         guiOptions.windowFormat = app->renderer_->swapchainFormat();
         app->gui_ = gui::Gui::create(app->renderer_->device(), guiOptions);
         if(app->gui_)
@@ -454,8 +444,9 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->jobs_ = std::make_unique<JobSystem>();
     app->j2kDecoder_ = image::createJ2kDecoder();
 
-    const fs::path cacheRoot =
-        options.cacheDirectory.empty() ? defaultCacheDirectory() : options.cacheDirectory;
+    const fs::path cacheRoot = config.get(kCacheDirectory).empty()
+                                   ? defaultCacheDirectory()
+                                   : fs::path(config.get(kCacheDirectory));
     // Every disk cache read and write goes through this (one file per entry
     // for now; see DiskCache.hpp).
     app->diskCache_ = std::make_unique<FileCache>(cacheRoot);
@@ -465,25 +456,39 @@ std::unique_ptr<App> App::create(const AppOptions& options)
               app->diskCache_->describe());
 
     app->textureBrowser_ = std::make_unique<TextureBrowser>(*app->textureCache_, *app->renderer_);
-    if(!options.importDirectory.empty())
+#if defined(VIEWER_TEST_OPTIONS)
+    if(!test.importDirectory.empty())
     {
-        app->textureBrowser_->importDirectory(options.importDirectory);
+        app->textureBrowser_->importDirectory(test.importDirectory);
     }
+#endif
 
     app->sceneAssets_ = std::make_unique<SceneAssets>(*app->renderer_);
     app->loadTerrainBlendRamp();
-    app->developer_ = options.developer;
-    app->showTestScene_ = options.testScene;
-    app->pbrTerrain_ = options.pbrTerrain;
+    app->developer_ = config.get(kDeveloper);
+    app->showTestScene_ = config.get(kTestScene);
+    app->pbrTerrain_ = config.get(kPbrTerrain);
     // In a headset, the view is from the avatar's eyes.
-    app->wantFirstPerson_ = options.firstPerson || app->headset_ != nullptr;
-    app->vrEyeHeight_ = options.vrEyeHeight;
+    app->wantFirstPerson_ = config.get(kFirstPerson) || app->headset_ != nullptr;
+    if(const double eyes = config.get(kVrEyeHeight); eyes >= 0.0)
+    {
+        app->vrEyeHeight_ = static_cast<float>(eyes);
+    }
     app->controls_.setMenu(app->radialMenu());
     app->controls_.setSubmit(
         [app = app.get()](const std::string& text)
         {
-            // A text box's reply, if the keyboard was opened for one (and
-            // it's still the one shown); else local chat.
+            // A setting's value, if it was opened for one (the Settings
+            // tab); a text box's reply, if for one (and it's still the one
+            // shown); else local chat.
+            if(const auto setting = std::exchange(app->keyboardForSetting_, std::nullopt))
+            {
+                if(app->mainMenu_)
+                {
+                    app->mainMenu_->settings().type(*setting, text);
+                }
+                return;
+            }
             const ScriptNotice* notice = app->scriptDialogs_.front();
             const auto forDialog = std::exchange(app->keyboardForDialog_, std::nullopt);
             if(forDialog && notice && notice->serial == *forDialog)
@@ -501,27 +506,29 @@ std::unique_ptr<App> App::create(const AppOptions& options)
             }
         });
     app->camera_.lookAt(glm::vec3(0.0f, -6.0f, 1.0f), 34.0f, 90.0f, 30.0f);
-    if(options.camera)
+#if defined(VIEWER_TEST_OPTIONS)
+    if(test.camera)
     {
-        const auto& c = *options.camera;
+        const auto& c = *test.camera;
         app->camera_.lookAt(glm::vec3(c[0], c[1], c[2]), c[3], c[4], c[5]);
     }
-    app->fixedCamera_ = options.camera.has_value();
-    app->pendingTeleport_ = options.teleport;
-    app->walkHeading_ = options.walk;
-    app->pointerOverride_ = options.pointer;
-    app->pointAt_ = options.pointAt;
-    app->clickAt_ = options.clickAt;
-    app->dumpAvatar_ = options.dumpAvatar;
-    app->dumpAt_ = options.dumpAt;
-    app->frontView_ = options.frontView;
-    app->say_ = options.say;
-    app->occlusion_ = options.occlusion;
-    app->stereoSize_ = options.stereoSize;
-    app->without_ = options.without;
-    app->sayAt_ = options.sayAt;
-    app->screenshotPath_ = options.screenshotPath;
-    app->screenshotDelay_ = options.screenshotDelay;
+    app->fixedCamera_ = test.camera.has_value();
+    app->pendingTeleport_ = test.teleport;
+    app->walkHeading_ = test.walk;
+    app->pointerOverride_ = test.pointer;
+    app->pointAt_ = test.pointAt;
+    app->clickAt_ = test.clickAt;
+    app->dumpAvatar_ = test.dumpAvatar;
+    app->dumpAt_ = test.dumpAt;
+    app->frontView_ = test.frontView;
+    app->say_ = test.say;
+    app->sayAt_ = test.sayAt;
+    app->stereoSize_ = test.stereoSize;
+    app->without_ = test.without;
+    app->screenshotPath_ = test.screenshotPath;
+    app->screenshotDelay_ = test.screenshotDelay;
+#endif
+    app->occlusion_ = config.get(kOcclusion);
     app->startTicks_ = SDL_GetTicksNS();
     app->lastFrameTicks_ = app->startTicks_;
 
@@ -531,13 +538,13 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->worldTextureCache_ =
         std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
     app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
-    app->environment_->setDayPosition(options.dayTime);
-    app->environment_->setSkyAsset(options.skyAsset);
-    app->shadows_ = options.shadows;
-    app->bandwidth_ = options.bandwidth;
+    // The rest of the settings that apply at once, as they change.
+    app->applySettings({std::string(kDayTime.name), std::string(kSkyAsset.name)});
+    app->shadows_ = config.get(kShadows);
+    app->bandwidth_ = static_cast<float>(config.get(kBandwidth));
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
                                                       *app->http_, *app->jobs_);
-    app->textures_->setBudget(uint64_t(options.textureMemory) << 20);
+    app->textures_->setBudget(uint64_t(config.get(kTextureMemory)) << 20);
     app->meshes_ =
         std::make_unique<MeshManager>(*app->http_, *app->jobs_, *app->renderer_, *app->diskCache_);
     app->materials_ = std::make_unique<MaterialManager>(*app->http_, *app->jobs_, *app->diskCache_);
@@ -550,8 +557,9 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     // The main menu (with the workers and the web, for its pages' pictures).
     app->viewerConfig_ = std::make_unique<ViewerConfig>(
         *app->http_, *app->jobs_,
-        ViewerConfig::Options{options.viewerConfig, cacheRoot / "viewerconfig", VIEWER_VERSION,
-                              std::string(platformName())});
+        ViewerConfig::Options{
+            config.get(kViewerConfig) == "off" ? std::string() : config.get(kViewerConfig),
+            cacheRoot / "viewerconfig", VIEWER_VERSION, std::string(platformName())});
     if(app->gui_)
     {
         app->boards_ =
@@ -562,7 +570,7 @@ std::unique_ptr<App> App::create(const AppOptions& options)
         }
         app->destinations_ = std::make_unique<Destinations>(*app->http_, *app->jobs_, *app->gui_);
         app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_, app->population_,
-                                          *app->inventoryBrowser_);
+                                          *app->inventoryBrowser_, *app->settings_);
         if(app->mainMenu_)
         {
             app->mainMenu_->setAvatarNames(
@@ -574,14 +582,16 @@ std::unique_ptr<App> App::create(const AppOptions& options)
                                                             : std::string();
                 });
         }
-        if(app->mainMenu_ && options.mainMenu)
+#if defined(VIEWER_TEST_OPTIONS)
+        if(app->mainMenu_ && test.mainMenu)
         {
             app->mainMenu_->setOpen(true);
-            if(!options.mainMenuTab.empty())
+            if(!test.mainMenuTab.empty())
             {
-                app->mainMenu_->showTab(options.mainMenuTab);
+                app->mainMenu_->showTab(test.mainMenuTab);
             }
         }
+#endif
     }
     if(!app->mainMenu_)
     {
@@ -622,10 +632,11 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     {
         const char* base = SDL_GetBasePath();
         app->builtInHomeScene_ = fs::path(base ? base : "") / "assets" / "home.scene";
-        app->homeSceneGiven_ = !options.homeScene.empty();
+        const fs::path homeScene = config.get(kHomeScene);
+        app->homeSceneGiven_ = !homeScene.empty();
         // viewerconfig's (from the last time) if it named one.
         app->homeSceneVersion_ = app->viewerConfig_->homeSceneVersion();
-        app->homeScenePath_ = app->homeSceneGiven_ ? options.homeScene
+        app->homeScenePath_ = app->homeSceneGiven_ ? homeScene
                               : !app->viewerConfig_->homeScene().empty()
                                   ? app->viewerConfig_->homeScene()
                                   : app->builtInHomeScene_;
@@ -636,6 +647,8 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
     app->soundAssets_ = std::make_unique<SoundAssets>(*app->http_, *app->jobs_, *app->diskCache_);
     app->sounds_ = std::make_unique<SoundManager>(audio::AudioEngine::create(), *app->soundAssets_);
+    // The settings the options don't carry (sound); the rest as given.
+    app->applySettings({std::string(setting::kMasterVolume.name)});
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
         const char* base = SDL_GetBasePath();
@@ -665,17 +678,17 @@ std::unique_ptr<App> App::create(const AppOptions& options)
     {
         log::warn("no login screen: the ImGui login panel instead");
     }
-    if(!options.start.empty())
+    // --start, or the setting.
+    const std::string start = options.start.empty() ? config.get(kStart) : options.start;
+    app->loginPanel_->setStart(start);
+    if(app->loginScreen_)
     {
-        app->loginPanel_->setStart(options.start);
-        if(app->loginScreen_)
-        {
-            app->loginScreen_->setStart(options.start);
-        }
+        app->loginScreen_->setStart(start);
     }
-    if(!options.loginFile.empty())
+#if defined(VIEWER_TEST_OPTIONS)
+    if(!test.loginFile.empty())
     {
-        if(auto credentials = session::readCredentialsFile(options.loginFile))
+        if(auto credentials = session::readCredentialsFile(test.loginFile))
         {
             if(options.gridGiven)
             {
@@ -691,8 +704,71 @@ std::unique_ptr<App> App::create(const AppOptions& options)
             log::error("{}", credentials.error());
         }
     }
+#endif
 
     return app;
+}
+
+void App::applySettings(const std::vector<std::string>& names)
+{
+    using namespace setting;
+    const Settings& s = *settings_;
+    for(const std::string& name : names)
+    {
+        if(name == kShadows.name)
+        {
+            shadows_ = s.get(kShadows);
+        }
+        else if(name == kOcclusion.name)
+        {
+            occlusion_ = s.get(kOcclusion);
+        }
+        else if(name == kPbrTerrain.name)
+        {
+            pbrTerrain_ = s.get(kPbrTerrain);
+        }
+        else if(name == kTextureMemory.name)
+        {
+            textures_->setBudget(uint64_t(s.get(kTextureMemory)) << 20);
+        }
+        else if(name == kMasterVolume.name || name == kSoundVolume.name)
+        {
+            sounds_->setVolumes(static_cast<float>(s.get(kMasterVolume)) / 100.0f,
+                                static_cast<float>(s.get(kSoundVolume)) / 100.0f);
+        }
+        else if(name == kStart.name)
+        {
+            loginPanel_->setStart(s.get(kStart));
+            if(loginScreen_)
+            {
+                loginScreen_->setStart(s.get(kStart));
+            }
+        }
+        else if(name == kDayTime.name)
+        {
+            const double day = s.get(kDayTime);
+            environment_->setDayPosition(day < 0.0 ? std::nullopt
+                                                   : std::optional(static_cast<float>(day)));
+        }
+        else if(name == kSkyAsset.name)
+        {
+            const Uuid sky = s.get(kSkyAsset);
+            environment_->setSkyAsset(sky.isNull() ? std::nullopt : std::optional(sky));
+        }
+        else if(name == kBandwidth.name)
+        {
+            bandwidth_ = static_cast<float>(s.get(kBandwidth));
+            if(session_)
+            {
+                session_->setBandwidth(bandwidth_);
+            }
+        }
+        else if(name == kDeveloper.name)
+        {
+            developer_ = s.get(kDeveloper);
+        }
+        // The rest (restart: true) are read only at the start (create).
+    }
 }
 
 void App::loadTerrainBlendRamp()
@@ -806,6 +882,10 @@ int App::run()
         // Keep the session going even while minimized.
         updateSession();
         updateMainMenu();
+        // Settings changed (the Settings tab): in
+        // effect now, and saved a moment later.
+        applySettings(settings_->takeChanged());
+        settings_->saveIfChanged(static_cast<double>(SDL_GetTicks()) / 1000.0);
         profile_.mark(FrameProfile::Session);
 
         // The headset's news (its session starting, stopping, ending).
@@ -1530,7 +1610,7 @@ void App::updateSession()
     {
         setFirstPerson(*request);
     }
-    // --first-person: once we're in the world.
+    // camera.first_person (or a headset): once we're in the world.
     if(wantFirstPerson_ && agentKey_)
     {
         setFirstPerson(true);
@@ -2713,6 +2793,7 @@ MenuItem App::radialMenu()
                           {
                               keyboardForDialog_.reset();
                               keyboardForChat_.reset(); // local chat
+                              keyboardForSetting_.reset();
                               controls_.openKeyboard();
                           }),
             MenuItem::submenu(
@@ -3016,7 +3097,7 @@ bool App::mainMenuEvent(const SDL_Event& event)
     if(event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && keyboardFree)
     {
         // Escape opens and closes it (as other worlds' main menus); F5
-        // reads its documents again (after editing them: --ui-dir).
+        // reads its documents again (after editing them: paths.ui).
         if(event.key.scancode == SDL_SCANCODE_ESCAPE)
         {
             mainMenu_->toggle();
@@ -3238,6 +3319,7 @@ void App::updateScriptDialogs()
         break;
     case Kind::Keyboard:
         keyboardForDialog_ = action->serial;
+        keyboardForSetting_.reset();
         controls_.openKeyboard();
         break;
     case Kind::Accept:
@@ -3802,6 +3884,15 @@ void App::updateMainMenu()
     {
         keyboardForDialog_.reset();
         keyboardForChat_ = *into;
+        keyboardForSetting_.reset();
+        controls_.openKeyboard();
+    }
+    // A setting to type on the VR keyboard.
+    if(const auto setting = mainMenu_->settings().takeKeyboard())
+    {
+        keyboardForDialog_.reset();
+        keyboardForChat_.reset();
+        keyboardForSetting_ = *setting;
         controls_.openKeyboard();
     }
     if(mainMenu_->takeLogOut() && session_)

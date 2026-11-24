@@ -1,7 +1,7 @@
 #pragma once
 
 // The main menu: tabs (Home, Destinations, Inventory, Outfits, Parcel,
-// Media, Options, About) and the chosen one's page, an interface page
+// Media, Settings, About) and the chosen one's page, an interface page
 // (assets/ui/main_menu.rml) shown over the window on the desktop, or on a
 // panel in VR (and first person). Home shows the clocks (SLT and local),
 // the viewer's and the region's performance and where we are; Destinations,
@@ -10,7 +10,8 @@
 // picture, owner, group, size, rules, description, and its estate);
 // Inventory, its folders as a file explorer shows them, and an item's
 // details; Chat, local chat and instant messages; People, friends and
-// who's nearby; About, the
+// who's nearby; Settings, the viewer's settings page by page
+// (SettingsView); About, the
 // version and the licenses of everything in the viewer (gathered by the
 // build: cmake/Licenses.cmake). The other tabs are still to come.
 //
@@ -24,6 +25,7 @@
 #include "InventoryBrowser.hpp"
 #include "ParcelInfo.hpp"
 #include "PeopleView.hpp"
+#include "SettingsView.hpp"
 
 #include "viewer/gui/Gui.hpp"
 
@@ -48,8 +50,8 @@ public:
 
     // Null if the page can't be made.
     static std::unique_ptr<MainMenu> create(gui::Gui& gui, Destinations& destinations,
-                                            GridPopulation& population,
-                                            InventoryBrowser& inventory);
+                                            GridPopulation& population, InventoryBrowser& inventory,
+                                            Settings& settings);
     // Names of avatars (creators, ...): empty until known ("Unknown" if
     // there's none).
     void setAvatarNames(std::function<std::string(const Uuid&)> names)
@@ -66,6 +68,7 @@ public:
         tab_ = id;
         model_.DirtyVariable("tab");
     }
+    const std::string& tab() const { return tab_; }
 
     // What Home shows; given each frame while open.
     struct Status
@@ -150,6 +153,8 @@ public:
     ChatView& chat() { return chat_; }
     // The People tab: what it asked for.
     PeopleView& people() { return people_; }
+    // The Settings tab: whether it wants the VR keyboard.
+    SettingsView& settings() { return *settings_; }
     // Reads the document and its style sheets again.
     void reload();
 
@@ -248,6 +253,7 @@ private:
     Rml::DataModelHandle model_;
     ChatView chat_;
     PeopleView people_;
+    std::unique_ptr<SettingsView> settings_;
     bool open_ = false;
 
     std::vector<Tab> tabs_;
