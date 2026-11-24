@@ -1,6 +1,6 @@
 #pragma once
 
-// Reading and writing LLSD: XML and binary; reading notation. Also JSON,
+// Reading and writing LLSD: XML, binary and notation. Also JSON,
 // read into the same Values (glTF materials are JSON).
 
 #include "viewer/llsd/Value.hpp"
@@ -59,6 +59,19 @@ std::vector<uint8_t> toBinary(const Value& value);
 // LLSD notation (llsdserialize.cpp's notation parser), with or without the
 // "<?llsd/notation?>" header: {'key':i1,'other':[r0.5,"text"]} and so on.
 std::expected<Value, std::string> fromNotation(std::string_view text);
+
+struct NotationWriteOptions
+{
+    // A map's entries and an array's values each on their own line,
+    // indented (for files meant for people).
+    bool pretty = false;
+    // Start with "<?llsd/notation?>" and a newline (so parse() knows it).
+    bool header = false;
+};
+
+// Writes what fromNotation reads back: strings single-quoted (UTF-8 as
+// is), binary as base 64, booleans as true/false.
+std::string toNotation(const Value& value, const NotationWriteOptions& options = {});
 
 // JSON: objects become maps, arrays arrays, whole numbers that fit 32 bits
 // integers (other numbers reals), null undefined.

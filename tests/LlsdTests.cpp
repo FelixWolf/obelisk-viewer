@@ -318,3 +318,44 @@ TEST_CASE("LLSD headers with spaces")
     CHECK((*sky)["type"].asString() == "sky");
     CHECK((*sky)["gamma"].asReal() == doctest::Approx(1.5));
 }
+
+TEST_CASE("LLSD notation: written as it's read back")
+{
+    Map inner{{"ok", true}, {"n", 0}};
+    Value v(Map{
+        {"undef", Value()},
+        {"bool", false},
+        {"int", -42},
+        {"real", 0.25},
+        {"string", "it's \\ \"quoted\"\nand tabbed\t\x01 ünï"},
+        {"uuid", viewer::Uuid::parse("d7f4aeca-88f1-42a1-b385-b9db18abb255").value()},
+        {"date", parseDate("2006-02-01T14:29:53.430000Z").value()},
+        {"uri", Uri{"https://example.com/a\"b"}},
+        {"binary", bytes("hello\0world")},
+        {"array", Array{1, "two", Array{}, Map{}}},
+        {"map", inner},
+    });
+    for(const bool pretty : {false, true})
+    {
+        const std::string text = toNotation(v, {.pretty = pretty, .header = pretty});
+        INFO(text);
+        const auto back = pretty ? parse(text) : fromNotation(text);
+        REQUIRE(back.has_value());
+        CHECK(*back == v);
+    }
+}
+
+TEST_CASE("LLSD notation: compact and pretty forms")
+{
+    const Value v(Map{{"a", 1}, {"b", Array{true, "x"}}, {"c", Map{}}});
+    CHECK(toNotation(v) == "{'a':i1,'b':[true,'x'],'c':{}}");
+    CHECK(toNotation(v, {.pretty = true, .header = true}) == "<?llsd/notation?>\n"
+                                                             "{\n"
+                                                             "    'a': i1,\n"
+                                                             "    'b': [\n"
+                                                             "        true,\n"
+                                                             "        'x'\n"
+                                                             "    ],\n"
+                                                             "    'c': {}\n"
+                                                             "}\n");
+}

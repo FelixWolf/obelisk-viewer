@@ -1,5 +1,5 @@
-// LLSD notation (llsdserialize.cpp's LLSDNotationParser) and JSON, both
-// read into Values.
+// LLSD notation (llsdserialize.cpp's LLSDNotationParser and its formatter)
+// and JSON, read into Values.
 
 #include "BinaryEncoding.hpp"
 #include "viewer/llsd/Serialization.hpp"
@@ -652,6 +652,162 @@ std::expected<Value, std::string> fromNotation(std::string_view text)
     r.skipSpace();
     r.consume("<?llsd/notation?>");
     return notationValue(r, 0);
+}
+
+namespace
+{
+
+// A quoted string as notation reads it: the quote and backslash escaped,
+// control characters as \xHH, everything else (UTF-8 too) as is.
+void writeQuoted(std::string& out, std::string_view text, char quote)
+{
+    out.push_back(quote);
+    for(const char c : text)
+    {
+        const auto byte = static_cast<unsigned char>(c);
+        if(c == quote || c == '\\')
+        {
+            out.push_back('\\');
+            out.push_back(c);
+        }
+        else if(c == '\n')
+        {
+            out += "\\n";
+        }
+        else if(c == '\t')
+        {
+            out += "\\t";
+        }
+        else if(byte < 0x20 || byte == 0x7f)
+        {
+            out += std::format("\\x{:02x}", byte);
+        }
+        else
+        {
+            out.push_back(c);
+        }
+    }
+    out.push_back(quote);
+}
+
+class NotationWriter
+{
+public:
+    explicit NotationWriter(bool pretty) : pretty_(pretty) {}
+
+    void write(const Value& value, int depth)
+    {
+        switch(value.type())
+        {
+        case Value::Type::Undefined:
+            out_.push_back('!');
+            break;
+        case Value::Type::Boolean:
+            out_ += *value.get<bool>() ? "true" : "false";
+            break;
+        case Value::Type::Integer:
+            out_ += 'i' + value.asString();
+            break;
+        case Value::Type::Real:
+            out_ += 'r' + value.asString();
+            break;
+        case Value::Type::String:
+            writeQuoted(out_, *value.get<std::string>(), '\'');
+            break;
+        case Value::Type::Uuid:
+            out_ += 'u' + value.get<Uuid>()->toString();
+            break;
+        case Value::Type::Date:
+            out_.push_back('d');
+            writeQuoted(out_, formatDate(*value.get<Date>()), '"');
+            break;
+        case Value::Type::Uri:
+            out_.push_back('l');
+            writeQuoted(out_, value.get<Uri>()->value, '"');
+            break;
+        case Value::Type::Binary:
+            out_ += "b64";
+            writeQuoted(out_, detail::encodeBase64(*value.get<Binary>()), '"');
+            break;
+        case Value::Type::Map:
+        {
+            const Map& map = *value.get<Map>();
+            out_.push_back('{');
+            bool first = true;
+            for(const auto& [key, entry] : map)
+            {
+                separate(first, depth + 1);
+                writeQuoted(out_, key, '\'');
+                out_ += pretty_ ? ": " : ":";
+                write(entry, depth + 1);
+            }
+            close(map.empty(), depth, '}');
+            break;
+        }
+        case Value::Type::Array:
+        {
+            const Array& array = *value.get<Array>();
+            out_.push_back('[');
+            bool first = true;
+            for(const Value& entry : array)
+            {
+                separate(first, depth + 1);
+                write(entry, depth + 1);
+            }
+            close(array.empty(), depth, ']');
+            break;
+        }
+        }
+    }
+
+    std::string take() { return std::move(out_); }
+
+private:
+    // Before a container's entry: a comma after the one before, and (pretty)
+    // a new line, indented.
+    void separate(bool& first, int depth)
+    {
+        if(!first)
+        {
+            out_.push_back(',');
+        }
+        first = false;
+        if(pretty_)
+        {
+            newLine(depth);
+        }
+    }
+    void close(bool empty, int depth, char bracket)
+    {
+        if(pretty_ && !empty)
+        {
+            newLine(depth);
+        }
+        out_.push_back(bracket);
+    }
+    void newLine(int depth)
+    {
+        out_.push_back('\n');
+        out_.append(static_cast<size_t>(depth) * 4, ' ');
+    }
+
+    bool pretty_;
+    std::string out_;
+};
+
+} // namespace
+
+std::string toNotation(const Value& value, const NotationWriteOptions& options)
+{
+    NotationWriter writer(options.pretty);
+    writer.write(value, 0);
+    std::string out = options.header ? "<?llsd/notation?>\n" : "";
+    out += writer.take();
+    if(options.pretty)
+    {
+        out.push_back('\n');
+    }
+    return out;
 }
 
 std::expected<Value, std::string> fromJson(std::string_view text)
