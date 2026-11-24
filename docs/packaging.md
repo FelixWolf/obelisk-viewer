@@ -76,4 +76,17 @@ dotnet tool install -g vpk --version 1.2.161
 Still to do: nothing checks for updates yet (Velopack's `UpdateManager`,
 pointed at wherever the releases folder is published); the packages aren't
 signed (`vpk pack --signTemplate`, e.g. with `osslsigncode`), so Windows
-SmartScreen warns about `Setup.exe`; there is no icon (`--icon`, an `.ico`).
+SmartScreen warns about `Setup.exe`.
+
+## Icon
+
+`assets/obelisk_icon.png` and `.ico` (`VIEWER_ICON` in `cmake/Branding.cmake`).
+The `.ico` is in `obelisk.exe` (`src/app/viewer.rc.in`) and is `Setup.exe`'s
+(`vpk pack --icon`); the `.png` is the AppImage's and, embedded in the
+program, the window's on Linux. After changing the `.png`, make the `.ico`
+again (ImageMagick):
+
+```sh
+magick assets/obelisk_icon.png -filter Lanczos \
+    -define icon:auto-resize=256,128,64,48,40,32,24,20,16 assets/obelisk_icon.ico
+```

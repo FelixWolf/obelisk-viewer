@@ -40,12 +40,14 @@ esac
 case "$os" in
     linux)
         exe_suffix=
+        icon_suffix=.png
         runtime=linux-x64
         vpk_directive=()
         ;;
     windows)
         preset=windows-$preset
         exe_suffix=.exe
+        icon_suffix=.ico
         runtime=win-x64
         vpk_directive=("[win]")
         if ! command -v x86_64-w64-mingw32-g++ >/dev/null; then
@@ -83,7 +85,9 @@ version=$(branding version)
 pack_id=$(branding package_id)
 pack_title=$(branding name)
 main_exe=$(branding executable)$exe_suffix
-if [[ -z "$version" || -z "$pack_id" || -z "$pack_title" || "$main_exe" == "$exe_suffix" ]]; then
+icon=$(branding icon)$icon_suffix
+if [[ -z "$version" || -z "$pack_id" || -z "$pack_title" || "$main_exe" == "$exe_suffix" ||
+      "$icon" == "$icon_suffix" ]]; then
     echo "error: $build_dir/branding.txt is missing something" >&2
     exit 1
 fi
@@ -109,6 +113,7 @@ cmake --install "$build_dir" --component viewer --prefix "$stage" "${strip[@]}"
     --packDir "$stage" \
     --runtime "$runtime" \
     --mainExe "$main_exe" \
+    --icon "$icon" \
     --outputDir "$releases"
 
 echo "Packaged $pack_title $version ($os): $releases"

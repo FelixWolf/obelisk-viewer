@@ -346,6 +346,24 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
         log::error("SDL_CreateWindow failed: {}", SDL_GetError());
         return nullptr;
     }
+#if !defined(SDL_PLATFORM_WINDOWS)
+    // On Windows SDL uses the program's own icon (viewer.rc.in), which has
+    // every size.
+    if(SDL_Surface* icon = SDL_LoadPNG_IO(
+           SDL_IOFromConstMem(assets_embedded::kIconPng, sizeof(assets_embedded::kIconPng)), true))
+    {
+        if(!SDL_SetWindowIcon(app->window_.get(), icon))
+        {
+            // Not every desktop lets a window have one.
+            log::info("SDL_SetWindowIcon failed: {}", SDL_GetError());
+        }
+        SDL_DestroySurface(icon);
+    }
+    else
+    {
+        log::warn("The window's icon didn't load: {}", SDL_GetError());
+    }
+#endif
 
     render::RendererOptions renderOptions;
 #ifdef VIEWER_GPU_DEBUG

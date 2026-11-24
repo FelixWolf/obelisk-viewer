@@ -7,9 +7,9 @@ viewer_write_licenses(${asset_licenses})
 add_custom_command(
   OUTPUT ${asset_header}
   COMMAND ${CMAKE_COMMAND} -DOUTPUT=${asset_header} -DNAMESPACE=viewer::assets_embedded
-          "-DENTRIES=kAlphaGradient2dJ2c=${asset_ramp};kLicensesTxt=${asset_licenses}"
+          "-DENTRIES=kAlphaGradient2dJ2c=${asset_ramp};kLicensesTxt=${asset_licenses};kIconPng=${VIEWER_ICON}.png"
           -P ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
-  DEPENDS ${asset_ramp} ${asset_licenses} ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
+  DEPENDS ${asset_ramp} ${asset_licenses} ${VIEWER_ICON}.png ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
   COMMENT "Embedding viewer assets"
   VERBATIM
 )
@@ -84,6 +84,16 @@ add_executable(viewer
 
 # The program's own name (cmake/Branding.cmake); the target's stays.
 set_target_properties(viewer PROPERTIES OUTPUT_NAME "${VIEWER_EXECUTABLE}")
+
+# Windows: the icon, in the program itself. Elsewhere App.cpp gives the window
+# the embedded .png.
+if(WIN32)
+  enable_language(RC)
+  configure_file(viewer.rc.in ${CMAKE_CURRENT_BINARY_DIR}/generated/viewer.rc @ONLY)
+  set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/generated/viewer.rc
+    PROPERTIES OBJECT_DEPENDS ${VIEWER_ICON}.ico)
+  target_sources(viewer PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated/viewer.rc)
+endif()
 
 # Windows: a console window beside the viewer (its log) only in Debug builds;
 # the others are GUI programs (WinMain from SDL_main.h). No effect elsewhere.

@@ -1,0 +1,3 @@
+// Generated from src/app/viewer.rc.in. The program's icon on Windows: Explorer,
+// shortcuts, and the window and taskbar (SDL takes the program's first icon).
+1 ICON "@VIEWER_ICON@.ico"

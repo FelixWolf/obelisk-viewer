@@ -36,6 +36,17 @@ viewer_branding(VIEWER_CHANNEL "${VIEWER_SHORT_NAME}")
 string(REGEX REPLACE "[^A-Za-z0-9.-]" "" viewer_default_id "${VIEWER_NAME}")
 viewer_branding(VIEWER_PACKAGE_ID "${viewer_default_id}")
 
+# The icon, without its extension: a .png (the window's on Linux, the
+# AppImage's) and an .ico (the Windows program's and installer's), made from
+# the .png as docs/packaging.md says.
+viewer_branding(VIEWER_ICON "${PROJECT_SOURCE_DIR}/assets/obelisk_icon")
+get_filename_component(VIEWER_ICON "${VIEWER_ICON}" ABSOLUTE BASE_DIR "${PROJECT_SOURCE_DIR}")
+foreach(extension png ico)
+  if(NOT EXISTS "${VIEWER_ICON}.${extension}")
+    message(FATAL_ERROR "VIEWER_ICON: no ${VIEWER_ICON}.${extension}")
+  endif()
+endforeach()
+
 foreach(name VIEWER_NAME VIEWER_CHANNEL)
   if("${${name}}" MATCHES "[\\\\\"$@;|\n]")
     message(FATAL_ERROR "${name} can't have any of \\ \" $ @ ; | in it: ${${name}}")
@@ -53,4 +64,5 @@ file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/branding.txt" @ONLY CONTENT
 executable=@VIEWER_EXECUTABLE@
 package_id=@VIEWER_PACKAGE_ID@
 version=@PROJECT_VERSION@
+icon=@VIEWER_ICON@
 ")
