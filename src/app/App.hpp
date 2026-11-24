@@ -71,8 +71,8 @@ namespace viewer
 {
 
 #if defined(VIEWER_TEST_OPTIONS)
-// For testing and measuring: only in Debug and RelWithDebInfo builds
-// (src/app/CMakeLists.txt), not in Release.
+// For testing and measuring: only in Debug builds, or with CMake's
+// VIEWER_TEST_OPTIONS on (src/app/CMakeLists.txt).
 struct TestOptions
 {
     std::filesystem::path loginFile;            // log in at startup (see Credentials.hpp)

@@ -23,6 +23,8 @@ endif()
 
 option(VIEWER_BUILD_TOOLS "Build developer tools (j2kbench, ...)" ON)
 option(VIEWER_BUILD_TESTS "Build unit tests" ON)
+option(VIEWER_TEST_OPTIONS
+       "The command line's testing options in optimized builds too (Debug always has them)" OFF)
 
 include(cmake/Branding.cmake)
 include(cmake/CPM.cmake)

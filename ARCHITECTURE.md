@@ -192,7 +192,7 @@ git submodule update --init                 # the message template
 ctest --test-dir build/release              # or ./build/release/bin/viewer_tests
 ./build/release/bin/obelisk [--grid LOGIN_URI] [--start last|home|Region/x/y/z|secondlife://...]
     [--force-vr | --force-desktop] [--setting NAME VALUE]...
-    # testing (Debug and RelWithDebInfo builds only): [--login-file PATH]
+    # testing (Debug builds, or -DVIEWER_TEST_OPTIONS=ON): [--login-file PATH]
     # [--screenshot OUT.png [--screenshot-delay S]] [--camera "X Y Z DISTANCE YAW PITCH"] ...
 ./build/release/bin/logintest --login-file ~/.config/obelisk/test-login.txt [--seconds N]
 ./build/release/bin/j2kbench --reduce 0,2 <dir-of-j2k-files>
@@ -225,8 +225,8 @@ main menu's Settings tab edits them, except hidden ones (paths, testing),
 set in the file. `--setting NAME VALUE` sets any for one run without
 saving it; an unknown name prints them all. The testing and measuring
 options (`--login-file`, `--screenshot`, `--stereo-benchmark`, ...) are
-only in Debug and RelWithDebInfo builds (`VIEWER_TEST_OPTIONS`), not
-Release.
+only in Debug builds, or others configured with
+`-DVIEWER_TEST_OPTIONS=ON` (to measure an optimized build).
 
 Package sources are cached in `build/_cpm-cache` unless the `CPM_SOURCE_CACHE`
 environment variable is set. Debug builds turn on SDL GPU validation; on Vulkan

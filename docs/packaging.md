@@ -3,7 +3,7 @@
 The names below (`obelisk`, `ObeliskViewer`, the settings folders) are the
 defaults in `cmake/Branding.cmake`, where the viewer is renamed.
 
-The `dist` preset is the build that ships: `Release` (no `VIEWER_TEST_OPTIONS`,
+The `dist` preset is the build that ships: `Release` (`VIEWER_TEST_OPTIONS` off,
 so no `--login-file`, `--screenshot`, ...), with no developer tools or tests.
 
 ```sh
