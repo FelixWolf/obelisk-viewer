@@ -28,6 +28,8 @@ namespace
 struct Transfer
 {
     HttpRequestId id = 0;
+    // Streaming (request.onData): the client, to check it's still wanted.
+    std::function<bool(Transfer&, std::span<const uint8_t>)> stream;
     HttpRequest request;
     HttpCallback callback;
     HttpResponse response;
@@ -50,6 +52,12 @@ size_t onBody(char* data, size_t size, size_t count, void* user)
 {
     auto* transfer = static_cast<Transfer*>(user);
     const size_t bytes = size * count;
+    if(transfer->stream)
+    {
+        // No longer wanted (cancelled): ends the transfer.
+        return transfer->stream(*transfer, {reinterpret_cast<const uint8_t*>(data), bytes}) ? bytes
+                                                                                            : 0;
+    }
     transfer->response.body.insert(transfer->response.body.end(), data, data + bytes);
     return bytes;
 }
@@ -61,8 +69,9 @@ size_t onHeader(char* data, size_t size, size_t count, void* user)
     std::string_view line(data, bytes);
 
     // A new status line starts a new response (redirects, 100 Continue):
-    // only the final response's headers are kept.
-    if(line.starts_with("HTTP/"))
+    // only the final response's headers are kept. (Old SHOUTcast servers
+    // answer "ICY 200 OK".)
+    if(line.starts_with("HTTP/") || line.starts_with("ICY "))
     {
         transfer->response.headers.clear();
         return bytes;
@@ -266,6 +275,7 @@ private:
         case HttpPool::Inventory:
             return options_.inventoryConnectionsPerHost;
         case HttpPool::LongPoll:
+        case HttpPool::Stream:
             return 0;
         case HttpPool::Default:
             break;
@@ -329,6 +339,29 @@ private:
         curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, static_cast<long>(request.timeout.count()));
         curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS,
                          static_cast<long>(request.connectTimeout.count()));
+        if(request.stallTimeout.count() > 0)
+        {
+            curl_easy_setopt(easy, CURLOPT_LOW_SPEED_LIMIT, 1L);
+            curl_easy_setopt(easy, CURLOPT_LOW_SPEED_TIME,
+                             static_cast<long>(request.stallTimeout.count()));
+        }
+        if(request.onData)
+        {
+            // Pieces go to the caller while it still wants them (as
+            // callbacks: under callbackMutex_, so cancel() waits).
+            transfer->stream = [this](Transfer& t, std::span<const uint8_t> piece)
+            {
+                long status = 0;
+                curl_easy_getinfo(t.easy, CURLINFO_RESPONSE_CODE, &status);
+                std::lock_guard lock(callbackMutex_);
+                if(!active_.contains(t.id))
+                {
+                    return false;
+                }
+                t.request.onData(static_cast<int>(status), t.response.headers, piece);
+                return true;
+            };
+        }
         curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, request.followRedirects ? 1L : 0L);
         curl_easy_setopt(easy, CURLOPT_MAXREDIRS, 10L);
         curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, options_.verifyPeer ? 1L : 0L);

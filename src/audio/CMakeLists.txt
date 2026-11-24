@@ -17,6 +17,7 @@ endif()
 
 add_library(viewer_audio STATIC
   AudioEngine.cpp
+  AudioStream.cpp
   SoundClip.cpp
 )
 add_library(viewer::audio ALIAS viewer_audio)

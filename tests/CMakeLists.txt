@@ -15,6 +15,7 @@ add_executable(viewer_tests
   InventoryBrowserTests.cpp
   CurrentOutfitTests.cpp
   ParcelInfoTests.cpp
+  MediaTests.cpp
   SettingsTests.cpp
   DiskCacheTests.cpp
   HttpClientTests.cpp

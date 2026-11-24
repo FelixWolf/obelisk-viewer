@@ -7,6 +7,7 @@
 // reference distance, then reference / (reference + rolloff (d - reference))).
 // All calls from one thread (the main one); miniaudio mixes on its own.
 
+#include "viewer/audio/AudioStream.hpp"
 #include "viewer/audio/SoundClip.hpp"
 
 #include <glm/vec3.hpp>
@@ -37,15 +38,21 @@ public:
         bool loop = false;
         float referenceDistance = 1.0f;
         float rolloff = 1.0f;
+        float fadeInSeconds = 0.0f; // from silence to the gain
     };
     // Starts playing; 0 if it can't (too many voices, or a bad clip). The
     // clip is kept while the voice plays.
     Voice play(std::shared_ptr<const SoundClip> clip, const PlayParams& params);
+    // Plays a stream (not positioned) from its decoded samples; 0 until it
+    // has some (AudioStream::sampleRate()). Ends when the stream does.
+    Voice playStream(std::shared_ptr<AudioStream> stream, const PlayParams& params);
     void setPosition(Voice voice, const glm::vec3& position);
     void setGain(Voice voice, float gain);
     void setLooping(Voice voice, bool loop);
     void setRolloff(Voice voice, float rolloff);
     void stop(Voice voice);
+    // Stops it, fading out over this long first.
+    void fadeOut(Voice voice, float seconds);
     // Still playing (false once it ended or was stopped).
     bool playing(Voice voice) const;
     // Where in the clip it is, 0..1.
@@ -61,7 +68,8 @@ public:
     // 0..1, the filter's center frequency in Hz, right channel share
     // 0..1), easing towards them. Starts silent.
     void setWind(float gain, float frequency, float panRight);
-    struct Wind; // (the generator; opaque)
+    struct Wind;         // (the generator; opaque)
+    struct StreamSource; // (a stream as miniaudio reads it; opaque)
 
     // Forgets voices that ended. Once a frame.
     void update();

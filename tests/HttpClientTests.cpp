@@ -246,6 +246,48 @@ TEST_CASE("HTTP pools: a pool's requests don't wait for another's connections")
     REQUIRE(held.waitFor(5, 2s));
 }
 
+TEST_CASE("HTTP streaming: the body comes in pieces, with the headers")
+{
+    viewer::test::LoopbackHttpServer server(
+        [](const viewer::test::LoopbackRequest& request)
+            -> std::optional<viewer::test::LoopbackReply>
+        {
+            if(request.path != "/stream")
+            {
+                return std::nullopt;
+            }
+            return viewer::test::LoopbackReply{200, std::string(100000, 'x'),
+                                               "icy-metaint: 8192\r\nContent-Type: audio/mpeg\r\n"};
+        });
+    auto client = createHttpClient();
+    Responses responses;
+    std::mutex mutex;
+    size_t received = 0;
+    int status = 0;
+    std::string metaint;
+    std::string type;
+    HttpRequest request{.url = server.url("/stream")};
+    request.pool = HttpPool::Stream;
+    request.timeout = 0ms;
+    request.onData = [&](int code, const HttpHeaders& headers, std::span<const uint8_t> piece)
+    {
+        std::lock_guard lock(mutex);
+        status = code;
+        metaint = std::string(headers.find("icy-metaint").value_or(""));
+        type = std::string(headers.find("content-type").value_or(""));
+        received += piece.size();
+    };
+    client->send(std::move(request), responses.callback());
+    REQUIRE(responses.waitFor(1));
+    CHECK(responses[0].ok());
+    CHECK(responses[0].body.empty()); // not kept
+    std::lock_guard lock(mutex);
+    CHECK(received == 100000);
+    CHECK(status == 200);
+    CHECK(metaint == "8192");
+    CHECK(type == "audio/mpeg");
+}
+
 TEST_CASE("HttpRequestGroup cancels its pending requests when destroyed")
 {
     viewer::test::LoopbackHttpServer server;

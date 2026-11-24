@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -74,6 +75,7 @@ enum class HttpPool : uint8_t
     Default,   // HttpClientOptions::maxConnectionsPerHost per host
     Inventory, // ... inventoryConnectionsPerHost
     LongPoll,  // held open until the server has something: no limit
+    Stream,    // a body that never ends (internet radio, ...): no limit
 };
 
 struct HttpRequest
@@ -88,6 +90,17 @@ struct HttpRequest
     std::chrono::milliseconds connectTimeout{10'000};
     bool followRedirects = true;
     HttpPool pool = HttpPool::Default;
+    // Fails (Timeout) when less than a byte a second arrives for this
+    // long; 0: never.
+    std::chrono::seconds stallTimeout{0};
+
+    // Streaming: when set, the body isn't kept (the response's stays
+    // empty) but given here piece by piece as it arrives, with the status
+    // and headers of the response it's of. On the client's I/O thread, so
+    // quick; never after cancel() returns, as the callback. Use with
+    // timeout 0 for a body that doesn't end.
+    std::function<void(int status, const HttpHeaders& headers, std::span<const uint8_t> piece)>
+        onData{};
 };
 
 enum class HttpError : uint8_t

@@ -127,6 +127,47 @@ ma_data_source_vtable kWindSource = {windRead, windSeek, windFormat, nullptr, nu
 
 } // namespace
 
+// A stream, read on the audio thread.
+struct AudioEngine::StreamSource
+{
+    ma_data_source_base base{}; // first: miniaudio sees this as the data source
+    std::shared_ptr<AudioStream> stream;
+    uint32_t sampleRate = 0;
+};
+
+namespace
+{
+
+ma_result streamRead(ma_data_source* source, void* out, ma_uint64 frames, ma_uint64* read)
+{
+    const auto* s = static_cast<AudioEngine::StreamSource*>(source);
+    const uint64_t got = s->stream->read(static_cast<float*>(out), frames);
+    if(read)
+    {
+        *read = got;
+    }
+    return got == 0 ? MA_AT_END : MA_SUCCESS;
+}
+
+ma_result streamFormat(ma_data_source* source, ma_format* format, ma_uint32* channels,
+                       ma_uint32* sampleRate, ma_channel* channelMap, size_t channelMapCap)
+{
+    *format = ma_format_f32;
+    *channels = 2;
+    *sampleRate = static_cast<AudioEngine::StreamSource*>(source)->sampleRate;
+    if(channelMap && channelMapCap >= 2)
+    {
+        channelMap[0] = MA_CHANNEL_FRONT_LEFT;
+        channelMap[1] = MA_CHANNEL_FRONT_RIGHT;
+    }
+    return MA_SUCCESS;
+}
+
+ma_data_source_vtable kStreamSource = {streamRead, windSeek, streamFormat, nullptr, nullptr,
+                                       nullptr,    0};
+
+} // namespace
+
 struct AudioEngine::Impl
 {
     ma_engine engine{};
@@ -139,9 +180,12 @@ struct AudioEngine::VoiceData
 {
     std::shared_ptr<const SoundClip> clip;
     ma_audio_buffer_ref buffer{};
+    std::unique_ptr<StreamSource> stream; // or this
     ma_sound sound{};
     bool bufferReady = false;
+    bool streamReady = false;
     bool soundReady = false;
+    bool fading = false; // stopping once faded out
 
     ~VoiceData()
     {
@@ -152,6 +196,10 @@ struct AudioEngine::VoiceData
         if(bufferReady)
         {
             ma_audio_buffer_ref_uninit(&buffer);
+        }
+        if(streamReady)
+        {
+            ma_data_source_uninit(&stream->base);
         }
     }
 };
@@ -259,6 +307,11 @@ AudioEngine::Voice AudioEngine::play(std::shared_ptr<const SoundClip> clip,
     }
     ma_sound_set_volume(&s, params.gain);
     ma_sound_set_looping(&s, params.loop ? MA_TRUE : MA_FALSE);
+    if(params.fadeInSeconds > 0.0f)
+    {
+        ma_sound_set_fade_in_milliseconds(&s, 0.0f, 1.0f,
+                                          static_cast<ma_uint64>(params.fadeInSeconds * 1000.0f));
+    }
     if(ma_sound_start(&s) != MA_SUCCESS)
     {
         return 0;
@@ -266,6 +319,62 @@ AudioEngine::Voice AudioEngine::play(std::shared_ptr<const SoundClip> clip,
     const Voice id = next_++;
     voices_.emplace(id, std::move(v));
     return id;
+}
+
+AudioEngine::Voice AudioEngine::playStream(std::shared_ptr<AudioStream> stream,
+                                           const PlayParams& params)
+{
+    if(!stream || stream->sampleRate() == 0 || voices_.size() >= kMaxVoices)
+    {
+        return 0;
+    }
+    auto v = std::make_unique<VoiceData>();
+    v->stream = std::make_unique<StreamSource>();
+    v->stream->stream = std::move(stream);
+    v->stream->sampleRate = v->stream->stream->sampleRate();
+    ma_data_source_config config = ma_data_source_config_init();
+    config.vtable = &kStreamSource;
+    if(ma_data_source_init(&config, &v->stream->base) != MA_SUCCESS)
+    {
+        return 0;
+    }
+    v->streamReady = true;
+    if(ma_sound_init_from_data_source(&impl_->engine, &v->stream->base,
+                                      MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr,
+                                      &v->sound) != MA_SUCCESS)
+    {
+        return 0;
+    }
+    v->soundReady = true;
+    ma_sound_set_volume(&v->sound, params.gain);
+    if(params.fadeInSeconds > 0.0f)
+    {
+        ma_sound_set_fade_in_milliseconds(&v->sound, 0.0f, 1.0f,
+                                          static_cast<ma_uint64>(params.fadeInSeconds * 1000.0f));
+    }
+    if(ma_sound_start(&v->sound) != MA_SUCCESS)
+    {
+        return 0;
+    }
+    const Voice id = next_++;
+    voices_.emplace(id, std::move(v));
+    return id;
+}
+
+void AudioEngine::fadeOut(Voice voice, float seconds)
+{
+    VoiceData* v = find(voice);
+    if(!v)
+    {
+        return;
+    }
+    if(seconds <= 0.0f)
+    {
+        stop(voice);
+        return;
+    }
+    ma_sound_stop_with_fade_in_milliseconds(&v->sound, static_cast<ma_uint64>(seconds * 1000.0f));
+    v->fading = true;
 }
 
 void AudioEngine::setPosition(Voice voice, const glm::vec3& position)
@@ -318,6 +427,10 @@ float AudioEngine::progress(Voice voice) const
     {
         return 1.0f;
     }
+    if(!v->clip)
+    {
+        return 0.0f; // a stream: no end to measure against
+    }
     ma_uint64 cursor = 0;
     if(ma_sound_get_cursor_in_pcm_frames(&v->sound, &cursor) != MA_SUCCESS ||
        v->clip->frames() == 0)
@@ -342,8 +455,13 @@ void AudioEngine::setVolume(float volume)
 
 void AudioEngine::update()
 {
-    std::erase_if(voices_, [](const auto& entry)
-                  { return ma_sound_at_end(&entry.second->sound) != MA_FALSE; });
+    std::erase_if(voices_,
+                  [](const auto& entry)
+                  {
+                      ma_sound* s = &entry.second->sound;
+                      return ma_sound_at_end(s) != MA_FALSE ||
+                             (entry.second->fading && ma_sound_is_playing(s) == MA_FALSE);
+                  });
 }
 
 } // namespace viewer::audio
