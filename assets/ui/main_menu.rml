@@ -407,6 +407,49 @@
             </div>
         </div>
 
+        <div data-if="tab == 'media'" class="media">
+            <div class="row">
+                <div class="card">
+                    <h3>Parcel music</h3>
+                    <div class="muted" data-if="musicUrl == ''">This parcel has no music.</div>
+                    <div data-if="musicUrl != ''">
+                        <div class="now-playing" data-if="musicTitle != ''">{{ musicTitle }}</div>
+                        <div class="station" data-if="musicStation != ''">{{ musicStation }}</div>
+                        <div class="stat"><span>State</span><span class="value">{{ musicState }}</span></div>
+                        <div class="stat" data-if="musicDetail != ''"><span>Stream</span><span class="value">{{ musicDetail }}</span></div>
+                        <div class="media-error" data-if="musicError != ''">{{ musicError }}</div>
+                        <div class="media-url muted">{{ musicUrl }}</div>
+                        <div class="actions media-keys">
+                            <div class="teleport key orange" data-if="!musicOn" data-event-click="musicPlay">Play</div>
+                            <div class="teleport key" data-if="musicOn" data-event-click="musicStop">Stop</div>
+                            <div class="key volume" data-event-click="quieter">−</div>
+                            <div class="volume-value">{{ musicVolume }}%</div>
+                            <div class="key volume" data-event-click="louder">+</div>
+                        </div>
+                        <div class="muted media-note">{{ musicAuto }}</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Parcel media</h3>
+                    <div class="muted" data-if="videoUrl == ''">This parcel has no video or web page.</div>
+                    <div data-if="videoUrl != ''">
+                        <div class="media-url">{{ videoUrl }}</div>
+                        <div class="muted">{{ videoDetail }}</div>
+                        <div class="muted media-note">{{ videoNote }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Media on prims around</h3>
+                <div class="media-row" data-for="r : primMedia">
+                    <div class="stat" data-if="r.object != ''"><span class="media-object">{{ r.object }}</span><span class="value">{{ r.where }}</span></div>
+                    <div class="media-face"><span class="face">{{ r.face }}</span> <span class="media-url">{{ r.url }}</span></div>
+                    <div class="muted media-note" data-if="r.details != ''">{{ r.details }}</div>
+                </div>
+                <div class="muted" data-if="primMediaNote != ''">{{ primMediaNote }}</div>
+            </div>
+        </div>
+
         <!-- Settings: the pages on the left, the chosen one's settings on the
              right (scrolling), each as its type has it: a check box, a
              number with - and +, a text field, or keys for its choices. -->
@@ -472,7 +515,7 @@
             </div>
         </div>
 
-        <div data-if="tab != 'home' &amp;&amp; tab != 'chat' &amp;&amp; tab != 'people' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'settings' &amp;&amp; tab != 'about'" class="soon">
+        <div data-if="tab != 'home' &amp;&amp; tab != 'chat' &amp;&amp; tab != 'people' &amp;&amp; tab != 'destinations' &amp;&amp; tab != 'inventory' &amp;&amp; tab != 'outfits' &amp;&amp; tab != 'parcel' &amp;&amp; tab != 'media' &amp;&amp; tab != 'settings' &amp;&amp; tab != 'about'" class="soon">
             <h2>{{ tabName }}</h2>
             <p>Not built yet.</p>
         </div>

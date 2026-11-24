@@ -477,7 +477,7 @@ std::optional<ObjectUpdateData> decodeCompressedObject(std::span<const uint8_t> 
     }
     if(flags & 0x200)
     {
-        r.string(); // media URL
+        o.mediaVersion = r.string(); // (the field's called MediaURL)
     }
     if(flags & 0x08)
     {

@@ -53,6 +53,8 @@ struct TextureFace
     uint8_t shiny() const { return (bumpShinyFullbright >> 6) & 3; }
     uint8_t bump() const { return bumpShinyFullbright & 0x1F; }
     bool planarMapping() const { return (mediaTexGen & 0x06) == 0x02; }
+    // Shows media (MOAP: the object's ObjectMedia has this face's).
+    bool hasMedia() const { return (mediaTexGen & 0x01) != 0; }
 };
 
 using TextureEntry = std::array<TextureFace, kMaxFaces>;
@@ -209,6 +211,10 @@ struct Object
     // back: 255 is opaque).
     std::string hoverText{};
     std::array<uint8_t, 4> hoverTextColor{255, 255, 255, 255};
+    // Its media's version ("x-mv:0000000003/<agent>", llSetPrimMediaParams
+    // and the like bump it; empty: it never had media): when it changes,
+    // its faces' media are asked for again (ObjectMedia capability).
+    std::string mediaVersion{};
     // Texture animation, if any, and how far it had run (frames) when it
     // (re)started at `textureAnimationSince`: World keeps these across
     // updates (an update with one restarts it, a smooth one carries on).

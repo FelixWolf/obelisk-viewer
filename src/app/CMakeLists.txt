@@ -70,6 +70,8 @@ add_executable(viewer
   ViewerSettings.cpp
   CurrentOutfit.cpp
   ParcelInfo.cpp
+  MusicStream.cpp
+  ObjectMedia.cpp
   MainMenu.cpp
   RadialMenu.cpp
   VrControls.cpp

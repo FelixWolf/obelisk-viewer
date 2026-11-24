@@ -10,8 +10,9 @@
 // picture, owner, group, size, rules, description, and its estate);
 // Inventory, its folders as a file explorer shows them, and an item's
 // details; Chat, local chat and instant messages; People, friends and
-// who's nearby; Settings, the viewer's settings page by page
-// (SettingsView); About, the
+// who's nearby; Media, the parcel's music (playing it, what's on) and
+// video, and the media on prims around; Settings, the viewer's settings
+// page by page (SettingsView); About, the
 // version and the licenses of everything in the viewer (gathered by the
 // build: cmake/Licenses.cmake). The other tabs are still to come.
 //
@@ -23,6 +24,8 @@
 #include "Destinations.hpp"
 #include "GridPopulation.hpp"
 #include "InventoryBrowser.hpp"
+#include "MusicStream.hpp"
+#include "ObjectMedia.hpp"
 #include "ParcelInfo.hpp"
 #include "PeopleView.hpp"
 #include "SettingsView.hpp"
@@ -116,6 +119,22 @@ public:
         const Nearby* nearby = nullptr;
         PeopleView::Names names;
         std::optional<glm::dvec3> here;
+        // Media: the parcel's music stream, whether it starts by itself,
+        // how a script last said the parcel's video should play, and the
+        // prims around with media (nearest first; their names empty until
+        // known).
+        const MusicStream* music = nullptr;
+        bool musicAutoPlay = true;
+        const ParcelInfo::MediaPlay* parcelMediaPlay = nullptr;
+        struct PrimMedia
+        {
+            Uuid object;
+            std::string name;
+            float distance = 0.0f; // meters
+            const ObjectMediaData* media = nullptr;
+        };
+        std::vector<PrimMedia> primMedia;
+        size_t primMediaTotal = 0; // all known (more than listed)
     };
     // The page's values, then its layout and animations (once a frame
     // while open, before render()).
@@ -146,6 +165,18 @@ public:
     std::optional<InventoryAction> takeInventoryAction()
     {
         return std::exchange(inventoryAction_, std::nullopt);
+    }
+    // What the Media tab asked for, once.
+    enum class MediaAction
+    {
+        PlayMusic,
+        StopMusic,
+        Louder,
+        Quieter,
+    };
+    std::optional<MediaAction> takeMediaAction()
+    {
+        return std::exchange(mediaAction_, std::nullopt);
     }
 
     gui::Surface& surface() { return *surface_; }
@@ -213,6 +244,17 @@ public:
         bool worn = false;
         bool operator==(const OutfitCard&) const = default;
     };
+    // A face's media, as the Media tab lists it (the first of an object's
+    // has its name and distance).
+    struct MediaRow
+    {
+        Rml::String object; // empty: the same as the row before
+        Rml::String where;
+        Rml::String face;
+        Rml::String url;
+        Rml::String details;
+        bool operator==(const MediaRow&) const = default;
+    };
     // One of a parcel's rules, as the page shows it.
     struct Rule
     {
@@ -237,6 +279,7 @@ private:
     void readLicenses();
     void updateDestinations(const Status& status);
     void updateParcel(const Status& status);
+    void updateMedia(const Status& status);
     void updateInventory(const Status& status);
     void openInventoryEntry(int index);
     void updateOutfits(const Status& status);
@@ -342,6 +385,22 @@ private:
     Rml::String estateName_;
     Rml::String estateOwner_;    // empty: none said (mainland)
     Rml::String estateCovenant_; // whether it has one
+    // Media.
+    Rml::String musicUrl_; // empty: the parcel has none
+    Rml::String musicState_;
+    Rml::String musicDetail_; // format, rate, bitrate
+    Rml::String musicStation_;
+    Rml::String musicTitle_;
+    Rml::String musicError_;
+    bool musicOn_ = false; // playing (or trying to)
+    int musicVolume_ = 50; // percent
+    Rml::String musicAuto_;
+    Rml::String videoUrl_; // empty: none
+    Rml::String videoDetail_;
+    Rml::String videoNote_;
+    std::vector<MediaRow> primMedia_;
+    Rml::String primMediaNote_;
+    std::optional<MediaAction> mediaAction_;
     // About.
     std::string version_;
     std::string builtWith_;

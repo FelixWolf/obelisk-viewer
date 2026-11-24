@@ -42,6 +42,35 @@ inline constexpr uint32_t kCreateGroupObjects = 1u << 26;
 inline constexpr uint32_t kAllowVoice = 1u << 29;
 } // namespace parcel_flags
 
+// The parcel's media (video, a web page: "parcel media"): played over
+// the texture `id` on the parcel's prims. From ParcelProperties, changed
+// for us alone by ParcelMediaUpdate (llParcelMediaCommandList's URL, TYPE,
+// SIZE, ...: llviewerparcelmedia.cpp).
+struct ParcelMedia
+{
+    std::string url;
+    Uuid texture;     // replaced by the media where it's shown
+    std::string type; // MIME ("video/*", "text/html", ...; empty: not said)
+    std::string description;
+    int width = 0; // pixels (0: the media's own)
+    int height = 0;
+    bool autoScale = false;
+    bool loop = false;
+    bool operator==(const ParcelMedia&) const = default;
+};
+
+// ParcelMediaCommandMessage's commands (indra_constants.h
+// PARCEL_MEDIA_COMMAND_*), those that change how it plays.
+namespace parcel_media_command
+{
+inline constexpr uint32_t kStop = 0;
+inline constexpr uint32_t kPause = 1;
+inline constexpr uint32_t kPlay = 2;
+inline constexpr uint32_t kLoop = 3;
+inline constexpr uint32_t kTime = 6;
+inline constexpr uint32_t kUnload = 8;
+} // namespace parcel_media_command
+
 struct Parcel
 {
     int localId = 0;
@@ -59,7 +88,7 @@ struct Parcel
     int maxPrims = 0; // it can have
     Uuid snapshot;    // its picture (a texture)
     std::string musicUrl;
-    std::string mediaUrl;
+    ParcelMedia media;
     bool seeAvatars = true; // from outside it
     // Bumped when the parcel's own environment changes (-1: not said).
     int environmentVersion = -1;
@@ -82,6 +111,21 @@ public:
     void groupName(const Uuid& group, std::string name);
     // EstateCovenantReply.
     void estate(std::string name, const Uuid& owner, const Uuid& covenant);
+    // ParcelMediaUpdate: the media for us, until the parcel says again.
+    void mediaUpdate(ParcelMedia media);
+    // ParcelMediaCommandMessage (its flags say which parts are there).
+    void mediaCommand(uint32_t flags, uint32_t command, float time);
+
+    // How a script last said the parcel's media should play (a
+    // parcel_media_command: stop, pause, play, loop; nothing: not said),
+    // and where in it (seconds, if said). Kept for the media player.
+    struct MediaPlay
+    {
+        std::optional<uint32_t> command;
+        std::optional<float> time;
+        uint64_t serial = 0; // bumped by each command
+    };
+    const MediaPlay& mediaPlay() const { return mediaPlay_; }
 
     // The parcel we're on; nothing until the region says.
     const std::optional<Parcel>& parcel() const { return parcel_; }
@@ -113,6 +157,7 @@ public:
 private:
     std::optional<Parcel> parcel_;
     uint64_t region_ = 0;
+    MediaPlay mediaPlay_;
     std::optional<Estate> estate_;
     uint64_t estateRegion_ = 0; // the region estate_ is (or is being asked) for
     bool estateWanted_ = false;

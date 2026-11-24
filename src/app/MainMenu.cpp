@@ -10,6 +10,7 @@
 #include <SDL3/SDL_version.h>
 
 #include <chrono>
+#include <cmath>
 #include <exception>
 #include <format>
 
@@ -352,6 +353,39 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     model.Bind("parcelSale", &m->parcelSale_);
     model.Bind("parcelMusic", &m->parcelMusic_);
     model.Bind("parcelRules", &m->parcelRules_);
+    if(auto row = model.RegisterStruct<MediaRow>())
+    {
+        row.RegisterMember("object", &MediaRow::object);
+        row.RegisterMember("where", &MediaRow::where);
+        row.RegisterMember("face", &MediaRow::face);
+        row.RegisterMember("url", &MediaRow::url);
+        row.RegisterMember("details", &MediaRow::details);
+    }
+    model.RegisterArray<std::vector<MediaRow>>();
+    model.Bind("musicUrl", &m->musicUrl_);
+    model.Bind("musicState", &m->musicState_);
+    model.Bind("musicDetail", &m->musicDetail_);
+    model.Bind("musicStation", &m->musicStation_);
+    model.Bind("musicTitle", &m->musicTitle_);
+    model.Bind("musicError", &m->musicError_);
+    model.Bind("musicOn", &m->musicOn_);
+    model.Bind("musicVolume", &m->musicVolume_);
+    model.Bind("musicAuto", &m->musicAuto_);
+    model.Bind("videoUrl", &m->videoUrl_);
+    model.Bind("videoDetail", &m->videoDetail_);
+    model.Bind("videoNote", &m->videoNote_);
+    model.Bind("primMedia", &m->primMedia_);
+    model.Bind("primMediaNote", &m->primMediaNote_);
+    const auto mediaAction = [&model, m](const char* name, MediaAction action)
+    {
+        model.BindEventCallback(
+            name, [m, action](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+            { m->mediaAction_ = action; });
+    };
+    mediaAction("musicPlay", MediaAction::PlayMusic);
+    mediaAction("musicStop", MediaAction::StopMusic);
+    mediaAction("louder", MediaAction::Louder);
+    mediaAction("quieter", MediaAction::Quieter);
     model.Bind("estateName", &m->estateName_);
     model.Bind("estateOwner", &m->estateOwner_);
     model.Bind("estateCovenant", &m->estateCovenant_);
@@ -960,10 +994,161 @@ void MainMenu::updateOutfits(const Status& status)
     }
 }
 
+void MainMenu::updateMedia(const Status& status)
+{
+    const auto put = [&](const char* variable, auto& field, auto value)
+    {
+        if(field != value)
+        {
+            field = std::move(value);
+            model_.DirtyVariable(variable);
+        }
+    };
+    const Parcel* parcel = status.parcel;
+
+    // Music: the parcel's URL, and the stream (if it plays that).
+    const MusicStream::Status* m = status.music ? &status.music->status() : nullptr;
+    const std::string url = parcel ? parcel->musicUrl : std::string();
+    put("musicUrl", musicUrl_, Rml::String(url));
+    const bool on =
+        m && m->state != MusicStream::State::Stopped && m->state != MusicStream::State::Failed;
+    put("musicOn", musicOn_, on);
+    std::string state = "Stopped";
+    std::string detail;
+    if(m && m->state != MusicStream::State::Stopped)
+    {
+        state = std::string(MusicStream::stateName(m->state));
+        if(m->format != audio::AudioStream::Format::Unknown)
+        {
+            detail = std::string(audio::AudioStream::formatName(m->format));
+        }
+        if(m->sampleRate > 0)
+        {
+            detail += std::format(" · {:.1f} kHz {}", m->sampleRate / 1000.0,
+                                  m->channels == 1 ? "mono" : "stereo");
+        }
+        if(m->bitrate > 0)
+        {
+            detail += std::format(" · {} kbps", m->bitrate);
+        }
+    }
+    put("musicState", musicState_, Rml::String(state));
+    put("musicDetail", musicDetail_, Rml::String(detail));
+    put("musicStation", musicStation_, Rml::String(m && on ? m->station : std::string()));
+    put("musicTitle", musicTitle_, Rml::String(m && on ? m->title : std::string()));
+    put("musicError", musicError_,
+        Rml::String(m && m->state == MusicStream::State::Failed ? m->error : std::string()));
+    put("musicVolume", musicVolume_,
+        status.music ? static_cast<int>(std::lround(status.music->volume() * 100.0f)) : 0);
+    put("musicAuto", musicAuto_,
+        Rml::String(status.musicAutoPlay ? "Starts by itself on parcels with music."
+                                         : "Stopped: parcels' music waits for Play."));
+
+    // The parcel's video (or page): said, not shown yet.
+    const ParcelMedia* video = parcel && !parcel->media.url.empty() ? &parcel->media : nullptr;
+    put("videoUrl", videoUrl_, Rml::String(video ? video->url : std::string()));
+    std::string videoDetail;
+    if(video)
+    {
+        videoDetail = video->type.empty() ? std::string("Type not said") : video->type;
+        if(video->width > 0 && video->height > 0)
+        {
+            videoDetail += std::format(" · {}×{}", video->width, video->height);
+        }
+        if(video->loop)
+        {
+            videoDetail += " · loops";
+        }
+        if(!video->description.empty())
+        {
+            videoDetail += " · " + video->description;
+        }
+    }
+    put("videoDetail", videoDetail_, Rml::String(videoDetail));
+    std::string videoNote = "Video and web pages can't be shown yet.";
+    if(video && status.parcelMediaPlay && status.parcelMediaPlay->command)
+    {
+        namespace c = parcel_media_command;
+        const uint32_t command = *status.parcelMediaPlay->command;
+        videoNote += command == c::kPause                         ? " A script paused it."
+                     : command == c::kPlay || command == c::kLoop ? " A script started it."
+                                                                  : " A script stopped it.";
+    }
+    put("videoNote", videoNote_, Rml::String(videoNote));
+
+    // Prims' media, face by face.
+    std::vector<MediaRow> rows;
+    for(const Status::PrimMedia& p : status.primMedia)
+    {
+        if(!p.media)
+        {
+            continue;
+        }
+        bool first = true;
+        for(size_t f = 0; f < p.media->faces.size(); f++)
+        {
+            const auto& e = p.media->faces[f];
+            if(!e)
+            {
+                continue;
+            }
+            MediaRow row;
+            if(first)
+            {
+                row.object = p.name.empty() ? "(Object)" : p.name;
+                row.where = std::format("{:.0f} m", p.distance);
+                first = false;
+            }
+            row.face = std::format("Face {}", f);
+            row.url = e->url().empty() ? "(No URL)" : e->url();
+            std::string d;
+            const auto add = [&](std::string_view part)
+            {
+                d += d.empty() ? "" : " · ";
+                d += part;
+            };
+            if(e->autoPlay)
+            {
+                add("plays by itself");
+            }
+            if(e->autoLoop)
+            {
+                add("loops");
+            }
+            if(e->width > 0 && e->height > 0)
+            {
+                add(std::format("{}×{}", e->width, e->height));
+            }
+            if(e->whitelistEnable)
+            {
+                add(std::format("{} allowed site{}", e->whitelist.size(),
+                                e->whitelist.size() == 1 ? "" : "s"));
+            }
+            if(!e->currentUrl.empty() && e->currentUrl != e->homeUrl && !e->homeUrl.empty())
+            {
+                add("home: " + e->homeUrl);
+            }
+            row.details = d;
+            rows.push_back(std::move(row));
+        }
+    }
+    put("primMedia", primMedia_, std::move(rows));
+    put("primMediaNote", primMediaNote_,
+        Rml::String(status.primMediaTotal == 0 ? "No media on prims around."
+                    : status.primMediaTotal > status.primMedia.size()
+                        ? std::format("The nearest {} of {} prims with media.",
+                                      status.primMedia.size(), status.primMediaTotal)
+                        : std::string()));
+}
+
 void MainMenu::update(const Status& status)
 {
     updateDestinations(status);
     updateParcel(status);
+    if(tab_ == "media")
+    {
+        updateMedia(status);
+    }
     if(status.chat && status.ims)
     {
         chat_.update(*status.chat, *status.ims, status.self, tab_ == "chat", status.headset,

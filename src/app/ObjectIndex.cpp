@@ -44,6 +44,7 @@ void ObjectIndex::clear()
     probes_.clear();
     particleSources_.clear();
     soundSources_.clear();
+    mediaSources_.clear();
     dirty_.clear();
     orphans_.clear();
 }
@@ -138,6 +139,7 @@ void ObjectIndex::changedPrim(const world::World& world, const world::ObjectKey&
     probes_.erase(key);
     particleSources_.erase(key);
     soundSources_.erase(key);
+    mediaSources_.erase(key);
 
     const world::Object* object = world.object(key.region, key.localId);
     if(!object || object->type != world::ObjectType::Prim)
@@ -178,6 +180,10 @@ void ObjectIndex::changedPrim(const world::World& world, const world::ObjectKey&
     if(!object->sound.id.isNull())
     {
         soundSources_.insert(key);
+    }
+    if(object->mediaVersion.starts_with("x-mv:"))
+    {
+        mediaSources_.insert(key);
     }
 }
 

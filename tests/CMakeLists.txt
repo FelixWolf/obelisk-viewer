@@ -81,6 +81,8 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/InventoryBrowser.cpp
   ${PROJECT_SOURCE_DIR}/src/app/CurrentOutfit.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ParcelInfo.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/MusicStream.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ObjectMedia.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE

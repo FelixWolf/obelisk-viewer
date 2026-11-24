@@ -54,7 +54,17 @@ std::optional<Parcel> parseParcelProperties(const llsd::Value& body)
     p.maxPrims = d["MaxPrims"].asInteger();
     p.snapshot = d["SnapshotID"].asUuid();
     p.musicUrl = d["MusicURL"].asString();
-    p.mediaUrl = d["MediaURL"].asString();
+    p.media.url = d["MediaURL"].asString();
+    p.media.texture = d["MediaID"].asUuid();
+    p.media.autoScale = d["MediaAutoScale"].asInteger() != 0;
+    if(const llsd::Value& m = body["MediaData"][0]; m.isMap())
+    {
+        p.media.type = m["MediaType"].asString();
+        p.media.description = m["MediaDesc"].asString();
+        p.media.width = m["MediaWidth"].asInteger();
+        p.media.height = m["MediaHeight"].asInteger();
+        p.media.loop = m["MediaLoop"].asInteger() != 0;
+    }
     p.seeAvatars = !d.has("SeeAVs") || d["SeeAVs"].asBoolean();
     return p;
 }
@@ -99,8 +109,39 @@ void ParcelInfo::parcelProperties(uint64_t region, uint64_t agentRegion, const l
         estate_.reset();
         estateWanted_ = true;
     }
+    if(!parcel_ || parcel_->localId != p->localId || region_ != region)
+    {
+        // A new parcel: no script has said anything about its media yet.
+        mediaPlay_ = MediaPlay{std::nullopt, std::nullopt, mediaPlay_.serial + 1};
+    }
     parcel_ = std::move(*p);
     region_ = region;
+    version_++;
+}
+
+void ParcelInfo::mediaUpdate(ParcelMedia media)
+{
+    if(parcel_ && parcel_->media != media)
+    {
+        parcel_->media = std::move(media);
+        version_++;
+    }
+}
+
+void ParcelInfo::mediaCommand(uint32_t flags, uint32_t command, float time)
+{
+    namespace c = parcel_media_command;
+    constexpr uint32_t kPlayState =
+        1u << c::kStop | 1u << c::kPause | 1u << c::kPlay | 1u << c::kLoop | 1u << c::kUnload;
+    if(flags & kPlayState)
+    {
+        mediaPlay_.command = command == c::kUnload ? c::kStop : command;
+    }
+    if(flags & (1u << c::kTime))
+    {
+        mediaPlay_.time = time;
+    }
+    mediaPlay_.serial++;
     version_++;
 }
 
@@ -144,6 +185,7 @@ void ParcelInfo::clear()
 {
     parcel_.reset();
     region_ = 0;
+    mediaPlay_ = MediaPlay{};
     estate_.reset();
     estateRegion_ = 0;
     estateWanted_ = false;

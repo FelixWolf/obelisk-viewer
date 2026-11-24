@@ -316,6 +316,7 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
         }
         applyExtraParams(o, b.ExtraParams);
         o.hoverText = protocol::toString(b.Text);
+        o.mediaVersion = protocol::toString(b.MediaURL);
         for(auto& [name, value] : parseNameValues(protocol::toString(b.NameValue)))
         {
             if(name == "FirstName")

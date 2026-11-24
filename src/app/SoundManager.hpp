@@ -50,6 +50,8 @@ public:
     ~SoundManager();
 
     bool enabled() const { return engine_ != nullptr; }
+    // The output (null: none), for the music stream.
+    audio::AudioEngine* engine() const { return engine_.get(); }
 
     // A sound played once at a place (scene coordinates), at a gain.
     void trigger(const Uuid& sound, const glm::vec3& position, float gain);

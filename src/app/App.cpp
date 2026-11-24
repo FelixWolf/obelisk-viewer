@@ -15,6 +15,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
@@ -647,8 +648,12 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
     app->soundAssets_ = std::make_unique<SoundAssets>(*app->http_, *app->jobs_, *app->diskCache_);
     app->sounds_ = std::make_unique<SoundManager>(audio::AudioEngine::create(), *app->soundAssets_);
+    app->music_ = std::make_unique<MusicStream>(*app->http_, app->sounds_->engine());
     // The settings the options don't carry (sound); the rest as given.
-    app->applySettings({std::string(setting::kMasterVolume.name)});
+    app->applySettings({std::string(setting::kMasterVolume.name),
+                        std::string(setting::kMusicVolume.name),
+                        std::string(setting::kMusicAutoPlay.name)});
+    app->objectMedia_ = std::make_unique<ObjectMedia>(*app->http_);
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
         const char* base = SDL_GetBasePath();
@@ -735,6 +740,14 @@ void App::applySettings(const std::vector<std::string>& names)
         {
             sounds_->setVolumes(static_cast<float>(s.get(kMasterVolume)) / 100.0f,
                                 static_cast<float>(s.get(kSoundVolume)) / 100.0f);
+        }
+        else if(name == kMusicVolume.name)
+        {
+            music_->setVolume(static_cast<float>(s.get(kMusicVolume)) / 100.0f);
+        }
+        else if(name == kMusicAutoPlay.name)
+        {
+            musicAutoPlay_ = s.get(kMusicAutoPlay); // from the next parcel's music
         }
         else if(name == kStart.name)
         {
@@ -882,7 +895,7 @@ int App::run()
         // Keep the session going even while minimized.
         updateSession();
         updateMainMenu();
-        // Settings changed (the Settings tab): in
+        // Settings changed (the Settings tab, the Media tab's volume): in
         // effect now, and saved a moment later.
         applySettings(settings_->takeChanged());
         settings_->saveIfChanged(static_cast<double>(SDL_GetTicks()) / 1000.0);
@@ -1472,6 +1485,34 @@ void App::updateSession()
                                  regionOffset(handle, *originHandle_) +
                                      glm::vec3(d.Position.x, d.Position.y, d.Position.z),
                                  d.Gain);
+            }
+        }
+        else if(m.event.is<protocol::msg::ParcelMediaUpdate>())
+        {
+            // The parcel's media changed for us (a script's
+            // llParcelMediaCommandList).
+            const auto u = m.event.decode<protocol::msg::ParcelMediaUpdate>();
+            if(u && m.regionHandle == session_->agentRegion().value_or(0))
+            {
+                ParcelMedia media;
+                media.url = protocol::toString(u->DataBlock.MediaURL);
+                media.texture = u->DataBlock.MediaID;
+                media.autoScale = u->DataBlock.MediaAutoScale != 0;
+                media.type = protocol::toString(u->DataBlockExtended.MediaType);
+                media.description = protocol::toString(u->DataBlockExtended.MediaDesc);
+                media.width = u->DataBlockExtended.MediaWidth;
+                media.height = u->DataBlockExtended.MediaHeight;
+                media.loop = u->DataBlockExtended.MediaLoop != 0;
+                parcel_.mediaUpdate(std::move(media));
+            }
+        }
+        else if(m.event.is<protocol::msg::ParcelMediaCommandMessage>())
+        {
+            const auto c = m.event.decode<protocol::msg::ParcelMediaCommandMessage>();
+            if(c && m.regionHandle == session_->agentRegion().value_or(0))
+            {
+                parcel_.mediaCommand(c->CommandBlock.Flags, c->CommandBlock.Command,
+                                     c->CommandBlock.Time);
             }
         }
         else if(m.event.is<protocol::msg::PreloadSound>())
@@ -2085,6 +2126,10 @@ void App::endSession()
     offers_->clear();
     sounds_->clear();
     soundAssets_->clear();
+    music_->stop();
+    musicWanted_.clear();
+    musicParcel_.reset();
+    objectMedia_->clear();
     friends_.clear();
     friendsLoaded_ = false;
     nearby_.clear();
@@ -2339,6 +2384,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
                         *legacyMaterials_, avatars_.get(), 128.0f);
         addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
         updateSounds(scene);
+        updateMedia();
         if(avatars_)
         {
             const auto* login = session_ ? session_->login() : nullptr;
@@ -3478,6 +3524,70 @@ void App::updateOfferAnswers()
                   [&](const PendingAnswer& p) { return carryOut(p.answer, now - p.since); });
 }
 
+namespace
+{
+
+// A parcel's music URL, if it's one to play (llviewerparcelmgr.cpp: trimmed,
+// http or https, longer than "http://a.b/c").
+std::string playableMusicUrl(std::string_view url)
+{
+    while(!url.empty() && std::isspace(static_cast<unsigned char>(url.front())))
+    {
+        url.remove_prefix(1);
+    }
+    while(!url.empty() && std::isspace(static_cast<unsigned char>(url.back())))
+    {
+        url.remove_suffix(1);
+    }
+    if(url.size() <= 12 || !(url.starts_with("http://") || url.starts_with("https://")))
+    {
+        return {};
+    }
+    return std::string(url);
+}
+
+} // namespace
+
+void App::updateMedia()
+{
+    // The parcel's music: on coming onto a parcel, or its URL changing,
+    // what it says plays (if it starts by itself) or what played stops.
+    const auto& parcel = parcel_.parcel();
+    const std::string url = parcel ? playableMusicUrl(parcel->musicUrl) : std::string();
+    const std::optional<std::pair<uint64_t, int>> here =
+        parcel ? std::optional(std::pair(parcel_.region(), parcel->localId)) : std::nullopt;
+    if(here != musicParcel_ || url != musicWanted_)
+    {
+        musicParcel_ = here;
+        musicWanted_ = url;
+        if(url.empty() || !musicAutoPlay_)
+        {
+            music_->stop();
+        }
+        else if(url != music_->status().url || music_->status().state == MusicStream::State::Failed)
+        {
+            music_->play(url);
+        }
+    }
+    music_->update();
+
+    // Prims' media: asked for from their regions.
+    if(world_ && session_)
+    {
+        objectMedia_->update(objects_->mediaSources(), *world_,
+                             [this](uint64_t handle)
+                             {
+                                 const session::Region* r = session_->regionByHandle(handle);
+                                 if(!r)
+                                 {
+                                     return std::string();
+                                 }
+                                 const auto it = r->capabilities.find("ObjectMedia");
+                                 return it == r->capabilities.end() ? std::string() : it->second;
+                             });
+    }
+}
+
 void App::updateSounds(const render::Scene& scene)
 {
     soundAssets_->update();
@@ -3820,7 +3930,73 @@ void App::updateMainMenu()
             status.here = globalPosition(*handle, glm::vec3(p.x, p.y, p.z));
         }
     }
+    // Media: the music, and (while the tab shows them) the prims around
+    // with media, nearest first.
+    status.music = music_.get();
+    status.musicAutoPlay = musicAutoPlay_;
+    status.parcelMediaPlay = &parcel_.mediaPlay();
+    if(mainMenu_->tab() == "media" && world_ && originHandle_ && session_)
+    {
+        constexpr size_t kListed = 30;
+        constexpr size_t kNamed = 10; // asked for (they're selected to be)
+        for(const auto& [id, media] : objectMedia_->all())
+        {
+            const world::Object* o = world_->object(media.key.region, media.key.localId);
+            if(!o || o->id != id)
+            {
+                continue;
+            }
+            const auto frame = objects_->objectFrame(*o, *world_, *originHandle_, avatars_.get());
+            if(!frame)
+            {
+                continue;
+            }
+            status.primMedia.push_back(
+                {id, {}, glm::distance(glm::vec3((*frame)[3]), scene_.camera.position), &media});
+        }
+        status.primMediaTotal = status.primMedia.size();
+        std::ranges::sort(status.primMedia, {}, &MainMenu::Status::PrimMedia::distance);
+        if(status.primMedia.size() > kListed)
+        {
+            status.primMedia.resize(kListed);
+        }
+        for(size_t i = 0; i < status.primMedia.size() && i < kNamed; i++)
+        {
+            auto& p = status.primMedia[i];
+            const auto& key = p.media->key;
+            if(const ObjectInfo* info =
+                   objectProperties_.get(*session_, key.region, key.localId, p.object))
+            {
+                p.name = info->name;
+            }
+        }
+    }
     mainMenu_->update(status);
+    if(const auto action = mainMenu_->takeMediaAction())
+    {
+        switch(*action)
+        {
+        case MainMenu::MediaAction::PlayMusic:
+            musicAutoPlay_ = true;
+            if(!musicWanted_.empty())
+            {
+                music_->play(musicWanted_);
+            }
+            break;
+        case MainMenu::MediaAction::StopMusic:
+            musicAutoPlay_ = false; // until played again
+            music_->stop();
+            break;
+        case MainMenu::MediaAction::Louder:
+        case MainMenu::MediaAction::Quieter:
+        {
+            // The setting (kept; applySettings sets the stream's).
+            const int32_t step = *action == MainMenu::MediaAction::Louder ? 10 : -10;
+            settings_->set(setting::kMusicVolume, settings_->get(setting::kMusicVolume) + step);
+            break;
+        }
+        }
+    }
     if(const auto action = mainMenu_->people().takeAction(); action && session_)
     {
         peopleAction(*action);

@@ -64,6 +64,20 @@ std::vector<SettingDefinition> viewerSettings()
                        .maximum = 100,
                        .step = 5,
                        .unit = "%"}),
+        defineSetting(kMusicVolume, int32_t{50},
+                      {.page = "Sound",
+                       .label = "Music",
+                       .description = "Parcels' music streams (also set on the Media tab).",
+                       .minimum = 0,
+                       .maximum = 100,
+                       .step = 5,
+                       .unit = "%"}),
+        defineSetting(kMusicAutoPlay, true,
+                      {.page = "Sound",
+                       .section = "Music",
+                       .label = "Play parcel music by itself",
+                       .description = "Start a parcel's music on arriving (off: it waits for "
+                                      "Play on the Media tab)."}),
 
         // --- World ------------------------------------------------------------------
         defineSetting(kStart, std::string("last"),

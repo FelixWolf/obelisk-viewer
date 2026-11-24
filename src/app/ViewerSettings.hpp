@@ -23,6 +23,8 @@ inline constexpr SettingKey<bool> kVsync{"graphics.vsync"};
 // Sound.
 inline constexpr SettingKey<int32_t> kMasterVolume{"audio.master_volume"}; // percent
 inline constexpr SettingKey<int32_t> kSoundVolume{"audio.sound_volume"};
+inline constexpr SettingKey<int32_t> kMusicVolume{"audio.music_volume"};
+inline constexpr SettingKey<bool> kMusicAutoPlay{"audio.music_autoplay"};
 // World.
 inline constexpr SettingKey<std::string> kStart{"login.start"}; // "last", "home"
 inline constexpr SettingKey<Uuid> kSkyAsset{"world.sky_asset"}; // null: the region's

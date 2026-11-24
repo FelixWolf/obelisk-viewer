@@ -17,6 +17,8 @@
 #include "LoginScreen.hpp"
 #include "MainMenu.hpp"
 #include "MaterialManager.hpp"
+#include "MusicStream.hpp"
+#include "ObjectMedia.hpp"
 #include "ObjectProperties.hpp"
 #include "ObjectView.hpp"
 #include "Offers.hpp"
@@ -408,6 +410,15 @@ private:
     std::unique_ptr<SoundAssets> soundAssets_;
     std::unique_ptr<SoundManager> sounds_;
     void updateSounds(const render::Scene& scene);
+    // Media: the parcel's music stream (and whether it starts by itself on
+    // coming onto a parcel: off once stopped, on again once played, as the
+    // official viewer's), and prims' media (MOAP: listed, not shown yet).
+    std::unique_ptr<MusicStream> music_;
+    bool musicAutoPlay_ = true;
+    std::string musicWanted_;                             // the parcel's URL we last decided on
+    std::optional<std::pair<uint64_t, int>> musicParcel_; // its region and parcel
+    std::unique_ptr<ObjectMedia> objectMedia_;
+    void updateMedia();
     uint64_t lastSoundTicks_ = 0;
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;

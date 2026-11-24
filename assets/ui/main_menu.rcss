@@ -458,6 +458,249 @@ body
 .music { margin-top: 10dp; font-size: 15dp; }
 .card.estate { flex: 0 0 300dp; }
 
+/* Media: the parcel's music (what's on, its keys) and video, then the
+   prims' media, face by face. */
+.now-playing { font-size: 24dp; color: #ffffff; }
+.station { font-size: 16dp; color: #ffc24a; margin-bottom: 8dp; }
+.media-url
+{
+    font-size: 15dp;
+    word-break: break-all;
+    margin-top: 8dp;
+}
+.media-error
+{
+    margin-top: 10dp;
+    padding: 8dp 12dp;
+    border-radius: 10dp;
+    background-color: #4a2430;
+    color: #ffb0b0;
+}
+.media-keys { margin-top: 14dp; align-items: center; }
+.media-keys .volume { padding: 12dp 18dp; margin-left: 10dp; text-align: center; }
+.volume-value { width: 64dp; margin-left: 10dp; text-align: center; color: #ffffff; }
+.media-note { font-size: 14dp; margin-top: 8dp; }
+.media-row { margin-bottom: 8dp; }
+.media-object { color: #ffffff; }
+.media-face { margin-top: 4dp; }
+.media-face .face { color: #c0cae8; font-size: 14dp; }
+
+/* Inventory: where we are (crumbs), then a folder's lines: an icon for
+   what each is, its name, its kind. */
+.crumbs { font-size: 22dp; }
+.crumb { color: #dfe5f6; cursor: pointer; }
+.crumb:hover { color: #ffffff; }
+.crumb .sep { color: #a8b4dc; margin: 0 8dp; }
+.inv-row
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 10dp 12dp;
+    margin: 0 18dp 4dp 0;
+    border-radius: 10dp;
+    border: 2dp #00000000;
+    cursor: pointer;
+}
+.inv-row:hover { background-color: #ffffff1c; border-color: #ffc24a; }
+.inv-name
+{
+    flex: 1 1 0;
+    margin-left: 14dp;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.inv-kind { font-size: 15dp; color: #c0cae8; margin-left: 14dp; }
+.icon
+{
+    /* An inventory kind's icon (icons/<kind>.svg), drawn at the size it's
+       laid out at. */
+    width: 30dp;
+    height: 30dp;
+    margin: 0 8dp;
+}
+.icon.big
+{
+    width: 140dp;
+    height: 140dp;
+    margin: 0 30dp;
+}
+.worn
+{
+    padding: 2dp 8dp;
+    border-radius: 6dp;
+    font-size: 13dp;
+    color: #1c2550;
+    background-color: #7ee2a0;
+    margin-left: 10dp;
+}
+.actions
+{
+    display: flex;
+    flex-direction: row;
+}
+.actions .teleport { flex: 1 1 0; }
+.actions .teleport + .teleport { margin-left: 10dp; }
+
+/* Outfits: cards like the categories', then one alone with its items. */
+.outfit-card .shot { height: 150dp; }
+.outfit-card .worn { display: inline-block; margin: 4dp 0 0 0; }
+.inv-row.still { cursor: default; }
+.inv-row.still:hover { background-color: transparent; border-color: #00000000; }
+.place-page .shot.snapshot { width: 360dp; height: 270dp; }
+
+/* Chat: conversations on the left, the chosen one's lines (newest at the
+   bottom, scrolling), and a line to type into. */
+.chat
+{
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+}
+.chat-list
+{
+    width: 230dp;
+    flex-shrink: 0;
+    margin-right: 22dp;
+}
+.conversation
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 12dp 14dp;
+    margin-bottom: 6dp;
+    border-radius: 12dp;
+    color: #dfe5f6;
+    cursor: pointer;
+}
+.conversation:hover { background-color: #ffffff0c; color: #ffffff; }
+.conversation.active { background-color: #ffffff24; color: #ffffff; }
+.conversation-name { flex: 1; }
+.unread
+{
+    font-size: 14dp;
+    color: #ffffff;
+    background-color: #e8961a;
+    border-radius: 9dp;
+    padding: 2dp 8dp;
+}
+.chat-main
+{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: #1c2550a0;
+    border-radius: 16dp;
+    border-width: 2dp;
+    border-color: #121a3a #6a7ec4 #8496da #161e44;
+    padding: 16dp 18dp;
+}
+.chat-head
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    padding-bottom: 12dp;
+    border-bottom: 1dp #ffffff24;
+}
+.chat-title { flex: 1; font-size: 24dp; color: #ffffff; }
+.toggle
+{
+    font-size: 15dp;
+    padding: 5dp 12dp;
+}
+.chat-lines
+{
+    flex: 1;
+    overflow-y: auto;
+    padding: 10dp 0;
+}
+.chat-lines .quiet { color: #b0bce0; padding-top: 20dp; text-align: center; }
+.chat-line
+{
+    font-size: 18dp;
+    color: #e8ecf4;
+    padding: 3dp 4dp;
+}
+.chat-line .when { font-size: 13dp; color: #a8b4dc; margin-right: 8dp; }
+.chat-line .who { color: #8fb0ff; margin-right: 6dp; }
+.chat-line.object .who { color: #7fd0b0; }
+.chat-line.object .said { color: #b9c9c2; }
+.chat-line.owner
+{
+    background-color: #f0c04014;
+    border-left: 3dp #f0c040;
+    padding-left: 8dp;
+}
+.chat-line.owner .who { color: #f0c040; }
+.chat-line.system .said { color: #c4cff0; }
+.chat-input
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    padding-top: 12dp;
+    border-top: 1dp #ffffff24;
+}
+input.chat-field
+{
+    flex: 1;
+    padding: 10dp 12dp;
+    font-size: 18dp;
+}
+.send
+{
+    margin-left: 10dp;
+    padding: 9dp 20dp;
+}
+.send.wide { margin-left: 0; }
+.chat-line.self .who { color: #c0a0ff; }
+.typing { font-size: 14dp; color: #c0cae8; padding: 0 4dp 6dp 4dp; flex-shrink: 0; }
+
+/* People: the Chat tab's layout, with friends or who's nearby on the left
+   and the one picked on the right. */
+.people-list { width: 300dp; display: flex; flex-direction: column; }
+.people-switch { display: flex; flex-direction: row; margin-bottom: 12dp; flex-shrink: 0; }
+.people-switch .toggle { flex: 1 1 0; text-align: center; }
+.people-switch .toggle + .toggle { margin-left: 8dp; }
+.people-rows { flex: 1; overflow-y: auto; }
+.people-rows .quiet { color: #b0bce0; padding: 20dp 10dp; text-align: center; }
+.person .dot
+{
+    width: 9dp;
+    height: 9dp;
+    border-radius: 5dp;
+    margin-right: 10dp;
+    background-color: #7a86b0;
+    flex-shrink: 0;
+}
+.person.online .dot { background-color: #4cc070; }
+.person-detail { font-size: 14dp; color: #b0bce0; margin-left: 8dp; }
+.friend-mark
+{
+    font-size: 12dp;
+    color: #c0a0ff;
+    margin-left: 8dp;
+    padding: 1dp 6dp;
+    border-radius: 6dp;
+    border: 1dp #c0a0ff60;
+}
+.person-card { padding: 22dp 24dp; }
+.person-card .quiet { color: #b0bce0; padding-top: 30dp; text-align: center; }
+.person-status { color: #c0cae8; margin: 8dp 0 18dp 0; }
+.person-status.online { color: #4cc070; }
+.person-actions { margin-bottom: 22dp; }
+.rights h3 { margin: 0 0 10dp 0; }
+.rights .right { margin-bottom: 8dp; padding: 10dp 14dp; }
+.rights .they { margin-top: 8dp; font-size: 15dp; }
+.person-card .confirm { margin-bottom: 10dp; }
+.person-card .friendship { margin-top: 26dp; }
+
+
 /* Settings: the Chat tab's layout, the pages on the left and the chosen
    one's settings on the right, scrolling; each a row of its label and
    what it does, and its control (a check box before it; a number, choices

@@ -113,6 +113,11 @@ public:
     {
         return soundSources_;
     }
+    // Prims with media on a face (a media version: see ObjectMedia).
+    const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& mediaSources() const
+    {
+        return mediaSources_;
+    }
     size_t prims() const { return rootOf_.size(); }
 
 private:
@@ -136,6 +141,7 @@ private:
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> probes_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> particleSources_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> soundSources_;
+    std::unordered_set<world::ObjectKey, world::ObjectKeyHash> mediaSources_;
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> dirty_;
     // Link sets whose root's parent wasn't known: placed again once it is.
     std::unordered_set<world::ObjectKey, world::ObjectKeyHash> orphans_;

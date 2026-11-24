@@ -103,6 +103,11 @@ public:
     {
         return index_.groundBelow(top, depth);
     }
+    // Prims with media on a face, for ObjectMedia.
+    const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& mediaSources() const
+    {
+        return index_.mediaSources();
+    }
     // Prims playing a sound (or set to), for SoundManager.
     const std::unordered_set<world::ObjectKey, world::ObjectKeyHash>& soundSources() const
     {
