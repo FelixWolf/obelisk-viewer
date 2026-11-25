@@ -101,7 +101,7 @@ h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: upperca
     border-width: 1dp;
     color: #ffffff;
     cursor: pointer;
-    font-effect: shadow(0 1dp #1a2346);
+    font-effect: shadow(0 2dp #1a2346);
     background-color: #6a7cbc;
     decorator: linear-gradient(180deg, #8c9ed8 0%, #6a7cbc 50%, #56689e 100%);
     border-color: #c4d0f4 #3c4a80 #2c3866 #a0b2e8;
@@ -118,7 +118,7 @@ h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: upperca
 
 .key.orange
 {
-    font-effect: shadow(0 1dp #7a3e00);
+    font-effect: shadow(0 2dp #7a3e00);
     background-color: #eda21c;
     decorator: linear-gradient(180deg, #fbc85a 0%, #f0a422 50%, #de8a10 100%);
     border-color: #ffe3a0 #c27410 #8e5004 #f6c25a;
@@ -134,7 +134,7 @@ h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: upperca
 .key.red
 {
     color: #f4dce2;
-    font-effect: shadow(0 1dp #3a1a28);
+    font-effect: shadow(0 2dp #3a1a28);
     background-color: #8a6476;
     decorator: linear-gradient(180deg, #a68494 0%, #8a6476 50%, #765264 100%);
     border-color: #d4bcc8 #4e3442 #3c2634 #b8a0ae;
@@ -142,7 +142,7 @@ h3 { font-size: 16dp; color: #c4cff0; margin: 0 0 6dp 0; text-transform: upperca
 .key.red:hover
 {
     color: #ffffff;
-    font-effect: shadow(0 1dp #5a0a0a);
+    font-effect: shadow(0 2dp #5a0a0a);
     decorator: linear-gradient(180deg, #f46a6a 0%, #dc3434 50%, #c01e1e 100%);
     border-color: #ffb0b0 #9a1616 #700c0c #f07070;
 }
