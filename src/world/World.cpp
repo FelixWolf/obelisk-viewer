@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <unordered_set>
 
 namespace viewer::world
 {
@@ -502,6 +503,15 @@ WorldUpdate decodeMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
                 {
                     a.appearance.visualParams.push_back(p.ParamValue);
                 }
+                std::unordered_set<Uuid> worn; // (null: pending there)
+                for(const auto& w : m->AttachmentBlock)
+                {
+                    if(!w.ID.isNull())
+                    {
+                        worn.insert(w.ID);
+                    }
+                }
+                a.appearance.attachments = worn.size();
                 // No hover block: the region doesn't do hover (llvoavatar.cpp).
                 if(!m->AppearanceHover.empty())
                 {

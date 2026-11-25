@@ -1778,6 +1778,18 @@ adds to the glow mask. Particles without a texture use the official
 viewer's default image (pixiesmall, 168e6813-096e-07ea-97ae-fd416826f627,
 from the asset server); a soft white dot stands in while it loads.
 
+Avatars still loading are clouds, as in the official viewer:
+`AvatarLoading` decides when one has loaded (updateIsFullyLoaded). It needs
+a shape and its head, upper and lower bakes; every bake loaded or failed
+(waited for a minute); a level of detail and the skin of each mesh it wears;
+and, but for our own, as many attachments as AvatarAppearance lists (waited
+for a minute since the last came); then 3 seconds of nothing new. Until
+then `AvatarView` leaves out its body, `ObjectView` what it wears (but not
+our HUDs, and it all still loads), and `ParticleView` gets a source there
+(`cloudParticles`, idleUpdateLoadingEffect's, with the official
+cloud-particle.j2c, embedded). Once loaded it doesn't go back, until it has
+been gone for 2 seconds; ours, until we log out.
+
 Texture animation (llSetTextureAnim; `world::TextureAnimation`, from the
 TextureAnim field or a compressed update's 0x40 block) runs as the
 official viewer's LLViewerTextureAnim: flipbook frames from a grid (whole

@@ -540,6 +540,8 @@ void AvatarView::clear()
     overrides_.clear();
     bakesInUse_.clear();
     animatedParts_.clear();
+    worn_.clear();
+    loading_.clear();
     collectedAt_.reset();
 }
 
@@ -568,6 +570,7 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
     overrides_.clear();
     bakesInUse_.clear();
     animatedParts_.clear();
+    worn_.clear();
     for(const auto& [key, object] : world.objects())
     {
         if(object.type != world::ObjectType::Prim)
@@ -589,6 +592,15 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
         if(const world::Object* avatar =
                object.parentId != 0 ? attachedAvatar(world, object) : nullptr)
         {
+            if(!loaded(avatar->id))
+            {
+                Worn& worn = worn_[avatar->id];
+                worn.attachments += object.parentId == avatar->localId;
+                if((object.sculptType & world::SculptType::Mask) == world::SculptType::Mesh)
+                {
+                    worn.meshes.push_back(object.sculptTexture);
+                }
+            }
             uint64_t bakes = 0;
             for(const world::TextureFace& face : object.faces)
             {
@@ -977,6 +989,49 @@ std::vector<Uuid> AvatarView::takeEndedAnimations(const Uuid& avatar)
     return it != avatars_.end() ? it->second.animator.takeEnded() : std::vector<Uuid>{};
 }
 
+void AvatarView::updateLoading(const world::World& world, const world::Object& avatar,
+                               TextureManager& textures, MeshManager& meshes, double now)
+{
+    Loading& l = loading_[avatar.id];
+    l.seen = now;
+    if(l.state.loaded())
+    {
+        return;
+    }
+    const world::World::Appearance* appearance = world.appearance(avatar.id);
+    AvatarLoading::Inputs in;
+    in.missingParts = hasMissingParts(appearance);
+    if(appearance)
+    {
+        // Every bake it has, asked for even out of sight (the least will
+        // do: those in sight are asked for at their size once drawn).
+        for(const BakeSlot& b : kBakeSlots)
+        {
+            const Uuid& id = appearance->faces[static_cast<size_t>(b.slot)].texture;
+            if(!bakeDefined(id) || id == kInvisibleTexture)
+            {
+                continue;
+            }
+            in.bakes = in.bakes * 31 + std::hash<Uuid>()(id);
+            bake(world, avatar, b.slot, b.name, textures, 0.0f);
+            in.bakesPending |= !textures.settled(id);
+        }
+        if(avatar.id != self_)
+        {
+            in.expected = appearance->attachments;
+        }
+    }
+    if(const auto worn = worn_.find(avatar.id); worn != worn_.end())
+    {
+        in.attachments = worn->second.attachments;
+        for(const Uuid& mesh : worn->second.meshes)
+        {
+            in.meshesPending |= !meshes.settled(mesh); // (asks for each)
+        }
+    }
+    l.state.update(in, now);
+}
+
 void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,
                        TextureManager& textures, AnimationManager& animations, MeshManager& meshes,
                        double now, float drawDistance)
@@ -995,6 +1050,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             continue;
         }
         const world::Object& object = *found;
+        updateLoading(world, object, textures, meshes, now);
         if(!placed(object, world, originHandle))
         {
             continue; // sitting on something not here yet
@@ -1051,7 +1107,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             pose(a, body.shape, world, object.id, animations, now, root, originHandle, &object);
         }
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
-           seen == render::Visibility::Hidden)
+           seen == render::Visibility::Hidden || !loaded(object.id))
         {
             continue;
         }
@@ -1120,6 +1176,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
 
     // Forget avatars and animated objects that are gone.
     std::erase_if(avatars_, [&](const auto& entry) { return entry.second.seen != frame_; });
+    std::erase_if(loading_, [&](const auto& entry)
+                  { return entry.first != self_ && now - entry.second.seen > kForgetLoaded; });
     // Frames asked for while posing were of the old poses.
     rootFrames_.clear();
     attachmentFrames_.clear();

@@ -32,6 +32,10 @@ assets/textures/alpha_gradient_2d.j2c
     terrain layer blend ramp, flipping the rows to the orientation the Second
     Life viewer samples it in.
 
+assets/textures/cloud-particle.j2c
+    From the Second Life viewer (skins/default/textures/cloud-particle.j2c).
+    Included unmodified: the particles avatars are drawn as while they load.
+
 assets/character/avatar_skeleton.xml, avatar_lad.xml
 assets/character/avatar_head.llm, avatar_upper_body.llm, avatar_lower_body.llm,
     avatar_eyelashes.llm, avatar_hair.llm, avatar_skirt.llm, avatar_eye.llm

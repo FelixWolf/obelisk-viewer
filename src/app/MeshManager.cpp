@@ -385,6 +385,27 @@ std::shared_ptr<const assets::MeshSkin> MeshManager::skin(const Uuid& id)
     return e.skin;
 }
 
+bool MeshManager::settled(const Uuid& id)
+{
+    const bool drawable = get(id, 0) != nullptr;
+    const auto it = entries_.find(id);
+    if(it == entries_.end() || it->second.header == State::Failed)
+    {
+        return true; // no mesh, or not to be had
+    }
+    Entry& e = it->second;
+    if(e.header != State::Ready)
+    {
+        return false;
+    }
+    const int lowest = e.parsed.closestLod(0);
+    if(!drawable && lowest >= 0 && e.lods[static_cast<size_t>(lowest)].state != State::Failed)
+    {
+        return false;
+    }
+    return !e.parsed.skin.present() || skin(id) || e.skinState == State::Failed;
+}
+
 MeshManager::Stats MeshManager::stats() const
 {
     Stats s;

@@ -88,7 +88,8 @@ struct AvatarAppearance
     TextureEntry faces;
     std::vector<uint8_t> visualParams;
     glm::vec3 hover{0.0f};
-    uint64_t serial = 0; // bumped on every change (set by World)
+    size_t attachments = 0; // how many the simulator says it wears (no HUDs)
+    uint64_t serial = 0;    // bumped on every change (set by World)
 };
 
 // An animation an avatar plays, with the sequence number it was started with.

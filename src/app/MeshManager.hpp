@@ -58,6 +58,11 @@ public:
     // the header is in. nullptr until then, or if it has none.
     std::shared_ptr<const assets::MeshSkin> skin(const Uuid& id);
 
+    // Whether there's no more to wait for before it can be drawn: some level
+    // of detail is ready (asking for the lowest if none is), and its skin if
+    // it's rigged; or it can't be had. Starts loading what's needed.
+    bool settled(const Uuid& id);
+
     // Handles finished downloads and decodes.
     void update();
 

@@ -270,6 +270,13 @@ std::optional<image::AlphaMode> TextureManager::alphaMode(const Uuid& id) const
     return it->second.alphaMode;
 }
 
+bool TextureManager::settled(const Uuid& id) const
+{
+    const auto it = entries_.find(id);
+    return it != entries_.end() && (it->second.color || it->second.state == State::Missing ||
+                                    it->second.state == State::Failed);
+}
+
 uint32_t TextureManager::largerSide(const render::GpuTexture& t)
 {
     return t ? std::max(t.width(), t.height()) : 0;

@@ -174,6 +174,7 @@ private:
     // bring back (OutfitAttachments).
     void updateOutfit();
     void loadTerrainBlendRamp();
+    void loadCloudTexture();
     void updateSession();
     void logOutBeforeExit();
     // Fills the frame's scene (cleared first).

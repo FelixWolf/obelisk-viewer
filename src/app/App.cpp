@@ -698,6 +698,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->avatarNames_ = std::make_unique<AvatarNames>(*app->http_);
     app->accountPicture_ = std::make_unique<AccountPicture>(*app->http_);
     app->objects_ = std::make_unique<ObjectView>(*app->jobs_, *app->renderer_, app->motion_);
+    app->loadCloudTexture();
     app->soundAssets_ = std::make_unique<SoundAssets>(*app->http_, *app->jobs_, *app->diskCache_);
     app->sounds_ = std::make_unique<SoundManager>(audio::AudioEngine::create(), *app->soundAssets_);
     app->music_ = std::make_unique<MusicStream>(*app->http_, app->sounds_->engine());
@@ -901,6 +902,23 @@ void App::loadTerrainBlendRamp()
     }
     image::flipRows(*ramp);
     renderer_->setTerrainBlendRamp(*ramp);
+}
+
+void App::loadCloudTexture()
+{
+    // The official viewer's cloud particle (CC-BY-SA artwork, as above).
+    const auto cloud = image::textureFromJ2k(*j2kDecoder_, assets_embedded::kCloudParticleJ2c);
+    if(!cloud)
+    {
+        log::warn("couldn't decode the cloud particle; using the default one");
+        return;
+    }
+    const image::TextureData* const data = &*cloud;
+    auto uploaded = renderer_->uploadTextures({&data, 1}, true);
+    if(!uploaded.empty())
+    {
+        objects_->setCloudTexture(std::move(uploaded.front()));
+    }
 }
 
 void App::handleLoginAction(LoginAction action)
@@ -1897,6 +1915,7 @@ void App::updateSession()
     if(avatars_)
     {
         const auto* login = session_->login();
+        avatars_->setSelf(login ? login->agentId : Uuid{});
         avatars_->setAppearanceServiceUrl(
             login ? login->reply["agent_appearance_service"].asString() : std::string());
     }

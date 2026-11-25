@@ -82,6 +82,10 @@ public:
     // Particles simulated and drawn (off: --without particles).
     void setParticles(bool on) { particlesOn_ = on; }
 
+    // What the particles of avatars still loading are drawn with
+    // (kCloudTexture).
+    void setCloudTexture(render::GpuTexture texture) { cloudTexture_ = std::move(texture); }
+
     // Every prim placed last frame (its center and half its size), for
     // automatic reflection probes (placeAutomaticProbes).
     std::span<const ProbeObject> probeObjects() const { return probeObjects_; }
@@ -276,6 +280,7 @@ private:
     std::vector<ProbeObject> probeObjects_;
     FlexibleView flexible_; // flexible prims' bent geometry
     bool particlesOn_ = true;
+    render::GpuTexture cloudTexture_; // before the particles drawn with it
     ParticleView particles_;
     std::chrono::steady_clock::time_point lastParticles_{};
     // Particle targets by id, found by looking through the world (at most

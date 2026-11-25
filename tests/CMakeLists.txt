@@ -1,5 +1,6 @@
 add_executable(viewer_tests
   main.cpp
+  AvatarLoadingTests.cpp
   AvatarNameTests.cpp
   AvatarTests.cpp
   AudioTests.cpp
@@ -57,6 +58,7 @@ add_executable(viewer_tests
   ReflectionProbeTests.cpp
   # App code with no dependencies of its own, tested as is.
   ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/AvatarLoading.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarNames.cpp
   ${PROJECT_SOURCE_DIR}/src/app/InstantMessages.cpp
   ${PROJECT_SOURCE_DIR}/src/app/Offers.cpp

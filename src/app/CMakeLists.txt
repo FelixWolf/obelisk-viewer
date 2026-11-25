@@ -1,15 +1,16 @@
 # Viewer assets embedded in the binary (see assets/LICENSE-artwork.txt).
 set(asset_header ${CMAKE_CURRENT_BINARY_DIR}/generated/EmbeddedAssets.hpp)
 set(asset_ramp ${PROJECT_SOURCE_DIR}/assets/textures/alpha_gradient_2d.j2c)
+set(asset_cloud ${PROJECT_SOURCE_DIR}/assets/textures/cloud-particle.j2c)
 # Every license of what's in the viewer, in one text (cmake/Licenses.cmake).
 set(asset_licenses ${CMAKE_CURRENT_BINARY_DIR}/generated/licenses.txt)
 viewer_write_licenses(${asset_licenses})
 add_custom_command(
   OUTPUT ${asset_header}
   COMMAND ${CMAKE_COMMAND} -DOUTPUT=${asset_header} -DNAMESPACE=viewer::assets_embedded
-          "-DENTRIES=kAlphaGradient2dJ2c=${asset_ramp};kLicensesTxt=${asset_licenses};kIconPng=${VIEWER_ICON}.png"
+          "-DENTRIES=kAlphaGradient2dJ2c=${asset_ramp};kCloudParticleJ2c=${asset_cloud};kLicensesTxt=${asset_licenses};kIconPng=${VIEWER_ICON}.png"
           -P ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
-  DEPENDS ${asset_ramp} ${asset_licenses} ${VIEWER_ICON}.png ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
+  DEPENDS ${asset_ramp} ${asset_cloud} ${asset_licenses} ${VIEWER_ICON}.png ${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake
   COMMENT "Embedding viewer assets"
   VERBATIM
 )
@@ -22,6 +23,7 @@ add_executable(viewer
   AnimationManager.cpp
   AutomaticProbes.cpp
   AccountPicture.cpp
+  AvatarLoading.cpp
   AvatarNames.cpp
   AvatarView.cpp
   AgentController.cpp

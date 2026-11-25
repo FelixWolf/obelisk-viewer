@@ -1588,6 +1588,30 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         particles_.source(key, *o->particles, o->contentRevision, glm::vec3((*frame)[3]),
                           glm::normalize(glm::quat_cast(glm::mat3(*frame))));
     }
+    // Avatars still loading: a cloud, from where they stand.
+    if(particlesOn_ && avatars)
+    {
+        for(const world::ObjectKey& key : world.avatarKeys())
+        {
+            const world::Object* o = world.object(key.region, key.localId);
+            if(!o || avatars->loaded(o->id) || !avatars->placed(*o, world, originHandle))
+            {
+                continue;
+            }
+            const glm::mat4 frame = avatars->rootFrame(*o, world, originHandle);
+            if(glm::length(glm::vec3(frame[3]) - scene.camera.position) > drawDistance)
+            {
+                continue;
+            }
+            world::ParticleSystem cloud = cloudParticles();
+            if(!cloudTexture_)
+            {
+                cloud.texture = Uuid{}; // the default image
+            }
+            particles_.source(key, cloud, 0, glm::vec3(frame[3]),
+                              glm::normalize(glm::quat_cast(glm::mat3(frame))));
+        }
+    }
     const ParticleView::Locate locate = [&](const Uuid& id) -> std::optional<glm::vec3>
     {
         auto at = [&](const world::ObjectKey& key) -> std::optional<glm::vec3>
@@ -1644,7 +1668,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     particles_.update(particleSeconds, originHandle, scene.camera.position, pixelsPerMeter, locate,
                       windAt);
     particles_.addTo(
-        scene, [&](const Uuid& id, float texels) { return textures.get(id, texels); },
+        scene, [&](const Uuid& id, float texels)
+        { return id == kCloudTexture ? &cloudTexture_ : textures.get(id, texels); },
         pixelsPerMeter);
     stats_.particles = particles_.count();
     stats_.particleSources = particles_.sources();
@@ -1661,8 +1686,9 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const world::Object* r = world.object(root.region, root.localId);
         const world::Object* avatar =
             r && r->parentId != 0 ? world.object(root.region, r->parentId) : nullptr;
-        if(avatar && avatars && avatar->type == world::ObjectType::Avatar &&
-           !avatars->isHudPoint(avatar::attachmentPointFromState(r->state)))
+        const bool worn = avatar && avatars && avatar->type == world::ObjectType::Avatar &&
+                          !avatars->isHudPoint(avatar::attachmentPointFromState(r->state));
+        if(worn)
         {
             const glm::vec3 at(avatars->rootFrame(*avatar, world, originHandle)[3]);
             // Attachments reach past the body: a margin.
@@ -1672,7 +1698,14 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 continue;
             }
         }
+        const size_t first = scene.objects.size();
         addMembers(set->members, true);
+        if(worn && !avatars->loaded(avatar->id))
+        {
+            // Looked at (so it loads), but not drawn until its avatar is.
+            scene.objects.erase(scene.objects.begin() + static_cast<ptrdiff_t>(first),
+                                scene.objects.end());
+        }
     }
     // Still ones: a cell at a time, then a link set at a time.
     for(const auto& [cellKey, cell] : index_.cells())

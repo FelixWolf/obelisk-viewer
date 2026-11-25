@@ -118,6 +118,9 @@ public:
     // How the texture uses alpha, once it's resident.
     std::optional<image::AlphaMode> alphaMode(const Uuid& id) const;
 
+    // Whether a texture asked for is ready to draw, or can't be had.
+    bool settled(const Uuid& id) const;
+
     // Processes downloads and decodes, picks sizes, keeps to the budget, and
     // uploads up to a per-frame amount. Call once a frame, before the
     // frame's get()s.

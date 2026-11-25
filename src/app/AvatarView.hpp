@@ -16,6 +16,9 @@
 // Body parts whose bake an attachment shows (Bake on Mesh) are hidden, as
 // llvoavatar.cpp updateMeshVisibility does.
 //
+// Until an avatar has loaded (AvatarLoading) neither its body nor what it
+// wears is drawn; ObjectView draws a cloud of particles in its place.
+//
 // Animated objects get a skeleton of their own (the default shape, no
 // body), posed by their animations; their rigged mesh is skinned to it.
 //
@@ -23,6 +26,7 @@
 // breathing, hand poses).
 
 #include "AnimationManager.hpp"
+#include "AvatarLoading.hpp"
 #include "MeshManager.hpp"
 #include "ObjectMotion.hpp"
 #include "TextureManager.hpp"
@@ -106,6 +110,16 @@ public:
     // Where baked textures come from (the login reply's
     // agent_appearance_service); empty while logged out.
     void setAppearanceServiceUrl(std::string url) { appearanceUrl_ = std::move(url); }
+
+    // Which avatar is ours (null: none): once loaded, it stays so wherever
+    // it goes, until clear().
+    void setSelf(const Uuid& self) { self_ = self; }
+    // Whether an avatar has loaded (as of addTo): until then it's a cloud.
+    bool loaded(const Uuid& avatar) const
+    {
+        const auto it = loading_.find(avatar);
+        return it != loading_.end() && it->second.state.loaded();
+    }
 
     // Whether an avatar can be placed: not sitting on something that isn't
     // known yet (its seat, or a link parent of it).
@@ -304,6 +318,9 @@ private:
     // the bakes they use (Bake on Mesh), whose body parts are then hidden.
     void collectAttachments(const world::World& world, MeshManager& meshes);
 
+    void updateLoading(const world::World& world, const world::Object& avatar,
+                       TextureManager& textures, MeshManager& meshes, double now);
+
     void updateSize(Avatar& a, const std::shared_ptr<const Body>& body, const Uuid& id, double now);
     // Rigged mesh's joint positions and scales, for joints not animated.
     void applyOverrides(const Uuid& id, std::vector<avatar::JointPose>& pose) const;
@@ -335,6 +352,23 @@ private:
     std::unordered_map<Uuid, std::vector<Uuid>>
         animatedParts_;                             // animated objects' other prims, by root
     std::unordered_map<Uuid, uint64_t> bakesInUse_; // bit per texture entry index, by avatar
+    // What avatars still loading wear.
+    struct Worn
+    {
+        size_t attachments = 0;   // (their roots)
+        std::vector<Uuid> meshes; // every prim's
+    };
+    std::unordered_map<Uuid, Worn> worn_;
+    // Apart from avatars_: kept a moment for those out of the world (as
+    // when they cross into another region).
+    struct Loading
+    {
+        AvatarLoading state;
+        double seen = 0.0;
+    };
+    std::unordered_map<Uuid, Loading> loading_;
+    static constexpr double kForgetLoaded = 2.0; // seconds
+    Uuid self_{};
     // By skin; holds the skin, so its address isn't reused.
     mutable std::unordered_map<const assets::MeshSkin*,
                                std::pair<std::shared_ptr<const assets::MeshSkin>, SkinBinding>>
