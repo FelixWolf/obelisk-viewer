@@ -88,9 +88,10 @@ glm::vec3 regionOffset(uint64_t region, uint64_t origin)
 
 void printUsage()
 {
-    std::println(stderr, "usage: {} [--grid LOGIN_URI] [--start last|home|Region/x/y/z] "
-                         "[--force-vr | --force-desktop] "
-                         "[--setting NAME VALUE]...",
+    std::println(stderr,
+                 "usage: {} [--grid LOGIN_URI] [--start last|home|Region/x/y/z] "
+                 "[--force-vr | --force-desktop] "
+                 "[--setting NAME VALUE]...",
                  branding::kExecutable);
 #if defined(VIEWER_TEST_OPTIONS)
     std::println(
@@ -597,10 +598,10 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     if(config.get(kAutoUpdate) && config.get(kViewerConfig) != "off")
     {
         app->updater_ = Updater::create(
-            *app->http_, {config.get(kViewerConfig),
-                          std::format("{}/{} ({})", branding::kUserAgent, VIEWER_VERSION,
-                                      platformName()),
-                          options.arguments});
+            *app->http_,
+            {config.get(kViewerConfig),
+             std::format("{}/{} ({})", branding::kUserAgent, VIEWER_VERSION, platformName()),
+             options.arguments});
     }
     if(app->gui_)
     {
@@ -1677,6 +1678,10 @@ void App::updateSession()
             if(const auto* login = session_->login())
             {
                 ik_.effects.receive(m.event, login->agentId);
+                for(const auto& [avatar, animations] : ik_.effects.takeResets())
+                {
+                    resetSkeleton(avatar, animations);
+                }
             }
         }
         else
@@ -2448,8 +2453,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
                             128.0f);
             if(session_ && session_->login())
             {
-                session_->stopAnimations(
-                    avatars_->takeEndedAnimations(session_->login()->agentId));
+                session_->stopAnimations(avatars_->takeEndedAnimations(session_->login()->agentId));
             }
         }
         profile_.mark(FrameProfile::Avatars);
@@ -2935,6 +2939,27 @@ MenuItem App::radialMenu()
                 .named([this] { return voiceText(); })
                 .when([this] { return voice_->state() == voice::VoiceClient::State::Connected; })
                 .staying(),
+            MenuItem::submenu("Reset",
+                              {
+                                  MenuItem::run("Skeleton",
+                                                [this]
+                                                {
+                                                    if(const auto* login =
+                                                           session_ ? session_->login() : nullptr)
+                                                    {
+                                                        resetSkeleton(login->agentId, false);
+                                                    }
+                                                }),
+                                  MenuItem::run("Skeleton and animations",
+                                                [this]
+                                                {
+                                                    if(const auto* login =
+                                                           session_ ? session_->login() : nullptr)
+                                                    {
+                                                        resetSkeleton(login->agentId, true);
+                                                    }
+                                                }),
+                              }),
             MenuItem::submenu(
                 "VR",
                 {
@@ -3910,6 +3935,27 @@ void App::updateSounds(const render::Scene& scene)
     sounds_->updateWind(weather, velocity, agent_.flying(), seconds);
 }
 
+void App::resetSkeleton(const Uuid& avatar, bool animations)
+{
+    const auto* login = session_ ? session_->login() : nullptr;
+    if(!avatars_ || !login)
+    {
+        return;
+    }
+    const bool ours = avatar == login->agentId;
+    const std::vector<Uuid> stopped = avatars_->resetSkeleton(avatar, animations, ours);
+    if(!ours)
+    {
+        return;
+    }
+    session_->sendResetSkeleton(animations);
+    if(animations)
+    {
+        session_->stopAnimations(stopped);
+        session_->resetAnimationState();
+    }
+}
+
 void App::peopleAction(const PeopleView::Action& action)
 {
     const auto* login = session_->login();
@@ -3957,6 +4003,12 @@ void App::peopleAction(const PeopleView::Action& action)
         friends_.remove(action.who);
         break;
     }
+    case Kind::ResetSkeleton:
+        resetSkeleton(action.who, false);
+        break;
+    case Kind::ResetAnimations:
+        resetSkeleton(action.who, true);
+        break;
     case Kind::SetRights:
         session_->grantRights(action.who, action.rights);
         friends_.setRightsGiven(action.who, action.rights);

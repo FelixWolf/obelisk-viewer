@@ -126,6 +126,21 @@ ViewerEffects::unpack(std::span<const uint8_t> data)
     return std::pair(source, t);
 }
 
+std::optional<bool> ViewerEffects::unpackReset(std::span<const uint8_t> data, const Uuid& source)
+{
+    Uuid target;
+    if(data.size() != 17 || source.isNull())
+    {
+        return std::nullopt;
+    }
+    std::copy_n(data.begin(), target.bytes.size(), target.bytes.begin());
+    if(!target.isNull() && target != source)
+    {
+        return std::nullopt;
+    }
+    return (data[16] & 1) != 0;
+}
+
 void ViewerEffects::receive(const protocol::CircuitEvent& event, const Uuid& self)
 {
     const auto m = event.decode<protocol::msg::ViewerEffect>();
@@ -135,6 +150,15 @@ void ViewerEffects::receive(const protocol::CircuitEvent& event, const Uuid& sel
     }
     for(const auto& effect : m->Effect)
     {
+        if(effect.Type == session::Session::kResetSkeletonEffect)
+        {
+            const auto animations = unpackReset(effect.TypeData, effect.AgentID);
+            if(animations && effect.AgentID != self)
+            {
+                resets_.emplace_back(effect.AgentID, *animations);
+            }
+            continue;
+        }
         const bool look = effect.Type == session::Session::kLookAtEffect;
         if(!look && effect.Type != session::Session::kPointAtEffect)
         {

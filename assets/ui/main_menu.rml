@@ -343,6 +343,10 @@
                         <div class="teleport key" data-if="peopleCard.online" data-event-click="peopleOfferTeleport">Offer teleport</div>
                         <div class="teleport key" data-if="peopleCard.online" data-event-click="peopleRequestTeleport">Ask to teleport</div>
                     </div>
+                    <div class="actions person-actions" data-if="peopleCard.nearby">
+                        <div class="teleport key" data-event-click="peopleResetSkeleton">Reset skeleton</div>
+                        <div class="teleport key" data-event-click="peopleResetAnimations">Reset with animations</div>
+                    </div>
                     <div data-if="peopleCard.isFriend" class="rights">
                         <h3>You let them</h3>
                         <div class="toggle key right" data-class-on="peopleCard.givesOnline" data-event-click="peopleRight(1)">See when you're online</div>

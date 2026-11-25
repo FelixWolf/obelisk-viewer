@@ -82,6 +82,7 @@ void PeopleView::bind(Rml::DataModelConstructor& model)
         c.RegisterMember("status", &Card::status);
         c.RegisterMember("isFriend", &Card::isFriend);
         c.RegisterMember("online", &Card::online);
+        c.RegisterMember("nearby", &Card::nearby);
         c.RegisterMember("givesOnline", &Card::givesOnline);
         c.RegisterMember("givesMap", &Card::givesMap);
         c.RegisterMember("givesModify", &Card::givesModify);
@@ -102,6 +103,8 @@ void PeopleView::bind(Rml::DataModelConstructor& model)
     bindAction("peopleOfferTeleport", Action::Kind::OfferTeleport);
     bindAction("peopleRequestTeleport", Action::Kind::RequestTeleport);
     bindAction("peopleAddFriend", Action::Kind::OfferFriendship);
+    bindAction("peopleResetSkeleton", Action::Kind::ResetSkeleton);
+    bindAction("peopleResetAnimations", Action::Kind::ResetAnimations);
     // Ending a friendship is asked twice.
     model.BindEventCallback("peopleEnd",
                             [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
@@ -272,6 +275,7 @@ void PeopleView::update(const Friends& friends, const Nearby& nearby, const Name
         card.name = name;
         card.username = username;
         card.isFriend = f != nullptr;
+        card.nearby = near.has_value();
         card.online = near.has_value() || (f && f->online);
         if(near && here)
         {

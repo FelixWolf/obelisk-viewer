@@ -888,6 +888,40 @@ void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
                   });
 }
 
+std::vector<Uuid> AvatarView::resetSkeleton(const Uuid& avatar, bool animations, bool ours)
+{
+    const auto it = avatars_.find(avatar);
+    if(it == avatars_.end())
+    {
+        return {};
+    }
+    Avatar& a = it->second;
+    a.animator.resetHeld();
+    collectedAt_.reset(); // rigged mesh's joint positions again
+    std::vector<Uuid> stopped;
+    if(animations && ours)
+    {
+        // LLAgent::stopCurrentAnimations: sitting on the ground, do not
+        // disturb.
+        static const std::array<Uuid, 2> kKeep = {
+            *Uuid::parse("1a2bd58e-87ff-0df8-0b4c-53e047b0bb6e"),
+            *Uuid::parse("efcf670c-2d18-8128-973a-034ebc806b67")};
+        for(const auto& [id, sequence] : a.started)
+        {
+            if(!std::ranges::contains(kKeep, id))
+            {
+                stopped.push_back(id);
+            }
+        }
+        a.animator.stopAll(kKeep);
+    }
+    else if(animations)
+    {
+        a.animator.flush();
+    }
+    return stopped;
+}
+
 std::vector<Uuid> AvatarView::takeEndedAnimations(const Uuid& avatar)
 {
     const auto it = avatars_.find(avatar);

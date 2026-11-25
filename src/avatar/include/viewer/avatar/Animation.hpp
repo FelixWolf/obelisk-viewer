@@ -153,6 +153,14 @@ public:
     const std::map<int, float>& expression() const { return expression_; }
     // Forgets what the joints were left with (the official "reset skeleton").
     void resetHeld() { held_.clear(); }
+    // Drops those easing out at once; the rest play on
+    // (LLMotionController::flushAllMotions).
+    void flush()
+    {
+        std::erase_if(playing_, [](const Playing& p) { return p.stopped(); });
+    }
+    // Stops everything but `keep`, without easing out.
+    void stopAll(std::span<const Uuid> keep);
     // The animations that came to their end (didn't loop) at the last
     // evaluate(); told once.
     std::vector<Uuid> takeEnded() { return std::exchange(ended_, {}); }

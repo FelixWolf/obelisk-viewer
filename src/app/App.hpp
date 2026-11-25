@@ -394,8 +394,8 @@ private:
     std::unique_ptr<ViewerConfig> viewerConfig_;
     std::unique_ptr<LobbyBoards> boards_;
     std::unique_ptr<Updater> updater_; // null: this build doesn't update itself
-    GridPopulation population_; // people in regions, for the main menu
-    ParcelInfo parcel_;         // the parcel we're on, for the main menu
+    GridPopulation population_;        // people in regions, for the main menu
+    ParcelInfo parcel_;                // the parcel we're on, for the main menu
     std::unique_ptr<TextureManager> textures_;
     std::unique_ptr<EnvironmentManager> environment_;
     std::unique_ptr<MeshManager> meshes_;
@@ -484,6 +484,8 @@ private:
     bool friendsLoaded_ = false;
     Nearby nearby_;
     // What the People tab asked for.
+    // Resets an avatar's skeleton; ours is announced to viewers nearby.
+    void resetSkeleton(const Uuid& avatar, bool animations);
     void peopleAction(const PeopleView::Action& action);
     // Says it in a conversation (ChatView::kNearby: local chat).
     void sayIn(const std::string& conversation, std::string_view typed);

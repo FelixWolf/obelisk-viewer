@@ -360,6 +360,9 @@ public:
     // Our animations that came to their end (AgentAnimation): the simulator
     // counts them as playing until told, as LLAgent::requestStopMotion.
     void stopAnimations(std::span<const Uuid> animations);
+    // Clears scripts' animation overrides and stands again, after stopping
+    // everything (LLAgent::stopCurrentAnimations).
+    void resetAnimationState();
 
     // Local chat (ChatFromViewer) to the main region: on a channel (0 is
     // what people hear), whispered (0), said (1) or shouted (2); 4 and 5
@@ -431,8 +434,11 @@ public:
         // avatar, from its head).
         std::array<double, 3> position{};
     };
-    static constexpr uint8_t kLookAtEffect = 14;  // LL_HUD_EFFECT_LOOKAT
-    static constexpr uint8_t kPointAtEffect = 15; // LL_HUD_EFFECT_POINTAT
+    static constexpr uint8_t kLookAtEffect = 14;        // LL_HUD_EFFECT_LOOKAT
+    static constexpr uint8_t kPointAtEffect = 15;       // LL_HUD_EFFECT_POINTAT
+    static constexpr uint8_t kResetSkeletonEffect = 19; // LL_HUD_EFFECT_RESET_SKELETON
+    // Tells viewers nearby to reset our skeleton (LLHUDEffectResetSkeleton).
+    void sendResetSkeleton(bool animations);
     void sendAttention(const AttentionEffect& effect);
     // Any ViewerEffect to the main region (passed to viewers nearby): its
     // own id, type, how long it lasts there and its TypeData.

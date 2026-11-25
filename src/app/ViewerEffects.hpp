@@ -16,6 +16,7 @@
 #include <span>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace viewer
 {
@@ -57,6 +58,12 @@ public:
         std::optional<Target> point;
     };
     void receive(const protocol::CircuitEvent& event, const Uuid& self);
+    // Avatars whose skeletons were asked to be reset (each by its own
+    // viewer: nobody else's request counts), and whether with animations.
+    std::vector<std::pair<Uuid, bool>> takeResets() { return std::exchange(resets_, {}); }
+    // A reset's TypeData (17 bytes), from this agent; nothing if it's not
+    // theirs to ask.
+    static std::optional<bool> unpackReset(std::span<const uint8_t> data, const Uuid& source);
     const std::unordered_map<Uuid, Attention>& received() const { return received_; }
     void forget(const Uuid& avatar) { received_.erase(avatar); }
     void clearReceived() { received_.clear(); }
@@ -83,6 +90,7 @@ private:
     Channel look_{session::Session::kLookAtEffect};
     Channel point_{session::Session::kPointAtEffect};
     std::unordered_map<Uuid, Attention> received_;
+    std::vector<std::pair<Uuid, bool>> resets_;
 };
 
 } // namespace viewer

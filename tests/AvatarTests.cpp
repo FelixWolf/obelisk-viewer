@@ -345,6 +345,43 @@ TEST_CASE("Animator: layers, restarts, loop ends and one-offs")
     }
 }
 
+TEST_CASE("Animator: resetting the skeleton")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    const size_t joints = avatar->skeleton.joints.size();
+    const auto pelvis = static_cast<size_t>(avatar->skeleton.find("mPelvis"));
+    auto parsed = parseAnimation(makeAnimation(2, "mPelvis", 1.0f));
+    REQUIRE(parsed.has_value());
+    parsed->bind(avatar->skeleton);
+    const auto shared = std::make_shared<const Animation>(*parsed);
+    const viewer::Uuid a = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000a");
+    const viewer::Uuid b = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000b");
+    Animator animator;
+    std::vector<JointPose> pose;
+    // Others': what's easing out goes, the rest plays on.
+    animator.start(a, shared, 0.0);
+    animator.start(b, shared, 0.0);
+    animator.evaluate(1.0, joints, pose);
+    animator.stop(b, 1.0);
+    animator.resetHeld();
+    animator.flush();
+    CHECK(animator.count() == 1);
+    CHECK(animator.isPlaying(a));
+    animator.evaluate(1.1, joints, pose);
+    CHECK(pose[pelvis].rotation.has_value());
+    // Ours: all but those kept, at once.
+    animator.start(b, shared, 1.1);
+    animator.stopAll(std::vector{b});
+    CHECK(animator.isPlaying(b));
+    CHECK_FALSE(animator.isPlaying(a));
+    animator.stopAll({});
+    animator.resetHeld();
+    animator.evaluate(1.2, joints, pose);
+    CHECK_FALSE(pose[pelvis].rotation.has_value());
+    CHECK_FALSE(pose[pelvis].position.has_value());
+}
+
 TEST_CASE("Animator: constraints reach their targets")
 {
     const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);

@@ -243,6 +243,12 @@ public:
     // An avatar's animations that came to their end this frame (after
     // addTo): for ours, the simulator is told. Told once.
     std::vector<Uuid> takeEndedAnimations(const Uuid& avatar);
+    // "Reset skeleton" (LLVOAvatar::resetSkeleton): the joints go back to the
+    // avatar's shape and rigged mesh, then whatever its animations move.
+    // Ours with animations stops them too (but not a ground sit, which says
+    // we're sitting), and returns those for the simulator to stop; others'
+    // drop what's easing out.
+    std::vector<Uuid> resetSkeleton(const Uuid& avatar, bool animations, bool ours);
     // The footsteps of avatars drawn this frame (after addTo).
     std::vector<Footstep> footsteps(const world::World& world, uint64_t originHandle,
                                     const GroundBelow& ground);

@@ -71,3 +71,18 @@ TEST_CASE("Viewer effects: others' look-at and point-at unpack as they're packed
     CHECK(unpacked->second.position == e.position);
     CHECK_FALSE(ViewerEffects::unpack(std::span(data).first(56))); // the wrong size
 }
+
+TEST_CASE("Viewer effects: a skeleton reset is its own avatar's to ask for")
+{
+    const viewer::Uuid them = viewer::Uuid::random();
+    std::vector<uint8_t> data(them.bytes.begin(), them.bytes.end());
+    data.push_back(3); // only the first bit counts
+    CHECK(ViewerEffects::unpackReset(data, them) == true);
+    CHECK_FALSE(ViewerEffects::unpackReset(data, viewer::Uuid::random()).has_value());
+    data[16] = 0;
+    CHECK(ViewerEffects::unpackReset(data, them) == false);
+    std::fill_n(data.begin(), 16, uint8_t{0}); // none: the sender
+    CHECK(ViewerEffects::unpackReset(data, them) == false);
+    data.pop_back();
+    CHECK_FALSE(ViewerEffects::unpackReset(data, them).has_value());
+}

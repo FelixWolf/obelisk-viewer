@@ -527,6 +527,12 @@ void Animator::stop(const Uuid& id, double now)
     }
 }
 
+void Animator::stopAll(std::span<const Uuid> keep)
+{
+    std::erase_if(playing_,
+                  [&](const Playing& p) { return std::ranges::find(keep, p.id) == keep.end(); });
+}
+
 bool Animator::isPlaying(const Uuid& id) const
 {
     return std::ranges::any_of(playing_,

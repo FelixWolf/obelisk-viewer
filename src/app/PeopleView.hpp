@@ -51,7 +51,9 @@ public:
             RequestTeleport, // to where they are
             OfferFriendship,
             EndFriendship,
-            SetRights, // what we let a friend do: `rights`
+            ResetSkeleton,   // as we see them
+            ResetAnimations, // and their animations
+            SetRights,       // what we let a friend do: `rights`
         };
         Kind kind = Kind::Message;
         Uuid who;
@@ -77,6 +79,7 @@ public:
         Rml::String status; // "Online", "Offline", "12 m away"
         bool isFriend = false;
         bool online = false; // a friend online, or anyone nearby
+        bool nearby = false;
         // What we let them, and what they let us.
         bool givesOnline = false;
         bool givesMap = false;

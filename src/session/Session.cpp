@@ -908,6 +908,38 @@ void Session::stopAnimations(std::span<const Uuid> animations)
     }
 }
 
+void Session::resetAnimationState()
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    const Uuid stand = *Uuid::parse("2408fe9e-df1d-1d7d-f4ff-1384fa7b350f");
+    // A null stop clears the overrides.
+    for(const auto& [id, start] : {std::pair(Uuid(), false), std::pair(stand, true)})
+    {
+        msg::AgentAnimation m;
+        m.AgentData.AgentID = login_->agentId;
+        m.AgentData.SessionID = login_->sessionId;
+        m.AnimationList.push_back({id, start});
+        m.PhysicalAvatarEventList.emplace_back();
+        send(*main, m, true);
+    }
+}
+
+void Session::sendResetSkeleton(bool animations)
+{
+    if(!login_)
+    {
+        return;
+    }
+    // The target (us), and whether animations too.
+    std::vector<uint8_t> data(login_->agentId.bytes.begin(), login_->agentId.bytes.end());
+    data.push_back(animations ? 1 : 0);
+    sendViewerEffect(Uuid::random(), kResetSkeletonEffect, 1.0f, std::move(data));
+}
+
 void Session::say(std::string_view text, int32_t channel, uint8_t type)
 {
     const Region* main = mainRegion();

@@ -1971,7 +1971,11 @@ A joint no animation moves keeps the rotation and position the last one gave
 it, even after that animation has stopped. The official viewer's blender
 starts from the joint as it is and only touches joints some playing motion
 moves. It resets the skeleton only when an avatar's visual muting changes,
-or on "reset skeleton" (`Animator::resetHeld`).
+or on "reset skeleton" (`Animator::resetHeld`): the radial menu's Reset for
+ours, which is announced to viewers nearby (ViewerEffect type 19,
+LLHUDEffectResetSkeleton), the People tab for others as we see them, or
+their own viewer's announcement. With animations, ours are stopped (as "stop
+animating me", but permissions aren't revoked).
 
 Animation "deformers" depend on this. A gryphon avatar has no joint
 positions in its meshes at all. A priority 1 animation lasting 0 seconds,
