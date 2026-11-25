@@ -99,7 +99,28 @@ The one implementation, `FileCache`, keeps a file per entry:
 id's first two hex digits). A write goes to a temporary file named uniquely
 per instance (a random token) and per write, then is renamed over the
 entry, so readers see a whole entry and writers in other processes never mix
-bytes. A single-file store (SQLite was measured: reads match files with 64
+bytes.
+
+The cache is kept under a limit (`network.cache_limit`, for everything in it
+but `viewerconfig`) however many viewers share it, by removing the entries
+least recently used. The files are the only record: a file's modification
+time is when it was last used (reading renews it, at most every 10 minutes).
+Entries are worked on in 256 slices, by the id's first byte (ids are random,
+so a slice is a fair sample). `<cache>/usage` has each slice's size, which
+each viewer adds its own changes to every limit/50 written (64 MiB at most)
+and 5 minutes. Over the limit, slice after slice is measured and loses its
+oldest quarter (more if far over) until the total is down to 90%: near
+enough least recently used, without going through every file. Slices not yet measured are, one at
+a time with pauses, and one more every 5 minutes (so viewers that died
+without counting are made up for). Each step is under a system file lock on
+`<cache>/usage.lock` (`ProcessLock`), tried, never waited for, held for one
+slice, and released if its viewer dies. Before removing a file its time is
+checked again, so one another viewer just used stays; an entry that goes
+anyway is only a miss.
+Temporary files an hour old (from viewers that died) go too. All this runs on
+the cache's own thread, not the workers'.
+
+A single-file store (SQLite was measured: reads match files with 64
 KB pages and memory mapping, but WAL writes everything twice) can replace it
 later.
 

@@ -159,6 +159,16 @@ std::vector<SettingDefinition> viewerSettings()
                        .maximum = 10000,
                        .step = 100,
                        .unit = "kbps"}),
+        defineSetting(kCacheLimit, int32_t{20},
+                      {.page = "Network",
+                       .label = "Disk cache limit",
+                       .description = "Disk space downloaded textures, meshes and so on may take, "
+                                      "for all running viewers together, before those unused "
+                                      "longest are removed (0: no limit).",
+                       .minimum = 0,
+                       .maximum = 1024,
+                       .step = 5,
+                       .unit = "GiB"}),
         defineSetting(kViewerConfig, std::string("https://viewerconfig.coyoteware.com/api/v1/"),
                       {.page = "Network",
                        .label = "Viewer news and status service",

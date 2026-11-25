@@ -12,12 +12,17 @@
 
 #include "viewer/core/Uuid.hpp"
 
+#include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace viewer
@@ -70,6 +75,13 @@ public:
     // Removes every entry of one kind.
     virtual void clear(CacheKind kind) = 0;
 
+    // The most the cache may take on disk, all kinds together and however
+    // many viewers share it (0: any amount). Kept to in the background, by
+    // removing the entries read or written longest ago, so it may be a
+    // little over for a while. Viewers with different limits each keep to
+    // their own: the lowest wins.
+    virtual void setLimit(uint64_t bytes) = 0;
+
     // Where the cache is, for showing to the user.
     virtual std::string describe() const = 0;
 };
@@ -83,24 +95,70 @@ public:
 // (<xx>: the id's first two hex digits). Writes go to a uniquely named
 // temporary file that is renamed over the entry, so concurrent writers, in
 // this process or another, never mix their bytes.
+//
+// The limit (nothing in memory is relied on, since other processes change the
+// files): an entry's modification time is when it was last used (read() renews
+// it, at most every few minutes). The entries are worked on in 256 slices, by
+// the id's first byte (ids are random, so each is a fair sample): a file
+// beside them, "usage", has each slice's size, which each instance adds to
+// what it writes and removes. While they're over the limit, slice after slice
+// is measured and loses its oldest quarter, by whichever instance has the lock
+// on "usage.lock", held for a slice at a time. A slice is measured again now
+// and then anyway (viewers that die don't count what they wrote).
 class FileCache final : public DiskCache
 {
 public:
     explicit FileCache(std::filesystem::path root);
+    ~FileCache() override;
+
+    FileCache(const FileCache&) = delete;
+    FileCache& operator=(const FileCache&) = delete;
 
     std::optional<std::vector<uint8_t>> read(const CacheKey& key) override;
     bool write(const CacheKey& key, std::span<const uint8_t> bytes) override;
     bool contains(const CacheKey& key) override;
     void remove(const CacheKey& key) override;
     void clear(CacheKind kind) override;
+    void setLimit(uint64_t bytes) override;
     std::string describe() const override;
 
     std::filesystem::path pathFor(const CacheKey& key) const;
 
 private:
+    void maintain(std::stop_token stop);
+    enum class Step : uint8_t
+    {
+        Done,
+        More,  // go on to the next slice
+        Hurry, // the same, soon: well over the limit
+        Idle,  // the same, but there was nothing to do in this one
+        Busy,  // another instance has the lock
+    };
+    // Adds what's been written to the shared sizes, and if there's need
+    // (or `remeasure`) measures one slice, trimming it if over the limit.
+    Step step(bool remeasure, std::stop_token stop);
+    // Measures a slice; with a target, also removes up to its oldest quarter
+    // (more if they're far over) while it and the others are over that. What's left in it; nothing
+    // if it was stopped.
+    std::optional<uint64_t> visitSlice(unsigned slice, std::optional<uint64_t> target,
+                                       uint64_t others, uint64_t& removed, std::stop_token stop);
+    void count(unsigned slice, int64_t bytes);
+    uint64_t checkInterval() const;
+
     std::filesystem::path root_;
     uint64_t writerToken_; // random per instance: temporary names differ between processes
     std::atomic<uint64_t> writes_{0}; // and between this instance's writes
+
+    std::atomic<uint64_t> limit_{0};
+    // Since the shared sizes were last updated: the change of each slice's,
+    // and the bytes written.
+    std::array<std::atomic<int64_t>, 256> deltas_{};
+    std::atomic<uint64_t> written_{0};
+    bool lockWarned_ = false; // the maintenance thread's
+    std::mutex wakeMutex_;
+    std::condition_variable_any wake_;
+    bool limitChanged_ = false; // guarded by wakeMutex_
+    std::jthread maintenance_;  // started by the first limit
 };
 
 } // namespace viewer

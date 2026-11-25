@@ -484,6 +484,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     // Every disk cache read and write goes through this (one file per entry
     // for now; see DiskCache.hpp).
     app->diskCache_ = std::make_unique<FileCache>(cacheRoot);
+    app->diskCache_->setLimit(uint64_t(config.get(kCacheLimit)) << 30);
     app->textureCache_ =
         std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
     log::info("{} worker threads; cache at {}", app->jobs_->threadCount(),
@@ -782,6 +783,10 @@ void App::applySettings(const std::vector<std::string>& names)
         else if(name == kTextureMemory.name)
         {
             textures_->setBudget(uint64_t(s.get(kTextureMemory)) << 20);
+        }
+        else if(name == kCacheLimit.name)
+        {
+            diskCache_->setLimit(uint64_t(s.get(kCacheLimit)) << 30);
         }
         else if(name == kMasterVolume.name || name == kSoundVolume.name)
         {

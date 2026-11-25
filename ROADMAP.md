@@ -78,7 +78,7 @@ sound yet.
 
 - Shaders beyond SPIR-V (Metal, D3D12), if macOS or Windows-native
   rendering matters
-- Disk cache size limits and eviction, crash logging
+- Crash logging
 
 ## Suggested order
 

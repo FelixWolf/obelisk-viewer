@@ -44,6 +44,7 @@ struct OneSound : DiskCache
     bool contains(const CacheKey&) override { return true; }
     void remove(const CacheKey&) override {}
     void clear(CacheKind) override {}
+    void setLimit(uint64_t) override {}
     std::string describe() const override { return "test"; }
 };
 
