@@ -202,8 +202,34 @@ std::vector<SettingDefinition> viewerSettings()
                        .restart = true}),
 
         // --- VR ---------------------------------------------------------------------
+        defineSetting(kVrTurning, std::string("snap"),
+                      {.page = "VR",
+                       .section = "Turning",
+                       .label = "Turning",
+                       .description = "How the right stick turns you: in steps, one a flick "
+                                      "(more comfortable for most), or smoothly while it's "
+                                      "held.",
+                       .choices = {{"snap", "Snap"}, {"smooth", "Smooth"}}}),
+        defineSetting(kVrSnapAngle, int32_t{30},
+                      {.page = "VR",
+                       .label = "Snap angle",
+                       .description = "How far each flick of the stick turns, with snap turning.",
+                       .minimum = 5,
+                       .maximum = 180,
+                       .step = 5,
+                       .unit = "deg"}),
+        defineSetting(kVrTurnSpeed, int32_t{90},
+                      {.page = "VR",
+                       .label = "Smooth turn speed",
+                       .description = "How fast the stick turns pushed all the way, with smooth "
+                                      "turning.",
+                       .minimum = 15,
+                       .maximum = 360,
+                       .step = 15,
+                       .unit = "deg/s"}),
         defineSetting(kVrOverscan, 10.0,
                       {.page = "VR",
+                       .section = "Display",
                        .label = "Overscan",
                        .description = "How much wider than the headset's view each eye is "
                                       "drawn, a side, so turning quickly shows no edges.",

@@ -581,7 +581,9 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
         std::make_unique<assets::TextureCache>(*app->diskCache_, *app->jobs_, *app->j2kDecoder_);
     app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
     // The rest of the settings that apply at once, as they change.
-    app->applySettings({std::string(kDayTime.name), std::string(kSkyAsset.name)});
+    app->applySettings({std::string(kDayTime.name), std::string(kSkyAsset.name),
+                        std::string(kVrTurning.name), std::string(kVrSnapAngle.name),
+                        std::string(kVrTurnSpeed.name)});
     app->renderer_->setSamples(samplesOf(config.get(kAntialiasing)));
     app->shadows_ = config.get(kShadows);
     app->bandwidth_ = static_cast<float>(config.get(kBandwidth));
@@ -865,6 +867,18 @@ void App::applySettings(const std::vector<std::string>& names)
                 session_->setBandwidth(bandwidth_);
             }
         }
+        else if(name == kVrTurning.name)
+        {
+            vr_.turning.smooth = s.get(kVrTurning) == "smooth";
+        }
+        else if(name == kVrSnapAngle.name)
+        {
+            vr_.turning.snapAngle = static_cast<float>(s.get(kVrSnapAngle));
+        }
+        else if(name == kVrTurnSpeed.name)
+        {
+            vr_.turning.speed = static_cast<float>(s.get(kVrTurnSpeed));
+        }
         else if(name == kDeveloper.name)
         {
             developer_ = s.get(kDeveloper);
@@ -1143,23 +1157,17 @@ int App::run()
             const xr::HeadsetFrame& f = *headsetFrame_;
             const glm::vec3 look = f.head.orientation * glm::vec3(1.0f, 0.0f, 0.0f);
             vr_.headYaw = glm::degrees(std::atan2(look.y, look.x));
-            // The right stick turns in steps (pushed past most of the way,
-            // then let back), the left one walks.
+            // The right stick turns (VrTurning), the left one walks.
             // Not a hand whose stick points at the radial menu or scrolls
             // the main menu.
             const std::optional<int> menuHand = controls_.menuPointer();
             auto onPage = [&](size_t hand)
             { return controls_.pageOpen() && controlsPointed_[hand].onControls; };
             const float turn = menuHand == 1 || onPage(1) ? 0.0f : f.hands[1].stick.x;
-            if(!vr_.snapped && std::abs(turn) > 0.7f)
-            {
-                camera_.turn(turn > 0.0f ? -30.0f : 30.0f);
-                vr_.snapped = true;
-            }
-            else if(std::abs(turn) < 0.3f)
-            {
-                vr_.snapped = false;
-            }
+            const uint64_t turnTicks = SDL_GetTicksNS();
+            camera_.turn(
+                vr_.turning.update(turn, static_cast<float>(turnTicks - vr_.turnTicks) * 1e-9f));
+            vr_.turnTicks = turnTicks;
             // The right stick clicked: recenter (as Home).
             if(f.hands[1].stickClick && !vr_.recentering)
             {
@@ -3201,16 +3209,6 @@ void App::walkLobby(const VrControls::Input& input, const glm::vec3& headForward
     if(glm::length(walk) > 0.15f)
     {
         camera_.shift((forward * walk.y + right * walk.x) * 1.6f * seconds);
-    }
-    const float turn = input.pointers[1].stick.x;
-    if(!lobbyTurned_ && std::abs(turn) > 0.7f)
-    {
-        camera_.turn(turn > 0.0f ? -30.0f : 30.0f);
-        lobbyTurned_ = true;
-    }
-    else if(std::abs(turn) < 0.3f)
-    {
-        lobbyTurned_ = false;
     }
 }
 

@@ -2183,7 +2183,9 @@ before the joints become matrices (so attachments and rigged mesh follow).
   unanimated height and offset ahead along the headset's heading, so the
   avatar's animation and IK don't move it. The body turns once the head
   is 45 degrees round from it, and faces the head to walk (left stick);
-  the right stick turns 30 degrees a flick and recenters when clicked.
+  the right stick turns (`VrTurning`: the `vr.turning` setting, `snap` by
+  `vr.snap_angle` degrees a flick or `smooth` at up to `vr.turn_speed`
+  degrees a second) and recenters when clicked.
 - Reaching uses FABRIK (`avatar::fabrik`): the chain's joints moved
   backward from the target and forward from the root, keeping bone lengths,
   until the end is within 0.1 mm; a pole keeps the elbows bending down,

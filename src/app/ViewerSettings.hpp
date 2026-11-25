@@ -47,7 +47,10 @@ inline constexpr SettingKey<std::string> kViewerConfig{"network.viewerconfig"};
 inline constexpr SettingKey<int32_t> kCacheLimit{"network.cache_limit"}; // GiB; 0 none
 inline constexpr SettingKey<bool> kAutoUpdate{"network.auto_update"};
 // VR.
-inline constexpr SettingKey<double> kVrOverscan{"vr.overscan"}; // percent a side
+inline constexpr SettingKey<std::string> kVrTurning{"vr.turning"};  // "snap", "smooth"
+inline constexpr SettingKey<int32_t> kVrSnapAngle{"vr.snap_angle"}; // degrees
+inline constexpr SettingKey<int32_t> kVrTurnSpeed{"vr.turn_speed"}; // degrees a second
+inline constexpr SettingKey<double> kVrOverscan{"vr.overscan"};     // percent a side
 // Developer.
 inline constexpr SettingKey<bool> kDeveloper{"developer.windows"};
 

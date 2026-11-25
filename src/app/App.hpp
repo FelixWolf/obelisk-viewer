@@ -44,6 +44,7 @@
 #include "ViewerSettings.hpp"
 #include "VoiceIndicators.hpp"
 #include "VrControls.hpp"
+#include "VrTurning.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
 #include "viewer/core/DiskCache.hpp"
@@ -242,7 +243,7 @@ private:
     // The headset's origin in the scene this frame (placeEyes), and what
     // follows from its tracking: the head's heading from the origin's
     // (degrees), the body's (turning once the head is far round, or to
-    // where it looks when walking), the right stick's snap turn.
+    // where it looks when walking), the right stick's turning.
     struct Vr
     {
         bool placed = false;
@@ -251,7 +252,8 @@ private:
         float headYaw = 0.0f;
         std::optional<float> bodyYaw;
         bool walking = false;
-        bool snapped = false;
+        VrTurning turning; // vr.turning, vr.snap_angle, vr.turn_speed
+        uint64_t turnTicks = 0;
         bool recentering = false; // the right stick held down
         // The avatar's eye height over the wearer's: the headset's
         // movements (and the eyes' distance apart) scaled by it, so a
@@ -329,11 +331,10 @@ private:
     // where we start.
     bool lobby_ = false;
     void updateLobby();
-    // A headset's sticks in the lobby: the left walks where the head looks,
-    // the right turns by steps (once each push).
+    // A headset's sticks in the lobby: the left walks where the head looks
+    // (the right one turns as everywhere: run()).
     void walkLobby(const VrControls::Input& input, const glm::vec3& headForward);
     uint64_t lobbyTicks_ = 0;
-    bool lobbyTurned_ = false;
     // The lobby's scene (none: the test scene on a plain floor), as a world
     // of its own, a region with this handle. Shown in the world's place
     // until we arrive (homeShown()); its markers place the start and the

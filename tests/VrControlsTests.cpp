@@ -2,6 +2,7 @@
 #include "RadialMenu.hpp"
 #include "VrControls.hpp"
 #include "VrKeyboard.hpp"
+#include "VrTurning.hpp"
 
 #include <doctest/doctest.h>
 
@@ -467,4 +468,30 @@ TEST_CASE("VrControls: standing pages: the nearest pointed at, pressed and scrol
     pointed = controls.update(input);
     CHECK_FALSE(pointed[1].onControls);
     CHECK_FALSE(controls.scrollPointed(1, glm::vec2(0.0f, 1.0f)));
+}
+
+TEST_CASE("VrTurning: a step a flick, or smoothly")
+{
+    VrTurning turning;
+    turning.snapAngle = 45.0f;
+    CHECK(turning.update(0.5f, 0.01f) == 0.0f);
+    CHECK(turning.update(1.0f, 0.01f) == -45.0f); // right: clockwise
+    CHECK(turning.update(1.0f, 0.01f) == 0.0f);   // held
+    CHECK(turning.update(0.5f, 0.01f) == 0.0f);   // not let back far enough
+    CHECK(turning.update(1.0f, 0.01f) == 0.0f);
+    CHECK(turning.update(0.0f, 0.01f) == 0.0f);
+    CHECK(turning.update(-1.0f, 0.01f) == 45.0f);
+
+    turning.smooth = true;
+    turning.speed = 100.0f;
+    CHECK(turning.update(0.1f, 0.01f) == 0.0f); // the dead zone
+    CHECK(turning.update(1.0f, 0.01f) == doctest::Approx(-1.0f));
+    CHECK(turning.update(-0.6f, 0.01f) == doctest::Approx(0.5f));
+    CHECK(turning.update(1.0f, 5.0f) == doctest::Approx(-10.0f)); // a hitch
+
+    // Switched with the stick held: no step until it's let go.
+    turning.smooth = false;
+    CHECK(turning.update(1.0f, 0.01f) == 0.0f);
+    turning.update(0.0f, 0.01f);
+    CHECK(turning.update(1.0f, 0.01f) == -45.0f);
 }

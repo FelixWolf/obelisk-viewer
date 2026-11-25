@@ -39,7 +39,7 @@ public:
     // world origin moving).
     void shift(glm::vec3 offset) { target_ += offset; }
     float yaw() const { return yaw_; }
-    // Turns it (degrees, counter-clockwise): a headset's snap turn.
+    // Turns it (degrees, counter-clockwise): a headset's right stick.
     void turn(float degrees) { yaw_ = std::remainder(yaw_ + degrees, 360.0f); }
     float pitch() const { return pitch_; }
 
