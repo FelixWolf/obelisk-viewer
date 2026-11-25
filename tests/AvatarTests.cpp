@@ -345,6 +345,174 @@ TEST_CASE("Animator: layers, restarts, loop ends and one-offs")
     }
 }
 
+TEST_CASE("Animator: constraints reach their targets")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    const Skeleton& skeleton = avatar->skeleton;
+    const Shape shape = shapeSkeleton(*avatar, ParamWeights(*avatar));
+    const viewer::Uuid id = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000a");
+
+    Animation a;
+    a.loop = true;
+    a.duration = 1.0f;
+    a.loopOut = 1.0f;
+    a.basePriority = 3;
+    auto curve = [&](const char* name, const glm::quat& rotation)
+    { a.joints.push_back({name, -1, 3, {{0.0f, rotation}}, {}}); };
+    const glm::vec3 up(0.0f, 0.0f, 1.0f);
+    curve("mWristRight", glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+    curve("mElbowRight", glm::angleAxis(0.9f, up));
+    curve("mShoulderRight", glm::angleAxis(0.3f, up));
+    Animation::Constraint c;
+    c.chainLength = 2;
+    c.source = "R_HAND";
+    c.target = "BELLY";
+    c.targetOffset = glm::vec3(1.0f, -0.9f, 0.0f);
+    c.easeInStop = 0.0f;
+    c.easeOutStart = c.easeOutStop = 10.0f;
+    a.constraints.push_back(c);
+    a.bind(skeleton);
+    REQUIRE(a.constraints[0].chain.size() == 3);
+    CHECK(a.constraints[0].chain[0] == skeleton.find("mWristRight"));
+    CHECK(a.constraints[0].chain[2] == skeleton.find("mShoulderRight"));
+
+    ConstraintContext context{*avatar, shape, {}, glm::mat4(1.0f), 0, {}};
+    std::vector<JointPose> pose;
+    auto volume = [&](const char* name, const glm::vec3& offset)
+    {
+        const auto frames = poseFrames(*avatar, shape, pose);
+        const JointFrame& f = frames[static_cast<size_t>(skeleton.find(name))];
+        return f.position + f.rotation * (f.scale * offset);
+    };
+    auto distance = [&](Animator& animator, double now, const ConstraintContext* with)
+    {
+        animator.evaluate(now, skeleton.joints.size(), pose, with);
+        return glm::length(volume("R_HAND", {}) - volume("BELLY", c.targetOffset));
+    };
+    {
+        Animator animator;
+        animator.start(id, std::make_shared<const Animation>(a), 0.0);
+        CHECK(distance(animator, 0.4, nullptr) > 0.1f);
+        CHECK(distance(animator, 0.5, &context) < 0.01f);
+    }
+    // A newer animation of the same priority holding the elbow: left alone.
+    {
+        Animation over = a;
+        over.constraints.clear();
+        std::erase_if(over.joints, [](const auto& j) { return j.name != "mElbowRight"; });
+        Animator animator;
+        animator.start(id, std::make_shared<const Animation>(a), 0.0);
+        animator.start(*viewer::Uuid::parse("00000000-0000-0000-0000-00000000000b"),
+                       std::make_shared<const Animation>(over), 0.0);
+        CHECK(distance(animator, 0.5, &context) > 0.1f);
+    }
+    // To the ground, 1 m up in the scene where the avatar's frame is: the
+    // foot kept where it was once eased in, as the avatar moves.
+    {
+        Animation down;
+        down.loop = true;
+        down.duration = down.loopOut = 1.0f;
+        const glm::vec3 side(0.0f, 1.0f, 0.0f);
+        down.joints.push_back(
+            {"mAnkleLeft", -1, 3, {{0.0f, glm::quat(1.0f, 0.0f, 0.0f, 0.0f)}}, {}});
+        down.joints.push_back({"mKneeLeft", -1, 3, {{0.0f, glm::angleAxis(0.8f, side)}}, {}});
+        down.joints.push_back({"mHipLeft", -1, 3, {{0.0f, glm::angleAxis(-0.4f, side)}}, {}});
+        Animation::Constraint foot;
+        foot.chainLength = 2;
+        foot.source = "L_FOOT";
+        foot.target = "GROUND";
+        foot.ground = true;
+        foot.easeInStop = 0.1f;
+        foot.easeOutStart = foot.easeOutStop = 10.0f;
+        down.constraints.push_back(foot);
+        down.bind(skeleton);
+        REQUIRE(down.constraints[0].chain.size() == 3);
+        Animator animator;
+        animator.start(id, std::make_shared<const Animation>(down), 0.0);
+        animator.evaluate(0.0, skeleton.joints.size(), pose);
+        const float height = volume("L_FOOT", {}).z + 0.1f;
+        context.root[3] = glm::vec4(5.0f, 0.0f, 1.0f, 1.0f);
+        context.ground = [&](const glm::vec3&)
+        { return std::optional(ConstraintContext::Ground{height + 1.0f}); };
+        animator.evaluate(0.05, skeleton.joints.size(), pose, &context);
+        animator.evaluate(0.09, skeleton.joints.size(), pose, &context);
+        animator.evaluate(0.5, skeleton.joints.size(), pose, &context);
+        const glm::vec3 at = volume("L_FOOT", {});
+        CHECK(at.z == doctest::Approx(height).epsilon(0.01));
+        context.root[3].x += 0.05f;
+        animator.evaluate(0.6, skeleton.joints.size(), pose, &context);
+        CHECK(volume("L_FOOT", {}).x == doctest::Approx(at.x - 0.05f).epsilon(0.1));
+        // Moved away: found again where it is now.
+        context.root[3].x += 1.0f;
+        animator.evaluate(0.7, skeleton.joints.size(), pose, &context);
+        CHECK(glm::length(volume("L_FOOT", {}) - at) < 0.02f);
+    }
+}
+
+TEST_CASE("Animator: hand poses and emotes")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    const viewer::Uuid id = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000a");
+    std::vector<JointPose> pose;
+    auto expression = [&](const Animator& animator, int param)
+    {
+        const auto it = animator.expression().find(param);
+        return it != animator.expression().end() ? it->second : 0.0f;
+    };
+    Animation fist = *parseAnimation(makeAnimation(2, "mPelvis", 1.0f));
+    fist.bind(avatar->skeleton);
+    fist.handPose = 3;
+    fist.emote = "Express_Smile";
+    fist.easeIn = 0.0f;
+    const size_t joints = avatar->skeleton.joints.size();
+
+    Animator animator;
+    animator.evaluate(0.0, joints, pose);
+    CHECK(expression(animator, kRelaxedHandsParam) == 1.0f);
+    CHECK(expression(animator, kClosedMouthParam) == 1.0f);
+    animator.start(id, std::make_shared<const Animation>(fist), 0.0);
+    CHECK(animator.count() == 2); // and its smile
+    animator.evaluate(0.1, joints, pose);
+    CHECK(expression(animator, 103) == doctest::Approx(0.5f));
+    CHECK(expression(animator, kRelaxedHandsParam) == doctest::Approx(0.5f));
+    animator.evaluate(1.0, joints, pose);
+    CHECK(expression(animator, 103) == 1.0f);
+    CHECK(expression(animator, kRelaxedHandsParam) == 0.0f);
+    CHECK(expression(animator, 318) == doctest::Approx(1.0f));
+    CHECK(expression(animator, kClosedMouthParam) == doctest::Approx(0.0f));
+    // The emote is over; a newer animation holding all the joints has the
+    // hands.
+    Animation over = fist;
+    over.handPose = 1;
+    over.emote.clear();
+    animator.start(*viewer::Uuid::parse("00000000-0000-0000-0000-00000000000b"),
+                   std::make_shared<const Animation>(over), 3.0);
+    animator.evaluate(3.5, joints, pose);
+    animator.evaluate(3.6, joints, pose);
+    CHECK(expression(animator, kRelaxedHandsParam) == 1.0f);
+    CHECK(expression(animator, 103) == 0.0f);
+    CHECK(expression(animator, 318) == 0.0f);
+    CHECK(expression(animator, kClosedMouthParam) == 1.0f);
+
+    // Every emote's parameter morphs the head.
+    for(const char* name : {"express_smile", "Express_Open_Mouth", "EXPRESS_WORRY_EMOTE"})
+    {
+        const auto emote = emoteAnimation(std::string_view(name));
+        REQUIRE(emote);
+        CHECK_FALSE(avatar->params.at(emote->emoteParam).morphs.empty());
+    }
+    CHECK(
+        emoteAnimation(*viewer::Uuid::parse("b7c7c833-e3d3-c4e3-9fc0-131237446312"))->emoteParam ==
+        318);
+    CHECK_FALSE(emoteAnimation(std::string_view("Closed_Mouth")));
+    for(const int hand : {101, 102, 103, 666, 667, 668, 669, 670, 671, 766, 672, 791, 792})
+    {
+        CHECK_FALSE(avatar->params.at(hand).morphs.empty());
+    }
+}
+
 TEST_CASE("Shape: morphs that follow clothing go by their bake's morph mask")
 {
     const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);

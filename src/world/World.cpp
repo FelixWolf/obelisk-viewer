@@ -300,6 +300,7 @@ WorldUpdate::Objects decodeObjectUpdate(const protocol::CircuitEvent& event)
         std::span<const uint8_t> motion(b.ObjectData);
         if(motion.size() == 76 || motion.size() == 140)
         {
+            std::memcpy(&o.footPlane, motion.data(), sizeof(o.footPlane));
             motion = motion.subspan(16);
         }
         if(motion.size() >= 60)

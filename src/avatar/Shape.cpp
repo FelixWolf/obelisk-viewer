@@ -192,13 +192,20 @@ Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights,
                   std::span<const MorphMask> masks)
 {
     Shape shape = shapeSkeleton(base, weights);
-    const Sex sex = weights.sex();
-
-    // Morphs first, in the mesh's own (bind) space.
-    for(const BodyMesh& mesh : base.meshes)
+    for(size_t part = 0; part < base.meshes.size(); part++)
     {
-        shape.meshes.push_back({mesh.positions, mesh.normals, mesh.texCoords});
+        shape.meshes.push_back(shapePart(base, weights, part, masks));
     }
+    return shape;
+}
+
+ShapedMesh shapePart(const BaseAvatar& base, const ParamWeights& weights, size_t part,
+                     std::span<const MorphMask> masks)
+{
+    const Sex sex = weights.sex();
+    // Morphs, in the mesh's own (bind) space.
+    const BodyMesh& mesh = base.meshes[part];
+    ShapedMesh out{mesh.positions, mesh.normals, mesh.texCoords};
     for(const auto& [id, p] : base.params)
     {
         if(p.morphs.empty())
@@ -225,9 +232,11 @@ Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights,
         }
         for(const VisualParam::MorphRef& ref : p.morphs)
         {
-            const Morph& morph = base.meshes[ref.part].morphs[ref.morph];
-            const BodyMesh& mesh = base.meshes[ref.part];
-            ShapedMesh& out = shape.meshes[ref.part];
+            if(ref.part != part)
+            {
+                continue;
+            }
+            const Morph& morph = mesh.morphs[ref.morph];
             for(size_t v = 0; v < morph.vertices.size(); v++)
             {
                 const uint32_t i = morph.vertices[v];
@@ -257,7 +266,7 @@ Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights,
         }
     }
 
-    return shape;
+    return out;
 }
 
 std::vector<JointFrame> poseFrames(const BaseAvatar& base, const Shape& shape,

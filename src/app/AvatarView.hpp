@@ -38,6 +38,7 @@
 
 #include <array>
 #include <chrono>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -180,7 +181,15 @@ private:
     struct Body
     {
         avatar::Shape shape;
-        std::vector<render::Mesh> meshes; // one per avatar::kBodyParts entry
+        std::vector<render::Mesh> meshes; // one per kBodyParts entry
+        avatar::ParamWeights weights;
+    };
+    // A body part morphed by a hand pose or facial expression.
+    struct ExpressedPart
+    {
+        std::shared_ptr<const Body> body; // made from
+        std::map<int, int> weights;       // the parameters, in steps
+        render::Mesh mesh;                // none: the body's own
     };
     struct Avatar
     {
@@ -192,6 +201,7 @@ private:
         avatar::Animator animator;
         std::unordered_map<Uuid, int32_t> started; // animation -> sequence
         std::vector<avatar::JointPose> pose;
+        std::array<ExpressedPart, std::size(avatar::kBodyParts)> expressed;
         std::vector<glm::mat4> joints; // posed this frame, relative to the root
         std::array<std::vector<glm::mat4>, std::size(avatar::kBodyParts)> palettes;
         // First person: as above, the head not shrunk (for the shadow).
@@ -250,6 +260,11 @@ private:
                                                  const char* name, TextureManager& textures) const;
     std::shared_ptr<const Body> build(const avatar::ParamWeights& weights,
                                       std::span<const avatar::MorphMask> masks = {}) const;
+    // A body part as a hand pose or expression has it, made again when
+    // that changes; nullptr: as the body's.
+    const render::Mesh* expressedPart(Avatar& a, const std::shared_ptr<const Body>& body,
+                                      size_t part);
+    render::Mesh partMesh(const avatar::ShapedMesh& shaped, size_t part) const;
     const Body& bodyOf(const world::Object& avatar) const;
     // Joint position (and scale lock) overrides from rigged attachments, by
     // avatar: per joint, the one from the mesh with the highest id (as the
@@ -276,7 +291,8 @@ private:
     // Animates and poses a skeleton (an avatar's or an animated object's).
     // `root` is the avatar's frame (rootFrame), for IK goals.
     void pose(Avatar& a, const avatar::Shape& shape, const world::World& world, const Uuid& id,
-              AnimationManager& animations, double now, const glm::mat4& root);
+              AnimationManager& animations, double now, const glm::mat4& root,
+              uint64_t originHandle, const world::Object* standing);
 
     avatar::BaseAvatar base_;
     avatar::IkJoints ikJoints_;

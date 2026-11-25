@@ -192,6 +192,9 @@ struct Object
     glm::vec3 velocity{0.0f};
     glm::vec3 acceleration{0.0f};
     glm::vec3 angularVelocity{0.0f};
+    // Avatars: the plane they stand on (normal and offset, region
+    // coordinates), as the simulator says; zero: none.
+    glm::vec4 footPlane{0.0f};
 
     bool hasVolume = false;
     volume::VolumeParams volume{};
@@ -276,6 +279,7 @@ struct ObjectUpdateData
     glm::vec3 velocity{0.0f};
     glm::vec3 acceleration{0.0f};
     glm::vec3 angularVelocity{0.0f};
+    std::optional<glm::vec4> footPlane{};
     std::optional<TextureEntry> faces{};
 };
 

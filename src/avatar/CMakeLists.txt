@@ -3,6 +3,7 @@ add_library(viewer_avatar STATIC
   Shape.cpp
   Ik.cpp
   Animation.cpp
+  Constraints.cpp
 )
 add_library(viewer::avatar ALIAS viewer_avatar)
 

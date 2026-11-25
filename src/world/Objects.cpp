@@ -552,7 +552,8 @@ std::optional<ObjectUpdateData> decodeTerseObject(std::span<const uint8_t> data,
     update.state = r.u8();
     if(r.u8() != 0)
     {
-        r.skip(16); // avatar foot collision plane
+        const glm::vec3 normal = r.vec3();
+        update.footPlane = glm::vec4(normal, r.f32());
     }
     update.position = r.vec3();
     glm::vec3 v;
@@ -606,6 +607,7 @@ bool applyUpdate(Object& object, const ObjectUpdateData& update)
         object.velocity = update.velocity;
         object.acceleration = update.acceleration;
         object.angularVelocity = update.angularVelocity;
+        object.footPlane = update.footPlane.value_or(object.footPlane);
         if(update.faces)
         {
             object.faces = *update.faces;

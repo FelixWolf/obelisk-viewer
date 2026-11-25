@@ -1979,6 +1979,24 @@ with position keys for nearly every joint, reshapes the skeleton, and its
 HUD stops and restarts it. Without held values, every stop snapped the
 avatar back to the human skeleton.
 
+Constraints (`Constraints.cpp`) keep a point on a collision volume on
+another one, or on the ground (the land, or the foot plane the simulator
+sends with avatars where that's higher; where it was found once eased in,
+unless the avatar is moved). Objects' boxes won't do: a mesh's is higher
+than its surface. When and how strongly they apply follows llkeyframemotion.cpp
+applyConstraint; the chain is solved with FABRIK on this frame's blended
+pose, where the official viewer runs springs on the last frame's. Pelvis
+constraints go first, then those to the ground, then those to the body.
+
+Hand poses and emotes are morphs (`Animator::expression`). The hand pose is
+that of the animation with the highest joint priority, among those newer
+animations leave something of (llmotioncontroller.cpp's joint signatures),
+and fades in over 0.2 s; hands are relaxed otherwise. Emotes
+(`emoteAnimation`, not assets) are animations without joints, played by id
+or with the animation that names them. `AvatarView::expressedPart` remakes
+the affected body part's mesh as the weights change, only where the
+default body is drawn.
+
 Attachments follow the animated skeleton.
 
 Rigged mesh: `MeshManager` also loads a mesh's skin block (`.skin` in the

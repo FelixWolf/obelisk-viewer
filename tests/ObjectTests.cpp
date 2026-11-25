@@ -115,6 +115,24 @@ TEST_CASE("Terse updates decode motion")
     const auto update = decodeTerseObject(data, {});
     REQUIRE(update.has_value());
     CHECK(update->localId == 12345);
+    CHECK_FALSE(update->footPlane.has_value());
+    // An avatar's has its foot plane.
+    std::vector<uint8_t> plane;
+    for(const float f : {0.0f, 0.0f, 1.0f, 22.5f})
+    {
+        putFloat(plane, f);
+    }
+    std::vector<uint8_t> avatar = data;
+    avatar[5] = 1;
+    avatar.insert(avatar.begin() + 6, plane.begin(), plane.end());
+    const auto standing = decodeTerseObject(avatar, {});
+    REQUIRE(standing.has_value());
+    CHECK(standing->position == update->position);
+    Object object;
+    applyUpdate(object, *standing);
+    CHECK(object.footPlane == glm::vec4(0.0f, 0.0f, 1.0f, 22.5f));
+    applyUpdate(object, *update); // none: as it was
+    CHECK(object.footPlane.w == 22.5f);
     CHECK(update->position == glm::vec3(10.0f, 20.0f, 30.0f));
     CHECK(update->rotation.w == doctest::Approx(1.0f).epsilon(0.001));
     CHECK(glm::length(update->velocity) < 0.01f);

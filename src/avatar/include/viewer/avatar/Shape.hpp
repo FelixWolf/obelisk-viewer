@@ -81,6 +81,10 @@ Shape shapeSkeleton(const BaseAvatar& base, const ParamWeights& weights);
 Shape shapeAvatar(const BaseAvatar& base, const ParamWeights& weights,
                   std::span<const MorphMask> masks = {});
 
+// One of the morphed meshes.
+ShapedMesh shapePart(const BaseAvatar& base, const ParamWeights& weights, size_t part,
+                     std::span<const MorphMask> masks = {});
+
 // A joint's animated local transform; what isn't set keeps the rest pose
 // (rotation) or the shape (position).
 struct JointPose

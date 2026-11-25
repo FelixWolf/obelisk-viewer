@@ -73,6 +73,10 @@ const world::Object* attachedAvatar(const world::World& world, const world::Obje
     return nullptr;
 }
 
+// The bakes whose morph masks shape the body.
+static constexpr std::pair<int, const char*> kMaskBakes[] = {
+    {8, "head"}, {9, "upper"}, {10, "lower"}};
+
 SkeletonOwner skeletonOwner(const world::World& world, const world::Object& object)
 {
     // Up to the link set's root: an animated object's root, or what's
@@ -202,27 +206,89 @@ std::shared_ptr<const AvatarView::Body>
 AvatarView::build(const avatar::ParamWeights& weights,
                   std::span<const avatar::MorphMask> masks) const
 {
-    auto body = std::make_shared<Body>();
-    body->shape = avatar::shapeAvatar(base_, weights, masks);
+    // Hands are relaxed unless an animation says otherwise.
+    avatar::ParamWeights relaxed = weights;
+    relaxed.set(avatar::kRelaxedHandsParam, 1.0f);
+    auto body = std::make_shared<Body>(
+        Body{avatar::shapeAvatar(base_, relaxed, masks), {}, std::move(relaxed)});
     for(size_t part = 0; part < base_.meshes.size(); part++)
     {
-        // Morphed but unskinned: the GPU places each vertex from its joints.
-        const avatar::ShapedMesh& shaped = body->shape.meshes[part];
-        std::vector<render::SkinnedVertex> vertices(shaped.positions.size());
-        for(size_t v = 0; v < vertices.size(); v++)
-        {
-            const avatar::Influence in = avatar::vertexInfluence(base_, part, v);
-            render::SkinnedVertex& out = vertices[v];
-            out.position = shaped.positions[v];
-            out.normal = glm::normalize(shaped.normals[v]);
-            out.uv = shaped.texCoords[v];
-            out.joints = glm::u8vec4(in.first, in.second, 0, 0);
-            out.weights = glm::vec4(1.0f - in.blend, in.blend, 0.0f, 0.0f);
-        }
-        body->meshes.push_back(renderer_.createMesh(vertices, base_.meshes[part].indices));
+        body->meshes.push_back(partMesh(body->shape.meshes[part], part));
     }
     body->shape.meshes.clear(); // uploaded; the skeleton is what's still needed
     return body;
+}
+
+// Morphed but unskinned: the GPU places each vertex from its joints.
+render::Mesh AvatarView::partMesh(const avatar::ShapedMesh& shaped, size_t part) const
+{
+    std::vector<render::SkinnedVertex> vertices(shaped.positions.size());
+    for(size_t v = 0; v < vertices.size(); v++)
+    {
+        const avatar::Influence in = avatar::vertexInfluence(base_, part, v);
+        render::SkinnedVertex& out = vertices[v];
+        out.position = shaped.positions[v];
+        out.normal = glm::normalize(shaped.normals[v]);
+        out.uv = shaped.texCoords[v];
+        out.joints = glm::u8vec4(in.first, in.second, 0, 0);
+        out.weights = glm::vec4(1.0f - in.blend, in.blend, 0.0f, 0.0f);
+    }
+    return renderer_.createMesh(vertices, base_.meshes[part].indices);
+}
+
+const render::Mesh* AvatarView::expressedPart(Avatar& a, const std::shared_ptr<const Body>& body,
+                                              size_t part)
+{
+    // The parameters that morph this part and differ from the body's, in
+    // steps (a change too small to see isn't worth a mesh).
+    constexpr float kSteps = 32.0f;
+    std::map<int, int> weights;
+    auto morphs = [&](int id)
+    {
+        const auto it = base_.params.find(id);
+        return it != base_.params.end() &&
+               std::ranges::any_of(it->second.morphs,
+                                   [&](const auto& ref) { return ref.part == part; });
+    };
+    for(const auto& [id, weight] : a.animator.expression())
+    {
+        const int step = static_cast<int>(std::lround(weight * kSteps));
+        if(morphs(id) && step != std::lround(body->weights[id] * kSteps))
+        {
+            weights[id] = step;
+        }
+    }
+    if(a.animator.animated() && !a.animator.expression().contains(avatar::kRelaxedHandsParam) &&
+       morphs(avatar::kRelaxedHandsParam))
+    {
+        weights[avatar::kRelaxedHandsParam] = 0;
+    }
+    ExpressedPart& e = a.expressed[part];
+    if(e.body != body || e.weights != weights)
+    {
+        e.mesh = {};
+        e.body = body;
+        e.weights = std::move(weights);
+        if(!e.weights.empty())
+        {
+            avatar::ParamWeights expressed = body->weights;
+            for(const auto& [id, step] : e.weights)
+            {
+                expressed.set(id, static_cast<float>(step) / kSteps);
+            }
+            std::vector<avatar::MorphMask> masks;
+            for(size_t i = 0; i < a.masks.size(); i++)
+            {
+                if(a.masks[i])
+                {
+                    masks.push_back({kMaskBakes[i].first, a.masks[i]->width, a.masks[i]->height,
+                                     a.masks[i]->pixels});
+                }
+            }
+            e.mesh = partMesh(avatar::shapePart(base_, expressed, part, masks), part);
+        }
+    }
+    return e.weights.empty() ? nullptr : &e.mesh;
 }
 
 const AvatarView::Body& AvatarView::bodyOf(const world::Object& avatar) const
@@ -576,27 +642,65 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
 
 void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World& world,
                       const Uuid& id, AnimationManager& animations, double now,
-                      const glm::mat4& root)
+                      const glm::mat4& root, uint64_t originHandle, const world::Object* standing)
 {
     animate(a, world, id, animations, now);
-    a.animator.evaluate(now, base_.skeleton.joints.size(), a.pose);
     // Rigged mesh's joint positions replace the shape's, but not animated
     // ones.
-    if(const auto o = overrides_.find(id); o != overrides_.end())
+    const auto complete = [&](std::vector<avatar::JointPose>& pose)
     {
-        for(const auto& [joint, override] : o->second.joints)
+        if(const auto o = overrides_.find(id); o != overrides_.end())
         {
-            avatar::JointPose& p = a.pose[static_cast<size_t>(joint)];
-            if(!p.position)
+            for(const auto& [joint, override] : o->second.joints)
             {
-                p.position = override.position;
-            }
-            if(override.lockScale)
-            {
-                p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
+                avatar::JointPose& p = pose[static_cast<size_t>(joint)];
+                if(!p.position)
+                {
+                    p.position = override.position;
+                }
+                if(override.lockScale)
+                {
+                    p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
+                }
             }
         }
+    };
+    avatar::ConstraintContext context{base_, shape, complete, root, originHandle, {}};
+    if(standing)
+    {
+        // The land, or the plane the simulator says the avatar stands on
+        // where that's higher (LLWorld::resolveStepHeightGlobal, from a
+        // meter up to a meter down).
+        context.ground =
+            [&](const glm::vec3& at) -> std::optional<avatar::ConstraintContext::Ground>
+        {
+            const glm::vec3 offset = regionOffset(standing->region, originHandle);
+            const glm::vec3 top = at - offset + glm::vec3(0.0f, 0.0f, 1.0f);
+            std::optional<avatar::ConstraintContext::Ground> found;
+            if(const world::RegionTerrain* land = world.terrain(standing->region))
+            {
+                const float height = land->heightAt(top.x, top.y);
+                const glm::vec3 slope(height - land->heightAt(top.x + 1.0f, top.y),
+                                      height - land->heightAt(top.x, top.y + 1.0f), 1.0f);
+                found = {height + offset.z, glm::normalize(slope)};
+            }
+            const glm::vec3 normal(standing->footPlane);
+            if(normal != glm::vec3(0.0f))
+            {
+                // 5 cm for the simulator's error.
+                const float down =
+                    std::clamp(glm::dot(top, normal) - standing->footPlane.w + 0.05f, 0.0f, 2.0f);
+                const float height = top.z - down + offset.z;
+                if(!found || height > found->height)
+                {
+                    found = {height, normal};
+                }
+            }
+            return found;
+        };
     }
+    a.animator.evaluate(now, base_.skeleton.joints.size(), a.pose, &context);
+    complete(a.pose);
     // Viewer-made motion (ours only), from scene to avatar space.
     if(const auto ik = ikGoals_.find(id); ik != ikGoals_.end())
     {
@@ -760,7 +864,11 @@ void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
         {
             continue;
         }
-        auto animation = animations.get(animationId);
+        auto animation = avatar::emoteAnimation(animationId);
+        if(!animation)
+        {
+            animation = animations.get(animationId);
+        }
         if(!animation)
         {
             continue; // still loading: tried again next frame
@@ -818,8 +926,6 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             // The morphs that follow clothing go by the bakes' masks
             // (LLVOAvatar::onBakedTextureMasksLoaded): rebuilt as they come.
-            static constexpr std::pair<int, const char*> kMaskBakes[] = {
-                {8, "head"}, {9, "upper"}, {10, "lower"}};
             std::array<std::shared_ptr<const image::Plane>, 3> masks;
             for(size_t i = 0; i < masks.size(); i++)
             {
@@ -842,7 +948,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 a.masks = std::move(masks);
             }
         }
-        const Body& body = a.body ? *a.body : *defaultBody_;
+        const std::shared_ptr<const Body>& bodyShared = a.body ? a.body : defaultBody_;
+        const Body& body = *bodyShared;
 
         // Seen (or its shadow, or near enough)? Where it stands doesn't
         // depend on its pose.
@@ -857,7 +964,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         if(!unseen || a.joints.empty() ||
            (frame_ + std::hash<Uuid>()(object.id)) % kUnseenPosePeriod == 0)
         {
-            pose(a, body.shape, world, object.id, animations, now, root);
+            pose(a, body.shape, world, object.id, animations, now, root, originHandle, &object);
         }
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
            seen == render::Visibility::Hidden)
@@ -891,7 +998,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             m.specularTint = glm::vec3(0.0f); // no highlight, as the official avatar shader
 
             avatar::skinPalette(base_, i, a.joints, a.palettes[i]);
-            render::ObjectDraw draw{&body.meshes[i], root, m};
+            const render::Mesh* expressed = expressedPart(a, bodyShared, i);
+            render::ObjectDraw draw{expressed ? expressed : &body.meshes[i], root, m};
             draw.joints = a.palettes[i];
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
             if(!a.shadowJoints.empty())
@@ -921,7 +1029,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         const world::Object& object = *found;
         Avatar& a = avatars_[object.id];
         a.seen = frame_;
-        pose(a, defaultBody_->shape, world, object.id, animations, now, glm::mat4(1.0f));
+        pose(a, defaultBody_->shape, world, object.id, animations, now, glm::mat4(1.0f),
+             originHandle, nullptr);
         animatedObjects_++;
     }
 
