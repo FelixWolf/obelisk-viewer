@@ -94,6 +94,15 @@ struct JointPose
     std::optional<glm::vec3> scale;
 };
 
+// How tall the avatar is, and its pelvis above its feet, by where its joints
+// are (posed ones' positions and scales, the rest the shape's).
+struct BodySize
+{
+    float pelvisToFoot = 0.0f;
+    float height = 0.0f;
+};
+BodySize bodySize(const BaseAvatar& base, const Shape& shape, std::span<const JointPose> pose = {});
+
 // Joint transforms relative to the avatar root. `pose` is empty (the rest
 // pose) or has one entry per joint.
 std::vector<glm::mat4> poseJoints(const BaseAvatar& base, const Shape& shape,

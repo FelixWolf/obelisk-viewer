@@ -345,6 +345,36 @@ TEST_CASE("Animator: layers, restarts, loop ends and one-offs")
     }
 }
 
+TEST_CASE("Shape: the body's size follows its joints, and hover the slider")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    // Hover is the last of the transmitted values: 55 of 100 is 0.2 m, and
+    // the middle none.
+    std::vector<uint8_t> values(avatar->transmitted.size(), 127);
+    REQUIRE(avatar->transmitted.back() == 11001);
+    const auto hover = [&](uint8_t value)
+    {
+        values.back() = value;
+        return shapeSkeleton(*avatar, ParamWeights(*avatar, values)).hover;
+    };
+    CHECK(hover(255) == doctest::Approx(2.0f));
+    CHECK(hover(140) == doctest::Approx(0.2f).epsilon(0.03));
+    CHECK(hover(127) == 0.0f);
+
+    const Shape shape = shapeSkeleton(*avatar, ParamWeights(*avatar));
+    const BodySize size = bodySize(*avatar, shape);
+    CHECK(size.height == doctest::Approx(shape.bodyHeight));
+    // Longer shins (a rigged mesh's or a deformer's): the feet are further
+    // from the pelvis, and it's that much taller.
+    std::vector<JointPose> pose(avatar->skeleton.joints.size());
+    const auto ankle = static_cast<size_t>(avatar->skeleton.find("mAnkleLeft"));
+    pose[ankle].position = shape.jointPositions[ankle] - glm::vec3(0.0f, 0.0f, 0.4f);
+    const BodySize longer = bodySize(*avatar, shape, pose);
+    CHECK(longer.pelvisToFoot > size.pelvisToFoot + 0.3f);
+    CHECK(longer.height - size.height == doctest::Approx(longer.pelvisToFoot - size.pelvisToFoot));
+}
+
 TEST_CASE("Animator: resetting the skeleton")
 {
     const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);

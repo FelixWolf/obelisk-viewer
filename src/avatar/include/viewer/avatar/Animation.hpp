@@ -151,6 +151,8 @@ public:
     // facial expressions, by id (none: zero, all but the closed mouth).
     bool animated() const { return expressed_.has_value(); } // evaluated at all
     const std::map<int, float>& expression() const { return expression_; }
+    // What animations last gave each joint (empty before any).
+    std::span<const JointPose> held() const { return held_; }
     // Forgets what the joints were left with (the official "reset skeleton").
     void resetHeld() { held_.clear(); }
     // Drops those easing out at once; the rest play on

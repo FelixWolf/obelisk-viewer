@@ -73,6 +73,9 @@ const world::Object* attachedAvatar(const world::World& world, const world::Obje
     return nullptr;
 }
 
+// Sitting on the ground (ANIM_AGENT_SIT_GROUND_CONSTRAINED).
+static const Uuid kSitGround = *Uuid::parse("1a2bd58e-87ff-0df8-0b4c-53e047b0bb6e");
+
 // The bakes whose morph masks shape the body.
 static constexpr std::pair<int, const char*> kMaskBakes[] = {
     {8, "head"}, {9, "upper"}, {10, "lower"}};
@@ -319,16 +322,25 @@ glm::mat4 AvatarView::computeRootFrame(const world::Object& avatar, const world:
     const std::optional<glm::mat4> seat =
         avatar.parentId != 0 ? seatFrame(avatar, world, originHandle) : std::nullopt;
     const world::World::Appearance* appearance = world.appearance(avatar.id);
-    const glm::vec3 hover = (appearance && !seat ? appearance->hover : glm::vec3(0.0f)) +
-                            glm::vec3(0.0f, 0.0f, shape.hover);
+    const auto* playing = world.animations(avatar.id);
+    const bool onGround =
+        playing && std::ranges::any_of(*playing, [](const world::PlayingAnimation& p)
+                                       { return p.id == kSitGround; });
+    const glm::vec3 hover =
+        (appearance && !seat && !onGround ? appearance->hover : glm::vec3(0.0f)) +
+        glm::vec3(0.0f, 0.0f, shape.hover);
     // A rigged attachment's pelvis offset moves where the avatar is drawn
     // (llvoavatar.cpp getRenderPosition).
     const auto overrides = overrides_.find(avatar.id);
     const float pelvisOffset =
         overrides != overrides_.end() ? overrides->second.pelvisOffset : 0.0f;
+    const auto known = avatars_.find(avatar.id);
+    const avatar::BodySize size = known != avatars_.end() && known->second.size
+                                      ? *known->second.size
+                                      : avatar::BodySize{shape.pelvisToFoot, shape.bodyHeight};
     const world::Pose pose = motion_.pose(avatar);
     const glm::vec3 lowered =
-        hover - glm::vec3(0.0f, 0.0f, 0.5f * shape.bodyHeight - shape.pelvisToFoot - pelvisOffset);
+        hover - glm::vec3(0.0f, 0.0f, 0.5f * size.height - size.pelvisToFoot - pelvisOffset);
     if(seat)
     {
         const glm::mat4 placed = *seat * motion_.local(avatar);
@@ -552,6 +564,7 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
     }
     collectedAt_ = revisions;
     collectedTime_ = now;
+    collection_++;
     overrides_.clear();
     bakesInUse_.clear();
     animatedParts_.clear();
@@ -640,31 +653,65 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
     }
 }
 
+void AvatarView::applyOverrides(const Uuid& id, std::vector<avatar::JointPose>& pose) const
+{
+    // Rigged mesh's joint positions replace the shape's, but not animated
+    // ones.
+    const auto o = overrides_.find(id);
+    if(o == overrides_.end())
+    {
+        return;
+    }
+    for(const auto& [joint, override] : o->second.joints)
+    {
+        avatar::JointPose& p = pose[static_cast<size_t>(joint)];
+        if(!p.position)
+        {
+            p.position = override.position;
+        }
+        if(override.lockScale)
+        {
+            p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
+        }
+    }
+}
+
+void AvatarView::updateSize(Avatar& a, const std::shared_ptr<const Body>& body, const Uuid& id,
+                            double now)
+{
+    // Animations moved joints by now, if those that changed do.
+    constexpr double kSettleSeconds = 1.0;
+    bool changed = !a.size || a.sizedBody != body || std::exchange(a.resize, false);
+    if(a.sizedCollection != collection_)
+    {
+        a.sizedCollection = collection_;
+        const auto o = overrides_.find(id);
+        Overrides overrides = o != overrides_.end() ? o->second : Overrides{};
+        if(overrides != a.sizedOverrides)
+        {
+            a.sizedOverrides = std::move(overrides);
+            changed = true;
+        }
+    }
+    const bool settled = a.resizeAt && now >= *a.resizeAt;
+    if(!changed && !settled)
+    {
+        return;
+    }
+    a.resizeAt = changed ? std::optional(now + kSettleSeconds) : std::nullopt;
+    a.sizedBody = body;
+    std::vector<avatar::JointPose> pose(a.animator.held().begin(), a.animator.held().end());
+    pose.resize(base_.skeleton.joints.size());
+    applyOverrides(id, pose);
+    a.size = avatar::bodySize(base_, body->shape, pose);
+}
+
 void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World& world,
                       const Uuid& id, AnimationManager& animations, double now,
                       const glm::mat4& root, uint64_t originHandle, const world::Object* standing)
 {
     animate(a, world, id, animations, now);
-    // Rigged mesh's joint positions replace the shape's, but not animated
-    // ones.
-    const auto complete = [&](std::vector<avatar::JointPose>& pose)
-    {
-        if(const auto o = overrides_.find(id); o != overrides_.end())
-        {
-            for(const auto& [joint, override] : o->second.joints)
-            {
-                avatar::JointPose& p = pose[static_cast<size_t>(joint)];
-                if(!p.position)
-                {
-                    p.position = override.position;
-                }
-                if(override.lockScale)
-                {
-                    p.scale = base_.skeleton.joints[static_cast<size_t>(joint)].scale;
-                }
-            }
-        }
-    };
+    const auto complete = [&](std::vector<avatar::JointPose>& pose) { applyOverrides(id, pose); };
     avatar::ConstraintContext context{base_, shape, complete, root, originHandle, {}};
     if(standing)
     {
@@ -786,7 +833,7 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
                 // Above the ground: the pelvis is its height off the feet
                 // (and a rigged mesh's pelvis offset) above it.
                 const auto o = overrides_.find(id);
-                a.eyeHeight = offset.z + shape.pelvisToFoot +
+                a.eyeHeight = offset.z + avatar::bodySize(base_, shape, restPose).pelvisToFoot +
                               (o != overrides_.end() ? o->second.pelvisOffset : 0.0f);
                 if(ikJoints_.head >= 0)
                 {
@@ -875,6 +922,7 @@ void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
         }
         a.animator.start(animationId, std::move(animation), now);
         a.started[animationId] = sequence;
+        a.resize = true;
     }
     std::erase_if(a.started,
                   [&](const auto& entry)
@@ -883,6 +931,7 @@ void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
                       if(!still)
                       {
                           a.animator.stop(entry.first, now);
+                          a.resize = true;
                       }
                       return !still;
                   });
@@ -897,6 +946,7 @@ std::vector<Uuid> AvatarView::resetSkeleton(const Uuid& avatar, bool animations,
     }
     Avatar& a = it->second;
     a.animator.resetHeld();
+    a.resize = true;
     collectedAt_.reset(); // rigged mesh's joint positions again
     std::vector<Uuid> stopped;
     if(animations && ours)
@@ -904,8 +954,7 @@ std::vector<Uuid> AvatarView::resetSkeleton(const Uuid& avatar, bool animations,
         // LLAgent::stopCurrentAnimations: sitting on the ground, do not
         // disturb.
         static const std::array<Uuid, 2> kKeep = {
-            *Uuid::parse("1a2bd58e-87ff-0df8-0b4c-53e047b0bb6e"),
-            *Uuid::parse("efcf670c-2d18-8128-973a-034ebc806b67")};
+            kSitGround, *Uuid::parse("efcf670c-2d18-8128-973a-034ebc806b67")};
         for(const auto& [id, sequence] : a.started)
         {
             if(!std::ranges::contains(kKeep, id))
@@ -984,6 +1033,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         const std::shared_ptr<const Body>& bodyShared = a.body ? a.body : defaultBody_;
         const Body& body = *bodyShared;
+        updateSize(a, bodyShared, object.id, now);
 
         // Seen (or its shadow, or near enough)? Where it stands doesn't
         // depend on its pose.

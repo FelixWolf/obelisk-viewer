@@ -1939,7 +1939,12 @@ when we have it, otherwise from the object. Bakes are fetched from
 `<agent_appearance_service>texture/<avatar>/<bake name>/<texture>` through
 `TextureManager` and cached like any other texture; they have a fifth J2K
 component, which is ignored. A part isn't drawn while its bake is the
-default or invisible texture, or still loading.
+default or invisible texture, or still loading. The size is from the joints as
+they are, rigged mesh's and animations' positions included
+(`avatar::bodySize`), found again when those or the shape change rather
+than every frame (LLAvatarAppearance::computeBodySize), and a second later
+once what started has settled. Sitting on the ground, the message's hover
+doesn't apply but the shape's does.
 
 Attachments: an object whose parent is an avatar sits at the attachment
 point given by its state byte (`attachmentPointFromState`); `ObjectView`

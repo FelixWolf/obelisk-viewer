@@ -157,33 +157,47 @@ void ParamWeights::applyDrivers()
     }
 }
 
+BodySize bodySize(const BaseAvatar& base, const Shape& shape, std::span<const JointPose> pose)
+{
+    // llavatarappearance.cpp computeBodySize.
+    auto pos = [&](const char* name)
+    {
+        const int joint = base.skeleton.find(name);
+        if(joint < 0)
+        {
+            return 0.0f;
+        }
+        const auto i = static_cast<size_t>(joint);
+        return i < pose.size() && pose[i].position ? pose[i].position->z
+                                                   : shape.jointPositions[i].z;
+    };
+    auto scale = [&](const char* name)
+    {
+        const int joint = base.skeleton.find(name);
+        if(joint < 0)
+        {
+            return 1.0f;
+        }
+        const auto i = static_cast<size_t>(joint);
+        return i < pose.size() && pose[i].scale ? pose[i].scale->z : shape.jointScales[i].z;
+    };
+    BodySize size;
+    size.pelvisToFoot = pos("mHipLeft") * scale("mPelvis") - pos("mKneeLeft") * scale("mHipLeft") -
+                        pos("mAnkleLeft") * scale("mKneeLeft") -
+                        pos("mFootLeft") * scale("mAnkleLeft");
+    size.height = size.pelvisToFoot + std::sqrt(2.0f) * pos("mSkull") * scale("mHead") +
+                  pos("mHead") * scale("mNeck") + pos("mNeck") * scale("mChest") +
+                  pos("mChest") * scale("mTorso") + pos("mTorso") * scale("mPelvis");
+    return size;
+}
+
 Shape shapeSkeleton(const BaseAvatar& base, const ParamWeights& weights)
 {
     Shape shape;
     deformSkeleton(base, weights, shape);
-
-    // llavatarappearance.cpp computeBodySize (from the unshifted positions).
-    auto pos = [&](const char* name)
-    {
-        const int i = base.skeleton.find(name);
-        if(i < 0)
-        {
-            return 0.0f;
-        }
-        return name == std::string_view("mPelvis") ? 0.0f
-                                                   : shape.jointPositions[static_cast<size_t>(i)].z;
-    };
-    auto scale = [&](const char* name)
-    {
-        const int i = base.skeleton.find(name);
-        return i < 0 ? 1.0f : shape.jointScales[static_cast<size_t>(i)].z;
-    };
-    shape.pelvisToFoot = pos("mHipLeft") * scale("mPelvis") - pos("mKneeLeft") * scale("mHipLeft") -
-                         pos("mAnkleLeft") * scale("mKneeLeft") -
-                         pos("mFootLeft") * scale("mAnkleLeft");
-    shape.bodyHeight = shape.pelvisToFoot + std::sqrt(2.0f) * pos("mSkull") * scale("mHead") +
-                       pos("mHead") * scale("mNeck") + pos("mNeck") * scale("mChest") +
-                       pos("mChest") * scale("mTorso") + pos("mTorso") * scale("mPelvis");
+    const BodySize size = bodySize(base, shape);
+    shape.pelvisToFoot = size.pelvisToFoot;
+    shape.bodyHeight = size.height;
     shape.hover = weights[kHoverParam];
     return shape;
 }

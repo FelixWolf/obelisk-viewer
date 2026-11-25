@@ -176,6 +176,24 @@ public:
     size_t animatedObjects() const { return animatedObjects_; }
 
 private:
+    // Joint position (and scale lock) overrides from rigged attachments, by
+    // avatar: per joint, the one from the mesh with the highest id (as the
+    // official viewer picks among conflicting ones); and the pelvis offset
+    // that raises the whole avatar, chosen the same way.
+    struct Override
+    {
+        Uuid mesh;
+        glm::vec3 position{0.0f};
+        bool lockScale = false;
+        bool operator==(const Override&) const = default;
+    };
+    struct Overrides
+    {
+        std::unordered_map<int, Override> joints;
+        Uuid pelvisOffsetMesh;
+        float pelvisOffset = 0.0f;
+        bool operator==(const Overrides&) const = default;
+    };
     // A shaped body: shared by every avatar with the same appearance (all
     // without one use the default).
     struct Body
@@ -199,6 +217,16 @@ private:
         // with (rebuilt as they arrive).
         std::array<std::shared_ptr<const image::Plane>, 3> masks;
         avatar::Animator animator;
+        // Its size as it stands (LLAvatarAppearance::mBodySize): found again
+        // when its shape, its rigged mesh's joints or what it plays changes,
+        // not every frame (animations would make it bob), and once more
+        // when that has settled.
+        std::optional<avatar::BodySize> size;
+        std::shared_ptr<const Body> sizedBody;
+        Overrides sizedOverrides;
+        uint64_t sizedCollection = 0;
+        bool resize = false;
+        std::optional<double> resizeAt;
         std::unordered_map<Uuid, int32_t> started; // animation -> sequence
         std::vector<avatar::JointPose> pose;
         std::array<ExpressedPart, std::size(avatar::kBodyParts)> expressed;
@@ -272,26 +300,13 @@ private:
                                       size_t part);
     render::Mesh partMesh(const avatar::ShapedMesh& shaped, size_t part) const;
     const Body& bodyOf(const world::Object& avatar) const;
-    // Joint position (and scale lock) overrides from rigged attachments, by
-    // avatar: per joint, the one from the mesh with the highest id (as the
-    // official viewer picks among conflicting ones); and the pelvis offset
-    // that raises the whole avatar, chosen the same way.
-    struct Override
-    {
-        Uuid mesh;
-        glm::vec3 position{0.0f};
-        bool lockScale = false;
-    };
-    struct Overrides
-    {
-        std::unordered_map<int, Override> joints;
-        Uuid pelvisOffsetMesh;
-        float pelvisOffset = 0.0f;
-    };
     // What each avatar's attachments change about it: joint positions, and
     // the bakes they use (Bake on Mesh), whose body parts are then hidden.
     void collectAttachments(const world::World& world, MeshManager& meshes);
 
+    void updateSize(Avatar& a, const std::shared_ptr<const Body>& body, const Uuid& id, double now);
+    // Rigged mesh's joint positions and scales, for joints not animated.
+    void applyOverrides(const Uuid& id, std::vector<avatar::JointPose>& pose) const;
     void animate(Avatar& a, const world::World& world, const Uuid& id, AnimationManager& animations,
                  double now);
     // Animates and poses a skeleton (an avatar's or an animated object's).
@@ -315,6 +330,7 @@ private:
     // world's objects or the mesh skins change.
     std::optional<std::pair<uint64_t, uint64_t>> collectedAt_;
     std::chrono::steady_clock::time_point collectedTime_{};
+    uint64_t collection_ = 0; // bumped by each
     static constexpr auto kCollectInterval = std::chrono::milliseconds(250);
     std::unordered_map<Uuid, std::vector<Uuid>>
         animatedParts_;                             // animated objects' other prims, by root
