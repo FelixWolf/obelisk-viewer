@@ -7,7 +7,8 @@
 // reference distance, then reference / (reference + rolloff (d - reference))).
 // All calls from one thread (the main one); miniaudio mixes on its own.
 
-#include "viewer/audio/AudioStream.hpp"
+#include "viewer/audio/FrameRing.hpp"
+#include "viewer/audio/PcmSource.hpp"
 #include "viewer/audio/SoundClip.hpp"
 
 #include <glm/vec3.hpp>
@@ -44,8 +45,9 @@ public:
     // clip is kept while the voice plays.
     Voice play(std::shared_ptr<const SoundClip> clip, const PlayParams& params);
     // Plays a stream (not positioned) from its decoded samples; 0 until it
-    // has some (AudioStream::sampleRate()). Ends when the stream does.
-    Voice playStream(std::shared_ptr<AudioStream> stream, const PlayParams& params);
+    // has some (PcmSource::sampleRate()). Ends when the stream does. Streams
+    // are few: kMaxVoices doesn't hold them back.
+    Voice playStream(std::shared_ptr<PcmSource> stream, const PlayParams& params);
     void setPosition(Voice voice, const glm::vec3& position);
     void setGain(Voice voice, float gain);
     void setLooping(Voice voice, bool loop);
@@ -70,6 +72,12 @@ public:
     void setWind(float gain, float frequency, float panRight);
     struct Wind;         // (the generator; opaque)
     struct StreamSource; // (a stream as miniaudio reads it; opaque)
+
+    // What's played, mono at kSampleRate, while it's wanted (for taking the
+    // echo out of the microphone's sound); one thread may read it.
+    void setTapped(bool tapped);
+    FrameRing& tap();
+    static constexpr uint32_t kSampleRate = 48000;
 
     // Forgets voices that ended. Once a frame.
     void update();

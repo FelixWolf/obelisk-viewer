@@ -3,6 +3,7 @@ add_executable(viewer_tests
   AvatarNameTests.cpp
   AvatarTests.cpp
   AudioTests.cpp
+  VoiceTests.cpp
   IkTests.cpp
   ViewerEffectsTests.cpp
   OutfitAttachmentsTests.cpp
@@ -85,6 +86,8 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/ParcelInfo.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MusicStream.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ObjectMedia.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/MicrophoneList.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/VoiceIndicators.cpp
 )
 target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/app)
 target_link_libraries(viewer_tests PRIVATE
@@ -101,6 +104,9 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::environment
   viewer::avatar
   viewer::audio
+  viewer::voice
+  opus
+  LibDataChannel::LibDataChannelStatic
   viewer::volume
   viewer::render
   viewer::text

@@ -42,7 +42,7 @@ sound yet.
   bubbles, and can be sent; there's no window yet)
 - Instant messages, group chat, friends list, online and offline notices
 - ★ VR keyboard
-- Voice (WebRTC), later
+- Voice (WebRTC): nearby done; group, ad-hoc and private calls later
 
 ## Inventory and appearance
 

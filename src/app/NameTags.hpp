@@ -21,13 +21,18 @@
 #include "viewer/world/World.hpp"
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 
 namespace viewer
 {
 
 // Adds a tag per avatar (scene.camera must be set); `self` is our avatar.
+// The display name is green while they speak; `voice` gives their
+// indicator (nothing: not in voice).
 void addNameTags(render::Scene& scene, const world::World& world, const AvatarView& avatars,
                  AvatarNames& names, LocalChat& chat, const Uuid& self, uint64_t originHandle,
-                 LocalChat::Clock::time_point now);
+                 LocalChat::Clock::time_point now,
+                 const std::function<std::optional<render::VoiceMark>(const Uuid&)>& voice);
 
 } // namespace viewer

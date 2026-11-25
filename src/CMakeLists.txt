@@ -8,10 +8,11 @@
 #   core  <-  llsd, net, protocol  <-  session   (login, regions, caps, event queues)
 #   volume                             (prim geometry from shape parameters)
 #   core  <-  protocol, volume, assets  <-  world   (terrain, objects)
+#   core, llsd, net, audio  <-  voice  (WebRTC voice)
 #   core, llsd  <-  environment         (sky settings, day cycles, lighting)
 #   app sees everything
 #
-# Planned: xr, voice.
+# Planned: xr.
 
 add_subdirectory(core)
 add_subdirectory(image)
@@ -23,6 +24,7 @@ add_subdirectory(inventory)
 add_subdirectory(volume)
 add_subdirectory(assets)
 add_subdirectory(audio)
+add_subdirectory(voice)
 add_subdirectory(world)
 add_subdirectory(environment)
 add_subdirectory(avatar)

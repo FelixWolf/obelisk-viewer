@@ -25,6 +25,17 @@ inline constexpr SettingKey<int32_t> kMasterVolume{"audio.master_volume"}; // pe
 inline constexpr SettingKey<int32_t> kSoundVolume{"audio.sound_volume"};
 inline constexpr SettingKey<int32_t> kMusicVolume{"audio.music_volume"};
 inline constexpr SettingKey<bool> kMusicAutoPlay{"audio.music_autoplay"};
+// Voice.
+inline constexpr SettingKey<bool> kVoice{"voice.enabled"};
+inline constexpr SettingKey<int32_t> kVoiceVolume{"voice.volume"};     // percent
+inline constexpr SettingKey<std::string> kVoiceEar{"voice.hear_from"}; // "camera", "avatar"
+inline constexpr SettingKey<bool> kVoiceIndicators{"voice.indicators"};
+inline constexpr SettingKey<bool> kMicIndicator{"voice.mic_indicator"};
+inline constexpr SettingKey<bool> kPushToTalk{"voice.push_to_talk"};
+inline constexpr SettingKey<std::string> kMicrophone{"voice.microphone"}; // empty: the default
+inline constexpr SettingKey<bool> kVoiceEcho{"voice.echo_cancellation"};
+inline constexpr SettingKey<bool> kVoiceNoise{"voice.noise_suppression"};
+inline constexpr SettingKey<bool> kVoiceLevel{"voice.auto_level"};
 // World.
 inline constexpr SettingKey<std::string> kStart{"login.start"}; // "last", "home"
 inline constexpr SettingKey<Uuid> kSkyAsset{"world.sky_asset"}; // null: the region's

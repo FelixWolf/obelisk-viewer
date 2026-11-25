@@ -72,6 +72,7 @@ void PeopleView::bind(Rml::DataModelConstructor& model)
         r.RegisterMember("detail", &Row::detail);
         r.RegisterMember("online", &Row::online);
         r.RegisterMember("isFriend", &Row::isFriend);
+        r.RegisterMember("voice", &Row::voice);
     }
     model.RegisterArray<std::vector<Row>>();
     if(auto c = model.RegisterStruct<Card>())
@@ -148,7 +149,7 @@ void PeopleView::act(Action::Kind kind, int32_t rights)
 }
 
 void PeopleView::update(const Friends& friends, const Nearby& nearby, const Names& names,
-                        std::optional<glm::dvec3> here)
+                        std::optional<glm::dvec3> here, const Voice& voice)
 {
     const auto nameOf = [&](const Uuid& id) -> std::pair<std::string, std::string>
     {
@@ -158,6 +159,12 @@ void PeopleView::update(const Friends& friends, const Nearby& nearby, const Name
             return {"Loading…", std::string()};
         }
         return {n->displayName, n->username};
+    };
+
+    const auto voiceOf = [&](const Uuid& id) -> std::string
+    {
+        const auto v = voice ? voice(id) : std::nullopt;
+        return !v ? "" : v->moderatorMuted ? "muted" : v->speaking ? "speaking" : "in";
     };
 
     // The rows, and who's in them (ids by row).
@@ -179,6 +186,7 @@ void PeopleView::update(const Friends& friends, const Nearby& nearby, const Name
             s.row.id = p.id.toString();
             s.row.name = name;
             s.row.online = true;
+            s.row.voice = voiceOf(p.id);
             s.row.isFriend = friends.find(p.id) != nullptr;
             if(here)
             {
@@ -207,6 +215,7 @@ void PeopleView::update(const Friends& friends, const Nearby& nearby, const Name
             s.row.name = name;
             s.row.detail = f.online ? "Online" : "";
             s.row.online = f.online;
+            s.row.voice = voiceOf(f.id);
             s.row.isFriend = true;
             s.key = lowered(name);
             sorted.push_back(std::move(s));

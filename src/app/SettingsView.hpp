@@ -4,7 +4,7 @@
 // definitions' pages, in order; hidden settings aren't shown), the chosen page's settings on the
 // right, scrolling, under their sections' headings. Each as its type has it: a check box
 // (booleans), a number field with - and + (whole numbers and reals), a text field (strings and
-// ids), keys side by side (choices).
+// ids), keys side by side (choices), or one over the other (listed).
 //
 // What's typed is checked as it's typed: a value the setting takes is set
 // at once (and saved a moment later); one it doesn't is said under the
@@ -19,6 +19,7 @@
 
 #include <RmlUi/Core/DataModelHandle.h>
 
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -36,6 +37,11 @@ public:
     // document is loaded); then the model's handle.
     void bind(Rml::DataModelConstructor& model);
     void setHandle(Rml::DataModelHandle handle) { model_ = handle; }
+
+    // What a listed setting's chosen from now (shown again if it changed).
+    void setList(const std::string& name, const std::vector<SettingChoice>& choices);
+    // The page shown.
+    const std::string& pageName() const { return pageName_; }
 
     // Once a frame while the tab shows.
     void update(bool headset);
@@ -56,7 +62,7 @@ public:
         Rml::String heading; // its section's, if it starts one
         Rml::String label;
         Rml::String description;
-        Rml::String kind; // "check", "number", "text", "choice"
+        Rml::String kind; // "check", "number", "text", "choice", "list"
         Rml::String text; // the field's (the page sets it)
         bool on = false;  // a check box's
         Rml::String chosen;
@@ -98,6 +104,7 @@ private:
         llsd::Value value;
     };
     std::vector<Shown> shown_;
+    std::map<std::string, std::vector<Choice>> lists_;
     uint64_t version_ = 0;
     std::optional<std::string> keyboard_;
 };

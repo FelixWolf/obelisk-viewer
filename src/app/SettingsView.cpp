@@ -79,9 +79,10 @@ void SettingsView::bind(Rml::DataModelConstructor& model)
           {
               const int c = arguments.size() > 1 ? arguments[1].Get<int>(-1) : -1;
               const SettingDefinition* d = settings_.definition(shown_[i].name);
-              if(d && c >= 0 && c < static_cast<int>(d->choices.size()))
+              const auto& choices = rows_[i].choices;
+              if(d && c >= 0 && c < static_cast<int>(choices.size()))
               {
-                  settings_.setValue(d->name, llsd::Value(d->choices[size_t(c)].value));
+                  settings_.setValue(d->name, llsd::Value(choices[size_t(c)].value));
               }
           });
     // - or + (settingStep(row, -1 or 1)): a step from its value, to its range.
@@ -150,7 +151,7 @@ void SettingsView::fill(size_t i)
     const SettingDefinition& d = *settings_.definition(shown.name);
     row.text = settings_.text(d.name);
     row.on = settings_.value(d.name).asBoolean();
-    row.chosen = d.type == SettingType::Choice ? row.text : Rml::String();
+    row.chosen = d.type == SettingType::Choice || d.listed ? row.text : Rml::String();
     row.error.clear();
     row.isDefault = settings_.isDefault(d.name);
     row.overridden = settings_.isOverridden(d.name);
@@ -184,10 +185,15 @@ void SettingsView::build()
                    : d.type == SettingType::Integer ? "number"
                    : d.type == SettingType::Real    ? "number"
                    : d.type == SettingType::Choice  ? "choice"
+                   : d.listed                       ? "list"
                                                     : "text";
         for(const SettingChoice& c : d.choices)
         {
             row.choices.push_back({c.value, c.label});
+        }
+        if(const auto list = lists_.find(d.name); d.listed && list != lists_.end())
+        {
+            row.choices = list->second;
         }
         row.unit = d.unit;
         row.placeholder = d.type == SettingType::Uuid ? "None" : "";
@@ -199,6 +205,25 @@ void SettingsView::build()
     version_ = settings_.version();
     model_.DirtyVariable("settingPageName");
     model_.DirtyVariable("settingRows");
+}
+
+void SettingsView::setList(const std::string& name, const std::vector<SettingChoice>& choices)
+{
+    std::vector<Choice> list;
+    for(const SettingChoice& c : choices)
+    {
+        list.push_back({c.value, c.label});
+    }
+    std::vector<Choice>& kept = lists_[name];
+    if(kept == list)
+    {
+        return;
+    }
+    kept = std::move(list);
+    if(std::ranges::find(shown_, name, &Shown::name) != shown_.end())
+    {
+        pageBuilt_ = -1; // built again (update())
+    }
 }
 
 bool SettingsView::typed(size_t i)

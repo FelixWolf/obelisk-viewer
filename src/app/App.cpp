@@ -690,10 +690,15 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->soundAssets_ = std::make_unique<SoundAssets>(*app->http_, *app->jobs_, *app->diskCache_);
     app->sounds_ = std::make_unique<SoundManager>(audio::AudioEngine::create(), *app->soundAssets_);
     app->music_ = std::make_unique<MusicStream>(*app->http_, app->sounds_->engine());
+    app->microphones_ = std::make_unique<MicrophoneList>(*app->jobs_);
+    app->voice_ = std::make_unique<voice::VoiceClient>(*app->http_, app->sounds_->engine());
     // The settings the options don't carry (sound); the rest as given.
-    app->applySettings({std::string(setting::kMasterVolume.name),
-                        std::string(setting::kMusicVolume.name),
-                        std::string(setting::kMusicAutoPlay.name)});
+    app->applySettings(
+        {std::string(setting::kMasterVolume.name), std::string(setting::kMusicVolume.name),
+         std::string(setting::kMusicAutoPlay.name), std::string(setting::kVoice.name),
+         std::string(setting::kVoiceVolume.name), std::string(setting::kVoiceEar.name),
+         std::string(setting::kPushToTalk.name), std::string(setting::kMicrophone.name),
+         std::string(setting::kVoiceEcho.name)});
     app->objectMedia_ = std::make_unique<ObjectMedia>(*app->http_);
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
@@ -789,6 +794,32 @@ void App::applySettings(const std::vector<std::string>& names)
         else if(name == kMusicAutoPlay.name)
         {
             musicAutoPlay_ = s.get(kMusicAutoPlay); // from the next parcel's music
+        }
+        else if(name == kVoice.name)
+        {
+            voice_->setEnabled(s.get(kVoice));
+        }
+        else if(name == kVoiceVolume.name)
+        {
+            voice_->setVolume(static_cast<float>(s.get(kVoiceVolume)) / 100.0f);
+        }
+        else if(name == kVoiceEar.name)
+        {
+            voiceFromAvatar_ = s.get(kVoiceEar) == "avatar";
+        }
+        else if(name == kPushToTalk.name)
+        {
+            pushToTalk_ = s.get(kPushToTalk);
+            setMicrophone(false);
+        }
+        else if(name == kMicrophone.name)
+        {
+            voice_->input().setDevice(s.get(kMicrophone));
+        }
+        else if(name == kVoiceEcho.name || name == kVoiceNoise.name || name == kVoiceLevel.name)
+        {
+            voice_->input().setProcessing(
+                {s.get(kVoiceEcho), s.get(kVoiceNoise), s.get(kVoiceLevel)});
         }
         else if(name == kStart.name)
         {
@@ -891,6 +922,7 @@ int App::run()
             {
                 agent_.handleEvent(event);
             }
+            voiceKeyEvent(event, uiConsumed);
             // M: first person (the official viewer's mouselook key).
             if(event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                event.key.scancode == SDL_SCANCODE_M && !uiConsumed &&
@@ -935,6 +967,7 @@ int App::run()
         profile_.beginFrame();
         // Keep the session going even while minimized.
         updateSession();
+        updateVoice();
         updateMainMenu();
         // Settings changed (the Settings tab, the Media tab's volume): in
         // effect now, and saved a moment later.
@@ -2171,6 +2204,8 @@ void App::endSession()
     musicWanted_.clear();
     musicParcel_.reset();
     objectMedia_->clear();
+    voice_->stop();
+    voiceIndicators_.clear();
     friends_.clear();
     friendsLoaded_ = false;
     nearby_.clear();
@@ -2370,6 +2405,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
                           : 0;
     addHoverLabel(scene);
     addCenterDot(scene);
+    addMicrophoneIndicator(scene);
     if(world_ && originHandle_)
     {
         terrainView_.update(*world_, *renderer_);
@@ -2429,8 +2465,15 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         if(avatars_)
         {
             const auto* login = session_ ? session_->login() : nullptr;
-            addNameTags(scene, *world_, *avatars_, *avatarNames_, localChat_,
-                        login ? login->agentId : Uuid{}, *originHandle_, LocalChat::Clock::now());
+            const uint64_t ticks = SDL_GetTicksNS();
+            voiceIndicators_.beginFrame(static_cast<float>(ticks - voiceTicks_) * 1e-9f);
+            voiceTicks_ = ticks;
+            const bool marks = settings_->get(setting::kVoiceIndicators);
+            addNameTags(
+                scene, *world_, *avatars_, *avatarNames_, localChat_,
+                login ? login->agentId : Uuid{}, *originHandle_, LocalChat::Clock::now(),
+                [&](const Uuid& id)
+                { return marks ? voiceIndicators_.get(id, voice_->status(id)) : std::nullopt; });
         }
         trees_->addTo(scene, *world_, *originHandle_, *textures_, 128.0f);
         // Automatic reflection probes where objects are dense, at least 2 m
@@ -2883,6 +2926,10 @@ MenuItem App::radialMenu()
                               keyboardForSetting_.reset();
                               controls_.openKeyboard();
                           }),
+            MenuItem::run("Microphone", [this] { setMicrophone(!voice_->talking()); })
+                .named([this] { return voiceText(); })
+                .when([this] { return voice_->state() == voice::VoiceClient::State::Connected; })
+                .staying(),
             MenuItem::submenu(
                 "VR",
                 {
@@ -3629,6 +3676,131 @@ void App::updateMedia()
     }
 }
 
+void App::updateVoice()
+{
+    if(!session_ || session_->state() != session::SessionState::Connected || !world_ ||
+       !originHandle_ || !session_->login())
+    {
+        // Logging out: the microphone closes now.
+        if(voice_->state() != voice::VoiceClient::State::Off)
+        {
+            voice_->stop();
+        }
+        return;
+    }
+    const auto agent = agentGlobalPosition();
+    const world::Object* self =
+        agentKey_ ? world_->object(agentKey_->region, agentKey_->localId) : nullptr;
+    if(!agent || !self)
+    {
+        return; // on our way somewhere
+    }
+    voice::VoiceClient::World w;
+    w.self = session_->login()->agentId;
+    w.loginUri = session_->loginUri();
+    w.agentRegion = session_->agentRegion().value_or(0);
+    for(const auto& [circuit, region] : session_->regions())
+    {
+        const auto capability = [&](std::string_view name)
+        {
+            const auto it = region->capabilities.find(name);
+            return it == region->capabilities.end() ? std::string() : it->second;
+        };
+        if(region->handshakeReceived)
+        {
+            w.regions.push_back({region->handle, region->regionId, region->name,
+                                 (region->flags & session::Region::kAllowVoice) != 0,
+                                 capability("SimulatorFeatures"),
+                                 capability("ProvisionVoiceAccountRequest"),
+                                 capability("VoiceSignalingRequest")});
+        }
+    }
+    if(const auto& parcel = parcel_.parcel(); parcel && parcel_.region() == w.agentRegion)
+    {
+        w.parcel =
+            voice::VoiceClient::Parcel{parcel->localId, parcel->has(parcel_flags::kAllowVoice),
+                                       parcel->has(parcel_flags::kUseEstateVoice)};
+    }
+    // We speak from the head (a meter over the avatar's middle, as the
+    // official viewer), and listen from the camera, or there.
+    w.placement.speaker = *agent + glm::dvec3(0.0, 0.0, 1.0);
+    glm::quat facing = self->rotation;
+    if(avatars_ && avatars_->placed(*self, *world_, *originHandle_))
+    {
+        const glm::mat3 frame(avatars_->rootFrame(*self, *world_, *originHandle_));
+        facing = glm::quat_cast(glm::mat3(glm::normalize(frame[0]), glm::normalize(frame[1]),
+                                          glm::normalize(frame[2])));
+    }
+    w.placement.speakerRotation = facing;
+    if(voiceFromAvatar_)
+    {
+        w.placement.listener = w.placement.speaker;
+        w.placement.listenerRotation = facing;
+    }
+    else
+    {
+        const render::Camera& c = scene_.camera;
+        const glm::vec3 forward = c.forward();
+        const glm::vec3 left = glm::normalize(glm::cross(c.up, forward));
+        const glm::mat3 frame(forward, left, glm::cross(forward, left));
+        w.placement.listener = glm::dvec3(static_cast<double>(*originHandle_ >> 32),
+                                          static_cast<double>(*originHandle_ & 0xFFFFFFFFu), 0.0) +
+                               glm::dvec3(c.position);
+        w.placement.listenerRotation = glm::quat_cast(frame);
+    }
+    voice_->update(w, voice::VoiceClient::Clock::now());
+}
+
+void App::setMicrophone(bool on)
+{
+    voice_->setTalking(on && voice_->enabled() && session_ &&
+                       session_->state() == session::SessionState::Connected);
+}
+
+void App::voiceKeyEvent(const SDL_Event& event, bool consumed)
+{
+    // Push to talk lets go whatever has the keyboard by then.
+    const bool key = (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) &&
+                     !event.key.repeat && event.key.scancode == SDL_SCANCODE_V;
+    if(pushToTalk_ &&
+       (event.type == SDL_EVENT_WINDOW_FOCUS_LOST || (key && event.type == SDL_EVENT_KEY_UP)))
+    {
+        setMicrophone(false);
+        return;
+    }
+    if(key && event.type == SDL_EVENT_KEY_DOWN && !consumed && !typingOnPage() &&
+       !ImGui::GetIO().WantCaptureKeyboard &&
+       (event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) == 0)
+    {
+        setMicrophone(pushToTalk_ || !voice_->talking());
+    }
+}
+
+std::string App::voiceText() const
+{
+    using State = voice::VoiceClient::State;
+    switch(voice_->state())
+    {
+    case State::Off:
+        return "Voice off";
+    case State::NotAllowed:
+        return "No voice here";
+    case State::Connecting:
+        return voice_->failing() ? "Voice: trying again" : "Voice: connecting";
+    case State::Connected:
+        break;
+    }
+    if(voice_->talking() && voice_->input().failed())
+    {
+        return "No microphone";
+    }
+    if(voice_->talking() && voice_->moderatorMuted())
+    {
+        return "Muted by a moderator";
+    }
+    return voice_->talking() ? "Mic on" : "Mic off";
+}
+
 void App::updateSounds(const render::Scene& scene)
 {
     soundAssets_->update();
@@ -4012,6 +4184,23 @@ void App::updateMainMenu()
             }
         }
     }
+    status.voiceStatus = [this](const Uuid& id) { return voice_->status(id); };
+    status.voice = session_ ? voiceText() : std::string();
+    status.microphone = voice_->talking();
+    if(mainMenu_->tab() == "settings")
+    {
+        const std::string& page = mainMenu_->settings().pageName();
+        const SettingDefinition* mic = settings_->definition(setting::kMicrophone.name);
+        if(mic && page == mic->page)
+        {
+            microphones_->update(static_cast<double>(SDL_GetTicks()) / 1000.0);
+            mainMenu_->settings().setList(
+                mic->name,
+                microphoneChoices(microphones_->names().value_or(std::vector<std::string>{}),
+                                  microphones_->names() ? settings_->get(setting::kMicrophone)
+                                                        : std::string()));
+        }
+    }
     mainMenu_->update(status);
     if(const auto action = mainMenu_->takeMediaAction())
     {
@@ -4037,6 +4226,10 @@ void App::updateMainMenu()
             break;
         }
         }
+    }
+    if(mainMenu_->takeMicrophone())
+    {
+        setMicrophone(!voice_->talking());
     }
     if(const auto action = mainMenu_->people().takeAction(); action && session_)
     {
@@ -4774,6 +4967,7 @@ void App::logOutBeforeExit()
     }
     // Tell the region we're leaving, so the avatar doesn't linger until the
     // circuit times out. update() gives up on its own after a few seconds.
+    voice_->stop();
     session_->requestLogout();
     while(session_ && session_->state() == session::SessionState::LoggingOut)
     {
@@ -5284,6 +5478,62 @@ void App::addHoverLabel(render::Scene& scene) const
     label.background = glm::vec4(0.086f, 0.11f, 0.165f, 0.9f);
     label.raise = 14.0f;
     scene.labels.push_back(std::move(label));
+}
+
+void App::addMicrophoneIndicator(render::Scene& scene)
+{
+    const auto* login = session_ ? session_->login() : nullptr;
+    const auto status = login ? voice_->status(login->agentId) : std::nullopt;
+    if(!status || !settings_->get(setting::kMicIndicator))
+    {
+        return;
+    }
+    const render::Camera& c = scene.camera;
+    const glm::vec3 forward = c.forward();
+    const glm::vec3 right = glm::normalize(glm::cross(forward, c.up));
+    const glm::vec3 up = glm::cross(right, forward);
+
+    render::Panel panel;
+    panel.size = glm::vec2(116.0f, 30.0f);
+    float below = 0.0f; // the view's middle, at 1 m
+    if(headset_ && headset_->running())
+    {
+        panel.metersPerPixel = 0.0011f;
+        below = 0.36f; // (20 degrees down)
+    }
+    else
+    {
+        int height = 0;
+        SDL_GetWindowSizeInPixels(window_.get(), nullptr, &height);
+        const float tangent = std::tan(c.verticalFov * 0.5f);
+        panel.metersPerPixel = 2.0f * tangent / static_cast<float>(std::max(height, 1));
+        panel.metersPerPixel *= SDL_GetWindowDisplayScale(window_.get());
+        below = tangent - panel.metersPerPixel * 34.0f;
+    }
+    panel.frame = glm::mat4(glm::vec4(right, 0.0f), glm::vec4(up, 0.0f), glm::vec4(-forward, 0.0f),
+                            glm::vec4(c.position + forward - up * below, 1.0f));
+    panel.boxes.push_back({glm::vec2(0.0f), panel.size, {0.0f, 0.0f, 0.0f, 0.5f}, 8.0f});
+    const float power = status->speaking && !status->moderatorMuted ? status->power : 0.0f;
+    const glm::vec4 color = status->moderatorMuted ? glm::vec4(0.9f, 0.4f, 0.4f, 1.0f)
+                                                   : glm::vec4(VoiceIndicators::color(power), 1.0f);
+    constexpr glm::vec4 kEmpty{1.0f, 1.0f, 1.0f, 0.2f};
+    panel.boxes.push_back({{10.0f, 10.0f}, glm::vec2(10.0f), color, 5.0f});
+    const float level = VoiceIndicators::level(power);
+    for(int i = 0; i < 4; i++)
+    {
+        const float n = static_cast<float>(i);
+        const float tall = 6.0f + 4.0f * n;
+        panel.boxes.push_back({{86.0f + 6.0f * n, 24.0f - tall},
+                               {4.0f, tall},
+                               level * 4.0f > n ? color : kEmpty,
+                               0.0f});
+    }
+    panel.texts.push_back({status->moderatorMuted ? "Muted" : "Mic on",
+                           {53.0f, 15.0f},
+                           15.0f,
+                           glm::vec4(1.0f),
+                           0.0f});
+    scene.panels.push_back(std::move(panel));
 }
 
 void App::addCenterDot(render::Scene& scene) const

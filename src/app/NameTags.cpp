@@ -32,6 +32,9 @@ constexpr float kUserNameShade = 0.83f;
 // older ones toward gray.
 constexpr glm::vec4 kOthersChat{1.0f, 1.0f, 1.0f, 1.0f};
 constexpr glm::vec4 kOwnChat{1.0f, 1.0f, 0.0f, 1.0f};
+// The name while speaking; on a chat bubble's light band.
+constexpr glm::vec3 kSpeaking{0.45f, 1.0f, 0.45f};
+constexpr glm::vec3 kSpeakingDark{0.0f, 0.4f, 0.0f};
 // SansSerif and SansSerifSmall.
 constexpr float kNamePoints = 10.0f;
 constexpr float kSmallPoints = 9.0f;
@@ -146,7 +149,8 @@ void addChatLines(render::Label& label, const LocalChat::Bubble& bubble, bool se
 
 void addNameTags(render::Scene& scene, const world::World& world, const AvatarView& avatars,
                  AvatarNames& names, LocalChat& chat, const Uuid& self, uint64_t originHandle,
-                 LocalChat::Clock::time_point now)
+                 LocalChat::Clock::time_point now,
+                 const std::function<std::optional<render::VoiceMark>(const Uuid&)>& voice)
 {
     const render::Camera& camera = scene.camera;
     const glm::vec3 forward = glm::normalize(camera.target - camera.position);
@@ -242,9 +246,19 @@ void addNameTags(render::Scene& scene, const world::World& world, const AvatarVi
         {
             addName(printable(object.groupTitle), color, kSmallPoints);
         }
+        glm::vec4 nameColor = color;
+        label.voice = voice(object.id);
+        if(label.voice)
+        {
+            label.voice->color.a *= alpha;
+        }
+        if(label.voice && label.voice->level > 0.0f)
+        {
+            nameColor = glm::vec4(bubble ? kSpeakingDark : kSpeaking, color.a);
+        }
         if(const AvatarName* name = names.get(object.id))
         {
-            addName(name->displayName, color, kNamePoints);
+            addName(name->displayName, nameColor, kNamePoints);
             if(!name->displayNameDefault)
             {
                 glm::vec4 shade = color;
@@ -259,7 +273,7 @@ void addNameTags(render::Scene& scene, const world::World& world, const AvatarVi
             AvatarName legacy;
             legacy.legacyFirstName = object.firstName;
             legacy.legacyLastName = object.lastName;
-            addName(legacy.userName(), color, kNamePoints);
+            addName(legacy.userName(), nameColor, kNamePoints);
         }
         if(bubble)
         {

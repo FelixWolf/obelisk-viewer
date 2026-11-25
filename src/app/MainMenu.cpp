@@ -382,6 +382,11 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
             name, [m, action](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
             { m->mediaAction_ = action; });
     };
+    model.Bind("voice", &m->voice_);
+    model.Bind("microphone", &m->microphone_);
+    model.BindEventCallback("toggleMicrophone",
+                            [m](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
+                            { m->microphonePressed_ = true; });
     mediaAction("musicPlay", MediaAction::PlayMusic);
     mediaAction("musicStop", MediaAction::StopMusic);
     mediaAction("louder", MediaAction::Louder);
@@ -1146,6 +1151,12 @@ void MainMenu::update(const Status& status)
 {
     updateDestinations(status);
     updateParcel(status);
+    set("voice", voice_, status.voice);
+    if(microphone_ != status.microphone)
+    {
+        microphone_ = status.microphone;
+        model_.DirtyVariable("microphone");
+    }
     if(tab_ == "media")
     {
         updateMedia(status);
@@ -1157,7 +1168,8 @@ void MainMenu::update(const Status& status)
     }
     if(tab_ == "people" && status.friends && status.nearby && status.names)
     {
-        people_.update(*status.friends, *status.nearby, status.names, status.here);
+        people_.update(*status.friends, *status.nearby, status.names, status.here,
+                       status.voiceStatus);
     }
     if(tab_ == "inventory")
     {

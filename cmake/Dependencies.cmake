@@ -269,6 +269,118 @@ if(miniaudio_ADDED)
   add_library(viewer::miniaudio ALIAS viewer_miniaudio)
 endif()
 
+# --- Opus: voice's codec (viewer::voice) --------------------------------------
+CPMAddPackage(
+  NAME opus
+  GITHUB_REPOSITORY xiph/opus
+  GIT_TAG v1.6.1
+  EXCLUDE_FROM_ALL YES
+  SYSTEM YES
+  OPTIONS
+    "BUILD_SHARED_LIBS OFF"
+    "OPUS_BUILD_SHARED_LIBRARY OFF"
+    "OPUS_BUILD_TESTING OFF"
+    "OPUS_BUILD_PROGRAMS OFF"
+    "OPUS_INSTALL_PKG_CONFIG_MODULE OFF"
+    "OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF"
+)
+
+# --- SpeexDSP: the microphone's echo, noise and level (viewer::voice) ---------
+# Its build is autotools; the few sources wanted are built directly.
+CPMAddPackage(
+  NAME speexdsp
+  GITHUB_REPOSITORY xiph/speexdsp
+  GIT_TAG SpeexDSP-1.2.1
+  DOWNLOAD_ONLY YES
+)
+if(speexdsp_ADDED)
+  set(speexdsp_generated ${CMAKE_BINARY_DIR}/speexdsp/include)
+  # What its configure would write from speexdsp_config_types.h.in.
+  file(WRITE ${speexdsp_generated}/speex/speexdsp_config_types.h.tmp
+"#include <stdint.h>
+typedef int16_t spx_int16_t;
+typedef uint16_t spx_uint16_t;
+typedef int32_t spx_int32_t;
+typedef uint32_t spx_uint32_t;
+")
+  file(COPY_FILE ${speexdsp_generated}/speex/speexdsp_config_types.h.tmp
+       ${speexdsp_generated}/speex/speexdsp_config_types.h ONLY_IF_DIFFERENT)
+  add_library(viewer_speexdsp STATIC
+    ${speexdsp_SOURCE_DIR}/libspeexdsp/mdf.c
+    ${speexdsp_SOURCE_DIR}/libspeexdsp/preprocess.c
+    ${speexdsp_SOURCE_DIR}/libspeexdsp/filterbank.c
+    ${speexdsp_SOURCE_DIR}/libspeexdsp/fftwrap.c
+    ${speexdsp_SOURCE_DIR}/libspeexdsp/smallft.c
+  )
+  target_include_directories(viewer_speexdsp SYSTEM PUBLIC
+    ${speexdsp_SOURCE_DIR}/include ${speexdsp_generated}/speex)
+  target_compile_definitions(viewer_speexdsp PRIVATE FLOATING_POINT USE_SMALLFT EXPORT=)
+  set_target_properties(viewer_speexdsp PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  add_library(viewer::speexdsp ALIAS viewer_speexdsp)
+endif()
+
+# --- Mbed TLS (Windows): DTLS for voice --------------------------------------
+# Elsewhere it's OpenSSL, as curl's. Schannel (curl's on Windows) can't do
+# what WebRTC needs (DTLS-SRTP).
+if(WIN32)
+  file(WRITE ${CMAKE_BINARY_DIR}/mbedtls/viewer_mbedtls_config.h.tmp
+"#define MBEDTLS_SSL_DTLS_SRTP
+#define MBEDTLS_THREADING_C
+#define MBEDTLS_THREADING_PTHREAD
+")
+  file(COPY_FILE ${CMAKE_BINARY_DIR}/mbedtls/viewer_mbedtls_config.h.tmp
+       ${CMAKE_BINARY_DIR}/mbedtls/viewer_mbedtls_config.h ONLY_IF_DIFFERENT)
+  CPMAddPackage(
+    NAME mbedtls
+    GITHUB_REPOSITORY Mbed-TLS/mbedtls
+    GIT_TAG v3.6.8
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+    OPTIONS
+      "ENABLE_PROGRAMS OFF"
+      "ENABLE_TESTING OFF"
+      "USE_SHARED_MBEDTLS_LIBRARY OFF"
+      "USE_STATIC_MBEDTLS_LIBRARY ON"
+      "MBEDTLS_FATAL_WARNINGS OFF"
+      "DISABLE_PACKAGE_CONFIG_AND_INSTALL ON"
+      "MBEDTLS_USER_CONFIG_FILE ${CMAKE_BINARY_DIR}/mbedtls/viewer_mbedtls_config.h"
+  )
+  # What libdatachannel and libsrtp look for (imported, so their install
+  # rules don't want it exported).
+  if(mbedtls_ADDED)
+    add_library(MbedTLS::MbedTLS INTERFACE IMPORTED GLOBAL)
+    target_link_libraries(MbedTLS::MbedTLS INTERFACE mbedtls mbedx509 mbedcrypto)
+    file(WRITE ${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/mbedtls-config.cmake
+"set(MBEDTLS_INCLUDE_DIRS \"${mbedtls_SOURCE_DIR}/include\")
+set(MBEDTLS_LIBRARIES MbedTLS::MbedTLS)
+")
+  endif()
+  set(VIEWER_RTC_TLS "USE_MBEDTLS ON")
+else()
+  set(VIEWER_RTC_TLS "USE_MBEDTLS OFF")
+endif()
+
+# --- libdatachannel: WebRTC's transport (behind viewer::voice::Peer) ---------
+# ICE, DTLS, SRTP and data channels; the audio itself is ours (Opus, above).
+CPMAddPackage(
+  NAME libdatachannel
+  GITHUB_REPOSITORY paullouisageneau/libdatachannel
+  GIT_TAG v0.24.8
+  # Not its JSON library (only its WebSocket examples' and tests').
+  GIT_SUBMODULES "deps/plog;deps/usrsctp;deps/libjuice;deps/libsrtp"
+  EXCLUDE_FROM_ALL YES
+  SYSTEM YES
+  OPTIONS
+    "BUILD_SHARED_LIBS OFF"
+    "BUILD_SHARED_DEPS_LIBS OFF"
+    # libSRTP's, whose warnings are errors (MinGW has some).
+    "ENABLE_WARNINGS_AS_ERRORS OFF"
+    "NO_WEBSOCKET ON"
+    "NO_EXAMPLES ON"
+    "NO_TESTS ON"
+    "${VIEWER_RTC_TLS}"
+)
+
 # --- keychain: the system credential store (saved logins) -------------------
 # Secret Service through libsecret on Linux (GNOME Keyring, KWallet), the
 # Keychain on macOS, the Credential Manager on Windows.
@@ -413,8 +525,17 @@ viewer_license("stb" "${stb_SOURCE_DIR}/LICENSE")
 viewer_license("miniaudio" "${miniaudio_SOURCE_DIR}/LICENSE")
 viewer_license("libogg" "${ogg_SOURCE_DIR}/COPYING")
 viewer_license("libvorbis" "${vorbis_SOURCE_DIR}/COPYING")
+viewer_license("Opus" "${opus_SOURCE_DIR}/COPYING")
+viewer_license("SpeexDSP" "${speexdsp_SOURCE_DIR}/COPYING")
+viewer_license("libdatachannel" "${libdatachannel_SOURCE_DIR}/LICENSE")
+viewer_license("libjuice" "${libdatachannel_SOURCE_DIR}/deps/libjuice/LICENSE")
+viewer_license("libSRTP" "${libdatachannel_SOURCE_DIR}/deps/libsrtp/LICENSE")
+viewer_license("usrsctp" "${libdatachannel_SOURCE_DIR}/deps/usrsctp/LICENSE.md")
+viewer_license("plog" "${libdatachannel_SOURCE_DIR}/deps/plog/LICENSE")
 viewer_license("keychain" "${keychain_SOURCE_DIR}/LICENSE")
 if(WIN32)
+  # Dual-licensed (Apache 2.0 or GPLv2): its LICENSE has both.
+  viewer_license("Mbed TLS" "${mbedtls_SOURCE_DIR}/LICENSE")
   viewer_license("OpenXR loader" "${openxr_loader_SOURCE_DIR}/share/doc/openxr/LICENSE")
 endif()
 if(VIEWER_VELOPACK)

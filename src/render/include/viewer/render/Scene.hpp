@@ -403,6 +403,14 @@ struct ParticleDraw
 //   NameTag: in a rounded bubble whose bottom is `raise` pixels above the
 //   point, lines 3 pixels apart; header lines (a chat bubble's name) in a
 //   band across its top, the rest centered or (chat) left aligned.
+// A name tag's voice indicator: a dot over the bubble, with bars to its
+// sides by the level (0..1).
+struct VoiceMark
+{
+    float level = 0.0f;
+    glm::vec4 color{1.0f}; // sRGB, and alpha
+};
+
 struct Label
 {
     enum class Style : uint8_t
@@ -417,6 +425,7 @@ struct Label
     glm::vec4 headerBackground{0.0f}; // and its header band's
     bool alignLeft = false;           // NameTag: lines other than headers
     float raise = 0.0f;
+    std::optional<VoiceMark> voice{}; // NameTag
     bool hud = false;
     // Over everything, the other labels too (a tooltip): not hidden by
     // what's in front of its point.

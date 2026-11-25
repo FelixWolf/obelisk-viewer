@@ -67,6 +67,16 @@ body
     text-transform: uppercase;
     letter-spacing: 1dp;
 }
+/* The microphone's key, as the tabs' but blue: the same width whatever it
+   says, halfway down the header. */
+#voice
+{
+    flex-shrink: 0;
+    width: 214dp;
+    padding: 38dp 24dp 0 0;
+}
+#voice .key { white-space: nowrap; }
+#voice .key.on { color: #4cf060; }
 #readouts
 {
     display: flex;
@@ -108,7 +118,7 @@ body
 
 #tabs .well { margin: 0 22dp 7dp 22dp; }
 /* The tabs: orange keys; the chosen one stays pushed in. */
-.tab, #foot .key
+.tab, #foot .key, #voice .key
 {
     height: 34dp;
     line-height: 34dp;
@@ -680,6 +690,28 @@ input.chat-field
 }
 .person.online .dot { background-color: #4cc070; }
 .person-detail { font-size: 14dp; color: #b0bce0; margin-left: 8dp; }
+/* Voice: three bars, gray in it, green while speaking, red muted. */
+.voice-mark
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 14dp;
+    margin-left: 8dp;
+    flex-shrink: 0;
+}
+.voice-mark .bar
+{
+    display: block;
+    width: 3dp;
+    height: 5dp;
+    margin-right: 2dp;
+    border-radius: 1dp;
+    background-color: #a0aed8;
+}
+.voice-mark.speaking .bar { height: 9dp; background-color: #4cf060; }
+.voice-mark.speaking .bar.tall { height: 14dp; }
+.voice-mark.muted .bar { background-color: #d85858; }
 .friend-mark
 {
     font-size: 12dp;
@@ -744,6 +776,15 @@ input.chat-field
 }
 .setting-control .toggle { padding: 7dp 14dp; }
 .setting-control .toggle + .toggle { margin-left: 8dp; }
+.setting-list { margin-top: 10dp; }
+.setting-list .toggle
+{
+    text-align: left;
+    padding: 8dp 16dp;
+    margin-bottom: 6dp;
+    white-space: nowrap;
+    overflow: hidden;
+}
 .key.step { width: 34dp; padding: 5dp 0; font-size: 18dp; }
 .setting-number
 {

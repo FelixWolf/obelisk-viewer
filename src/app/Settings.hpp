@@ -77,6 +77,9 @@ struct SettingDefinition
     bool allowNull = true;
     // A further check of a string: what's wrong with it (empty: nothing).
     std::function<std::string(std::string_view)> check{};
+    // Strings: chosen from a list known only while running, the app's
+    // (SettingsView::setList), not typed.
+    bool listed = false;
     // Only read when the viewer starts.
     bool restart = false;
     // Not on the Settings tab: set in the file, or for a run with

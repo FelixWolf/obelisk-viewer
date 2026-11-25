@@ -59,6 +59,8 @@ src/net      HttpClient interface (libcurl backend), request groups,
              UdpSocket (POSIX sockets / Winsock)                   -> viewer::net
 src/protocol Message structs generated from the message template,
              packet framing, CircuitManager (UDP circuits)         -> viewer::protocol
+src/voice    WebRTC voice: peer connections, jitter buffer, the
+             microphone's sound (Opus, SpeexDSP)                   -> viewer::voice
 src/session  Login, Session (one login: regions, circuits, caps,
              event queues)                                         -> viewer::session
 src/render   SDL GPU device, scene pass (HDR + depth), tonemap,
@@ -255,6 +257,7 @@ swapped later. The backend's .cpp defines the factory function:
 |---|---|---|
 | `viewer::image::J2kDecoder` | `createJ2kDecoder()` | `src/image/OpenJpegDecoder.cpp` (OpenJPEG) |
 | `viewer::net::HttpClient` | `createHttpClient()` | `src/net/CurlHttpClient.cpp` (libcurl) |
+| `viewer::voice::Peer` | `createPeer()` | `src/voice/RtcPeer.cpp` (libdatachannel) |
 
 ## HTTP
 
@@ -1136,6 +1139,39 @@ Differences from the official viewer:
 - No checks of the region's rating before teleporting: the region refuses,
   and the teleport fails with its reason.
 - Others' answers to our offers (accepted, declined) are only logged.
+
+### Voice
+
+Voice with those nearby is WebRTC (`viewer::voice`), checked against
+llvoicewebrtc.cpp and llwebrtc.cpp; regions with another voice server
+(SimulatorFeatures' `VoiceServerType`) have none. `VoiceClient` decides, ten
+times a second, which channels there should be: none where the region
+(RegionFlags) or parcel doesn't allow voice, a parcel's own, or the estate's
+with each WebRTC region within 100 m. Each is a `VoiceConnection`: our offer is
+posted to `ProvisionVoiceAccountRequest`, our ICE candidates (kept until the
+answer) to `VoiceSignalingRequest`, and the data channel ("SLData") carries
+JSON: joining (`j`, primary where we are), positions (`sp`, `sh`, `lp`, `lh`:
+hundredths), and who else is there, their power and speaking. The server mixes
+what we hear, in stereo for where we listen; only the primary connection gets
+the microphone, the others silence.
+
+libwebrtc isn't used: Linden Lab's prebuilt one for Windows is MSVC's, which
+MinGW can't link. libdatachannel does ICE, DTLS and SRTP (over OpenSSL, or Mbed
+TLS on Windows); the sound is ours:
+
+- heard: RTP into a `JitterBuffer` (network thread), decoded as it's played
+  (`audio::PcmSource`, the audio thread);
+- said: `VoiceInput`'s thread takes 20 ms from the microphone, takes out the
+  echo of all the viewer plays (`AudioEngine::tap`) and the noise, evens the
+  level (SpeexDSP), and encodes it. The microphone opens when first turned on
+  and closes on leaving voice; in between, muted, its sound goes nowhere.
+
+Shown: a mark over the name tags of those in voice (`VoiceIndicators`, drawn
+with the tag: a dot, bars while speaking, as LLVoiceVisualizer's levels and
+colors), and their names green while they speak; on the People tab; and, while
+our microphone's on, a panel at the bottom of the view (its own level too).
+
+Not yet: group, ad-hoc and private calls, and muting someone.
 
 ### HUDs
 

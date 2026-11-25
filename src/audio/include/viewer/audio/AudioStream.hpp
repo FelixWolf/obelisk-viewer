@@ -11,6 +11,8 @@
 // The bytes are the audio alone: a SHOUTcast/Icecast stream's metadata is
 // taken out before (the app does, it knows the headers).
 
+#include "viewer/audio/PcmSource.hpp"
+
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -25,7 +27,7 @@
 namespace viewer::audio
 {
 
-class AudioStream
+class AudioStream final : public PcmSource
 {
 public:
     enum class Format : uint8_t
@@ -42,7 +44,7 @@ public:
 
     // `contentType`: the response's, if any. Starts its thread.
     explicit AudioStream(std::string contentType = {});
-    ~AudioStream();
+    ~AudioStream() override;
     AudioStream(const AudioStream&) = delete;
     AudioStream& operator=(const AudioStream&) = delete;
 
@@ -65,7 +67,10 @@ public:
     Format format() const { return format_.load(std::memory_order_acquire); }
     // The output's, once decoding started (0 until then): what
     // playStream() can begin with.
-    uint32_t sampleRate() const { return ready_.load(std::memory_order_acquire) ? rate_ : 0; }
+    uint32_t sampleRate() const override
+    {
+        return ready_.load(std::memory_order_acquire) ? rate_ : 0;
+    }
     // The source's channels (output is always stereo).
     uint32_t channels() const { return channels_.load(std::memory_order_relaxed); }
     float bufferedSeconds() const;
@@ -74,7 +79,7 @@ public:
     // The audio thread's: `frames` stereo frames into `out`, silence where
     // there's nothing to play yet (buffering); how many it wrote, fewer
     // only at the end (0 once it ended).
-    uint64_t read(float* out, uint64_t frames);
+    uint64_t read(float* out, uint64_t frames) override;
 
     // How much it plays once it starts and after running dry, and how
     // much it holds.

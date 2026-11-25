@@ -21,6 +21,11 @@
             <div class="name" data-if="displayName == ''">{{ appName }}</div>
             <div class="where">{{ tabName }}</div>
         </div>
+        <!-- Voice: what it's doing; pressed, the microphone on or off. -->
+        <div id="voice" data-if="voice != ''">
+            <div class="well"><div class="key" data-class-on="microphone"
+                 data-event-click="toggleMicrophone">{{ voice }}</div></div>
+        </div>
         <div id="readouts">
             <div class="balance" data-if="balance != ''">{{ balance }}</div>
             <div class="spacer"></div>
@@ -322,6 +327,7 @@
                         <span class="dot"></span>
                         <span class="conversation-name">{{ r.name }}</span>
                         <span class="person-detail">{{ r.detail }}</span>
+                        <span data-if="r.voice != ''" data-attr-class="'voice-mark ' + r.voice"><span class="bar"></span><span class="bar tall"></span><span class="bar"></span></span>
                         <span class="friend-mark" data-if="peopleList == 'nearby' &amp;&amp; r.isFriend">Friend</span>
                     </div>
                 </div>
@@ -508,6 +514,10 @@
                                    data-event-blur="settingDone(si)" data-event-keydown="settingKey(si)"/>
                             <div class="setting-shown setting-field" data-if="settingsHeadset">{{ s.text == '' ? s.placeholder : s.text }}</div>
                             <div class="key type" data-if="settingsHeadset" data-event-click="settingKeyboard(si)">Type</div>
+                        </div>
+                        <div class="setting-list" data-if="s.kind == 'list'">
+                            <div class="toggle key" data-for="c, ci : s.choices" data-class-on="c.value == s.chosen"
+                                 data-event-click="settingChoose(si, ci)">{{ c.label }}</div>
                         </div>
                         <div class="setting-error" data-if="s.error != ''">{{ s.error }}</div>
                     </div>

@@ -11,6 +11,8 @@
 #include "AvatarNames.hpp"
 #include "People.hpp"
 
+#include "viewer/voice/VoiceClient.hpp"
+
 #include <RmlUi/Core/DataModelHandle.h>
 
 #include <functional>
@@ -32,10 +34,12 @@ public:
 
     // Names (null until known; asking queues them).
     using Names = std::function<const AvatarName*(const Uuid&)>;
+    // Their voice (nothing: not in it).
+    using Voice = std::function<std::optional<voice::VoiceClient::Status>(const Uuid&)>;
     // Once a frame while the tab shows: `here` is where we are on the grid
     // (nothing: not in the world).
     void update(const Friends& friends, const Nearby& nearby, const Names& names,
-                std::optional<glm::dvec3> here);
+                std::optional<glm::dvec3> here, const Voice& voice);
 
     // What the page asked for, once.
     struct Action
@@ -63,6 +67,7 @@ public:
         Rml::String detail; // username, distance
         bool online = false;
         bool isFriend = false;
+        Rml::String voice; // "in", "speaking", "muted"; empty: not in voice
         bool operator==(const Row&) const = default;
     };
     struct Card

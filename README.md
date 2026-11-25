@@ -12,10 +12,11 @@ This isn't a replacement for the official viewer or other third party viewers, i
 * Menus accessible through VR
 * Controller pie menus! (Probably needs redesign)
 * Audio (Objects and Parcel Media)
+* Voice (WebRTC, nearby): V or the pie menu turns your microphone on and off
 
 ## Coming soon:
 * Media on a Prim
-* Voice
+* Group and private voice calls
 
 ## FAQ:
 ### How closely do you track the official viewer?

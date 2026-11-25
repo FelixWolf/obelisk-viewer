@@ -17,6 +17,7 @@
 #include "LoginScreen.hpp"
 #include "MainMenu.hpp"
 #include "MaterialManager.hpp"
+#include "MicrophoneList.hpp"
 #include "MusicStream.hpp"
 #include "ObjectMedia.hpp"
 #include "ObjectProperties.hpp"
@@ -41,6 +42,7 @@
 #include "ViewerConfig.hpp"
 #include "ViewerEffects.hpp"
 #include "ViewerSettings.hpp"
+#include "VoiceIndicators.hpp"
 #include "VrControls.hpp"
 
 #include "viewer/assets/TextureCache.hpp"
@@ -51,6 +53,7 @@
 #include "viewer/render/Renderer.hpp"
 #include "viewer/session/Session.hpp"
 #include "viewer/ui/ImGuiLayer.hpp"
+#include "viewer/voice/VoiceClient.hpp"
 #include "viewer/world/HomeScene.hpp"
 #include "viewer/world/World.hpp"
 #include "viewer/world/WorldThread.hpp"
@@ -420,6 +423,21 @@ private:
     std::unique_ptr<SoundAssets> soundAssets_;
     std::unique_ptr<SoundManager> sounds_;
     void updateSounds(const render::Scene& scene);
+    // Voice (after sounds_, whose output it plays through).
+    std::unique_ptr<voice::VoiceClient> voice_;
+    std::unique_ptr<MicrophoneList> microphones_; // for the Settings tab
+    VoiceIndicators voiceIndicators_;
+    // The microphone's own, at the bottom of the view.
+    void addMicrophoneIndicator(render::Scene& scene);
+    uint64_t voiceTicks_ = 0;
+    bool pushToTalk_ = false;
+    bool voiceFromAvatar_ = false;
+    void updateVoice();
+    // V, on the desktop.
+    void voiceKeyEvent(const SDL_Event& event, bool consumed);
+    void setMicrophone(bool on);
+    // Voice's state for the main menu and the radial menu.
+    std::string voiceText() const;
     // Media: the parcel's music stream (and whether it starts by itself on
     // coming onto a parcel: off once stopped, on again once played, as the
     // official viewer's), and prims' media (MOAP: listed, not shown yet).

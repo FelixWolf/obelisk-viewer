@@ -127,6 +127,10 @@ public:
         const MusicStream* music = nullptr;
         bool musicAutoPlay = true;
         const ParcelInfo::MediaPlay* parcelMediaPlay = nullptr;
+        // Voice, in words (empty: not in the world), and the microphone.
+        std::string voice;
+        PeopleView::Voice voiceStatus;
+        bool microphone = false;
         struct PrimMedia
         {
             Uuid object;
@@ -179,6 +183,9 @@ public:
     {
         return std::exchange(mediaAction_, std::nullopt);
     }
+
+    // The header's voice key was pressed (the microphone, on or off), once.
+    bool takeMicrophone() { return std::exchange(microphonePressed_, false); }
 
     gui::Surface& surface() { return *surface_; }
     // The Chat tab: what it said, and whether it wants the VR keyboard.
@@ -319,6 +326,9 @@ private:
     std::string displayName_;   // the header's
     std::string picture_;       // its picture's source (empty: none)
     std::string balance_;       // "L$1,234" (empty: not known)
+    std::string voice_;         // the header's
+    bool microphone_ = false;
+    bool microphonePressed_ = false;
     double lastNumbers_ = -1.0; // when the numbers were last shown (seconds)
     // Destinations: the categories; one's places (category_ isn't empty);
     // one place alone (chosen_ isn't -1). The page picks them.

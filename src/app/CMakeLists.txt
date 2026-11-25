@@ -50,6 +50,8 @@ add_executable(viewer
   TerrainTextures.cpp
   TerrainOverrides.cpp
   ViewerEffects.cpp
+  MicrophoneList.cpp
+  VoiceIndicators.cpp
   OutfitAttachments.cpp
   Destinations.cpp
   LobbyBoards.cpp
@@ -118,6 +120,7 @@ target_link_libraries(viewer PRIVATE
   viewer::environment
   viewer::avatar
   viewer::audio
+  viewer::voice
   viewer::volume
   viewer::render
   viewer::ui

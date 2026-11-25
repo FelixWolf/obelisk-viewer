@@ -42,6 +42,16 @@ constexpr float kTagCorner = 6.0f;
 constexpr float kChatMaxWidth = 190.0f;
 constexpr float kChatIndent = 9.0f;
 constexpr float kHeaderPadding = 4.0f;
+// A voice indicator: its middle this far over the bubble, its dot's radius,
+// and the bars at each side: how wide, how far apart, and how tall the
+// first gets and each further one more.
+constexpr float kVoiceRaise = 13.0f;
+constexpr float kVoiceDot = 3.0f;
+constexpr float kVoiceBarWidth = 3.0f;
+constexpr float kVoiceBarStep = 5.0f;
+constexpr int kVoiceBars = 3;
+constexpr float kVoiceBarHeight = 9.0f;
+constexpr float kVoiceBarTaller = 5.0f;
 
 struct LabelVertex
 {
@@ -394,6 +404,39 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
             baseline = top + layout.ascent - layout.lineHeight;
         }
     };
+    auto voiceMark = [&](const VoiceMark& mark, glm::vec2 middle, float depth)
+    {
+        // Each piece on a dark one a pixel larger, to show on light too.
+        const auto piece = [&](glm::vec2 center, glm::vec2 extent, float radius, float alpha)
+        {
+            const glm::vec2 topLeft = glm::floor(center - extent * 0.5f);
+            const float a = mark.color.a * alpha;
+            complete = box(topLeft - 1.0f, extent + 2.0f, packColor({0.0f, 0.0f, 0.0f, a * 0.5f}),
+                           depth, true, radius + 1.0f) &&
+                       box(topLeft, extent, packColor(glm::vec4(glm::vec3(mark.color), a)), depth,
+                           true, radius) &&
+                       complete;
+        };
+        piece(middle, glm::vec2(2.0f * kVoiceDot + 1.0f), kVoiceDot, 1.0f);
+        for(int i = 0; i < kVoiceBars; i++)
+        {
+            const float n = static_cast<float>(i);
+            const float on =
+                std::clamp(mark.level * static_cast<float>(kVoiceBars) - n, 0.0f, 1.0f);
+            if(on <= 0.0f)
+            {
+                break;
+            }
+            const float tall = kVoiceBarHeight + kVoiceBarTaller * n;
+            const float half = std::round(kVoiceBarWidth + (tall - kVoiceBarWidth) * on) * 0.5f;
+            const float odd = 2.0f * std::floor(half) + 1.0f; // centered on a pixel
+            const float x = kVoiceDot + kVoiceBarStep * (n + 1.0f);
+            for(const float side : {-x, x})
+            {
+                piece(middle + glm::vec2(side, 0.0f), {kVoiceBarWidth, odd}, 1.0f, on);
+            }
+        }
+    };
     // A name tag: the bubble (and its header band), then lines from the top
     // down (LLHUDNameTag::renderText): a header's baseline a line below the
     // one before, other lines' a line and the gap below.
@@ -433,6 +476,10 @@ void Renderer::uploadLabels(SDL_GPUCommandBuffer* commands, const Scene& scene,
             complete = box(topLeft, {extent.x, std::round(headers + kHeaderPadding)},
                            packColor(label.headerBackground), p.depth, false) &&
                        complete;
+        }
+        if(label.voice)
+        {
+            voiceMark(*label.voice, {p.pixel.x + 0.5f, topLeft.y - kVoiceRaise + 0.5f}, p.depth);
         }
         float y = topLeft.y; // the latest baseline
         for(const Laid& l : laid)

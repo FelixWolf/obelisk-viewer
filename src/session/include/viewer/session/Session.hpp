@@ -171,6 +171,8 @@ struct Region
     std::optional<std::chrono::steady_clock::time_point> handshakeReplyDue{};
     std::string name{};
     Uuid regionId{};
+    uint32_t flags = 0;
+    static constexpr uint32_t kAllowVoice = 1u << 28; // REGION_FLAGS_ALLOW_VOICE
 
     // From SimStats (the official LL_SIM_STAT_*: 0, 1, 2), about every
     // second; nothing before the first.
@@ -460,6 +462,7 @@ public:
     };
     void setCamera(const CameraView& camera) { camera_ = camera; }
 
+    const std::string& loginUri() const { return parameters_.loginUri; }
     // Set once the login server accepted us.
     const LoginSuccess* login() const { return login_ ? &*login_ : nullptr; }
     // Set when state() is Failed.

@@ -173,6 +173,7 @@ std::vector<std::string> defaultCapabilityNames()
         // Folder (CurrentOutfit, after we change what's worn).
         "UpdateAvatarAppearance",
         "ViewerAsset",
+        "VoiceSignalingRequest",
     };
 }
 
@@ -1440,6 +1441,7 @@ void Session::handleRegionHandshake(Region& region, const protocol::CircuitEvent
     }
     region.name = protocol::toString(handshake->RegionInfo.SimName);
     region.regionId = handshake->RegionInfo2.RegionID;
+    region.flags = handshake->RegionInfo.RegionFlags;
     if(deferHandshakeReplies_)
     {
         region.handshakeReplyDue = Clock::now();

@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cfloat>
 #include <cmath>
+#include <iterator>
+#include <span>
 #include <utility>
 
 namespace viewer::audio
@@ -131,7 +133,7 @@ ma_data_source_vtable kWindSource = {windRead, windSeek, windFormat, nullptr, nu
 struct AudioEngine::StreamSource
 {
     ma_data_source_base base{}; // first: miniaudio sees this as the data source
-    std::shared_ptr<AudioStream> stream;
+    std::shared_ptr<PcmSource> stream;
     uint32_t sampleRate = 0;
 };
 
@@ -174,6 +176,29 @@ struct AudioEngine::Impl
     std::unique_ptr<Wind> wind;
     ma_sound windSound{};
     bool windReady = false;
+    std::atomic<bool> tapped{false};
+    FrameRing tap{kSampleRate / 2};
+
+    // The audio thread's: what was just mixed.
+    void mixed(const float* frames, ma_uint64 count, ma_uint32 channels)
+    {
+        float mono[256];
+        for(ma_uint64 at = 0; at < count;)
+        {
+            const auto n = static_cast<size_t>(std::min<ma_uint64>(count - at, std::size(mono)));
+            for(size_t i = 0; i < n; i++)
+            {
+                float sum = 0.0f;
+                for(ma_uint32 c = 0; c < channels; c++)
+                {
+                    sum += frames[(at + i) * channels + c];
+                }
+                mono[i] = sum / static_cast<float>(channels);
+            }
+            tap.write(std::span(mono, n));
+            at += n;
+        }
+    }
 };
 
 struct AudioEngine::VoiceData
@@ -209,6 +234,16 @@ std::unique_ptr<AudioEngine> AudioEngine::create()
     auto impl = std::make_unique<Impl>();
     ma_engine_config config = ma_engine_config_init();
     config.listenerCount = 1;
+    config.sampleRate = kSampleRate; // (converted to the device's)
+    config.pProcessUserData = impl.get();
+    config.onProcess = [](void* user, float* frames, ma_uint64 count)
+    {
+        auto* i = static_cast<Impl*>(user);
+        if(i->tapped.load(std::memory_order_relaxed))
+        {
+            i->mixed(frames, count, ma_engine_get_channels(&i->engine));
+        }
+    };
     if(ma_engine_init(&config, &impl->engine) != MA_SUCCESS)
     {
         log::warn("audio: no output device");
@@ -321,10 +356,10 @@ AudioEngine::Voice AudioEngine::play(std::shared_ptr<const SoundClip> clip,
     return id;
 }
 
-AudioEngine::Voice AudioEngine::playStream(std::shared_ptr<AudioStream> stream,
+AudioEngine::Voice AudioEngine::playStream(std::shared_ptr<PcmSource> stream,
                                            const PlayParams& params)
 {
-    if(!stream || stream->sampleRate() == 0 || voices_.size() >= kMaxVoices)
+    if(!stream || stream->sampleRate() == 0)
     {
         return 0;
     }
@@ -451,6 +486,16 @@ void AudioEngine::setListener(const glm::vec3& position, const glm::vec3& forwar
 void AudioEngine::setVolume(float volume)
 {
     ma_engine_set_volume(&impl_->engine, volume);
+}
+
+void AudioEngine::setTapped(bool tapped)
+{
+    impl_->tapped.store(tapped, std::memory_order_relaxed);
+}
+
+FrameRing& AudioEngine::tap()
+{
+    return impl_->tap;
 }
 
 void AudioEngine::update()

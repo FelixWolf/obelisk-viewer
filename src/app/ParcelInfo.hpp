@@ -40,6 +40,7 @@ inline constexpr uint32_t kRestrictPush = 1u << 21;
 inline constexpr uint32_t kAllowGroupScripts = 1u << 25;
 inline constexpr uint32_t kCreateGroupObjects = 1u << 26;
 inline constexpr uint32_t kAllowVoice = 1u << 29;
+inline constexpr uint32_t kUseEstateVoice = 1u << 30; // the region's channel, not its own
 } // namespace parcel_flags
 
 // The parcel's media (video, a web page: "parcel media"): played over
