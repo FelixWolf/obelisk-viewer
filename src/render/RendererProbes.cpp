@@ -447,7 +447,7 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
     // No clusters here (a cube face, not the view): every light and probe.
-    ScenePass scenePass(commands, pass, *pipelines_, vs, fs, storageOr(lightBuffer_),
+    ScenePass scenePass(commands, pass, pipelines_->scene[0], vs, fs, storageOr(lightBuffer_),
                         storageOr(probeBuffer_), emptyStorage_.get(), true);
     if(light.atmosphere.enabled)
     {

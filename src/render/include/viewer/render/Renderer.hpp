@@ -56,6 +56,7 @@ struct Cascades;
 struct FrameFS;
 struct FrameVS;
 class ScenePass;
+struct ScenePipelines;
 
 class Renderer
 {
@@ -71,6 +72,10 @@ public:
     bool extendedDevice() const { return extendedDevice_; }
     SDL_GPUTextureFormat swapchainFormat() const;
     const char* driverName() const;
+
+    // Multisampling: the samples a pixel the scene is drawn with (1, 2 or
+    // 4; fewer if the GPU doesn't do as many). Between frames only.
+    void setSamples(uint32_t samples);
 
     // Returns nullopt if no swapchain image is available (e.g. minimized).
     // The frame must always be finished with endFrame(), even then.
@@ -193,6 +198,10 @@ public:
 private:
     Renderer(SDL_Window* window, SDL_GPUDevice* device, bool extendedDevice);
     bool createPipelines();
+    bool createScenePipelines(ScenePipelines& set, uint32_t samples);
+    ScenePipelines& scenePipelines();
+    // The multisampled depth into depthTarget_, if multisampling.
+    void resolveDepth(SDL_GPUCommandBuffer* commands);
     bool createDefaultTextures();
     bool ensureTargets(uint32_t width, uint32_t height);
     // The scene in each view. What doesn't depend on the view is done once
@@ -346,7 +355,7 @@ private:
     void drawParticleGlow(SDL_GPURenderPass* pass);
     // The pipeline for a blend (world::ParticleSystem::Blend factors), made
     // when first needed.
-    SDL_GPUGraphicsPipeline* particlePipeline(uint8_t source, uint8_t dest);
+    SDL_GPUGraphicsPipeline* particlePipeline(ScenePipelines& set, uint8_t source, uint8_t dest);
     struct ParticleBatch
     {
         SDL_GPUTexture* texture = nullptr;
@@ -379,6 +388,11 @@ private:
     SDL_GPUTextureFormat depthFormat_ = SDL_GPU_TEXTUREFORMAT_INVALID;
     SDL_GPUTexture* hdrTarget_ = nullptr;
     SDL_GPUTexture* depthTarget_ = nullptr;
+    // Multisampling: what the scene is drawn into, then resolved into those.
+    uint32_t samples_ = 1;
+    SDL_GPUTexture* msaaColor_ = nullptr;
+    SDL_GPUTexture* msaaDepth_ = nullptr;
+    void releaseTargets();
     // Dynamic exposure (as the official viewer's): the scene's luminance,
     // mipmapped down to its average, and the exposure (1x1), last frame's
     // and this one's.

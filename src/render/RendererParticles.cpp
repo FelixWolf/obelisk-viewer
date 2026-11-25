@@ -97,11 +97,12 @@ SDL_GPUGraphicsPipelineCreateInfo particlePipelineInfo(SDL_GPUShader* vert, SDL_
 
 } // namespace
 
-SDL_GPUGraphicsPipeline* Renderer::particlePipeline(uint8_t source, uint8_t dest)
+SDL_GPUGraphicsPipeline* Renderer::particlePipeline(ScenePipelines& set, uint8_t source,
+                                                    uint8_t dest)
 {
     Pipelines& p = *pipelines_;
     const auto key = static_cast<uint16_t>(source << 8 | dest);
-    if(const auto it = p.particle.find(key); it != p.particle.end())
+    if(const auto it = set.particle.find(key); it != set.particle.end())
     {
         return it->second;
     }
@@ -117,15 +118,16 @@ SDL_GPUGraphicsPipeline* Renderer::particlePipeline(uint8_t source, uint8_t dest
         color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
         color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
         color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
-        const SDL_GPUGraphicsPipelineCreateInfo info =
+        SDL_GPUGraphicsPipelineCreateInfo info =
             particlePipelineInfo(p.particleVert, p.particleFrag, &color, depthFormat_);
+        info.multisample_state.sample_count = sampleCount(set.samples);
         pipeline = SDL_CreateGPUGraphicsPipeline(device_, &info);
         if(!pipeline)
         {
             log::error("creating a particle pipeline failed: {}", SDL_GetError());
         }
     }
-    p.particle[key] = pipeline; // a failure isn't tried again
+    set.particle[key] = pipeline; // a failure isn't tried again
     return pipeline;
 }
 
@@ -283,7 +285,8 @@ void Renderer::drawParticles(ScenePass& pass)
     SDL_GPUGraphicsPipeline* bound = nullptr;
     for(const ParticleBatch& b : particleBatches_)
     {
-        SDL_GPUGraphicsPipeline* pipeline = particlePipeline(b.blendSource, b.blendDest);
+        SDL_GPUGraphicsPipeline* pipeline =
+            particlePipeline(pass.pipelines(), b.blendSource, b.blendDest);
         if(!pipeline)
         {
             continue;

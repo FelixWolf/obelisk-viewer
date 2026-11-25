@@ -40,6 +40,9 @@ set(shader_sources
   water_mask.frag
   water_mask_object.vert
   eye_copy.frag
+  blinnphong_coverage.frag
+  pbr_coverage.frag
+  depth_resolve.frag
 )
 set(shader_header ${CMAKE_CURRENT_BINARY_DIR}/generated/viewer/render/ShaderBytecode.hpp)
 viewer_embed_shaders(${shader_header}
@@ -47,7 +50,7 @@ viewer_embed_shaders(${shader_header}
   DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shaders
   SOURCES ${shader_sources}
   INCLUDES common.glsl atmosphere.glsl shadow.glsl lights.glsl probes.glsl cubemap.glsl
-           tonemap.glsl clusters.glsl
+           tonemap.glsl clusters.glsl coverage.glsl pbr_surface.glsl blinnphong_surface.glsl
 )
 
 add_library(viewer_render STATIC

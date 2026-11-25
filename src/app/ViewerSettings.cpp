@@ -25,6 +25,14 @@ std::vector<SettingDefinition> viewerSettings()
                                       "to test the PBR terrain shader. Regions with PBR "
                                       "terrain draw as PBR without it.",
                        .hidden = true}),
+        defineSetting(kAntialiasing, std::string("off"),
+                      {.page = "Graphics",
+                       .section = "Quality",
+                       .label = "Antialiasing",
+                       .description = "Smooth edges by drawing them with more samples a pixel "
+                                      "(MSAA). Costs GPU time and memory, most at a "
+                                      "headset's resolution.",
+                       .choices = {{"off", "Off"}, {"2x", "2x"}, {"4x", "4x"}}}),
         defineSetting(kOcclusion, true,
                       {.page = "Graphics",
                        .section = "Performance",

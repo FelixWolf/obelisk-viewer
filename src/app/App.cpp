@@ -51,6 +51,12 @@ glm::vec3 markerForward(const glm::quat& rotation)
     return glm::length(forward) > 1e-4f ? glm::normalize(forward) : glm::vec3(0.0f, 1.0f, 0.0f);
 }
 
+// The antialiasing setting's samples a pixel.
+uint32_t samplesOf(const std::string& antialiasing)
+{
+    return antialiasing == "4x" ? 4 : antialiasing == "2x" ? 2 : 1;
+}
+
 fs::path defaultCacheDirectory()
 {
 #if defined(_WIN32)
@@ -576,6 +582,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->environment_ = std::make_unique<EnvironmentManager>(*app->http_);
     // The rest of the settings that apply at once, as they change.
     app->applySettings({std::string(kDayTime.name), std::string(kSkyAsset.name)});
+    app->renderer_->setSamples(samplesOf(config.get(kAntialiasing)));
     app->shadows_ = config.get(kShadows);
     app->bandwidth_ = static_cast<float>(config.get(kBandwidth));
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
@@ -779,6 +786,10 @@ void App::applySettings(const std::vector<std::string>& names)
         else if(name == kPbrTerrain.name)
         {
             pbrTerrain_ = s.get(kPbrTerrain);
+        }
+        else if(name == kAntialiasing.name)
+        {
+            renderer_->setSamples(samplesOf(s.get(kAntialiasing)));
         }
         else if(name == kTextureMemory.name)
         {

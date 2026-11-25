@@ -19,7 +19,7 @@ sound yet.
 
 ## Rendering
 
-- Anti-aliasing (FXAA or SMAA)
+- Cheaper anti-aliasing than MSAA (FXAA or SMAA)
 
 ## Avatars and animation
 

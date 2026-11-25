@@ -34,6 +34,13 @@ inline constexpr SDL_GPUTextureFormat kOcclusionFormat = SDL_GPU_TEXTUREFORMAT_R
 // after tonemapping), premultiplied by coverage.
 inline constexpr SDL_GPUTextureFormat kHudFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 
+inline SDL_GPUSampleCount sampleCount(uint32_t samples)
+{
+    return samples >= 4   ? SDL_GPU_SAMPLECOUNT_4
+           : samples >= 2 ? SDL_GPU_SAMPLECOUNT_2
+                          : SDL_GPU_SAMPLECOUNT_1;
+}
+
 struct FrameVS
 {
     glm::mat4 viewProjection;
@@ -154,7 +161,7 @@ class ScenePass
 public:
     // `clusters`: the view's cluster lists (Clusters.hpp), or any buffer if
     // the pass has none (FrameFS::clusterDepth.w 0).
-    ScenePass(SDL_GPUCommandBuffer* commands, SDL_GPURenderPass* pass, const Renderer::Pipelines& p,
+    ScenePass(SDL_GPUCommandBuffer* commands, SDL_GPURenderPass* pass, ScenePipelines& p,
               const FrameVS& frameVs, const FrameFS& frameFs, SDL_GPUBuffer* lights,
               SDL_GPUBuffer* probes, SDL_GPUBuffer* clusters, bool allAround = false)
         : commands_(commands), pass_(pass), p_(p), frameVs_(frameVs), frameFs_(frameFs),
@@ -176,7 +183,7 @@ public:
 
     SDL_GPUCommandBuffer* commands() const { return commands_; }
     SDL_GPURenderPass* pass() const { return pass_; }
-    const Renderer::Pipelines& pipelines() const { return p_; }
+    ScenePipelines& pipelines() const { return p_; }
     const FrameFS& frameFs() const { return frameFs_; }
     SDL_GPUGraphicsPipeline* boundPipeline() const { return boundPipeline_; }
 
@@ -254,7 +261,7 @@ public:
 private:
     SDL_GPUCommandBuffer* commands_;
     SDL_GPURenderPass* pass_;
-    const Renderer::Pipelines& p_;
+    ScenePipelines& p_;
     const FrameVS& frameVs_;
     const FrameFS& frameFs_;
     SDL_GPUBuffer* lights_;

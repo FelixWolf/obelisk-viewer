@@ -6,14 +6,17 @@
 #include "viewer/render/Renderer.hpp"
 #include "viewer/render/ShadowCascades.hpp"
 
+#include <string_view>
 #include <unordered_map>
 
 namespace viewer::render
 {
 
-struct Renderer::Pipelines
+// What draws in the scene pass, by its samples a pixel (they're part of a
+// pipeline). Reflection probes' faces always have one.
+struct ScenePipelines
 {
-    SDL_GPUDevice* device = nullptr;
+    uint32_t samples = 1;
     SDL_GPUGraphicsPipeline* blinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* blinnPhongBlend = nullptr;
     SDL_GPUGraphicsPipeline* pbr = nullptr;
@@ -24,22 +27,78 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* pbrVariants[2][2][2] = {};
     SDL_GPUGraphicsPipeline* terrainBlinnPhong = nullptr;
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
+    SDL_GPUGraphicsPipeline* sky = nullptr;
+    SDL_GPUGraphicsPipeline* hudPanel = nullptr; // the HUD image on a panel
+    SDL_GPUGraphicsPipeline* water = nullptr;
+    // Particles: one per blend, made when first needed.
+    std::unordered_map<uint16_t, SDL_GPUGraphicsPipeline*> particle;
+
+    bool complete() const
+    {
+        return blinnPhong && blinnPhongBlend && pbr && blinnPhongSkinned &&
+               blinnPhongSkinnedBlend && pbrSkinned && terrainBlinnPhong && terrainPbr && sky &&
+               hudPanel && water;
+    }
+
+    void release(SDL_GPUDevice* device)
+    {
+        for(SDL_GPUGraphicsPipeline* p :
+            {blinnPhong, blinnPhongBlend, pbr, blinnPhongSkinned, blinnPhongSkinnedBlend,
+             pbrSkinned, terrainBlinnPhong, terrainPbr, sky, hudPanel, water})
+        {
+            if(p)
+            {
+                SDL_ReleaseGPUGraphicsPipeline(device, p);
+            }
+        }
+        for(auto& byBlend : pbrVariants)
+        {
+            for(auto& bySides : byBlend)
+            {
+                for(SDL_GPUGraphicsPipeline* v : bySides)
+                {
+                    if(v && v != pbr && v != pbrSkinned)
+                    {
+                        SDL_ReleaseGPUGraphicsPipeline(device, v);
+                    }
+                }
+            }
+        }
+        for(const auto& [key, pipeline] : particle)
+        {
+            if(pipeline)
+            {
+                SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+            }
+        }
+        *this = ScenePipelines{};
+    }
+};
+
+// One, two and four samples.
+inline constexpr size_t kSampleCounts = 3;
+
+struct Renderer::Pipelines
+{
+    SDL_GPUDevice* device = nullptr;
+    ScenePipelines scene[kSampleCounts];
+    // What they're made from (kept).
+    std::unordered_map<std::string_view, SDL_GPUShader*> sceneShaders;
+    SDL_GPUGraphicsPipeline* depthResolve = nullptr; // multisampled depth to one sample
     SDL_GPUGraphicsPipeline* tonemap = nullptr;
     // Dynamic exposure: the scene's luminance, then the exposure from it.
     SDL_GPUGraphicsPipeline* luminance = nullptr;
     SDL_GPUGraphicsPipeline* exposure = nullptr;
-    SDL_GPUGraphicsPipeline* sky = nullptr;
     // Reflection probes: filtering a capture into radiance and irradiance,
     // and making the split-sum table.
     SDL_GPUGraphicsPipeline* probeRadiance = nullptr;
     SDL_GPUGraphicsPipeline* probeIrradiance = nullptr;
     SDL_GPUGraphicsPipeline* brdfTable = nullptr;
     // HUD attachments into the HUD image (legacy and PBR, opaque and
-    // blended), the HUD image over the view, and on a panel in the scene.
+    // blended), the HUD image over the view.
     SDL_GPUGraphicsPipeline* hudLegacy[2] = {};
     SDL_GPUGraphicsPipeline* hudPbr[2] = {};
     SDL_GPUGraphicsPipeline* hudComposite = nullptr;
-    SDL_GPUGraphicsPipeline* hudPanel = nullptr;
     // pick.frag: what a ray hits; [0] front faces only, as drawn (and as
     // the official pick), [1] both sides (double-sided PBR materials).
     SDL_GPUGraphicsPipeline* pick[2] = {};
@@ -63,14 +122,12 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* shadowSkinned = nullptr;
     SDL_GPUGraphicsPipeline* shadowSkinnedMasked = nullptr;
     SDL_GPUGraphicsPipeline* shadowTerrain = nullptr;
-    // Particles: one pipeline per blend (made when first needed, from these
-    // shaders, kept), and their glow into the glow mask.
+    // Particles (their pipelines: ScenePipelines), and their glow into the
+    // glow mask.
     SDL_GPUShader* particleVert = nullptr;
     SDL_GPUShader* particleFrag = nullptr;
     SDL_GPUShader* particleGlowFrag = nullptr;
-    std::unordered_map<uint16_t, SDL_GPUGraphicsPipeline*> particle;
     SDL_GPUGraphicsPipeline* particleGlow = nullptr;
-    SDL_GPUGraphicsPipeline* water = nullptr;
     // The water mask: the water's squares, and exclusion surfaces.
     SDL_GPUGraphicsPipeline* waterMask = nullptr;
     SDL_GPUGraphicsPipeline* waterMaskObject = nullptr;
@@ -85,57 +142,38 @@ struct Renderer::Pipelines
 
     ~Pipelines()
     {
-        for(SDL_GPUGraphicsPipeline* p : {blinnPhong,
-                                          blinnPhongBlend,
-                                          pbr,
-                                          blinnPhongSkinned,
-                                          blinnPhongSkinnedBlend,
-                                          pbrSkinned,
-                                          terrainBlinnPhong,
-                                          terrainPbr,
-                                          tonemap,
-                                          luminance,
-                                          exposure,
-                                          sky,
-                                          probeRadiance,
-                                          probeIrradiance,
-                                          brdfTable,
-                                          hudLegacy[0],
-                                          hudLegacy[1],
-                                          hudPbr[0],
-                                          hudPbr[1],
-                                          hudComposite,
-                                          hudPanel,
-                                          pick[0],
-                                          pick[1],
-                                          outlineMask,
-                                          outline,
-                                          label,
-                                          occlusionReduce,
-                                          glowMask,
-                                          glowMaskSkinned,
-                                          glowExtract,
-                                          glowBlur,
-                                          hudLabel,
-                                          panelImage,
-                                          shadowObject,
-                                          shadowObjectMasked,
-                                          shadowSkinned,
-                                          shadowSkinnedMasked,
-                                          shadowTerrain,
-                                          particleGlow,
-                                          water,
-                                          waterMask,
-                                          waterMaskObject})
+        for(SDL_GPUGraphicsPipeline* p : {depthResolve,  tonemap,
+                                          luminance,     exposure,
+                                          probeRadiance, probeIrradiance,
+                                          brdfTable,     hudLegacy[0],
+                                          hudLegacy[1],  hudPbr[0],
+                                          hudPbr[1],     hudComposite,
+                                          pick[0],       pick[1],
+                                          outlineMask,   outline,
+                                          label,         occlusionReduce,
+                                          glowMask,      glowMaskSkinned,
+                                          glowExtract,   glowBlur,
+                                          hudLabel,      panelImage,
+                                          shadowObject,  shadowObjectMasked,
+                                          shadowSkinned, shadowSkinnedMasked,
+                                          shadowTerrain, particleGlow,
+                                          waterMask,     waterMaskObject})
         {
             if(p)
             {
                 SDL_ReleaseGPUGraphicsPipeline(device, p);
             }
         }
-        for(const auto& [key, pipeline] : particle)
+        for(ScenePipelines& pipelines : scene)
         {
-            SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+            pipelines.release(device);
+        }
+        for(const auto& [name, shader] : sceneShaders)
+        {
+            if(shader)
+            {
+                SDL_ReleaseGPUShader(device, shader);
+            }
         }
         for(const auto& [format, pipeline] : eyeCopy)
         {
@@ -147,19 +185,6 @@ struct Renderer::Pipelines
             if(s)
             {
                 SDL_ReleaseGPUShader(device, s);
-            }
-        }
-        for(auto& byBlend : pbrVariants)
-        {
-            for(auto& bySides : byBlend)
-            {
-                for(SDL_GPUGraphicsPipeline* v : bySides)
-                {
-                    if(v && v != pbr && v != pbrSkinned)
-                    {
-                        SDL_ReleaseGPUGraphicsPipeline(device, v);
-                    }
-                }
             }
         }
         for(SDL_GPUSampler* s : {repeatSampler, clampSampler, shadowSampler})

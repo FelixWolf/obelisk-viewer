@@ -189,7 +189,7 @@ void Renderer::compositeHud(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targ
 
 void Renderer::drawHudPanel(ScenePass& pass, const Hud& hud, const glm::mat4& viewProjection)
 {
-    SDL_BindGPUGraphicsPipeline(pass.pass(), pipelines_->hudPanel);
+    SDL_BindGPUGraphicsPipeline(pass.pass(), pass.pipelines().hudPanel);
     pass.forgetPipeline();
     const SDL_GPUTextureSamplerBinding image[] = {{hudImage_, pipelines_->clampSampler}};
     pass.bindSamplers(image);

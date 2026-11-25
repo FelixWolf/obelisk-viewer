@@ -77,6 +77,120 @@ struct ExposureFS
     glm::vec4 params2; // seconds since last frame, 1 if last frame's is valid, speed target
 };
 
+// Vertex layouts.
+// Object layouts have a second, per-instance buffer: the draw indices
+// 0, 1, 2, ..., so a draw drawn as instance N reads draw data N.
+const SDL_GPUVertexBufferDescription objectBuffers[] = {
+    {0, sizeof(ObjectVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
+    {1, sizeof(uint32_t), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
+};
+const SDL_GPUVertexAttribute objectAttributes[] = {
+    {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(ObjectVertex, position)},
+    {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(ObjectVertex, normal)},
+    {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(ObjectVertex, tangent)},
+    {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(ObjectVertex, uv)},
+    {4, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, 0},
+};
+const SDL_GPUVertexBufferDescription skinnedBuffers[] = {
+    {0, sizeof(SkinnedVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
+    {1, sizeof(uint32_t), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
+};
+const SDL_GPUVertexAttribute skinnedAttributes[] = {
+    {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, position)},
+    {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, normal)},
+    {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(SkinnedVertex, tangent)},
+    {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(SkinnedVertex, uv)},
+    {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4, offsetof(SkinnedVertex, joints)},
+    {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(SkinnedVertex, weights)},
+    {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, 0},
+};
+const SDL_GPUVertexBufferDescription terrainBuffer = {0, sizeof(TerrainVertex),
+                                                      SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+const SDL_GPUVertexAttribute terrainAttributes[] = {
+    {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(TerrainVertex, position)},
+    {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(TerrainVertex, normal)},
+    {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(TerrainVertex, blend)},
+};
+
+constexpr auto kObject = VertexLayout::Object;
+constexpr auto kSkinned = VertexLayout::Skinned;
+constexpr auto kTerrain = VertexLayout::Terrain;
+
+// An object's or terrain's pipeline; `coverage`: alpha to coverage.
+SDL_GPUGraphicsPipeline* surfacePipeline(SDL_GPUDevice* device, SDL_GPUTextureFormat depthFormat,
+                                         SDL_GPUShader* vert, SDL_GPUShader* frag,
+                                         VertexLayout layout, const char* name, bool blend,
+                                         bool bothSides, SDL_GPUTextureFormat format,
+                                         uint32_t samples = 1, bool coverage = false)
+{
+    if(!vert || !frag)
+    {
+        return nullptr;
+    }
+    SDL_GPUColorTargetDescription color = {};
+    color.format = format;
+    if(blend)
+    {
+        color.blend_state.enable_blend = true;
+        color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+        color.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        color.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+        color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+    }
+
+    SDL_GPUGraphicsPipelineCreateInfo info = {};
+    info.vertex_shader = vert;
+    info.fragment_shader = frag;
+    info.vertex_input_state.num_vertex_buffers = layout == VertexLayout::Terrain ? 1 : 2;
+    switch(layout)
+    {
+    case VertexLayout::Object:
+        info.vertex_input_state.vertex_buffer_descriptions = objectBuffers;
+        info.vertex_input_state.vertex_attributes = objectAttributes;
+        info.vertex_input_state.num_vertex_attributes =
+            static_cast<Uint32>(std::size(objectAttributes));
+        break;
+    case VertexLayout::Skinned:
+        info.vertex_input_state.vertex_buffer_descriptions = skinnedBuffers;
+        info.vertex_input_state.vertex_attributes = skinnedAttributes;
+        info.vertex_input_state.num_vertex_attributes =
+            static_cast<Uint32>(std::size(skinnedAttributes));
+        break;
+    case VertexLayout::Terrain:
+        info.vertex_input_state.vertex_buffer_descriptions = &terrainBuffer;
+        info.vertex_input_state.vertex_attributes = terrainAttributes;
+        info.vertex_input_state.num_vertex_attributes =
+            static_cast<Uint32>(std::size(terrainAttributes));
+        break;
+    }
+    info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    info.rasterizer_state.cull_mode = bothSides ? SDL_GPU_CULLMODE_NONE : SDL_GPU_CULLMODE_BACK;
+    info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+    info.depth_stencil_state.enable_depth_test = true;
+    // Blended rigged mesh writes depth, as the official viewer's: it's
+    // drawn in attachment order, and later layers must stay behind
+    // earlier ones on the same body.
+    info.depth_stencil_state.enable_depth_write = !blend || layout == VertexLayout::Skinned;
+    // Less or equal, as the official viewer: layers made of the same
+    // geometry (a plate over a body) show the later one, not a mix.
+    info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+    info.target_info.color_target_descriptions = &color;
+    info.target_info.num_color_targets = 1;
+    info.target_info.has_depth_stencil_target = true;
+    info.target_info.depth_stencil_format = depthFormat;
+    info.multisample_state.sample_count = sampleCount(samples);
+    info.multisample_state.enable_alpha_to_coverage = coverage && samples > 1;
+    SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+    if(!pipeline)
+    {
+        log::error("creating the {} pipeline failed: {}", name, SDL_GetError());
+    }
+    return pipeline;
+}
+
 } // namespace
 
 bool Renderer::createPipelines()
@@ -145,37 +259,6 @@ bool Renderer::createPipelines()
         createShader(device_, {kWaterVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "water.vert");
     SDL_GPUShader* waterFrag =
         createShader(device_, {kWaterFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 8, 2, 2}, "water.frag");
-    if(waterVert && waterFrag)
-    {
-        // Squares of positions; opaque (it shows what's behind itself),
-        // seen from both sides, writing depth.
-        const SDL_GPUVertexBufferDescription buffer = {0, sizeof(glm::vec3),
-                                                       SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
-        const SDL_GPUVertexAttribute attribute = {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0};
-        SDL_GPUColorTargetDescription color = {};
-        color.format = kHdrFormat;
-        SDL_GPUGraphicsPipelineCreateInfo info = {};
-        info.vertex_shader = waterVert;
-        info.fragment_shader = waterFrag;
-        info.vertex_input_state.num_vertex_buffers = 1;
-        info.vertex_input_state.vertex_buffer_descriptions = &buffer;
-        info.vertex_input_state.vertex_attributes = &attribute;
-        info.vertex_input_state.num_vertex_attributes = 1;
-        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
-        info.depth_stencil_state.enable_depth_test = true;
-        info.depth_stencil_state.enable_depth_write = true;
-        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
-        info.target_info.color_target_descriptions = &color;
-        info.target_info.num_color_targets = 1;
-        info.target_info.has_depth_stencil_target = true;
-        info.target_info.depth_stencil_format = depthFormat_;
-        p.water = SDL_CreateGPUGraphicsPipeline(device_, &info);
-        if(!p.water)
-        {
-            log::error("creating the water pipeline failed: {}", SDL_GetError());
-        }
-    }
     // The water mask: one channel, its own depth (the water's squares
     // against the exclusion surfaces only), both sides.
     SDL_GPUShader* waterMaskFrag = createShader(
@@ -217,7 +300,7 @@ bool Renderer::createPipelines()
             log::error("creating the water mask pipelines failed: {}", SDL_GetError());
         }
     }
-    for(SDL_GPUShader* shader : {waterVert, waterFrag, waterMaskFrag, waterMaskObjectVert})
+    for(SDL_GPUShader* shader : {waterMaskFrag, waterMaskObjectVert})
     {
         if(shader)
         {
@@ -251,154 +334,19 @@ bool Renderer::createPipelines()
                                  "fullscreen.vert");
     p.eyeCopyFrag =
         createShader(device_, {kEyeCopyFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "eye_copy.frag");
+    SDL_GPUShader* depthResolveFrag = createShader(
+        device_, {kDepthResolveFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "depth_resolve.frag");
     SDL_GPUShader* brdfTableFrag = createShader(
         device_, {kBrdfTableFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0}, "brdf_table.frag");
 
-    // Vertex layouts.
-    // Object layouts have a second, per-instance buffer: the draw indices
-    // 0, 1, 2, ..., so a draw drawn as instance N reads draw data N.
-    const SDL_GPUVertexBufferDescription objectBuffers[] = {
-        {0, sizeof(ObjectVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
-        {1, sizeof(uint32_t), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
-    };
-    const SDL_GPUVertexAttribute objectAttributes[] = {
-        {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(ObjectVertex, position)},
-        {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(ObjectVertex, normal)},
-        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(ObjectVertex, tangent)},
-        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(ObjectVertex, uv)},
-        {4, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, 0},
-    };
-    const SDL_GPUVertexBufferDescription skinnedBuffers[] = {
-        {0, sizeof(SkinnedVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
-        {1, sizeof(uint32_t), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
-    };
-    const SDL_GPUVertexAttribute skinnedAttributes[] = {
-        {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, position)},
-        {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(SkinnedVertex, normal)},
-        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(SkinnedVertex, tangent)},
-        {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(SkinnedVertex, uv)},
-        {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4, offsetof(SkinnedVertex, joints)},
-        {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(SkinnedVertex, weights)},
-        {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, 0},
-    };
-    const SDL_GPUVertexBufferDescription terrainBuffer = {0, sizeof(TerrainVertex),
-                                                          SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
-    const SDL_GPUVertexAttribute terrainAttributes[] = {
-        {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(TerrainVertex, position)},
-        {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(TerrainVertex, normal)},
-        {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(TerrainVertex, blend)},
-    };
-
-    auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, VertexLayout layout,
-                             const char* name, bool blend = false, bool bothSides = false,
-                             SDL_GPUTextureFormat format = kHdrFormat) -> SDL_GPUGraphicsPipeline*
-    {
-        if(!vert || !frag)
-        {
-            return nullptr;
-        }
-        SDL_GPUColorTargetDescription color = {};
-        color.format = format;
-        if(blend)
-        {
-            color.blend_state.enable_blend = true;
-            color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
-            color.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
-            color.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
-            color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
-            color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
-            color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
-        }
-
-        SDL_GPUGraphicsPipelineCreateInfo info = {};
-        info.vertex_shader = vert;
-        info.fragment_shader = frag;
-        info.vertex_input_state.num_vertex_buffers = layout == VertexLayout::Terrain ? 1 : 2;
-        switch(layout)
-        {
-        case VertexLayout::Object:
-            info.vertex_input_state.vertex_buffer_descriptions = objectBuffers;
-            info.vertex_input_state.vertex_attributes = objectAttributes;
-            info.vertex_input_state.num_vertex_attributes =
-                static_cast<Uint32>(std::size(objectAttributes));
-            break;
-        case VertexLayout::Skinned:
-            info.vertex_input_state.vertex_buffer_descriptions = skinnedBuffers;
-            info.vertex_input_state.vertex_attributes = skinnedAttributes;
-            info.vertex_input_state.num_vertex_attributes =
-                static_cast<Uint32>(std::size(skinnedAttributes));
-            break;
-        case VertexLayout::Terrain:
-            info.vertex_input_state.vertex_buffer_descriptions = &terrainBuffer;
-            info.vertex_input_state.vertex_attributes = terrainAttributes;
-            info.vertex_input_state.num_vertex_attributes =
-                static_cast<Uint32>(std::size(terrainAttributes));
-            break;
-        }
-        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-        info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
-        info.rasterizer_state.cull_mode = bothSides ? SDL_GPU_CULLMODE_NONE : SDL_GPU_CULLMODE_BACK;
-        info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
-        info.depth_stencil_state.enable_depth_test = true;
-        // Blended rigged mesh writes depth, as the official viewer's: it's
-        // drawn in attachment order, and later layers must stay behind
-        // earlier ones on the same body.
-        info.depth_stencil_state.enable_depth_write = !blend || layout == VertexLayout::Skinned;
-        // Less or equal, as the official viewer: layers made of the same
-        // geometry (a plate over a body) show the later one, not a mix.
-        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
-        info.target_info.color_target_descriptions = &color;
-        info.target_info.num_color_targets = 1;
-        info.target_info.has_depth_stencil_target = true;
-        info.target_info.depth_stencil_format = depthFormat_;
-        SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(device_, &info);
-        if(!pipeline)
-        {
-            log::error("creating the {} pipeline failed: {}", name, SDL_GetError());
-        }
-        return pipeline;
-    };
-
-    constexpr auto kObject = VertexLayout::Object;
-    constexpr auto kSkinned = VertexLayout::Skinned;
-    constexpr auto kTerrain = VertexLayout::Terrain;
-    p.blinnPhong = scenePipeline(objectVert, blinnPhongFrag, kObject, "Blinn-Phong");
-    p.blinnPhongBlend =
-        scenePipeline(objectVert, blinnPhongFrag, kObject, "Blinn-Phong (blended)", true);
-    p.pbr = scenePipeline(objectVert, pbrFrag, kObject, "PBR");
-    p.blinnPhongSkinned =
-        scenePipeline(skinnedVert, blinnPhongFrag, kSkinned, "Blinn-Phong (skinned)");
-    p.blinnPhongSkinnedBlend = scenePipeline(skinnedVert, blinnPhongFrag, kSkinned,
-                                             "Blinn-Phong (skinned, blended)", true);
-    p.pbrSkinned = scenePipeline(skinnedVert, pbrFrag, kSkinned, "PBR (skinned)");
-    for(int blend = 0; blend < 2; blend++)
-    {
-        for(int sides = 0; sides < 2; sides++)
-        {
-            for(int skinned = 0; skinned < 2; skinned++)
-            {
-                SDL_GPUGraphicsPipeline*& v = p.pbrVariants[blend][sides][skinned];
-                if(!blend && !sides)
-                {
-                    v = skinned ? p.pbrSkinned : p.pbr;
-                    continue;
-                }
-                v = scenePipeline(skinned ? skinnedVert : objectVert, pbrFrag,
-                                  skinned ? kSkinned : kObject, "PBR (variant)", blend != 0,
-                                  sides != 0);
-            }
-        }
-    }
-    p.terrainBlinnPhong =
-        scenePipeline(terrainVert, terrainBlinnPhongFrag, kTerrain, "terrain Blinn-Phong");
-    p.terrainPbr = scenePipeline(terrainVert, terrainPbrFrag, kTerrain, "terrain PBR");
     // HUD attachments: opaque [0] and blended [1], into the HUD image.
     for(int blend = 0; blend < 2; blend++)
     {
-        p.hudLegacy[blend] = scenePipeline(objectVert, hudLegacyFrag, kObject, "HUD (legacy)",
-                                           blend != 0, false, kHudFormat);
-        p.hudPbr[blend] = scenePipeline(objectVert, hudPbrFrag, kObject, "HUD (PBR)", blend != 0,
-                                        false, kHudFormat);
+        p.hudLegacy[blend] =
+            surfacePipeline(device_, depthFormat_, objectVert, hudLegacyFrag, kObject,
+                            "HUD (legacy)", blend != 0, false, kHudFormat);
+        p.hudPbr[blend] = surfacePipeline(device_, depthFormat_, objectVert, hudPbrFrag, kObject,
+                                          "HUD (PBR)", blend != 0, false, kHudFormat);
     }
 
     if(fullscreenVert && tonemapFrag)
@@ -495,24 +443,6 @@ bool Renderer::createPipelines()
         info.target_info.color_target_descriptions = &color;
         info.target_info.num_color_targets = 1;
         p.hudComposite = SDL_CreateGPUGraphicsPipeline(device_, &info);
-    }
-    if(hudPanelVert && hudPanelFrag)
-    {
-        SDL_GPUColorTargetDescription color = premultiplied;
-        color.format = kHdrFormat;
-        SDL_GPUGraphicsPipelineCreateInfo info = {};
-        info.vertex_shader = hudPanelVert;
-        info.fragment_shader = hudPanelFrag;
-        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
-        info.depth_stencil_state.enable_depth_test = true;
-        info.depth_stencil_state.enable_depth_write = false;
-        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
-        info.target_info.color_target_descriptions = &color;
-        info.target_info.num_color_targets = 1;
-        info.target_info.has_depth_stencil_target = true;
-        info.target_info.depth_stencil_format = depthFormat_;
-        p.hudPanel = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
     // Picking: four targets (pick id, then position, normal and binormal
     // with the texture coordinates in their w); faces' back sides culled as
@@ -718,8 +648,8 @@ bool Renderer::createPipelines()
         info.target_info.num_color_targets = 1;
         p.outline = SDL_CreateGPUGraphicsPipeline(device_, &info);
     }
-    if(!p.hudComposite || !p.hudPanel || !p.pick[0] || !p.pick[1] || !p.outlineMask || !p.outline ||
-       !p.label || !p.hudLabel || !p.panelImage)
+    if(!p.hudComposite || !p.pick[0] || !p.pick[1] || !p.outlineMask || !p.outline || !p.label ||
+       !p.hudLabel || !p.panelImage)
     {
         log::error("creating the HUD pipelines failed: {}", SDL_GetError());
     }
@@ -789,48 +719,60 @@ bool Renderer::createPipelines()
         shadowPipeline(skinnedVert, shadowMaskedFrag, kSkinned, "shadow (skinned, masked)");
     p.shadowTerrain = shadowPipeline(terrainVert, shadowFrag, kTerrain, "shadow (terrain)");
 
-    if(fullscreenVert && skyFrag)
-    {
-        SDL_GPUColorTargetDescription color = {};
-        color.format = kHdrFormat;
-        SDL_GPUGraphicsPipelineCreateInfo info = {};
-        info.vertex_shader = fullscreenVert;
-        info.fragment_shader = skyFrag;
-        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
-        info.target_info.color_target_descriptions = &color;
-        info.target_info.num_color_targets = 1;
-        info.target_info.has_depth_stencil_target = true; // in the scene pass, unused
-        info.target_info.depth_stencil_format = depthFormat_;
-        p.sky = SDL_CreateGPUGraphicsPipeline(device_, &info);
-        if(!p.sky)
-        {
-            log::error("creating the sky pipeline failed: {}", SDL_GetError());
-        }
-    }
-
-    for(SDL_GPUShader* s : {objectVert,        skinnedVert,
-                            blinnPhongFrag,    pbrFrag,
-                            terrainVert,       terrainBlinnPhongFrag,
-                            terrainPbrFrag,    fullscreenVert,
-                            tonemapFrag,       luminanceFrag,
-                            exposureFrag,      skyFrag,
-                            shadowFrag,        shadowMaskedFrag,
-                            probeRadianceFrag, probeIrradianceFrag,
-                            brdfTableFrag,     hudLegacyFrag,
-                            hudPbrFrag,        hudCompositeFrag,
-                            hudPanelVert,      hudPanelFrag,
-                            pickFrag,          outlineMaskFrag,
-                            outlineFrag,       labelVert,
-                            labelFrag,         panelImageFrag,
-                            glowMaskFrag,      glowExtractFrag,
-                            glowBlurFrag,      occlusionReduceFrag})
+    for(SDL_GPUShader* s :
+        {tonemapFrag,        luminanceFrag,     exposureFrag,        shadowFrag,
+         shadowMaskedFrag,   probeRadianceFrag, probeIrradianceFrag, brdfTableFrag,
+         hudLegacyFrag,      hudPbrFrag,        hudCompositeFrag,    pickFrag,
+         outlineMaskFrag,    outlineFrag,       labelVert,           labelFrag,
+         panelImageFrag,     glowMaskFrag,      glowExtractFrag,     glowBlurFrag,
+         occlusionReduceFrag})
     {
         if(s)
         {
             SDL_ReleaseGPUShader(device_, s);
         }
     }
+
+    if(fullscreenVert && depthResolveFrag)
+    {
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = depthResolveFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true; // to write it
+        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_ALWAYS;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        p.depthResolve = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(depthResolveFrag)
+    {
+        SDL_ReleaseGPUShader(device_, depthResolveFrag);
+    }
+    p.sceneShaders = {
+        {"objectVert", objectVert},
+        {"skinnedVert", skinnedVert},
+        {"blinnPhongFrag", blinnPhongFrag},
+        {"pbrFrag", pbrFrag},
+        {"terrainVert", terrainVert},
+        {"terrainBlinnPhongFrag", terrainBlinnPhongFrag},
+        {"terrainPbrFrag", terrainPbrFrag},
+        {"fullscreenVert", fullscreenVert},
+        {"skyFrag", skyFrag},
+        {"hudPanelVert", hudPanelVert},
+        {"hudPanelFrag", hudPanelFrag},
+        {"waterVert", waterVert},
+        {"waterFrag", waterFrag},
+        {"blinnPhongCoverageFrag",
+         createShader(device_, {kBlinnphongCoverageFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 9, 1, 4},
+                      "blinnphong_coverage.frag")},
+        {"pbrCoverageFrag",
+         createShader(device_, {kPbrCoverageFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 10, 1, 4},
+                      "pbr_coverage.frag")},
+    };
+    const bool sceneReady = createScenePipelines(p.scene[0], 1);
 
     SDL_GPUSamplerCreateInfo sampler = {};
     sampler.min_filter = SDL_GPU_FILTER_LINEAR;
@@ -854,15 +796,223 @@ bool Renderer::createPipelines()
     sampler.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL; // 1 where lit
     p.shadowSampler = SDL_CreateGPUSampler(device_, &sampler);
 
-    return p.blinnPhong && p.blinnPhongBlend && p.pbr && p.blinnPhongSkinned &&
-           p.blinnPhongSkinnedBlend && p.pbrSkinned && p.terrainBlinnPhong && p.terrainPbr &&
-           p.tonemap && p.luminance && p.exposure && p.sky && p.probeRadiance &&
+    return sceneReady && p.tonemap && p.luminance && p.exposure && p.probeRadiance &&
            p.probeIrradiance && p.brdfTable && p.hudLegacy[0] && p.hudLegacy[1] && p.hudPbr[0] &&
-           p.hudPbr[1] && p.hudComposite && p.hudPanel && p.pick[0] && p.pick[1] && p.outlineMask &&
-           p.outline && p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
+           p.hudPbr[1] && p.hudComposite && p.pick[0] && p.pick[1] && p.outlineMask && p.outline &&
+           p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
            p.glowBlur && p.occlusionReduce && p.shadowObject && p.shadowObjectMasked &&
-           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.water && p.waterMask &&
+           p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.waterMask &&
            p.waterMaskObject && p.repeatSampler && p.clampSampler && p.shadowSampler;
+}
+
+bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
+{
+    const Pipelines& p = *pipelines_;
+    auto shader = [&](std::string_view name)
+    {
+        const auto it = p.sceneShaders.find(name);
+        return it != p.sceneShaders.end() ? it->second : nullptr;
+    };
+    SDL_GPUShader* objectVert = shader("objectVert");
+    SDL_GPUShader* skinnedVert = shader("skinnedVert");
+    SDL_GPUShader* blinnPhongFrag = shader("blinnPhongFrag");
+    SDL_GPUShader* pbrFrag = shader("pbrFrag");
+    SDL_GPUShader* terrainVert = shader("terrainVert");
+    SDL_GPUShader* terrainBlinnPhongFrag = shader("terrainBlinnPhongFrag");
+    SDL_GPUShader* terrainPbrFrag = shader("terrainPbrFrag");
+    SDL_GPUShader* fullscreenVert = shader("fullscreenVert");
+    SDL_GPUShader* skyFrag = shader("skyFrag");
+    SDL_GPUShader* hudPanelVert = shader("hudPanelVert");
+    SDL_GPUShader* hudPanelFrag = shader("hudPanelFrag");
+    SDL_GPUShader* waterVert = shader("waterVert");
+    SDL_GPUShader* waterFrag = shader("waterFrag");
+    // Opaque objects' alpha masks, multisampled.
+    SDL_GPUShader* blinnPhongOpaque =
+        samples > 1 ? shader("blinnPhongCoverageFrag") : blinnPhongFrag;
+    SDL_GPUShader* pbrOpaque = samples > 1 ? shader("pbrCoverageFrag") : pbrFrag;
+    set.samples = samples;
+    const SDL_GPUSampleCount count = sampleCount(samples);
+    auto scenePipeline = [&](SDL_GPUShader* vert, SDL_GPUShader* frag, VertexLayout layout,
+                             const char* name, bool blend = false, bool bothSides = false)
+    {
+        return surfacePipeline(device_, depthFormat_, vert, frag, layout, name, blend, bothSides,
+                               kHdrFormat, samples, frag == blinnPhongOpaque || frag == pbrOpaque);
+    };
+    set.blinnPhong = scenePipeline(objectVert, blinnPhongOpaque, kObject, "Blinn-Phong");
+    set.blinnPhongBlend =
+        scenePipeline(objectVert, blinnPhongFrag, kObject, "Blinn-Phong (blended)", true);
+    set.pbr = scenePipeline(objectVert, pbrOpaque, kObject, "PBR");
+    set.blinnPhongSkinned =
+        scenePipeline(skinnedVert, blinnPhongOpaque, kSkinned, "Blinn-Phong (skinned)");
+    set.blinnPhongSkinnedBlend = scenePipeline(skinnedVert, blinnPhongFrag, kSkinned,
+                                               "Blinn-Phong (skinned, blended)", true);
+    set.pbrSkinned = scenePipeline(skinnedVert, pbrOpaque, kSkinned, "PBR (skinned)");
+    for(int blend = 0; blend < 2; blend++)
+    {
+        for(int sides = 0; sides < 2; sides++)
+        {
+            for(int skinned = 0; skinned < 2; skinned++)
+            {
+                SDL_GPUGraphicsPipeline*& v = set.pbrVariants[blend][sides][skinned];
+                if(!blend && !sides)
+                {
+                    v = skinned ? set.pbrSkinned : set.pbr;
+                    continue;
+                }
+                v = scenePipeline(skinned ? skinnedVert : objectVert, blend ? pbrFrag : pbrOpaque,
+                                  skinned ? kSkinned : kObject, "PBR (variant)", blend != 0,
+                                  sides != 0);
+            }
+        }
+    }
+    set.terrainBlinnPhong =
+        scenePipeline(terrainVert, terrainBlinnPhongFrag, kTerrain, "terrain Blinn-Phong");
+    set.terrainPbr = scenePipeline(terrainVert, terrainPbrFrag, kTerrain, "terrain PBR");
+    if(waterVert && waterFrag)
+    {
+        // Squares of positions; opaque (it shows what's behind itself),
+        // seen from both sides, writing depth.
+        const SDL_GPUVertexBufferDescription buffer = {0, sizeof(glm::vec3),
+                                                       SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
+        const SDL_GPUVertexAttribute attribute = {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0};
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kHdrFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = waterVert;
+        info.fragment_shader = waterFrag;
+        info.vertex_input_state.num_vertex_buffers = 1;
+        info.vertex_input_state.vertex_buffer_descriptions = &buffer;
+        info.vertex_input_state.vertex_attributes = &attribute;
+        info.vertex_input_state.num_vertex_attributes = 1;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        info.multisample_state.sample_count = count;
+        set.water = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!set.water)
+        {
+            log::error("creating the water pipeline failed: {}", SDL_GetError());
+        }
+    }
+    if(hudPanelVert && hudPanelFrag)
+    {
+        // Premultiplied.
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kHdrFormat;
+        color.blend_state.enable_blend = true;
+        color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        color.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+        color.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+        color.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = hudPanelVert;
+        info.fragment_shader = hudPanelFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = false;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        info.multisample_state.sample_count = count;
+        set.hudPanel = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(fullscreenVert && skyFrag)
+    {
+        SDL_GPUColorTargetDescription color = {};
+        color.format = kHdrFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = fullscreenVert;
+        info.fragment_shader = skyFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.target_info.color_target_descriptions = &color;
+        info.target_info.num_color_targets = 1;
+        info.target_info.has_depth_stencil_target = true; // in the scene pass, unused
+        info.target_info.depth_stencil_format = depthFormat_;
+        info.multisample_state.sample_count = count;
+        set.sky = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!set.sky)
+        {
+            log::error("creating the sky pipeline failed: {}", SDL_GetError());
+        }
+    }
+
+    return set.complete();
+}
+
+ScenePipelines& Renderer::scenePipelines()
+{
+    return pipelines_->scene[samples_ >= 4 ? 2 : samples_ >= 2 ? 1 : 0];
+}
+
+void Renderer::setSamples(uint32_t samples)
+{
+    samples = samples >= 4 ? 4 : samples >= 2 ? 2 : 1;
+    while(samples > 1)
+    {
+        const SDL_GPUSampleCount count = sampleCount(samples);
+        ScenePipelines& set = pipelines_->scene[samples >= 4 ? 2 : 1];
+        if(pipelines_->depthResolve &&
+           SDL_GPUTextureSupportsSampleCount(device_, kHdrFormat, count) &&
+           SDL_GPUTextureSupportsSampleCount(device_, depthFormat_, count))
+        {
+            if(set.complete() || createScenePipelines(set, samples))
+            {
+                break;
+            }
+            set.release(device_);
+        }
+        log::warn("{}x multisampling isn't available", samples);
+        samples /= 2;
+    }
+    if(samples != samples_)
+    {
+        samples_ = samples;
+        releaseTargets(); // made again with the next frame
+    }
+}
+
+void Renderer::releaseTargets()
+{
+    for(SDL_GPUTexture** t : {&hdrTarget_, &depthTarget_, &msaaColor_, &msaaDepth_})
+    {
+        if(*t)
+        {
+            SDL_ReleaseGPUTexture(device_, *t);
+            *t = nullptr;
+        }
+    }
+}
+
+void Renderer::resolveDepth(SDL_GPUCommandBuffer* commands)
+{
+    if(samples_ == 1)
+    {
+        return;
+    }
+    SDL_GPUDepthStencilTargetInfo depth = {};
+    depth.texture = depthTarget_;
+    depth.load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depth.store_op = SDL_GPU_STOREOP_STORE;
+    depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, nullptr, 0, &depth);
+    SDL_BindGPUGraphicsPipeline(pass, pipelines_->depthResolve);
+    const SDL_GPUTextureSamplerBinding from = {msaaDepth_, pipelines_->clampSampler};
+    SDL_BindGPUFragmentSamplers(pass, 0, &from, 1);
+    SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
 }
 
 bool Renderer::createDefaultTextures()
@@ -987,16 +1137,7 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
     {
         return true;
     }
-    if(hdrTarget_)
-    {
-        SDL_ReleaseGPUTexture(device_, hdrTarget_);
-        hdrTarget_ = nullptr;
-    }
-    if(depthTarget_)
-    {
-        SDL_ReleaseGPUTexture(device_, depthTarget_);
-        depthTarget_ = nullptr;
-    }
+    releaseTargets();
 
     SDL_GPUTextureCreateInfo info = {};
     info.type = SDL_GPU_TEXTURETYPE_2D;
@@ -1014,6 +1155,32 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
     // Sampled afterwards by dynamic exposure (sky or not).
     info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     depthTarget_ = SDL_CreateGPUTexture(device_, &info);
+
+    if(samples_ > 1)
+    {
+        info.sample_count = sampleCount(samples_);
+        info.format = kHdrFormat;
+        info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+        msaaColor_ = SDL_CreateGPUTexture(device_, &info);
+        info.format = depthFormat_;
+        info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        msaaDepth_ = SDL_CreateGPUTexture(device_, &info);
+        if(!msaaColor_ || !msaaDepth_)
+        {
+            log::error("creating {}x{} render targets with {} samples failed: {}; drawing "
+                       "with one",
+                       width, height, samples_, SDL_GetError());
+            samples_ = 1;
+            for(SDL_GPUTexture** t : {&msaaColor_, &msaaDepth_})
+            {
+                if(*t)
+                {
+                    SDL_ReleaseGPUTexture(device_, *t);
+                    *t = nullptr;
+                }
+            }
+        }
+    }
 
     if(!hdrTarget_ || !depthTarget_)
     {
@@ -1155,6 +1322,18 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
         depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
         depth.cycle = true;
+
+        // Water shows what's behind it: the pass is broken off there.
+        const bool water =
+            scene.water.enabled && !scene.water.patches.empty() && waterVertices_.buffer;
+        if(samples_ > 1)
+        {
+            color.texture = msaaColor_;
+            color.resolve_texture = hdrTarget_;
+            color.store_op = water ? SDL_GPU_STOREOP_RESOLVE_AND_STORE : SDL_GPU_STOREOP_RESOLVE;
+            depth.texture = msaaDepth_;
+            depth.cycle = false; // big, and only read by this frame's own passes
+        }
 
         // Opaque objects, then blended ones from far to near (as the official
         // viewer: each face by its own center's depth along the view, moved
@@ -1342,8 +1521,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
 
         drawWaterMask(commands, scene, frameVs, width, height);
         SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-        ScenePass scenePass(commands, pass, p, frameVs, viewFs, storageOr(lightBuffer_),
-                            storageOr(probeBuffer_), clusters);
+        ScenePass scenePass(commands, pass, scenePipelines(), frameVs, viewFs,
+                            storageOr(lightBuffer_), storageOr(probeBuffer_), clusters);
         if(atmo.enabled)
         {
             drawSky(scenePass, atmo, view, projection);
@@ -1359,8 +1538,6 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         // Water: the view so far copied for it to show through, then it,
         // then what's blended over it (another pass, loading the first's).
         // The occlusion map is made before, so what's under it isn't hidden.
-        const bool water =
-            scene.water.enabled && !scene.water.patches.empty() && waterVertices_.buffer;
         std::optional<ScenePass> second;
         SDL_GPURenderPass* blendPass = pass;
         if(water)
@@ -1368,15 +1545,20 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             SDL_EndGPURenderPass(pass);
             if(v == 0)
             {
+                resolveDepth(commands);
                 drawOcclusion(commands, scene, projection * view);
             }
             copyForWater(commands, width, height);
             color.load_op = SDL_GPU_LOADOP_LOAD;
             depth.load_op = SDL_GPU_LOADOP_LOAD;
             depth.cycle = false;
+            if(samples_ > 1)
+            {
+                color.store_op = SDL_GPU_STOREOP_RESOLVE;
+            }
             blendPass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
-            second.emplace(commands, blendPass, p, frameVs, viewFs, storageOr(lightBuffer_),
-                           storageOr(probeBuffer_), clusters);
+            second.emplace(commands, blendPass, scenePipelines(), frameVs, viewFs,
+                           storageOr(lightBuffer_), storageOr(probeBuffer_), clusters);
             drawWater(*second, scene, camera, width, height);
         }
         ScenePass& over = second ? *second : scenePass;
@@ -1387,6 +1569,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             drawHudPanel(over, scene.hud, projection * view);
         }
         SDL_EndGPURenderPass(blendPass);
+        resolveDepth(commands);
 
         // The first view also makes the occlusion map and measures the
         // exposure, which the others use too.
@@ -1460,6 +1643,7 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
                            std::optional<uint32_t> instanceBase)
 {
     const Pipelines& p = *pipelines_;
+    const ScenePipelines& s = pass.pipelines();
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
     { return t && *t ? t->get() : fallback.get(); };
     // A base color: none is white, one not in yet is gray.
@@ -1480,14 +1664,14 @@ void Renderer::drawObjects(ScenePass& pass, const Scene& scene,
         const bool skinned = draw.mesh->layout == VertexLayout::Skinned;
         if(const auto* m = std::get_if<BlinnPhongMaterial>(&draw.material))
         {
-            st.pipeline = skinned ? (m->blend ? p.blinnPhongSkinnedBlend : p.blinnPhongSkinned)
-                                  : (m->blend ? p.blinnPhongBlend : p.blinnPhong);
+            st.pipeline = skinned ? (m->blend ? s.blinnPhongSkinnedBlend : s.blinnPhongSkinned)
+                                  : (m->blend ? s.blinnPhongBlend : s.blinnPhong);
             st.textures = {baseColor(m->diffuse, m->diffuseLoading),
                            texture(m->normal, flatNormal_), texture(m->specular, white_), nullptr};
         }
         else if(const auto* t = std::get_if<PbrMaterial>(&draw.material))
         {
-            st.pipeline = p.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0];
+            st.pipeline = s.pbrVariants[t->blend ? 1 : 0][t->doubleSided ? 1 : 0][skinned ? 1 : 0];
             st.textures = {baseColor(t->albedo, t->albedoLoading), texture(t->orm, white_),
                            texture(t->emissive, white_), texture(t->normal, flatNormal_)};
         }
@@ -1619,7 +1803,7 @@ std::optional<uint32_t> Renderer::pushInstances(SDL_GPUCommandBuffer* commands,
 void Renderer::drawSky(ScenePass& pass, const Atmosphere& atmo, const glm::mat4& view,
                        const glm::mat4& projection)
 {
-    SDL_BindGPUGraphicsPipeline(pass.pass(), pipelines_->sky);
+    SDL_BindGPUGraphicsPipeline(pass.pass(), pass.pipelines().sky);
     pass.forgetPipeline();
     auto loaded = [](const GpuTexture* t) { return t && *t; };
     const SDL_GPUTextureSamplerBinding samplers[] = {
@@ -1694,7 +1878,7 @@ void Renderer::drawTerrain(ScenePass& pass, const Scene& scene)
         }
         if(const auto* m = std::get_if<TerrainBlinnPhongMaterial>(&draw.material))
         {
-            pass.bindPipeline(p.terrainBlinnPhong);
+            pass.bindPipeline(pass.pipelines().terrainBlinnPhong);
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(m->diffuseLayers, whiteLayers_), p.repeatSampler},
                 {terrainBlendRamp_.get(), p.clampSampler},
@@ -1710,7 +1894,7 @@ void Renderer::drawTerrain(ScenePass& pass, const Scene& scene)
         }
         else if(const auto* t = std::get_if<TerrainPbrMaterial>(&draw.material))
         {
-            pass.bindPipeline(p.terrainPbr);
+            pass.bindPipeline(pass.pipelines().terrainPbr);
             const SDL_GPUTextureSamplerBinding samplers[] = {
                 {texture(t->albedoLayers, whiteLayers_), p.repeatSampler},
                 {texture(t->ormLayers, whiteLayers_), p.repeatSampler},

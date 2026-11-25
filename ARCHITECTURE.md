@@ -547,6 +547,20 @@ names a texture (none by default: then only its glow, as the official
 viewer). The clouds go over both. Moon phases are the texture's own, as in
 the official viewer.
 
+### Antialiasing
+
+`graphics.antialiasing` (off, 2x, 4x; applied at once by
+`Renderer::setSamples`) multisamples the scene pass: it draws into a color
+and a depth target with that many samples a pixel, resolved into the ones
+the later passes read. Pipelines are made per sample count
+(`ScenePipelines`; reflection probes' faces always use one sample). SDL
+can't resolve depth, so `depth_resolve.frag` does, taking the farthest
+sample: glow and the outline draw surfaces again against it, at the pixel's
+middle, and occlusion culling must hide only what's behind all of the pixel.
+With water it's resolved twice, before the water (for the occlusion map) and
+after. Opaque alpha masks use alpha to coverage (`coverage.glsl`), by shader
+variants of their own; blended ones aren't smoothed beyond their geometry.
+
 ### Occlusion culling
 
 What's hidden behind something isn't drawn, and costs next to nothing:

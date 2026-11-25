@@ -186,7 +186,7 @@ void Renderer::drawWater(ScenePass& pass, const Scene& scene, const Camera& came
                          uint32_t height)
 {
     const Pipelines& p = *pipelines_;
-    if(!p.water || waterVertexCount_ == 0 || !waterScene_)
+    if(!pass.pipelines().water || waterVertexCount_ == 0 || !waterScene_)
     {
         return;
     }
@@ -200,7 +200,7 @@ void Renderer::drawWater(ScenePass& pass, const Scene& scene, const Camera& came
                             1.0f / static_cast<float>(height), under ? 1.0f : 0.0f);
 
     SDL_GPURenderPass* rp = pass.pass();
-    pass.bindPipeline(p.water);
+    pass.bindPipeline(pass.pipelines().water);
     pushFragmentUniforms(pass.commands(), 1, fs);
     auto texture = [](const GpuTexture* t, const GpuTexture& fallback)
     { return t && *t ? t->get() : fallback.get(); };
