@@ -114,6 +114,7 @@ AvatarView::AvatarView(avatar::BaseAvatar base, render::Renderer& renderer,
     defaultBody_ = build(avatar::ParamWeights(base_));
     defaultJoints_ = avatar::poseJoints(base_, defaultBody_->shape);
     ikJoints_ = avatar::IkJoints::find(base_.skeleton);
+    physicsRig_ = avatar::PhysicsRig::find(base_);
     // The head and everything below it (parents come before children).
     const int head = base_.skeleton.find("mHead");
     std::vector<bool> under(base_.skeleton.joints.size(), false);
@@ -240,12 +241,13 @@ render::Mesh AvatarView::partMesh(const avatar::ShapedMesh& shaped, size_t part)
 }
 
 const render::Mesh* AvatarView::expressedPart(Avatar& a, const std::shared_ptr<const Body>& body,
-                                              size_t part)
+                                              size_t part, bool physics)
 {
     // The parameters that morph this part and differ from the body's, in
     // steps (a change too small to see isn't worth a mesh).
     constexpr float kSteps = 32.0f;
-    std::map<int, int> weights;
+    constexpr float kPhysicsSteps = 128.0f; // (it moves slowly, in plain view)
+    std::map<int, float> weights;
     auto morphs = [&](int id)
     {
         const auto it = base_.params.find(id);
@@ -258,13 +260,24 @@ const render::Mesh* AvatarView::expressedPart(Avatar& a, const std::shared_ptr<c
         const int step = static_cast<int>(std::lround(weight * kSteps));
         if(morphs(id) && step != std::lround(body->weights[id] * kSteps))
         {
-            weights[id] = step;
+            weights[id] = static_cast<float>(step) / kSteps;
+        }
+    }
+    if(physics)
+    {
+        for(const auto& [id, weight] : a.physics.weights())
+        {
+            const float rounded = std::round(weight * kPhysicsSteps) / kPhysicsSteps;
+            if(morphs(id) && rounded != body->weights[id])
+            {
+                weights[id] = rounded;
+            }
         }
     }
     if(a.animator.animated() && !a.animator.expression().contains(avatar::kRelaxedHandsParam) &&
        morphs(avatar::kRelaxedHandsParam))
     {
-        weights[avatar::kRelaxedHandsParam] = 0;
+        weights[avatar::kRelaxedHandsParam] = 0.0f;
     }
     ExpressedPart& e = a.expressed[part];
     if(e.body != body || e.weights != weights)
@@ -275,9 +288,9 @@ const render::Mesh* AvatarView::expressedPart(Avatar& a, const std::shared_ptr<c
         if(!e.weights.empty())
         {
             avatar::ParamWeights expressed = body->weights;
-            for(const auto& [id, step] : e.weights)
+            for(const auto& [id, weight] : e.weights)
             {
-                expressed.set(id, static_cast<float>(step) / kSteps);
+                expressed.set(id, weight);
             }
             std::vector<avatar::MorphMask> masks;
             for(size_t i = 0; i < a.masks.size(); i++)
@@ -881,6 +894,81 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
     a.extent = glm::length(high - low);
 }
 
+void AvatarView::simulate(Avatar& a, const Body& body, const glm::mat4& root, uint64_t originHandle,
+                          double now)
+{
+    if(!physicsOn_)
+    {
+        a.physics.reset();
+        return;
+    }
+    const glm::dvec3 origin(static_cast<double>(originHandle >> 32),
+                            static_cast<double>(originHandle & 0xFFFFFFFFu), 0.0);
+    a.physics.update(physicsRig_, base_, body.weights, a.joints, root, origin, now);
+    a.physics.moveVolumes(base_, a.joints);
+    if(!a.shadowJoints.empty())
+    {
+        a.physics.moveVolumes(base_, a.shadowJoints);
+    }
+}
+
+std::string AvatarView::physicsText(const world::World& world, const world::Object& avatar,
+                                    MeshManager& meshes) const
+{
+    const Body& body = bodyOf(avatar);
+    const auto it = avatars_.find(avatar.id);
+    const world::World::Appearance* appearance = world.appearance(avatar.id);
+    std::string text = std::format(
+        "physics: {}, {} body, {} of {} parameters sent\n",
+        physicsOn_ ? "on" : "off", body.weights.sex() == avatar::Sex::Male ? "male" : "female",
+        appearance ? appearance->visualParams.size() : size_t{0}, base_.transmitted.size());
+    for(const auto& [id, p] : base_.params)
+    {
+        if(p.transmitted() && p.name.contains("_Physics_"))
+        {
+            text += std::format("  {} {:.3f}\n", p.name, body.weights[id]);
+        }
+    }
+    if(it != avatars_.end())
+    {
+        for(const auto& [id, weight] : it->second.physics.weights())
+        {
+            text += std::format("  now: {} {:.3f}\n", base_.params.at(id).name, weight);
+        }
+    }
+    for(const auto& [key, object] : world.objects())
+    {
+        const world::Object* wearer =
+            object.parentId != 0 ? attachedAvatar(world, object) : nullptr;
+        if(!wearer || wearer->id != avatar.id ||
+           (object.sculptType & world::SculptType::Mask) != world::SculptType::Mesh)
+        {
+            continue;
+        }
+        const auto skin = meshes.skin(object.sculptTexture);
+        if(!skin)
+        {
+            continue;
+        }
+        text += std::format("  mesh {} (local {}): volumes", object.sculptTexture.toString(),
+                            object.localId);
+        for(const std::string& name : skin->jointNames)
+        {
+            const int joint = base_.skeleton.find(name);
+            if(joint < 0)
+            {
+                text += " unknown:" + name;
+            }
+            else if(base_.skeleton.joints[static_cast<size_t>(joint)].volume)
+            {
+                text += " " + name;
+            }
+        }
+        text += "\n";
+    }
+    return text;
+}
+
 // Starts and stops animations to match what the simulator says is playing.
 void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
                          AnimationManager& animations, double now)
@@ -1105,6 +1193,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
            (frame_ + std::hash<Uuid>()(object.id)) % kUnseenPosePeriod == 0)
         {
             pose(a, body.shape, world, object.id, animations, now, root, originHandle, &object);
+            simulate(a, body, root, originHandle, now);
         }
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
            seen == render::Visibility::Hidden || !loaded(object.id))
@@ -1138,7 +1227,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             m.specularTint = glm::vec3(0.0f); // no highlight, as the official avatar shader
 
             avatar::skinPalette(base_, i, a.joints, a.palettes[i]);
-            const render::Mesh* expressed = expressedPart(a, bodyShared, i);
+            const render::Mesh* expressed =
+                expressedPart(a, bodyShared, i, seen == render::Visibility::Visible);
             render::ObjectDraw draw{expressed ? expressed : &body.meshes[i], root, m};
             draw.joints = a.palettes[i];
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;

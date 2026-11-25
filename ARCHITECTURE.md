@@ -2056,6 +2056,19 @@ or with the animation that names them. `AvatarView::expressedPart` remakes
 the affected body part's mesh as the weights change, only where the
 default body is drawn.
 
+Avatar physics (`avatar::BodyPhysics`, behaving as llphysicsmotion.cpp): six
+springs (breasts in and out, up and down, left and right; butt up and down,
+left and right; belly up and down), pushed by how the chest or pelvis moves
+in the world and tuned by the physics wearable's visual parameters, which
+come with the appearance. Each drives morphs of its own, made from others as
+the body meshes load (`addPhysicsMorphs`: they aren't in the .llm files), and
+moves the collision volumes fitted mesh is skinned to. `AvatarView::simulate`
+runs it after each pose; `expressedPart` remakes the default body's parts,
+only where they're in view. Positions are global, so a moved scene origin
+doesn't count as motion; teleports don't either. The springs start at rest,
+where the official viewer's start at one end. `graphics.avatar_physics` turns
+it off. Mesh bodies that aren't fitted to the collision volumes don't move.
+
 Attachments follow the animated skeleton.
 
 Rigged mesh: `MeshManager` also loads a mesh's skin block (`.skin` in the
@@ -2102,8 +2115,8 @@ official viewer's size and position limits on where animations may move
 them (AnimatedObjectsMaxLegalOffset and MaxLegalSize).
 
 Not yet: IK constraints, the official viewer's
-procedural motions (head and eye movement, breathing, hand poses), clothing
-morph masks and the physics-driven morphs (breast, belly and butt physics).
+procedural motions (head and eye movement, breathing, hand poses) and clothing
+morph masks.
 
 ### Inventory
 

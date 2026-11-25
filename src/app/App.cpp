@@ -722,6 +722,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
                 *app->http_, *app->jobs_, avatar->skeleton, *app->diskCache_);
             app->avatars_ =
                 std::make_unique<AvatarView>(std::move(*avatar), *app->renderer_, app->motion_);
+            app->avatars_->setPhysics(config.get(kAvatarPhysics));
         }
         else
         {
@@ -782,6 +783,13 @@ void App::applySettings(const std::vector<std::string>& names)
         if(name == kShadows.name)
         {
             shadows_ = s.get(kShadows);
+        }
+        else if(name == kAvatarPhysics.name)
+        {
+            if(avatars_)
+            {
+                avatars_->setPhysics(s.get(kAvatarPhysics));
+            }
         }
         else if(name == kOcclusion.name)
         {
@@ -5420,6 +5428,10 @@ void App::dumpAvatar(const world::Object& avatar)
                 text += std::format("    face {}: {}\n", i, line);
             }
         }
+    }
+    if(avatars_)
+    {
+        text += avatars_->physicsText(world, avatar, *meshes_);
     }
     text += "as drawn:\n" + wornMeshText();
     log::info("dump:\n{}", text);

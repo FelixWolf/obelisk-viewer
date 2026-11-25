@@ -16,6 +16,7 @@ namespace viewer::setting
 
 // Graphics.
 inline constexpr SettingKey<bool> kShadows{"graphics.shadows"};
+inline constexpr SettingKey<bool> kAvatarPhysics{"graphics.avatar_physics"};
 inline constexpr SettingKey<bool> kOcclusion{"graphics.occlusion"};
 inline constexpr SettingKey<bool> kPbrTerrain{"graphics.pbr_terrain"};
 inline constexpr SettingKey<int32_t> kTextureMemory{"graphics.texture_memory"}; // MiB

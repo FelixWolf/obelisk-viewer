@@ -4,6 +4,7 @@ add_library(viewer_avatar STATIC
   Ik.cpp
   Animation.cpp
   Constraints.cpp
+  Physics.cpp
 )
 add_library(viewer::avatar ALIAS viewer_avatar)
 

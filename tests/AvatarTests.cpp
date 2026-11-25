@@ -627,3 +627,166 @@ TEST_CASE("Shape: morphs that follow clothing go by their bake's morph mask")
     }
     CHECK(moved > 0);
 }
+
+#include "viewer/avatar/Physics.hpp"
+
+#include <glm/gtc/matrix_transform.hpp>
+
+namespace
+{
+
+int paramId(const BaseAvatar& avatar, std::string_view name)
+{
+    for(const auto& [id, p] : avatar.params)
+    {
+        if(p.name == name)
+        {
+            return id;
+        }
+    }
+    return -1;
+}
+
+} // namespace
+
+TEST_CASE("Physics: its morphs are made from others and move the body")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    const ParamWeights rest(*avatar);
+    // Per driven parameter: the body part it morphs.
+    const std::vector<std::pair<int, size_t>> driven = {{1200, 2}, {1201, 2}, {1202, 3}, {1203, 5},
+                                                        {1204, 2}, {1205, 3}, {1206, 3}, {1207, 2}};
+    for(const auto& [id, part] : driven)
+    {
+        CAPTURE(id);
+        REQUIRE(avatar->params.at(id).morphs.size() == 1);
+        CHECK(avatar->params.at(id).morphs[0].part == part);
+        CHECK(rest[id] == 0.0f);
+        ParamWeights weights = rest;
+        weights.set(id, 1.0f);
+        CHECK(shapePart(*avatar, weights, part).positions !=
+              shapePart(*avatar, rest, part).positions);
+    }
+    CHECK(avatar->params.at(1200).volumes.size() == 2); // LEFT_PEC, RIGHT_PEC
+    // Sideways: both sides the same way.
+    const BodyMesh& upper = avatar->meshes[2];
+    const Morph* in = upper.findMorph("Breast_Female_Cleavage");
+    const Morph* side = upper.findMorph("Breast_Physics_LeftRight_Driven");
+    REQUIRE(in);
+    REQUIRE(side);
+    for(size_t v = 0; v < in->positions.size(); v++)
+    {
+        CHECK(side->positions[v].y == doctest::Approx(0.75f * std::fabs(in->positions[v].y)));
+    }
+}
+
+TEST_CASE("Physics: springs pushed by the body's motion")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    const PhysicsRig rig = PhysicsRig::find(*avatar);
+    REQUIRE(rig.motions.size() == 6);
+    const Shape shape = shapeSkeleton(*avatar, ParamWeights(*avatar));
+    const std::vector<glm::mat4> joints = poseJoints(*avatar, shape);
+    auto at = [](double z)
+    { return glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, static_cast<float>(z))); };
+    ParamWeights bouncy(*avatar);
+    bouncy.set(paramId(*avatar, "Breast_Physics_UpDown_Max_Effect"), 1.0f);
+    const double frame = 1.0 / 60.0;
+    const glm::dvec3 origin(256000.0, 256000.0, 0.0);
+    constexpr int kUpDown = 1200;
+
+    SUBCASE("nothing without a physics wearable")
+    {
+        BodyPhysics physics;
+        for(int i = 0; i < 60; i++)
+        {
+            physics.update(rig, *avatar, ParamWeights(*avatar), joints, at(i * 0.05), origin,
+                           i * frame);
+        }
+        CHECK(physics.weights().empty());
+    }
+    SUBCASE("at rest while still")
+    {
+        BodyPhysics physics;
+        for(int i = 0; i < 60; i++)
+        {
+            physics.update(rig, *avatar, bouncy, joints, at(20.0), origin, i * frame);
+        }
+        CHECK(physics.weights().at(kUpDown) == doctest::Approx(0.0f));
+    }
+    SUBCASE("moves, carries fitted mesh's volumes, and settles")
+    {
+        for(const double step : {1.0 / 20.0, 1.0 / 60.0, 1.0 / 144.0})
+        {
+            CAPTURE(step);
+            BodyPhysics physics;
+            float most = 0.0f;
+            bool moved = false;
+            for(double t = 0.0; t < 20.0; t += step)
+            {
+                const double z = t < 2.0 ? 0.2 * std::sin(t * 12.0) : 0.2 * std::sin(24.0);
+                physics.update(rig, *avatar, bouncy, joints, at(20.0 + z), origin, t);
+                const auto w = physics.weights().find(kUpDown);
+                if(w == physics.weights().end())
+                {
+                    continue;
+                }
+                REQUIRE(std::isfinite(w->second));
+                CHECK(std::fabs(w->second) <= 3.0f);
+                most = std::max(most, std::fabs(w->second));
+                if(std::fabs(w->second) > 0.1f)
+                {
+                    std::vector<glm::mat4> posed = joints;
+                    physics.moveVolumes(*avatar, posed);
+                    const auto pec = static_cast<size_t>(avatar->skeleton.find("LEFT_PEC"));
+                    const auto head = static_cast<size_t>(avatar->skeleton.find("mHead"));
+                    CHECK((posed[pec][3].z - joints[pec][3].z) * w->second < 0.0f);
+                    CHECK(posed[head] == joints[head]);
+                    moved = true;
+                }
+            }
+            MESSAGE("step " << step << ": most " << most);
+            CHECK(moved);
+            CHECK(std::fabs(physics.weights().at(kUpDown)) < 0.02f);
+        }
+    }
+    SUBCASE("a moved scene origin or a teleport isn't motion")
+    {
+        BodyPhysics physics;
+        physics.update(rig, *avatar, bouncy, joints, at(20.0), origin, 0.0);
+        physics.update(rig, *avatar, bouncy, joints, at(20.0), origin, frame);
+        const glm::mat4 crossed = glm::translate(glm::mat4(1.0f), glm::vec3(256.0f, 0.0f, 20.0f));
+        physics.update(rig, *avatar, bouncy, joints, crossed, origin - glm::dvec3(256.0, 0.0, 0.0),
+                       2 * frame);
+        CHECK(physics.weights().at(kUpDown) == doctest::Approx(0.0f));
+        physics.update(rig, *avatar, bouncy, joints, at(900.0), origin, 3 * frame);
+        physics.update(rig, *avatar, bouncy, joints, at(900.0), origin, 4 * frame);
+        CHECK(physics.weights().at(kUpDown) == doctest::Approx(0.0f));
+    }
+    SUBCASE("a male avatar's chest stays put")
+    {
+        ParamWeights male = bouncy;
+        male.set(80, 1.0f);
+        BodyPhysics physics;
+        for(int i = 0; i < 60; i++)
+        {
+            physics.update(rig, *avatar, male, joints, at(20.0 + 0.2 * std::sin(i * 0.2)), origin,
+                           i * frame);
+        }
+        CHECK(physics.weights().empty());
+    }
+    SUBCASE("taken off, it goes back to the body's own shape")
+    {
+        BodyPhysics physics;
+        for(int i = 0; i < 30; i++)
+        {
+            physics.update(rig, *avatar, bouncy, joints, at(20.0 + 0.2 * std::sin(i * 0.2)), origin,
+                           i * frame);
+        }
+        CHECK_FALSE(physics.weights().empty());
+        physics.update(rig, *avatar, ParamWeights(*avatar), joints, at(20.0), origin, 31 * frame);
+        CHECK(physics.weights().empty());
+    }
+}

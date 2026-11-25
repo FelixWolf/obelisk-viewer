@@ -33,6 +33,12 @@ std::vector<SettingDefinition> viewerSettings()
                                       "(MSAA). Costs GPU time and memory, most at a "
                                       "headset's resolution.",
                        .choices = {{"off", "Off"}, {"2x", "2x"}, {"4x", "4x"}}}),
+        defineSetting(kAvatarPhysics, true,
+                      {.page = "Graphics",
+                       .section = "Avatars",
+                       .label = "Avatar physics",
+                       .description = "Bounce and sway the bodies of avatars that wear "
+                                      "physics."}),
         defineSetting(kOcclusion, true,
                       {.page = "Graphics",
                        .section = "Performance",

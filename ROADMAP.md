@@ -24,7 +24,6 @@ sound yet.
 ## Avatars and animation
 
 - Sitting and standing (sit targets, the sit response, the seated camera)
-- Avatar physics (soft body bounce), optional
 - Complexity limits and "jelly dolls" for crowded places
 
 ## Interaction

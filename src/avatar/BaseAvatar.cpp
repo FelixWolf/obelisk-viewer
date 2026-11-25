@@ -283,6 +283,70 @@ std::vector<glm::mat4> Skeleton::restPose() const
     return world;
 }
 
+namespace
+{
+
+// The morphs avatar physics drives aren't in the files: they're made from
+// others (llpolymesh.cpp loadMesh; llpolyskeletaldistortion.cpp).
+void addPhysicsMorphs(BodyMesh& mesh, const Morph& source)
+{
+    auto add = [&](const char* name, auto&& change)
+    {
+        Morph m = source;
+        m.name = name;
+        for(size_t v = 0; v < m.vertices.size(); v++)
+        {
+            change(m.positions[v], m.normals[v]);
+        }
+        mesh.morphs.push_back(std::move(m));
+    };
+    auto same = [](glm::vec3&, glm::vec3&) {};
+    auto towards = [](const glm::vec3& direction)
+    {
+        return [direction](glm::vec3& position, glm::vec3& normal)
+        {
+            position = direction;
+            normal = glm::vec3(0.0f);
+        };
+    };
+    // Both sides the same way, not towards each other.
+    auto sideways = [](glm::vec3& position, glm::vec3& normal)
+    {
+        const glm::vec3 scale(0.75f, position.y < 0.0f ? -0.75f : 0.75f, 0.75f);
+        position *= scale;
+        normal *= scale;
+    };
+    const glm::vec3 up(0.0f, 0.0f, 0.05f);
+    if(source.name == "Breast_Female_Cleavage")
+    {
+        add("Breast_Physics_LeftRight_Driven", sideways);
+        add("Breast_Physics_InOut_Driven", same);
+    }
+    else if(source.name == "Breast_Gravity")
+    {
+        add("Breast_Physics_UpDown_Driven", same);
+    }
+    else if(source.name == "Big_Belly_Torso")
+    {
+        add("Belly_Physics_Torso_UpDown_Driven", towards(up));
+    }
+    else if(source.name == "Big_Belly_Legs")
+    {
+        add("Belly_Physics_Legs_UpDown_Driven", towards(up));
+    }
+    else if(source.name == "skirt_belly")
+    {
+        add("Belly_Physics_Skirt_UpDown_Driven", towards(up));
+    }
+    else if(source.name == "Small_Butt")
+    {
+        add("Butt_Physics_UpDown_Driven", towards(up));
+        add("Butt_Physics_LeftRight_Driven", towards(glm::vec3(0.0f, 0.03f, 0.0f)));
+    }
+}
+
+} // namespace
+
 std::expected<BodyMesh, std::string> loadLlm(const std::filesystem::path& path)
 {
     std::ifstream in(path, std::ios::binary);
@@ -387,7 +451,8 @@ std::expected<BodyMesh, std::string> loadLlm(const std::filesystem::path& path)
             morph.normals.emplace_back(data[3], data[4], data[5]);
             morph.texCoords.emplace_back(data[9], data[10]);
         }
-        mesh.morphs.push_back(std::move(morph));
+        mesh.morphs.push_back(morph);
+        addPhysicsMorphs(mesh, morph);
     }
     // Vertex remaps follow; only used for clothing masks, which we don't do.
 

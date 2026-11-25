@@ -34,6 +34,7 @@
 #include "viewer/avatar/Animation.hpp"
 #include "viewer/avatar/BaseAvatar.hpp"
 #include "viewer/avatar/Ik.hpp"
+#include "viewer/avatar/Physics.hpp"
 #include "viewer/avatar/Shape.hpp"
 #include "viewer/core/Uuid.hpp"
 #include "viewer/render/Renderer.hpp"
@@ -106,6 +107,15 @@ public:
     // avatar not posed yet or an unknown joint.
     std::optional<glm::vec3> jointPosition(const world::Object& avatar, const world::World& world,
                                            std::string_view joint, uint64_t originHandle) const;
+
+    // Avatar physics (bounce and sway), for those whose physics wearable
+    // asks for it.
+    void setPhysics(bool on) { physicsOn_ = on; }
+    // What physics makes of an avatar, as text (--dump-avatar): what it
+    // asks for, how far each driven parameter is now, and the collision
+    // volumes moved that a rigged mesh it wears is weighted to.
+    std::string physicsText(const world::World& world, const world::Object& avatar,
+                            MeshManager& meshes) const;
 
     // Where baked textures come from (the login reply's
     // agent_appearance_service); empty while logged out.
@@ -216,11 +226,11 @@ private:
         std::vector<render::Mesh> meshes; // one per kBodyParts entry
         avatar::ParamWeights weights;
     };
-    // A body part morphed by a hand pose or facial expression.
+    // A body part morphed by a hand pose, facial expression or physics.
     struct ExpressedPart
     {
         std::shared_ptr<const Body> body; // made from
-        std::map<int, int> weights;       // the parameters, in steps
+        std::map<int, float> weights;     // the parameters, rounded to steps
         render::Mesh mesh;                // none: the body's own
     };
     struct Avatar
@@ -231,6 +241,7 @@ private:
         // with (rebuilt as they arrive).
         std::array<std::shared_ptr<const image::Plane>, 3> masks;
         avatar::Animator animator;
+        avatar::BodyPhysics physics;
         // Its size as it stands (LLAvatarAppearance::mBodySize): found again
         // when its shape, its rigged mesh's joints or what it plays changes,
         // not every frame (animations would make it bob), and once more
@@ -308,10 +319,13 @@ private:
                                                  const char* name, TextureManager& textures) const;
     std::shared_ptr<const Body> build(const avatar::ParamWeights& weights,
                                       std::span<const avatar::MorphMask> masks = {}) const;
-    // A body part as a hand pose or expression has it, made again when
-    // that changes; nullptr: as the body's.
+    // A body part as a hand pose, expression or (if asked) physics has it,
+    // made again when that changes; nullptr: as the body's.
     const render::Mesh* expressedPart(Avatar& a, const std::shared_ptr<const Body>& body,
-                                      size_t part);
+                                      size_t part, bool physics);
+    // Its physics, from the joints posed this frame; moves their volumes.
+    void simulate(Avatar& a, const Body& body, const glm::mat4& root, uint64_t originHandle,
+                  double now);
     render::Mesh partMesh(const avatar::ShapedMesh& shaped, size_t part) const;
     const Body& bodyOf(const world::Object& avatar) const;
     // What each avatar's attachments change about it: joint positions, and
@@ -334,6 +348,8 @@ private:
 
     avatar::BaseAvatar base_;
     avatar::IkJoints ikJoints_;
+    avatar::PhysicsRig physicsRig_;
+    bool physicsOn_ = true;
     std::unordered_map<Uuid, avatar::IkGoals> ikGoals_; // scene coordinates
     std::optional<Uuid> firstPerson_;
     std::vector<int> headJoints_; // mHead and below
