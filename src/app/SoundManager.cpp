@@ -116,8 +116,9 @@ void SoundManager::set(Playing& p, const Source& s)
     p.gain = sound.gain;
     if(sound.id.isNull())
     {
-        // A loop stops; anything else only with the stop flag.
-        if(p.loop || (sound.flags & world::SoundFlags::Stop))
+        // A loop (or one queued) stops; anything else only with the stop flag.
+        const bool queuedLoop = !p.queued.isNull() && p.queuedLoop;
+        if(p.loop || queuedLoop || (sound.flags & world::SoundFlags::Stop))
         {
             engine_->stop(p.voice);
             p.voice = 0;
@@ -168,7 +169,11 @@ void SoundManager::startPlaying(Playing& p, const Source& s, float gain)
     params.gain = gain;
     params.loop = p.loop;
     p.voice = engine_->play(clip, params);
-    p.started = true;
+    p.started = p.voice != 0;
+    if(!p.started && !p.loop && Clock::now() - p.asked > kObjectWait)
+    {
+        p.sound = Uuid(); // no voice free in time (loops keep trying)
+    }
 }
 
 void SoundManager::update(
@@ -215,18 +220,37 @@ void SoundManager::update(
     {
         const std::optional<Source> source = locate(key);
         auto it = objects_.find(key);
-        if(!source || (it != objects_.end() && it->second.object != source->object))
+        if(!source)
         {
-            // Gone (or another object in its place).
+            // Gone, or not placed for now (its parent isn't here): then it's
+            // remembered, so only a loop starts again once it's back.
             if(it != objects_.end())
             {
-                engine_->stop(it->second.voice);
-                objects_.erase(it);
+                Playing& p = it->second;
+                engine_->stop(p.voice);
+                p.voice = 0;
+                p.started = false;
+                if(!p.queued.isNull())
+                {
+                    p.sound = std::exchange(p.queued, Uuid());
+                    p.loop = p.queuedLoop;
+                }
+                if(!p.loop)
+                {
+                    p.sound = Uuid();
+                }
+                if(!withSound.contains(key))
+                {
+                    objects_.erase(it);
+                }
             }
-            if(!source)
-            {
-                continue;
-            }
+            continue;
+        }
+        if(it != objects_.end() && it->second.object != source->object)
+        {
+            // Another object in its place.
+            engine_->stop(it->second.voice);
+            objects_.erase(it);
             it = objects_.end();
         }
         if(it == objects_.end())
@@ -277,7 +301,9 @@ void SoundManager::update(
             engine_->setPosition(p.voice, source->hud ? listener : source->position);
             engine_->setGain(p.voice, gain);
         }
-        if(p.sound.isNull() && !p.voice && p.queued.isNull())
+        // Done. While the object still names a sound (it does after a one-off
+        // ends) it's remembered, or it'd be taken for new and play again.
+        if(p.sound.isNull() && !p.voice && p.queued.isNull() && source->sound.id.isNull())
         {
             objects_.erase(it);
         }

@@ -85,6 +85,8 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/CurrentOutfit.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ParcelInfo.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MusicStream.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/SoundAssets.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/SoundManager.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ObjectMedia.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MicrophoneList.cpp
   ${PROJECT_SOURCE_DIR}/src/app/VoiceIndicators.cpp

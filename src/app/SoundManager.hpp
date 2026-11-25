@@ -99,6 +99,7 @@ public:
 private:
     using Clock = std::chrono::steady_clock;
     using Voice = audio::AudioEngine::Voice;
+    // An object's sound, playing or (kept while the object names one) done.
     struct Playing
     {
         Uuid object;
