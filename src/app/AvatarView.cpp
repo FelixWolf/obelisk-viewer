@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <format>
 #include <limits>
+#include <map>
 
 namespace viewer
 {
@@ -460,6 +461,7 @@ void AvatarView::clear()
     ikGoals_.clear();
     overrides_.clear();
     bakesInUse_.clear();
+    animatedParts_.clear();
     collectedAt_.reset();
 }
 
@@ -486,11 +488,22 @@ void AvatarView::collectAttachments(const world::World& world, MeshManager& mesh
     collectedTime_ = now;
     overrides_.clear();
     bakesInUse_.clear();
+    animatedParts_.clear();
     for(const auto& [key, object] : world.objects())
     {
         if(object.type != world::ObjectType::Prim)
         {
             continue;
+        }
+
+        // An animated object's other prims.
+        if(object.parentId != 0)
+        {
+            const world::Object* parent = world.object(object.region, object.parentId);
+            if(parent && parent->type == world::ObjectType::Prim && parent->animatedMesh)
+            {
+                animatedParts_[parent->id].push_back(object.id);
+            }
         }
 
         // Bake on Mesh: any face of an attachment showing a bake.
@@ -709,41 +722,68 @@ void AvatarView::pose(Avatar& a, const avatar::Shape& shape, const world::World&
 void AvatarView::animate(Avatar& a, const world::World& world, const Uuid& id,
                          AnimationManager& animations, double now)
 {
-    const auto* playing = world.animations(id);
-    if(playing)
+    // By id, as the official viewer's map: the order those told of together
+    // start in, with one sequence number each. An animated object also plays
+    // what its other prims' scripts started, the larger sequence number
+    // winning (LLControlAvatar::updateAnimations).
+    std::map<Uuid, int32_t> signaled;
+    if(const auto* playing = world.animations(id))
     {
-        for(const world::World::PlayingAnimation& p : *playing)
+        for(const world::PlayingAnimation& p : *playing)
         {
-            const auto it = a.started.find(p.id);
-            if(it != a.started.end() && it->second == p.sequence)
-            {
-                continue;
-            }
-            auto animation = animations.get(p.id);
-            if(!animation)
-            {
-                continue; // still loading: tried again next frame
-            }
-            if(it != a.started.end())
-            {
-                a.animator.stop(p.id, now); // a new sequence number restarts it
-            }
-            a.animator.start(p.id, std::move(animation), now);
-            a.started[p.id] = p.sequence;
+            signaled[p.id] = p.sequence;
         }
+    }
+    if(const auto parts = animatedParts_.find(id); parts != animatedParts_.end())
+    {
+        for(const Uuid& part : parts->second)
+        {
+            std::map<Uuid, int32_t> theirs;
+            if(const auto* playing = world.animations(part))
+            {
+                for(const world::PlayingAnimation& p : *playing)
+                {
+                    theirs[p.id] = p.sequence;
+                }
+            }
+            for(const auto& [animation, sequence] : theirs)
+            {
+                const auto [it, inserted] = signaled.try_emplace(animation, sequence);
+                it->second = std::max(it->second, sequence);
+            }
+        }
+    }
+    for(const auto& [animationId, sequence] : signaled)
+    {
+        const auto it = a.started.find(animationId);
+        if(it != a.started.end() && it->second == sequence)
+        {
+            continue;
+        }
+        auto animation = animations.get(animationId);
+        if(!animation)
+        {
+            continue; // still loading: tried again next frame
+        }
+        a.animator.start(animationId, std::move(animation), now);
+        a.started[animationId] = sequence;
     }
     std::erase_if(a.started,
                   [&](const auto& entry)
                   {
-                      const bool still =
-                          playing && std::ranges::any_of(*playing, [&](const auto& p)
-                                                         { return p.id == entry.first; });
+                      const bool still = signaled.contains(entry.first);
                       if(!still)
                       {
                           a.animator.stop(entry.first, now);
                       }
                       return !still;
                   });
+}
+
+std::vector<Uuid> AvatarView::takeEndedAnimations(const Uuid& avatar)
+{
+    const auto it = avatars_.find(avatar);
+    return it != avatars_.end() ? it->second.animator.takeEnded() : std::vector<Uuid>{};
 }
 
 void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t originHandle,

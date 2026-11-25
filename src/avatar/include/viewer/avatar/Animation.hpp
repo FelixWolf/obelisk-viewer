@@ -16,8 +16,10 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace viewer::avatar
@@ -70,10 +72,11 @@ glm::vec3 samplePosition(const Animation::JointCurve& curve, float time);
 class Animator
 {
 public:
-    // Starts an animation unless it's already playing (a stopped one that
-    // is still easing out starts over).
+    // Starts an animation, unless it's playing in full already. One still
+    // easing in or out eases out under the new one
+    // (LLMotionController::startMotion).
     void start(const Uuid& id, std::shared_ptr<const Animation> animation, double now);
-    // Eases an animation out.
+    // Eases an animation out, after what follows its loop (if anything).
     void stop(const Uuid& id, double now);
     bool isPlaying(const Uuid& id) const;
     size_t count() const { return playing_.size(); }
@@ -87,6 +90,9 @@ public:
     void evaluate(double now, size_t jointCount, std::vector<JointPose>& pose);
     // Forgets what the joints were left with (the official "reset skeleton").
     void resetHeld() { held_.clear(); }
+    // The animations that came to their end (didn't loop) at the last
+    // evaluate(); told once.
+    std::vector<Uuid> takeEnded() { return std::exchange(ended_, {}); }
     // From the last evaluate(), per joint: the rotation weight (0 to 1)
     // animations of at least this priority hold on it, what the official
     // viewer's look-at (a MEDIUM, 1, priority motion, started before any
@@ -100,15 +106,26 @@ private:
         Uuid id;
         std::shared_ptr<const Animation> animation;
         double start = 0.0;
-        double stop = -1.0; // < 0: not stopped
-        uint64_t order = 0; // later starts win ties
+        uint64_t order = 0;            // later starts win ties
+        double told = -1.0;            // when told to stop; < 0: not
+        double stop = -1.0;            // when it starts easing out
+        bool ended = false;            // stopped by itself
+        bool done = false;             // nothing left to show
+        std::optional<double> updated; // last evaluated
+
+        bool stopped() const { return told >= 0.0; }
     };
+    static bool stopAtEnd(Playing& p, double now);
+    static void stopPlaying(Playing& p, double now);
+    static float weightAt(const Playing& p, double now);
+    static float timeAt(const Playing& p, double now);
 
     std::vector<Playing> playing_;
     uint64_t nextOrder_ = 0;
     // Per joint: the rotation and position animations last gave it.
     std::vector<JointPose> held_;
     std::vector<float> claims_;
+    std::vector<Uuid> ended_;
 };
 
 } // namespace viewer::avatar

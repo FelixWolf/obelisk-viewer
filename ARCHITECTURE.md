@@ -1957,7 +1957,15 @@ and out with a cubic step, animations that don't loop stopping early enough
 to ease out by their end. Per joint, the highest priority (then latest)
 animation comes first and lower ones only fill what's left of a total weight
 of one (llpose.cpp's LLJointStateBlender). Animated rotations replace the
-joint's; animated positions replace the shaped ones.
+joint's; animated positions replace the shaped ones. Priorities go to 6 for
+an animation; a joint's own isn't limited.
+
+A new sequence number leaves an animation playing in full alone; one easing
+in or out eases out under a new instance (LLMotionController::startMotion).
+A looping animation told to stop no longer loops: it plays on past its loop
+out point before easing out. Our own animations that come to their end are
+reported (AgentAnimation), or the simulator would go on counting them as
+playing. Animated objects play what any prim of their link set started.
 
 A joint no animation moves keeps the rotation and position the last one gave
 it, even after that animation has stopped. The official viewer's blender

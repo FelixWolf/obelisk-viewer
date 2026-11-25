@@ -890,6 +890,24 @@ void Session::teleportTo(uint64_t regionHandle, protocol::Vector3 position)
     sendTeleportRequest(regionHandle, position);
 }
 
+void Session::stopAnimations(std::span<const Uuid> animations)
+{
+    const Region* main = mainRegion();
+    if(!main || !login_)
+    {
+        return;
+    }
+    for(const Uuid& id : animations)
+    {
+        msg::AgentAnimation m;
+        m.AgentData.AgentID = login_->agentId;
+        m.AgentData.SessionID = login_->sessionId;
+        m.AnimationList.push_back({id, false});
+        m.PhysicalAvatarEventList.emplace_back();
+        send(*main, m, true);
+    }
+}
+
 void Session::say(std::string_view text, int32_t channel, uint8_t type)
 {
     const Region* main = mainRegion();

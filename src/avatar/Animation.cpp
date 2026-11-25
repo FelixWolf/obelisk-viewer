@@ -13,7 +13,7 @@ namespace
 
 constexpr uint16_t kVersion = 1;
 constexpr uint16_t kSubVersion = 0;
-constexpr int kHighestPriority = 4; // LLJoint::HIGHEST_PRIORITY
+constexpr int kHighestBasePriority = 6; // below LLJoint::ADDITIVE_PRIORITY
 constexpr float kMaxPelvisOffset = 5.0f;
 constexpr float kMaxDuration = 60.0f;
 constexpr uint32_t kMaxJoints = 216;
@@ -126,7 +126,7 @@ std::expected<Animation, std::string> parseAnimation(std::span<const uint8_t> da
     {
         return std::unexpected(std::string("bad timing"));
     }
-    a.basePriority = std::clamp(static_cast<int>(priority), 0, kHighestPriority);
+    a.basePriority = std::clamp(static_cast<int>(priority), -1, kHighestBasePriority);
     a.loop = loop != 0;
 
     uint32_t jointCount = 0;
@@ -144,9 +144,7 @@ std::expected<Animation, std::string> parseAnimation(std::span<const uint8_t> da
             return std::unexpected(std::string("truncated joint"));
         }
         // -1: the animation's priority.
-        curve.priority = jointPriority < 0
-                             ? a.basePriority
-                             : std::min(static_cast<int>(jointPriority), kHighestPriority);
+        curve.priority = jointPriority < 0 ? a.basePriority : static_cast<int>(jointPriority);
         for(int32_t k = 0; k < keys; k++)
         {
             uint16_t t = 0;
@@ -232,29 +230,113 @@ glm::vec3 samplePosition(const Animation::JointCurve& curve, float time)
     return t > 0.0f ? glm::mix(key->value, (key + 1)->value, t) : key->value;
 }
 
+// Animations that don't loop stop by themselves, early enough to ease out by
+// their end (llmotioncontroller.cpp).
+bool Animator::stopAtEnd(Playing& p, double now)
+{
+    const Animation& a = *p.animation;
+    if(p.stopped() || a.loop || a.duration <= 0.0f)
+    {
+        return false;
+    }
+    const double end = p.start + static_cast<double>(std::max(a.duration - a.easeOut, 0.0f));
+    if(now <= end)
+    {
+        return false;
+    }
+    p.told = p.stop = end;
+    p.ended = true;
+    return true;
+}
+
+float Animator::weightAt(const Playing& p, double now)
+{
+    const Animation& a = *p.animation;
+    // Easing out starts from the weight it had got to.
+    const double until = p.stopped() ? std::min(now, p.stop) : now;
+    const auto in = static_cast<float>(until - p.start);
+    float weight = a.easeIn > 0.0f ? cubicStep(in / a.easeIn) : 1.0f;
+    if(p.ended && p.stop <= p.start)
+    {
+        weight = 1.0f; // no longer than its ease out: all of it eases out
+    }
+    if(p.stopped() && now > p.stop)
+    {
+        weight *= a.easeOut > 0.0f ? cubicStep(1.0f - static_cast<float>(now - p.stop) / a.easeOut)
+                                   : 0.0f;
+    }
+    return weight;
+}
+
+// Where in the animation it is (llkeyframemotion.cpp onUpdate).
+float Animator::timeAt(const Playing& p, double now)
+{
+    const Animation& a = *p.animation;
+    if(a.loop && a.duration == 0.0f)
+    {
+        return 0.0f;
+    }
+    auto looped = [&](double at)
+    {
+        const auto time = static_cast<float>(std::max(at - p.start, 0.0));
+        if(!a.loop || time <= a.loopOut)
+        {
+            return time;
+        }
+        const float length = a.loopOut - a.loopIn;
+        return length != 0.0f ? a.loopIn + std::fmod(time - a.loopOut, length) : a.loopOut;
+    };
+    // Once told to stop it no longer loops: it plays on to its end.
+    const float time = p.stopped() && now > p.told
+                           ? looped(p.told) + static_cast<float>(now - p.told)
+                           : looped(now);
+    return std::min(time, a.duration);
+}
+
 void Animator::start(const Uuid& id, std::shared_ptr<const Animation> animation, double now)
 {
     for(Playing& p : playing_)
     {
-        if(p.id == id)
+        if(p.id != id || p.stopped() || stopAtEnd(p, now))
         {
-            if(p.stop >= 0.0)
-            {
-                p = {id, std::move(animation), now, -1.0, nextOrder_++};
-            }
-            return;
+            continue;
         }
+        if(weightAt(p, now) >= 1.0f)
+        {
+            return; // keeps playing
+        }
+        stopPlaying(p, now);
     }
-    playing_.push_back({id, std::move(animation), now, -1.0, nextOrder_++});
+    playing_.push_back({id, std::move(animation), now, nextOrder_++});
+}
+
+// As LLKeyframeMotion::setStopTime: one with more after its loop plays that
+// before easing out.
+void Animator::stopPlaying(Playing& p, double now)
+{
+    if(p.stopped())
+    {
+        return;
+    }
+    const Animation& a = *p.animation;
+    p.told = p.stop = now;
+    if(a.loop && a.loopOut != a.duration)
+    {
+        const double length = static_cast<double>(a.loopOut) - static_cast<double>(a.loopIn);
+        const double into =
+            length != 0.0 ? std::fmod(now - p.start - static_cast<double>(a.loopIn), length) : 0.0;
+        p.stop = std::max(now, now - into + static_cast<double>(a.duration) -
+                                   static_cast<double>(a.loopIn) - static_cast<double>(a.easeOut));
+    }
 }
 
 void Animator::stop(const Uuid& id, double now)
 {
     for(Playing& p : playing_)
     {
-        if(p.id == id && p.stop < 0.0)
+        if(p.id == id)
         {
-            p.stop = now;
+            stopPlaying(p, now);
         }
     }
 }
@@ -262,12 +344,13 @@ void Animator::stop(const Uuid& id, double now)
 bool Animator::isPlaying(const Uuid& id) const
 {
     return std::ranges::any_of(playing_,
-                               [&](const Playing& p) { return p.id == id && p.stop < 0.0; });
+                               [&](const Playing& p) { return p.id == id && !p.stopped(); });
 }
 
 void Animator::evaluate(double now, size_t jointCount, std::vector<JointPose>& pose)
 {
     pose.assign(jointCount, JointPose{});
+    ended_.clear();
 
     struct State
     {
@@ -282,38 +365,24 @@ void Animator::evaluate(double now, size_t jointCount, std::vector<JointPose>& p
     for(Playing& p : playing_)
     {
         const Animation& a = *p.animation;
-        const auto elapsed = static_cast<float>(now - p.start);
-
-        // Animations that don't loop stop by themselves, early enough to
-        // ease out by their end (llmotioncontroller.cpp).
-        if(p.stop < 0.0 && !a.loop && a.duration > 0.0f &&
-           elapsed > std::max(a.duration - a.easeOut, 0.0f))
+        if(stopAtEnd(p, now))
         {
-            p.stop = p.start + std::max(a.duration - a.easeOut, 0.0f);
+            ended_.push_back(p.id);
         }
-
-        float weight = a.easeIn > 0.0f ? cubicStep(elapsed / a.easeIn) : 1.0f;
-        if(p.stop >= 0.0)
+        float weight = weightAt(p, now);
+        float time = timeAt(p, now);
+        if(p.stopped() && now > p.stop + static_cast<double>(a.easeOut))
         {
-            const auto sinceStop = static_cast<float>(now - p.stop);
-            weight *= a.easeOut > 0.0f ? cubicStep(1.0f - sinceStop / a.easeOut) : 0.0f;
-        }
-
-        // Where in the animation we are (llkeyframemotion.cpp onUpdate).
-        float time = std::max(elapsed, 0.0f);
-        if(a.loop)
-        {
-            if(a.duration == 0.0f)
+            // Over since the last evaluation: its last moment shows once (it
+            // may be what a joint is left with).
+            p.done = p.updated ? *p.updated > p.stop : !p.ended;
+            if(!p.done)
             {
-                time = 0.0f;
-            }
-            else if(time > a.loopOut)
-            {
-                const float length = a.loopOut - a.loopIn;
-                time = length > 0.0f ? a.loopIn + std::fmod(time - a.loopOut, length) : a.loopOut;
+                weight = p.ended ? 1.0f : weightAt(p, p.stop);
+                time = timeAt(p, p.stop);
             }
         }
-        time = std::min(time, a.duration);
+        p.updated = now;
 
         for(const Animation::JointCurve& curve : a.joints)
         {
@@ -324,8 +393,7 @@ void Animator::evaluate(double now, size_t jointCount, std::vector<JointPose>& p
             }
         }
     }
-    std::erase_if(playing_, [&](const Playing& p)
-                  { return p.stop >= 0.0 && now - p.stop >= p.animation->easeOut; });
+    std::erase_if(playing_, [](const Playing& p) { return p.done; });
 
     // Per joint, as LLJointStateBlender: highest priority (then latest)
     // first; each later state only fills what's left of a total weight of 1.

@@ -2446,6 +2446,11 @@ void App::buildSceneOf(render::Scene& scene, bool home)
             const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
             avatars_->addTo(scene, *world_, *originHandle_, *textures_, *animations_, *meshes_, now,
                             128.0f);
+            if(session_ && session_->login())
+            {
+                session_->stopAnimations(
+                    avatars_->takeEndedAnimations(session_->login()->agentId));
+            }
         }
         profile_.mark(FrameProfile::Avatars);
         placeHud(scene);

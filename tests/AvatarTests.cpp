@@ -247,15 +247,102 @@ TEST_CASE("Animation: parse, sample, ease and blend")
     animator.evaluate(2.6, avatar->skeleton.joints.size(), pose);
     CHECK(animator.count() == 0);
     // Gone, the joint keeps what they last gave it (an animation deformer's
-    // positions stay): b's, the higher priority.
+    // positions stay): b at 1.25 s and a held at its end (stopped, it no
+    // longer loops), half each.
     REQUIRE(pose[static_cast<size_t>(pelvis)].rotation.has_value());
-    CHECK(angleAboutZ(*pose[static_cast<size_t>(pelvis)].rotation) < 0.0f);
+    CHECK(angleAboutZ(*pose[static_cast<size_t>(pelvis)].rotation) ==
+          doctest::Approx(quarter * (1.0f - 0.625f) / 2.0f).epsilon(0.03));
     REQUIRE(pose[static_cast<size_t>(pelvis)].position.has_value());
     CHECK(pose[static_cast<size_t>(pelvis)].position->z == doctest::Approx(0.1f).epsilon(0.01));
     CHECK_FALSE(pose[static_cast<size_t>(avatar->skeleton.find("mHead"))].rotation.has_value());
     animator.resetHeld();
     animator.evaluate(2.7, avatar->skeleton.joints.size(), pose);
     CHECK_FALSE(pose[static_cast<size_t>(pelvis)].rotation.has_value());
+}
+
+TEST_CASE("Animator: layers, restarts, loop ends and one-offs")
+{
+    const auto avatar = BaseAvatar::load(VIEWER_CHARACTER_DIR);
+    REQUIRE(avatar.has_value());
+    const size_t joints = avatar->skeleton.joints.size();
+    const auto pelvis = static_cast<size_t>(avatar->skeleton.find("mPelvis"));
+    const float quarter = 3.14159265f / 2.0f;
+    auto make = [&](int32_t priority, float turn)
+    {
+        auto parsed = parseAnimation(makeAnimation(priority, "mPelvis", turn));
+        REQUIRE(parsed.has_value());
+        parsed->bind(avatar->skeleton);
+        return *parsed;
+    };
+    auto share = [](const Animation& a) { return std::make_shared<const Animation>(a); };
+    const viewer::Uuid a = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000a");
+    const viewer::Uuid b = *viewer::Uuid::parse("00000000-0000-0000-0000-00000000000b");
+    std::vector<JointPose> pose;
+    auto angle = [&](Animator& animator, double now)
+    {
+        animator.evaluate(now, joints, pose);
+        REQUIRE(pose[pelvis].rotation.has_value());
+        return angleAboutZ(*pose[pelvis].rotation) / quarter;
+    };
+
+    // Priority 6 stays over a later priority 5; more is 6.
+    CHECK(make(9, quarter).basePriority == 6);
+    {
+        Animator animator;
+        animator.start(a, share(make(6, quarter)), 0.0);
+        animator.start(b, share(make(5, -quarter)), 0.0);
+        CHECK(angle(animator, 1.0) == doctest::Approx(0.5f).epsilon(0.01));
+    }
+    // Started again in full: plays on. Easing in: a new one.
+    {
+        Animator animator;
+        animator.start(a, share(make(2, quarter)), 0.0);
+        animator.start(a, share(make(2, quarter)), 1.0);
+        CHECK(animator.count() == 1);
+        CHECK(angle(animator, 1.5) == doctest::Approx(0.75f).epsilon(0.01));
+        animator.stop(a, 1.6);
+        animator.start(a, share(make(2, quarter)), 1.7);
+        CHECK(animator.count() == 2);
+        CHECK(animator.isPlaying(a));
+        animator.stop(a, 1.8);
+        CHECK_FALSE(animator.isPlaying(a));
+    }
+    // Loops, then plays what follows the loop once stopped.
+    {
+        Animation looping = make(2, quarter);
+        looping.loopIn = 0.5f;
+        looping.loopOut = 1.0f;
+        looping.easeIn = 0.0f;
+        Animator animator;
+        animator.start(a, share(looping), 0.0);
+        CHECK(angle(animator, 1.75) == doctest::Approx(0.375f).epsilon(0.02)); // at 0.75
+        animator.stop(a, 1.75); // eases out from 2.5 (at 1.5) to 3.0 (at 2.0)
+        CHECK(angle(animator, 2.5) == doctest::Approx(0.75f).epsilon(0.02));
+        CHECK(animator.rotationClaims()[pelvis] == doctest::Approx(1.0f));
+        CHECK(angle(animator, 2.75) == doctest::Approx(0.875f).epsilon(0.02));
+        CHECK(animator.rotationClaims()[pelvis] == doctest::Approx(0.5f));
+        animator.evaluate(3.1, joints, pose);
+        CHECK(animator.count() == 0);
+    }
+    // A one-off: told of once when it ends, and its last moment isn't missed.
+    {
+        Animation once = make(2, quarter);
+        once.loop = false;
+        once.easeIn = 0.0f;
+        once.easeOut = 0.0f;
+        Animator animator;
+        animator.start(a, share(once), 0.0);
+        animator.evaluate(0.5, joints, pose);
+        CHECK(animator.takeEnded().empty());
+        CHECK(angle(animator, 2.5) == doctest::Approx(1.0f).epsilon(0.01));
+        CHECK(animator.takeEnded() == std::vector{a});
+        CHECK(animator.takeEnded().empty());
+        animator.evaluate(2.6, joints, pose);
+        CHECK(animator.count() == 0);
+        CHECK(animator.takeEnded().empty());
+        animator.start(a, share(once), 3.0); // again
+        CHECK(angle(animator, 4.0) == doctest::Approx(0.5f).epsilon(0.01));
+    }
 }
 
 TEST_CASE("Shape: morphs that follow clothing go by their bake's morph mask")

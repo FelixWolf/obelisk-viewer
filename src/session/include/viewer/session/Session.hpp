@@ -357,6 +357,10 @@ public:
     // Standing up is a control flag (control::kStandUp).
     void requestSit(uint64_t regionHandle, const Uuid& object, protocol::Vector3 offset);
 
+    // Our animations that came to their end (AgentAnimation): the simulator
+    // counts them as playing until told, as LLAgent::requestStopMotion.
+    void stopAnimations(std::span<const Uuid> animations);
+
     // Local chat (ChatFromViewer) to the main region: on a channel (0 is
     // what people hear), whispered (0), said (1) or shouted (2); 4 and 5
     // tell others we started or stopped typing.

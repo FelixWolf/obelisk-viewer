@@ -230,6 +230,9 @@ public:
         std::optional<uint8_t> material;
     };
     using GroundBelow = std::function<std::optional<Ground>(const glm::vec3& top, float depth)>;
+    // An avatar's animations that came to their end this frame (after
+    // addTo): for ours, the simulator is told. Told once.
+    std::vector<Uuid> takeEndedAnimations(const Uuid& avatar);
     // The footsteps of avatars drawn this frame (after addTo).
     std::vector<Footstep> footsteps(const world::World& world, uint64_t originHandle,
                                     const GroundBelow& ground);
@@ -291,6 +294,8 @@ private:
     std::optional<std::pair<uint64_t, uint64_t>> collectedAt_;
     std::chrono::steady_clock::time_point collectedTime_{};
     static constexpr auto kCollectInterval = std::chrono::milliseconds(250);
+    std::unordered_map<Uuid, std::vector<Uuid>>
+        animatedParts_;                             // animated objects' other prims, by root
     std::unordered_map<Uuid, uint64_t> bakesInUse_; // bit per texture entry index, by avatar
     // By skin; holds the skin, so its address isn't reused.
     mutable std::unordered_map<const assets::MeshSkin*,
