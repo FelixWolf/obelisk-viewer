@@ -15,7 +15,8 @@
 //    COF (UpdateAvatarAppearance, with the COF's version, asked for again
 //    after the changes; the simulator answers "expected" when the version
 //    is stale, and is asked again with that one). Our new look comes as
-//    AvatarAppearance, as anyone's.
+//    AvatarAppearance, as anyone's; if one made from that version doesn't,
+//    the simulator is asked to send it.
 //
 // The COF and its links are fetched once (AISv3's "current" alias) before
 // any change, so links aren't made twice.
@@ -103,6 +104,11 @@ public:
     // those that arrived or went; wearables' changes sent, and our look
     // asked for once they're in. Each frame or so.
     void update(const std::unordered_set<Uuid>& worn, double now);
+    // Our look was made but hasn't come (the COF version of the one we have;
+    // -1: unknown): time to ask the simulator to send it. After a while, and
+    // a few times.
+    static constexpr int kAppearanceRequests = 3;
+    bool takeAppearanceRequest(int have, double now);
     void clear();
 
 private:
@@ -152,6 +158,15 @@ private:
     bool lookWanted_ = false;
     Look look_ = Look::Idle;
     int retries_ = 0;
+    int askedVersion_ = -1; // of the look asked for
+    // A look made, until it comes.
+    struct Awaited
+    {
+        int version = -1;
+        int requests = 0;
+        double due = 0.0;
+    };
+    std::optional<Awaited> awaited_;
     bool fetched_ = false;
     bool fetching_ = false;
     uint64_t generation_ = 0;

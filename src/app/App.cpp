@@ -2191,6 +2191,12 @@ void App::updateOutfit()
             }
         }
     }
+    // Our look, made but not here.
+    const world::World::Appearance* appearance = world_->appearance(login->agentId);
+    if(currentOutfit_->takeAppearanceRequest(appearance ? appearance->cofVersion : -1, now))
+    {
+        session_->requestAvatarAppearance(login->agentId);
+    }
     // An outfit put on: its attachments on (five a frame, as the login's),
     // the others off.
     const auto changes = currentOutfit_->takeAttachmentChanges(worn_);

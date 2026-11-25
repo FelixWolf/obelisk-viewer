@@ -8,6 +8,15 @@
 namespace viewer
 {
 
+namespace
+{
+
+// How long a look that's been made may take to come, doubled each time it's
+// asked for (seconds).
+constexpr double kAppearanceWait = 2.0;
+
+} // namespace
+
 CurrentOutfit::CurrentOutfit(net::HttpClient& http, inventory::Ais& ais, inventory::Model& model)
     : http_(http), ais_(ais), model_(model),
       requests_(std::make_unique<net::HttpRequestGroup>(http))
@@ -334,6 +343,8 @@ void CurrentOutfit::askForLook(int version)
         return;
     }
     look_ = Look::Asking;
+    askedVersion_ = version;
+    awaited_.reset(); // (an older one)
     log::info("outfit: asking for our look from the Current Outfit Folder (version {})", version);
     llsd::Value body;
     body["cof_version"] = version;
@@ -365,6 +376,7 @@ void CurrentOutfit::update(const std::unordered_set<Uuid>& worn, double now)
             look_ = Look::Idle;
             retries_ = 0;
             changing_.clear();
+            awaited_ = Awaited{askedVersion_, 0, now + kAppearanceWait};
             continue;
         }
         // A stale version: again with the one expected.
@@ -467,8 +479,41 @@ void CurrentOutfit::update(const std::unordered_set<Uuid>& worn, double now)
                   });
 }
 
+bool CurrentOutfit::takeAppearanceRequest(int have, double now)
+{
+    if(!awaited_)
+    {
+        return false;
+    }
+    if(have >= awaited_->version)
+    {
+        log::info("outfit: our look came (version {}, asked for {} more time(s))", have,
+                  awaited_->requests);
+        awaited_.reset();
+        return false;
+    }
+    if(now < awaited_->due)
+    {
+        return false;
+    }
+    if(awaited_->requests >= kAppearanceRequests)
+    {
+        log::warn("outfit: our look (version {}) didn't come; we have version {}",
+                  awaited_->version, have);
+        awaited_.reset();
+        return false;
+    }
+    awaited_->requests++;
+    awaited_->due = now + kAppearanceWait * static_cast<double>(1 << awaited_->requests);
+    log::info("outfit: our look (version {}) hasn't come (we have version {}): asking for it",
+              awaited_->version, have);
+    return true;
+}
+
 void CurrentOutfit::clear()
 {
+    awaited_.reset();
+    askedVersion_ = -1;
     requests_ = std::make_unique<net::HttpRequestGroup>(http_);
     attaching_.clear();
     detaching_.clear();

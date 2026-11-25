@@ -919,9 +919,10 @@ std::string AvatarView::physicsText(const world::World& world, const world::Obje
     const auto it = avatars_.find(avatar.id);
     const world::World::Appearance* appearance = world.appearance(avatar.id);
     std::string text = std::format(
-        "physics: {}, {} body, {} of {} parameters sent\n",
+        "physics: {}, {} body, {} of {} parameters sent, outfit version {}\n",
         physicsOn_ ? "on" : "off", body.weights.sex() == avatar::Sex::Male ? "male" : "female",
-        appearance ? appearance->visualParams.size() : size_t{0}, base_.transmitted.size());
+        appearance ? appearance->visualParams.size() : size_t{0}, base_.transmitted.size(),
+        appearance ? appearance->cofVersion : -1);
     for(const auto& [id, p] : base_.params)
     {
         if(p.transmitted() && p.name.contains("_Physics_"))

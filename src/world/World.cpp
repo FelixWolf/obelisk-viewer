@@ -512,6 +512,10 @@ WorldUpdate decodeMessage(uint64_t regionHandle, const protocol::CircuitEvent& e
                     }
                 }
                 a.appearance.attachments = worn.size();
+                if(!m->AppearanceData.empty())
+                {
+                    a.appearance.cofVersion = m->AppearanceData[0].CofVersion;
+                }
                 // No hover block: the region doesn't do hover (llvoavatar.cpp).
                 if(!m->AppearanceHover.empty())
                 {

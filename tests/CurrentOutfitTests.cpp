@@ -221,12 +221,35 @@ TEST_CASE("Current outfit: wearing clothing, then asking for our look")
     outfit.update({}, 0.5);
     CHECK_FALSE(outfit.pending(id(11)));
 
+    // Made, but it doesn't come (ours is of an older version): asked for
+    // after a while, ever less often, then given up on.
+    CHECK_FALSE(outfit.takeAppearanceRequest(7, 1.0));
+    CHECK(outfit.takeAppearanceRequest(7, 3.0));
+    CHECK_FALSE(outfit.takeAppearanceRequest(7, 4.0));
+    CHECK(outfit.takeAppearanceRequest(-1, 8.0));
+    CHECK(outfit.takeAppearanceRequest(7, 20.0));
+    CHECK_FALSE(outfit.takeAppearanceRequest(7, 60.0));
+    CHECK_FALSE(outfit.takeAppearanceRequest(7, 90.0));
+
     // Taking off: its link removed, our look asked for again.
     outfit.takeOff(id(11));
     outfit.update({}, 1.0);
     REQUIRE(http.sent.size() == 7);
     CHECK(http.sent[6].request.method == net::HttpMethod::Delete);
     CHECK(http.sent[6].request.url.ends_with(id(22).toString()));
+    http.answer(6, "<llsd><map/></llsd>");
+    ais.update();
+    outfit.update({}, 1.1);
+    REQUIRE(http.sent.size() == 8);
+    http.answer(7, folderReply(cof, linkXml(id(21), cof, id(12)), 9));
+    ais.update();
+    REQUIRE(http.sent.size() == 9);
+    CHECK(asked(8) == 9);
+    http.answer(8, "<llsd><map><key>success</key><boolean>1</boolean></map></llsd>");
+    outfit.update({}, 1.2);
+    // It came by itself: not asked for.
+    CHECK_FALSE(outfit.takeAppearanceRequest(9, 1.5));
+    CHECK_FALSE(outfit.takeAppearanceRequest(8, 30.0));
 }
 
 TEST_CASE("Current outfit: wearing an outfit instead of what's worn")
