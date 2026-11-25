@@ -1,5 +1,7 @@
 #include "LoginPanel.hpp"
 
+#include "TermsPage.hpp"
+
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -238,6 +240,11 @@ void LoginPanel::drawPrompt(LoginAction& action)
         ImGui::BeginChild("message", ImVec2(0, 200), ImGuiChildFlags_Borders);
         ImGui::TextWrapped("%s", flow_.message().c_str());
         ImGui::EndChild();
+        const auto account = flow_.account();
+        if(tos && account && usesLindenTerms(account->loginUri))
+        {
+            ImGui::TextLinkOpenURL("Read the Terms of Service in your web browser", kTermsUrl);
+        }
         ImGui::Checkbox(tos ? "I agree to the Terms of Service" : "I have read this message",
                         &accepted_);
         ImGui::BeginDisabled(!accepted_);

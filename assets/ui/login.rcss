@@ -116,14 +116,31 @@ input.field
 }
 
 .toggle { margin: 14dp 0 4dp 0; }
+.toggle .box { flex-shrink: 0; }
+.toggle span { display: block; flex: 0 1 auto; }
 
 .message
 {
-    max-height: 340dp;
+    max-height: 430dp;
     overflow-y: auto;
     padding: 12dp;
-    white-space: pre-wrap;
 }
+.message .prompt-text { white-space: pre-wrap; margin-bottom: 12dp; }
+/* The terms, read from their web page. */
+.terms .block { margin-bottom: 12dp; font-size: 18dp; }
+.terms .block.heading { font-size: 20dp; color: #ffffff; margin-top: 8dp; }
+.terms .block.item { margin-left: 22dp; margin-bottom: 6dp; }
+.terms .bold { color: #ffffff; font-weight: bold; }
+.terms .weblink { color: #ffc24a; cursor: pointer; }
+.terms .weblink:hover { color: #ffe0a0; }
+.terms-browser
+{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-top: 10dp;
+}
+.terms-browser .button { margin: 0 12dp 0 0; padding: 7dp 14dp; font-size: 15dp; }
 
 .actions
 {

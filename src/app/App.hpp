@@ -319,9 +319,6 @@ private:
     bool mainMenuOverWindow() const;
     glm::vec4 mainMenuRect() const;
     bool mainMenuPressed_ = false; // the mouse button went down on it
-    // The login screen (RmlUi; the ImGui panel if it couldn't be made):
-    // shown until we're in the world.
-    std::unique_ptr<LoginScreen> loginScreen_;
     std::unique_ptr<AccountPicture> accountPicture_;
     Uuid profilePicture_; // ours, this login (null: none, or not known yet)
     bool loginScreenShown() const;
@@ -395,6 +392,10 @@ private:
     // lobby's boards showing its news and status.
     std::unique_ptr<ViewerConfig> viewerConfig_;
     std::unique_ptr<LobbyBoards> boards_;
+    // The login screen (RmlUi; the ImGui panel if it couldn't be made):
+    // shown until we're in the world. (After http_: it asks it for the
+    // terms of service, and cancels that when it goes.)
+    std::unique_ptr<LoginScreen> loginScreen_;
     std::unique_ptr<Updater> updater_; // null: this build doesn't update itself
     GridPopulation population_;        // people in regions, for the main menu
     ParcelInfo parcel_;                // the parcel we're on, for the main menu

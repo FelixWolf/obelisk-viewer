@@ -32,14 +32,27 @@
         <!-- The terms of service, or a message to read, before going on. -->
         <div class="card panel" data-if="!busy && (prompt == 'terms' || prompt == 'critical')">
             <h3>{{ prompt == 'terms' ? 'Terms of Service' : 'Please read' }}</h3>
-            <div class="message sunk">{{ promptText }}</div>
-            <div class="toggle check" data-class-on="accepted" data-event-click="accepted = !accepted">
+            <div class="message sunk">
+                <div class="prompt-text" data-if="promptText != ''">{{ promptText }}</div>
+                <div class="muted" data-if="termsState == 'loading'">Getting the Terms of Service...</div>
+                <div data-if="termsState == 'failed'">The Terms of Service couldn't be shown here. Please read them in your web browser before agreeing.</div>
+                <div class="terms" data-if="termsState == 'shown'">
+                    <div class="block" data-for="b : terms" data-class-heading="b.heading" data-class-item="b.item"><span data-for="t : b.spans" data-class-bold="t.bold" data-class-weblink="t.link != ''" data-event-click="openLink(t.link)">{{ t.text }}</span></div>
+                </div>
+            </div>
+            <div class="terms-browser" data-if="termsState != ''">
+                <div class="button key" data-event-click="openTerms">Open in browser</div>
+                <div class="muted" data-if="headset">Links open on your desktop.</div>
+            </div>
+            <div class="toggle check" data-if="termsState != 'loading'" data-class-on="accepted" data-event-click="accepted = !accepted">
                 <div class="box"></div>
-                <span>{{ prompt == 'terms' ? 'I agree to the Terms of Service' : 'I have read this message' }}</span>
+                <span data-if="prompt == 'critical'">I have read this message</span>
+                <span data-if="prompt == 'terms' && termsState == ''">I agree to the Terms of Service</span>
+                <span data-if="prompt == 'terms' && termsState != ''">I consent to the Linden Lab Terms of Service and the Second Life Terms and Conditions, and acknowledge receipt of the Privacy Policy.</span>
             </div>
             <div class="actions">
                 <div class="button key" data-event-click="dismiss">Cancel</div>
-                <div class="primary key orange" data-class-off="!accepted" data-event-click="accept">Continue</div>
+                <div class="primary key orange" data-class-off="!accepted || termsState == 'loading'" data-event-click="accept">Continue</div>
             </div>
         </div>
 

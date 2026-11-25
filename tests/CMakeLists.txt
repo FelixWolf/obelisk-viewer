@@ -10,6 +10,7 @@ add_executable(viewer_tests
   OutfitAttachmentsTests.cpp
   InventoryTests.cpp
   LoginFlowTests.cpp
+  TermsPageTests.cpp
   VrControlsTests.cpp
   CircuitTests.cpp
   DestinationsTests.cpp
@@ -72,6 +73,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/ViewerEffects.cpp
   ${PROJECT_SOURCE_DIR}/src/app/OutfitAttachments.cpp
   ${PROJECT_SOURCE_DIR}/src/app/LoginFlow.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/TermsPage.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SavedLogins.cpp
   ${PROJECT_SOURCE_DIR}/src/app/Settings.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ViewerSettings.cpp

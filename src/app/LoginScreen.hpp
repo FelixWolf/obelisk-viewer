@@ -12,10 +12,13 @@
 // takes its hash.
 
 #include "LoginFlow.hpp"
+#include "TermsPage.hpp"
 #include "Updater.hpp"
 
 #include "viewer/core/Branding.hpp"
+#include "viewer/core/MessageQueue.hpp"
 #include "viewer/gui/Gui.hpp"
+#include "viewer/net/HttpClient.hpp"
 #include "viewer/session/Credentials.hpp"
 #include "viewer/session/Session.hpp"
 
@@ -39,8 +42,8 @@ public:
     static constexpr glm::ivec2 kSize{720, 900};
 
     // Null if the interface can't be set up (the ImGui panel stays then).
-    static std::unique_ptr<LoginScreen> create(gui::Gui& gui, LoginFlow& flow,
-                                               const std::string& loginUri);
+    static std::unique_ptr<LoginScreen> create(gui::Gui& gui, net::HttpClient& http,
+                                               LoginFlow& flow, const std::string& loginUri);
     ~LoginScreen();
     LoginScreen(const LoginScreen&) = delete;
     LoginScreen& operator=(const LoginScreen&) = delete;
@@ -66,6 +69,10 @@ public:
     void setUpdateProblem(const std::string& problem);
     // Restart to update was clicked (once).
     bool takeRestart() { return std::exchange(restart_, false); }
+    // A link clicked (in the terms), to open in the web browser (once).
+    std::optional<std::string> takeLink() { return std::exchange(link_, std::nullopt); }
+    // In a headset: links are said to open on the desktop.
+    void setHeadset(bool headset);
 
     // A remembered account, as the page shows it.
     struct Account
@@ -79,6 +86,12 @@ public:
 
 private:
     LoginScreen() = default;
+    // The terms of service, asked for from the web; and what came of it.
+    void fetchTerms();
+    void termsArrived();
+    // Whether the prompt can be agreed to: its terms are shown (or can't
+    // be had, and are linked to).
+    bool acceptable() const { return termsState_ != "loading"; }
     void selectGrid(const std::string& loginUri);
     std::string start() const;
     void submitForm();
@@ -100,6 +113,12 @@ private:
     Rml::String prompt_; // "", "code", "terms", "critical", "error"
     Rml::String promptText_;
     Rml::String promptReason_;
+    // The grid's terms: "" (it only has its message), "loading", "shown"
+    // or "failed".
+    Rml::String termsState_;
+    std::vector<TermsBlock> terms_;
+    bool headset_ = false;
+    std::optional<std::string> link_;
     Rml::String code_;
     bool accepted_ = false;
     Rml::String username_;
@@ -115,6 +134,10 @@ private:
     bool updateReady_ = false;
     Rml::String updateProblem_;
     bool restart_ = false;
+
+    std::shared_ptr<MessageQueue<net::HttpResponse>> termsReplies_ =
+        std::make_shared<MessageQueue<net::HttpResponse>>();
+    std::unique_ptr<net::HttpRequestGroup> group_;
 };
 
 } // namespace viewer

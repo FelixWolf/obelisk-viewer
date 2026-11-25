@@ -40,12 +40,13 @@ void LoginScreen::put(const char* variable, T& field, T value)
     }
 }
 
-std::unique_ptr<LoginScreen> LoginScreen::create(gui::Gui& gui, LoginFlow& flow,
-                                                 const std::string& loginUri)
+std::unique_ptr<LoginScreen> LoginScreen::create(gui::Gui& gui, net::HttpClient& http,
+                                                 LoginFlow& flow, const std::string& loginUri)
 {
     std::unique_ptr<LoginScreen> screen(new LoginScreen);
     LoginScreen* s = screen.get();
     s->flow_ = &flow;
+    s->group_ = std::make_unique<net::HttpRequestGroup>(http);
     s->surface_ = gui.createSurface("login", kSize);
     if(!s->surface_)
     {
@@ -83,6 +84,35 @@ std::unique_ptr<LoginScreen> LoginScreen::create(gui::Gui& gui, LoginFlow& flow,
     model.Bind("prompt", &s->prompt_);
     model.Bind("promptText", &s->promptText_);
     model.Bind("promptReason", &s->promptReason_);
+    if(auto span = model.RegisterStruct<TermsSpan>())
+    {
+        span.RegisterMember("text", &TermsSpan::text);
+        span.RegisterMember("link", &TermsSpan::link);
+        span.RegisterMember("bold", &TermsSpan::bold);
+    }
+    model.RegisterArray<std::vector<TermsSpan>>();
+    if(auto block = model.RegisterStruct<TermsBlock>())
+    {
+        block.RegisterMember("heading", &TermsBlock::heading);
+        block.RegisterMember("item", &TermsBlock::item);
+        block.RegisterMember("spans", &TermsBlock::spans);
+    }
+    model.RegisterArray<std::vector<TermsBlock>>();
+    model.Bind("termsState", &s->termsState_);
+    model.Bind("terms", &s->terms_);
+    model.Bind("headset", &s->headset_);
+    model.BindEventCallback("openTerms", [s](Rml::DataModelHandle, Rml::Event&,
+                                             const Rml::VariantList&) { s->link_ = kTermsUrl; });
+    model.BindEventCallback("openLink",
+                            [s](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& a)
+                            {
+                                const auto url =
+                                    a.empty() ? Rml::String() : a[0].Get<Rml::String>();
+                                if(url.starts_with("https://"))
+                                {
+                                    s->link_ = url;
+                                }
+                            });
     model.Bind("code", &s->code_);
     model.Bind("accepted", &s->accepted_);
     model.Bind("username", &s->username_);
@@ -149,7 +179,7 @@ std::unique_ptr<LoginScreen> LoginScreen::create(gui::Gui& gui, LoginFlow& flow,
     model.BindEventCallback("accept",
                             [s](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList&)
                             {
-                                if(s->accepted_)
+                                if(s->accepted_ && s->acceptable())
                                 {
                                     s->action_ = s->flow_->accept();
                                     s->accepted_ = false;
@@ -305,6 +335,43 @@ void LoginScreen::wipeSecrets()
     }
 }
 
+void LoginScreen::setHeadset(bool headset)
+{
+    put("headset", headset_, headset);
+}
+
+void LoginScreen::fetchTerms()
+{
+    group_->cancelAll();
+    // Nothing of an earlier request's.
+    termsReplies_ = std::make_shared<MessageQueue<net::HttpResponse>>();
+    net::HttpRequest request;
+    request.url = kTermsUrl;
+    group_->send(std::move(request), [replies = termsReplies_](net::HttpResponse&& response)
+                 { replies->push(std::move(response)); });
+}
+
+void LoginScreen::termsArrived()
+{
+    std::vector<net::HttpResponse> replies;
+    if(!termsReplies_->drain(replies))
+    {
+        return;
+    }
+    const net::HttpResponse& reply = replies.back();
+    auto terms = reply.ok() ? parseTerms(reply.bodyText()) : std::vector<TermsBlock>();
+    const bool shown = plausibleTerms(terms);
+    if(!shown)
+    {
+        log::warn("the terms of service couldn't be had from {} (status {}) {}", kTermsUrl,
+                  reply.status, reply.errorMessage);
+        terms.clear();
+    }
+    terms_ = std::move(terms);
+    model_.DirtyVariable("terms");
+    put("termsState", termsState_, Rml::String(shown ? "shown" : "failed"));
+}
+
 LoginAction LoginScreen::update(const session::Session* session)
 {
     using session::SessionState;
@@ -352,6 +419,7 @@ LoginAction LoginScreen::update(const session::Session* session)
     // What the grid asked back.
     using Prompt = LoginFlow::Prompt;
     const Prompt p = flow_->prompt();
+    const Rml::String promptBefore = prompt_;
     put("prompt", prompt_,
         Rml::String(p == Prompt::Code       ? "code"
                     : p == Prompt::Terms    ? "terms"
@@ -360,6 +428,27 @@ LoginAction LoginScreen::update(const session::Session* session)
                                             : ""));
     put("promptText", promptText_, Rml::String(p == Prompt::None ? "" : flow_->message()));
     put("promptReason", promptReason_, Rml::String(p == Prompt::Error ? flow_->reason() : ""));
+
+    if(prompt_ != promptBefore)
+    {
+        // Agreed to anew each time it's asked.
+        put("accepted", accepted_, false);
+        const auto account = flow_->account();
+        const bool linden = p == Prompt::Terms && account && usesLindenTerms(account->loginUri);
+        terms_.clear();
+        model_.DirtyVariable("terms");
+        put("termsState", termsState_, Rml::String(linden ? "loading" : ""));
+        if(linden)
+        {
+            fetchTerms();
+        }
+        else
+        {
+            group_->cancelAll();
+            termsReplies_ = std::make_shared<MessageQueue<net::HttpResponse>>();
+        }
+    }
+    termsArrived();
 
     surface_->update();
     return std::exchange(action_, LoginAction{});

@@ -735,7 +735,8 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->loginPanel_ = std::make_unique<LoginPanel>(*app->loginFlow_, options.loginUri);
     if(app->gui_)
     {
-        app->loginScreen_ = LoginScreen::create(*app->gui_, *app->loginFlow_, options.loginUri);
+        app->loginScreen_ = LoginScreen::create(*app->gui_, *app->http_, *app->loginFlow_,
+                                                options.loginUri);
     }
     if(!app->loginScreen_)
     {
@@ -5792,7 +5793,16 @@ void App::drawUi()
         {
             loginScreen_->setUpdate(updater_->status());
         }
+        loginScreen_->setHeadset(headset_ && headset_->running());
         handleLoginAction(loginScreen_->update(session_.get()));
+        if(const auto link = loginScreen_->takeLink())
+        {
+            log::info("opening {} in the web browser", *link);
+            if(!SDL_OpenURL(link->c_str()))
+            {
+                log::warn("the web browser couldn't be opened: {}", SDL_GetError());
+            }
+        }
         if(loginScreen_->takeRestart() && updater_)
         {
             if(updater_->restart())

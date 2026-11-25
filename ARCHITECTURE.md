@@ -320,7 +320,10 @@ The login server's prompts come back as failures with a reason: `tos` and
 `critical` (the user must accept, then we retry with `agree_to_tos` /
 `read_critical`), and `mfa_challenge` (retry with the user's token). The
 retry reuses the last attempt's parameters, so the password isn't needed
-again. Only the `$1$` MD5 hash of the password is kept, and the plain text is
+again. For `tos` on Linden Lab's grids the login screen fetches the agreement
+(`kTermsUrl`, the official viewer's page), shows its text and https links
+(`parseTerms`: none of the page's markup reaches our interface), and takes no
+agreement before it's there; if it can't be had, it's linked to instead. Only the `$1$` MD5 hash of the password is kept, and the plain text is
 wiped from the input buffer as soon as it's hashed.
 
 That conversation is `LoginFlow` (app), apart from any UI: it starts

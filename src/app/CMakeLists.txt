@@ -36,6 +36,7 @@ add_executable(viewer
   LoginPanel.cpp
   LoginScreen.cpp
   LoginFlow.cpp
+  TermsPage.cpp
   SavedLogins.cpp
   LegacyMaterialManager.cpp
   MaterialManager.cpp
