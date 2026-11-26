@@ -263,16 +263,35 @@ void Renderer::drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene,
                            SDL_GPUTexture* target, uint32_t width, uint32_t height,
                            const FrameVS& frameVs)
 {
-    if(scene.highlight == 0 || width == 0 || height == 0)
+    if(width == 0 || height == 0)
     {
         return;
     }
-    // The prim's draws: the same pick id, any face.
+    // The hovered prim in gold (the same pick id, any face); the face with
+    // the keyboard in blue (that face only), over it.
+    if(scene.highlight != 0)
+    {
+        drawOutline(commands, scene, target, width, height, frameVs, scene.highlight, false,
+                    glm::vec4(1.0f, 0.85f, 0.35f, 0.9f));
+    }
+    if(scene.focusHighlight != 0)
+    {
+        drawOutline(commands, scene, target, width, height, frameVs, scene.focusHighlight, true,
+                    glm::vec4(0.35f, 0.75f, 1.0f, 0.95f));
+    }
+}
+
+void Renderer::drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                           SDL_GPUTexture* target, uint32_t width, uint32_t height,
+                           const FrameVS& frameVs, uint64_t pickId, bool faceOnly,
+                           const glm::vec4& outlineColor)
+{
     std::vector<const ObjectDraw*> draws;
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(draw.pickId >> 8 == scene.highlight >> 8 && !draw.hud && !draw.pickTransparentOnly &&
-           draw.mesh && *draw.mesh && draw.mesh->layout == VertexLayout::Object)
+        const bool same = faceOnly ? draw.pickId == pickId : draw.pickId >> 8 == pickId >> 8;
+        if(same && !draw.hud && !draw.pickTransparentOnly && draw.mesh && *draw.mesh &&
+           draw.mesh->layout == VertexLayout::Object)
         {
             draws.push_back(&draw);
         }
@@ -350,8 +369,7 @@ void Renderer::drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene,
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->outline);
     const SDL_GPUTextureSamplerBinding mask = {outlineMask_, pipelines_->clampSampler};
     SDL_BindGPUFragmentSamplers(pass, 0, &mask, 1);
-    pushFragmentUniforms(commands, 0,
-                         OutlineFS{glm::vec4(1.0f, 0.85f, 0.35f, 0.9f), glm::vec4(2.0f, 0, 0, 0)});
+    pushFragmentUniforms(commands, 0, OutlineFS{outlineColor, glm::vec4(2.0f, 0, 0, 0)});
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
 }

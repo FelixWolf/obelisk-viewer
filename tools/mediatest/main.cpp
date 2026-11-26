@@ -255,6 +255,22 @@ int main(int argc, char** argv)
                            open[id].title.ends_with("submitted");
         std::println("typing reached the page: {}", typed ? "yes" : "no");
         failures += !typed || !editingSeen;
+
+        // The wheel: a page taller and wider than the tab, scrolled down a
+        // notch and right a notch.
+        open[id].title.clear();
+        host->send(Navigate{id,
+                            "data:text/html,<body style='width:3000px;height:3000px'>"
+                            "<script>onscroll=()=>document.title=scrollX+','+scrollY</script>"});
+        wait(std::chrono::milliseconds(800));
+        host->send(Wheel{id, 100, 100, 0, -120});
+        wait(std::chrono::milliseconds(400));
+        const std::string down = open[id].title;
+        host->send(Wheel{id, 100, 100, 120, 0});
+        wait(std::chrono::milliseconds(400));
+        std::println("wheel: a notch down scrolled to '{}', then right to '{}'", down,
+                     open[id].title);
+        failures += down != "0,120" || open[id].title != "120,120";
     }
     for(auto& [id, t] : open)
 

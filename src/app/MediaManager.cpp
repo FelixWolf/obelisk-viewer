@@ -727,6 +727,22 @@ void MediaManager::hover(const std::optional<MediaFaceKey>& face, glm::vec2 uv)
     }
 }
 
+bool MediaManager::wheel(int dx, int dy)
+{
+    if(!hoveredTab_ || !host_ || (dx == 0 && dy == 0))
+    {
+        return false;
+    }
+    host_->send(media::Wheel{hoveredTab_, hoveredAt_.x, hoveredAt_.y, dx, dy});
+    return true;
+}
+
+std::optional<MediaFaceKey> MediaManager::focusedFace() const
+{
+    const auto it = tabs_.find(focusedTab_);
+    return it == tabs_.end() || it->second.closing ? std::nullopt : std::optional(it->second.face);
+}
+
 void MediaManager::unfocus()
 {
     if(focusedTab_ && host_)

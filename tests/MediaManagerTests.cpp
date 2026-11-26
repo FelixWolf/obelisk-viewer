@@ -473,6 +473,37 @@ TEST_CASE("media: the keyboard on a page")
     CHECK_FALSE(f.media.focused());
 }
 
+TEST_CASE("media: the wheel over a page, and the face with the keyboard")
+{
+    Fixture f;
+    const auto face = f.add("https://youtube.com/a", true, 5.0f);
+    f.update();
+    f.update();
+    const auto open = f.host->open();
+    REQUIRE(open.size() == 1);
+    CHECK_FALSE(f.media.wheel(0, 120)); // not over it
+    f.host->says.push_back(Frame{open[0].tab, 0, open[0].width, open[0].height});
+    f.update();
+    f.media.hover(face, {0.25f, 0.75f});
+    CHECK(f.media.wheel(0, -120));
+    CHECK_FALSE(f.media.wheel(0, 0));
+    const auto wheels = f.host->sentOf<Wheel>();
+    REQUIRE(wheels.size() == 1);
+    CHECK(wheels[0].x == 256);
+    CHECK(wheels[0].y == 256);
+    CHECK(wheels[0].dy == -120);
+    f.media.hover(std::nullopt, {});
+    CHECK_FALSE(f.media.wheel(0, 120));
+
+    CHECK_FALSE(f.media.focusedFace());
+    REQUIRE(f.media.press(face.object, face.face, {0.5f, 0.5f}));
+    f.media.release();
+    REQUIRE(f.media.focusedFace());
+    CHECK(*f.media.focusedFace() == face);
+    f.media.unfocus();
+    CHECK_FALSE(f.media.focusedFace());
+}
+
 TEST_CASE("media: keys as pages know them")
 {
     using namespace key_flags;

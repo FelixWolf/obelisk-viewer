@@ -494,6 +494,9 @@ struct Scene
     // The prim to outline (any of its draws' pickId; 0: none), such as the
     // one the pointer is on when clicking it does something.
     uint64_t highlight = 0;
+    // A face to outline too, in another color (its draw's pickId: that face
+    // alone; 0: none): the page with the keyboard.
+    uint64_t focusHighlight = 0;
     std::vector<ReflectionProbe> probes;
     std::vector<TerrainDraw> terrain;
     std::vector<ObjectDraw> objects;

@@ -739,7 +739,8 @@ at any distance, so it shows in first person and in each of a headset's
 eyes too; on the HUD for HUD attachments), and the prim gets an
 outline: its visible pixels (depth tested against the view) into a mask,
 then a 2-pixel gold outline around the mask over the view, after
-tonemapping. `--pointer X,Y` (fractions of the window) and
+tonemapping (and a page with the keyboard, a blue one around its face:
+Media on prims). `--pointer X,Y` (fractions of the window) and
 `--click-at SECONDS` stand in for the mouse when testing, and
 `--point-at UUID` points from the camera at an object.
 
@@ -1287,6 +1288,10 @@ touching the viewer: it only speaks `viewer/media/Protocol.hpp`.
   the host says is selected (`Selection`). In a headset, a text field on
   the page taking the keyboard (`Editing`, CEF's virtual-keyboard request)
   opens our VR keyboard for it: what's typed goes there, then Enter.
+  While a page has the keyboard its face is outlined in blue
+  (`Scene::focusHighlight`: that face only, over the gold hover outline).
+- **The wheel:** turned over a page, it scrolls the page (`Wheel`, 120 a
+  notch), not the camera; the main menu over it still takes it first.
 - **The host's own rules** (whatever the viewer says, `UrlPolicy`): pages
   over http and https only, and nothing on this computer or the local
   network (localhost, loopback, private, link-local and carrier-grade NAT
@@ -1310,7 +1315,7 @@ wrapper built from its source; libcef stripped when installed, ~285 MB). The
 Windows host waits on a sandbox test on real Windows; the viewer's side
 builds there already, and without a host, media doesn't play.
 
-Not yet: the scroll wheel on pages, the media controls
+Not yet: scrolling with a VR controller's stick, the media controls
 (play, pause, home, the address), owners' and groups' interact rights,
 parcel media, zooming to a face (auto_zoom), the alternate image, and
 H.264/AAC video (the official CEF builds leave those codecs out: MP4

@@ -1039,7 +1039,8 @@ int App::run()
             const bool imguiConsumed = ui_->processEvent(event);
             const bool uiConsumed = imguiConsumed || loginScreenEvent(event) ||
                                     panelTypingEvent(event) || mediaKeyEvent(event) ||
-                                    scriptDialogEvent(event) || mainMenuEvent(event);
+                                    scriptDialogEvent(event) || mainMenuEvent(event) ||
+                                    mediaWheelEvent(event);
             const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
             // A free cursor (first person) points; it doesn't turn the view.
             const bool pointing = event.type == SDL_EVENT_MOUSE_MOTION && cursorFree();
@@ -2570,6 +2571,12 @@ void App::buildSceneOf(render::Scene& scene, bool home)
             }
         }
     }
+    // The page with the keyboard: its face outlined in blue.
+    if(!media_->focused())
+    {
+        mediaFocusPick_ = 0;
+    }
+    scene.focusHighlight = mediaFocusPick_;
     // Outline what a click would do something to.
     const auto& hover = pointer_.hover();
     scene.highlight = hover && !hover->hud &&
@@ -3072,6 +3079,8 @@ void App::pressPointer()
         const world::Object* o = world_->object(pressed->key.region, pressed->key.localId);
         if(o && media_->press(o->id, pressed->face, pressed->hit.uv))
         {
+            // Outlined while it has the keyboard.
+            mediaFocusPick_ = media_->focused() ? pressed->hit.pickId : 0;
             return;
         }
     }
@@ -3599,6 +3608,18 @@ bool App::mediaKeyEvent(const SDL_Event& event)
         }
     }
     return true; // every key is the page's while it has the keyboard
+}
+
+bool App::mediaWheelEvent(const SDL_Event& event)
+{
+    if(event.type != SDL_EVENT_MOUSE_WHEEL || ImGui::GetIO().WantCaptureMouse)
+    {
+        return false;
+    }
+    // 120 a notch, as Windows' wheel delta; up and right as SDL says
+    // (natural scrolling already in it).
+    return media_->wheel(static_cast<int>(std::lround(event.wheel.x * 120.0f)),
+                         static_cast<int>(std::lround(event.wheel.y * 120.0f)));
 }
 
 bool App::scriptDialogEvent(const SDL_Event& event)

@@ -92,6 +92,8 @@ struct Mouse
     MouseButton button = MouseButton::Left;
     uint8_t clicks = 1;
 };
+// The wheel at a point: 120 a notch (Windows' wheel delta); dx > 0 scrolls
+// right, dy > 0 up.
 struct Wheel
 {
     TabId tab = 0;

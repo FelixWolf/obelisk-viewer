@@ -312,9 +312,14 @@ private:
     void drawOcclusion(SDL_GPUCommandBuffer* commands, const Scene& scene,
                        const glm::mat4& viewProjection);
     void readOcclusion(int slot);
-    // The outline around Scene::highlight, over `target`.
+    // The outlines around Scene::highlight and focusHighlight, over `target`.
     void drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene, SDL_GPUTexture* target,
                      uint32_t width, uint32_t height, const FrameVS& frameVs);
+    // One: the draws with this pick id (`faceOnly`: that face, else any of
+    // its prim's), outlined in `color`.
+    void drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene, SDL_GPUTexture* target,
+                     uint32_t width, uint32_t height, const FrameVS& frameVs, uint64_t pickId,
+                     bool faceOnly, const glm::vec4& color);
 
     // Labels (RendererText.cpp): glyph quads for this frame's labels (and the
     // glyphs new to the atlas) up to the GPU, then drawn over `target`

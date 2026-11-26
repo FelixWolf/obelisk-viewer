@@ -120,6 +120,11 @@ public:
     void release();
     // Where the pointer is (nothing: not on a face).
     void hover(const std::optional<MediaFaceKey>& face, glm::vec2 uv);
+    // The wheel turned over the page the pointer's on (120 a notch; dx > 0
+    // scrolls right, dy > 0 up): true if a page took it.
+    bool wheel(int dx, int dy);
+    // The face whose page has the keyboard (nothing: none).
+    std::optional<MediaFaceKey> focusedFace() const;
 
     // A page has the keyboard.
     bool focused() const { return focusedTab_ != 0; }

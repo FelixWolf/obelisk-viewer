@@ -713,7 +713,8 @@ void handle(const Message& message)
                     CefMouseEvent e;
                     e.x = m.x;
                     e.y = m.y;
-                    t->browser()->GetHost()->SendMouseWheelEvent(e, m.dx, m.dy);
+                    // (CEF's: x > 0 scrolls left.)
+                    t->browser()->GetHost()->SendMouseWheelEvent(e, -m.dx, m.dy);
                 }
             }
             else if constexpr(std::is_same_v<T, Visibility>)

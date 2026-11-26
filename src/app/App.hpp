@@ -301,6 +301,8 @@ private:
     // field on it took it, in a headset): what's typed goes there.
     bool keyboardForMedia_ = false;
     uint64_t mediaEditingSeen_ = 0;
+    // The pick id of the face whose page has the keyboard (outlined).
+    uint64_t mediaFocusPick_ = 0;
     // Text input is on for that page (SDL's, while a page has the keyboard).
     bool mediaTextInput_ = false;
     void updateScriptDialogs();
@@ -474,6 +476,8 @@ private:
     // Keys and text for the page with the keyboard (Escape lets it go);
     // true if it took the event.
     bool mediaKeyEvent(const SDL_Event& event);
+    // The wheel over a page: the page's (scrolled), not the camera's.
+    bool mediaWheelEvent(const SDL_Event& event);
     // `home`: the lobby is what's drawn (its world is world_ then).
     void updateMedia(bool home);
     uint64_t lastSoundTicks_ = 0;
