@@ -17,6 +17,14 @@
 // tenth of a second (jumps hurt in VR). Larger differences (over 2 m) are
 // teleports and jump at once.
 //
+// Avatars (not sitting) instead are drawn as the official viewer draws
+// them (LLVOAvatar::idleUpdate's updateMoveDampedAsync, LLDrawable::
+// updateXform): each frame, where they're drawn closes on where they're
+// predicted with a half-life of 0.06 s, jumping only over 10 m. The whole
+// path is smoothed, not only the corrections: they start at once, ease to
+// a stop without overshooting (the lag about cancels the half round trip
+// predicted ahead) and never snap. Our camera follows the same path.
+//
 // The App updates it once per frame; the views read through it, on the
 // render thread only (it remembers moving objects between frames).
 
@@ -68,12 +76,16 @@ private:
         glm::quat rotationOffset{1.0f, 0.0f, 0.0f, 0.0f}; // likewise
         Clock::time_point offsetSince{};
         Clock::time_point used{};
+        // Avatars: where it's drawn, as of when.
+        glm::vec3 drawn{0.0f};
+        Clock::time_point drawnAt{};
     };
 
     static Kinematics kinematicsOf(const world::Object& object);
     // Where the update puts the object now, limits applied.
     world::Pose predict(const world::Object& object, const Kinematics& k) const;
     world::Pose shown(const Track& track, const world::Pose& predicted) const;
+    world::Pose damped(const world::Object& avatar) const;
 
     const world::World* world_ = nullptr;
     Clock::time_point now_{};

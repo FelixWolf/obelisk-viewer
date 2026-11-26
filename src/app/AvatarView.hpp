@@ -13,6 +13,12 @@
 // and the feet half a body height below the object's position, plus the
 // hover offset.
 //
+// The body's facing isn't the object's rotation as it comes: as in the
+// official viewer (LLVOAvatar::updateOrientation), the body turns toward
+// where it's going once it walks (backward walking stays backward), and
+// eases there rather than snapping to each update. Ours faces where we
+// turned it, without waiting for the simulator to say so.
+//
 // Body parts whose bake an attachment shows (Bake on Mesh) are hidden, as
 // llvoavatar.cpp updateMeshVisibility does.
 //
@@ -124,6 +130,13 @@ public:
     // Which avatar is ours (null: none): once loaded, it stays so wherever
     // it goes, until clear().
     void setSelf(const Uuid& self) { self_ = self; }
+    // Where ours faces, degrees counter-clockwise from east (the yaw we
+    // send); `quick`: it follows closely (first person, a headset).
+    void setSelfFacing(float yawDegrees, bool quick)
+    {
+        selfYaw_ = yawDegrees;
+        selfQuickTurn_ = quick;
+    }
     // Whether an avatar has loaded (as of addTo): until then it's a cloud.
     bool loaded(const Uuid& avatar) const
     {
@@ -272,6 +285,10 @@ private:
         // Footsteps: whether each foot was on the ground last frame.
         bool leftDown = false;
         bool rightDown = false;
+        // The way the body faces (about +Z, region axes) and when it was
+        // last turned; none while sitting.
+        std::optional<glm::quat> facing;
+        double facedAt = 0.0;
     };
 
 public:
@@ -335,6 +352,8 @@ private:
     void updateLoading(const world::World& world, const world::Object& avatar,
                        TextureManager& textures, MeshManager& meshes, double now);
 
+    // Turns the body toward where it should face (see the top).
+    void updateFacing(Avatar& a, const world::Object& avatar, double now) const;
     void updateSize(Avatar& a, const std::shared_ptr<const Body>& body, const Uuid& id, double now);
     // Rigged mesh's joint positions and scales, for joints not animated.
     void applyOverrides(const Uuid& id, std::vector<avatar::JointPose>& pose) const;
@@ -385,6 +404,8 @@ private:
     std::unordered_map<Uuid, Loading> loading_;
     static constexpr double kForgetLoaded = 2.0; // seconds
     Uuid self_{};
+    std::optional<float> selfYaw_;
+    bool selfQuickTurn_ = false;
     // By skin; holds the skin, so its address isn't reused.
     mutable std::unordered_map<const assets::MeshSkin*,
                                std::pair<std::shared_ptr<const assets::MeshSkin>, SkinBinding>>

@@ -1616,6 +1616,12 @@ void App::updateSession()
     {
         return;
     }
+    // The keys read last frame, so update() sends them now rather than a
+    // frame later. (Set again below, with the yaw this frame gives it.)
+    if(originHandle_ && session_->agentRegion())
+    {
+        session_->setControls(agent_.controlFlags(), agent_.bodyRotation());
+    }
     session_->update();
 
     // What the main menu wants of the map (people in places).
@@ -2820,6 +2826,8 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         if(avatars_)
         {
             const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
+            avatars_->setSelfFacing(agent_.yaw(),
+                                    camera_.firstPerson() || (headset_ && headset_->running()));
             avatars_->addTo(scene, *world_, *originHandle_, *textures_, *animations_, *meshes_, now,
                             128.0f);
             if(session_ && session_->login())

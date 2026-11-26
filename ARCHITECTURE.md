@@ -1814,7 +1814,14 @@ arrival plus half the circuit's round trip, scaled by time dilation;
 prediction stops 2 s after a region goes quiet; avatars stay above ground;
 nothing moves into a region we don't know. Unlike the official viewer, when
 an update disagrees with the prediction the difference fades out over about
-0.1 s rather than jumping (over 2 m it jumps). Only moving objects (and ones
+0.1 s rather than jumping (over 2 m it jumps). Avatars (not sitting)
+are drawn as the official viewer draws them: each frame where they're drawn
+closes on where they're predicted with a 0.06 s half-life (updateMoveDampedAsync),
+jumping only over 10 m. That smooths their whole path, so they start at once
+and ease to a stop rather than overshooting, and the camera following ours
+with them. Their bodies don't snap round with them:
+`AvatarView` eases each body toward where it faces (turned toward where it
+walks), as the official viewer's updateOrientation. Only moving objects (and ones
 updated in the last second) are tracked; still ones cost a comparison.
 Measured on our avatar walking: without prediction it stood still in
 75-90% of frames and jumped up to 0.85 m; with prediction and fading every

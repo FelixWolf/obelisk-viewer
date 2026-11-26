@@ -16,6 +16,11 @@ constexpr float kMaxCorrection = 2.0f;     // meters; more is a jump
 // A still object updated this recently may have just stopped: its fade
 // may still be running.
 constexpr auto kRecentUpdate = std::chrono::seconds(1);
+// Avatars: how quickly where they're drawn closes on where they are
+// (lldrawable.cpp's OBJECT_DAMPING_TIME_CONSTANT, a half-life), and from
+// how far they jump instead (MAX_INTERPOLATE_DISTANCE_SQUARED).
+constexpr float kAvatarHalfLife = 0.06f; // seconds
+constexpr float kAvatarMaxDamped = 10.0f; // meters
 
 bool moving(const world::Object& o)
 {
@@ -127,11 +132,44 @@ world::Pose ObjectMotion::shown(const Track& track, const world::Pose& predicted
                        predicted.rotation)};
 }
 
+world::Pose ObjectMotion::damped(const world::Object& avatar) const
+{
+    const bool recent = moving(avatar) || now_ - avatar.updatedAt <= kRecentUpdate;
+    const world::Pose target = recent ? predict(avatar, kinematicsOf(avatar))
+                                      : world::Pose{avatar.position, avatar.rotation};
+    Track& track = tracks_[world::ObjectKey{avatar.region, avatar.localId}];
+    track.used = now_;
+    if(track.drawnAt == Clock::time_point{})
+    {
+        track.drawn = target.position; // first seen
+    }
+    else if(track.drawnAt != now_) // once a frame
+    {
+        const float seconds = std::chrono::duration<float>(now_ - track.drawnAt).count();
+        if(glm::length(target.position - track.drawn) > kAvatarMaxDamped)
+        {
+            track.drawn = target.position;
+        }
+        else
+        {
+            track.drawn = glm::mix(track.drawn, target.position,
+                                   1.0f - std::exp2(-seconds / kAvatarHalfLife));
+        }
+    }
+    track.drawnAt = now_;
+    // (Its rotation AvatarView eases itself.)
+    return {track.drawn, target.rotation};
+}
+
 world::Pose ObjectMotion::pose(const world::Object& object) const
 {
     if(object.updatedAt == Clock::time_point{})
     {
         return {object.position, object.rotation};
+    }
+    if(object.type == world::ObjectType::Avatar && object.parentId == 0)
+    {
+        return damped(object);
     }
     const bool isMoving = moving(object);
     if(!isMoving && now_ - object.updatedAt > kRecentUpdate)

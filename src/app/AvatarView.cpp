@@ -360,7 +360,67 @@ glm::mat4 AvatarView::computeRootFrame(const world::Object& avatar, const world:
         return glm::translate(glm::mat4(1.0f), lowered) * placed;
     }
     const glm::vec3 root = regionOffset(avatar.region, originHandle) + pose.position + lowered;
-    return glm::translate(glm::mat4(1.0f), root) * glm::mat4_cast(pose.rotation);
+    glm::quat rotation = pose.rotation;
+    if(known != avatars_.end() && known->second.facing)
+    {
+        rotation = *known->second.facing;
+    }
+    return glm::translate(glm::mat4(1.0f), root) * glm::mat4_cast(rotation);
+}
+
+void AvatarView::updateFacing(Avatar& a, const world::Object& avatar, double now) const
+{
+    if(avatar.parentId != 0)
+    {
+        a.facing.reset(); // sitting: the seat turns it
+        return;
+    }
+    // Where it faces: ours where we turned it, others as the simulator has
+    // them (flattened: the body stays upright).
+    const bool ours = avatar.id == self_ && selfYaw_;
+    glm::vec3 forward = ours ? glm::vec3(std::cos(glm::radians(*selfYaw_)),
+                                         std::sin(glm::radians(*selfYaw_)), 0.0f)
+                             : motion_.pose(avatar).rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+    forward.z = 0.0f;
+    if(glm::length(forward) < 1e-3f)
+    {
+        forward = a.facing ? *a.facing * glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+    }
+    forward = glm::normalize(forward);
+    // Walking, toward where it's going: all the way from 2 m/s. (Backward
+    // stays backward; sideways turns it sideways, as the official viewer.)
+    constexpr float kTurnFrom = 0.5f; // m/s
+    constexpr float kTurnedAt = 2.0f;
+    const glm::vec3 velocity(avatar.velocity.x, avatar.velocity.y, 0.0f);
+    if(const float speed = glm::length(velocity); speed > kTurnFrom)
+    {
+        glm::vec3 going = velocity / speed;
+        if(glm::dot(going, forward) < -0.5f)
+        {
+            going = -going;
+        }
+        const glm::vec3 blended =
+            glm::mix(forward, going, std::min((speed - kTurnFrom) / (kTurnedAt - kTurnFrom), 1.0f));
+        if(glm::length(blended) > 1e-3f)
+        {
+            forward = glm::normalize(blended);
+        }
+    }
+    const glm::quat target =
+        glm::angleAxis(std::atan2(forward.y, forward.x), glm::vec3(0.0f, 0.0f, 1.0f));
+
+    // Eased there (the official viewer's pelvis lag: 0.4 s walking, 0.15 s
+    // in mouselook). New, or not turned for a while: there at once.
+    const double since = now - a.facedAt;
+    a.facedAt = now;
+    if(!a.facing || since > 1.0 || since < 0.0)
+    {
+        a.facing = target;
+        return;
+    }
+    const float lag = ours && selfQuickTurn_ ? 0.15f : 0.4f; // seconds
+    const float blend = 1.0f - std::exp(-static_cast<float>(since) / lag);
+    a.facing = glm::normalize(glm::slerp(*a.facing, target, blend));
 }
 
 std::optional<glm::mat4> AvatarView::seatFrame(const world::Object& avatar,
@@ -1147,6 +1207,7 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         Avatar& a = avatars_[object.id];
         a.seen = frame_;
         a.key = key;
+        updateFacing(a, object, now);
 
         // Reshape when the appearance changed.
         const world::World::Appearance* appearance = world.appearance(object.id);
