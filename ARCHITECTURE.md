@@ -423,10 +423,19 @@ The App keeps world coordinates relative to the agent's region: on a
 teleport the origin moves there and the camera goes behind the avatar; on a
 crossing the origin moves to the neighbour and the camera shifts by the
 same amount, so nothing visibly moves. The camera follows our avatar (found
-by agent id among the avatars) as it moves. `AgentController` turns the
-arrow keys into `AgentUpdate` control flags and a body rotation; Home
-toggles flying. The Teleport window takes a region name, `Region/x/y/z` or
-a `secondlife://` or map link (`parseLocation`). For testing,
+by agent id among the avatars) as it moves, and turns with it.
+`AgentController` turns WASD and the arrow keys (the official viewer's
+layout: forward, back, turning) into `AgentUpdate` control flags and a body
+rotation; Home toggles flying. Alt and the left button are the camera's, as
+the official viewer's: the click focuses on the prim or ground under it,
+dragging zooms (with Ctrl, orbits; with Ctrl and Shift, pans). Once the
+mouse has moved the camera off the avatar (that, or middle-drag panning),
+moving the avatar glides it back behind it, at the wheel's distance;
+the avatar keeping its heading. While it follows, right-drag turning
+turns the avatar with it, so the keys walk the way the camera looks. While the mouse drags the
+camera the cursor is held (relative mouse mode) and put back after. The
+Teleport window takes a region name, `Region/x/y/z` or a `secondlife://` or
+map link (`parseLocation`). For testing,
 `--teleport LOCATION` teleports 5 s after logging in and `--walk DEGREES`
 walks that way (0 = east) once there.
 

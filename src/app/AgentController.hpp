@@ -1,8 +1,8 @@
 #pragma once
 
-// Moves our avatar: the arrow keys walk forward and back and turn (with
-// Shift, step sideways), Page Up / Page Down go up and down, Home toggles
-// flying. The simulator does the moving; we send it control flags and the
+// Moves our avatar: W/S and the up/down arrows walk forward and back, A/D
+// and left/right turn (with Shift, step sideways), E / Page Up and Q, C /
+// Page Down go up and down, Home toggles flying. The simulator does the moving; we send it control flags and the
 // direction the body faces (Session::setControls).
 
 #include "viewer/protocol/MessageTypes.hpp"

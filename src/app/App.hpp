@@ -622,6 +622,18 @@ private:
         uint64_t lastTicks = 0;
     } ik_;
     void pressPointer();
+    // An Alt click at window position (x, y): the camera focuses on what's
+    // there (the prim under the pointer, or the ground), as the official
+    // viewer's (lltoolfocus.cpp).
+    void altFocus(float x, float y);
+    // The camera behind our avatar, looking where it faces (on arriving, and
+    // walking off from an Alt focus).
+    void cameraBehindAgent();
+    // The cursor held while the camera is dragged with the mouse, and where
+    // the drag began (put back there after).
+    void syncDragCapture();
+    bool dragCaptured_ = false;
+    glm::vec2 dragFrom_{0.0f};
     std::unique_ptr<TreeView> trees_;
     TerrainTextures terrainTextures_;
     // Remembered accounts, the logging in (apart from the UI), its panel.

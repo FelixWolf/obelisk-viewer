@@ -88,16 +88,19 @@ void AgentController::update(float seconds, bool keyboardFree)
         flags_ = flags;
         return;
     }
-    if(held(SDL_SCANCODE_UP) || autoWalk_)
+    // W/S and up/down walk, A/D and left/right turn (with Shift, step
+    // sideways), E and Page Up go up, Q, C and Page Down down: the official
+    // viewer's keys.
+    if(held(SDL_SCANCODE_W) || held(SDL_SCANCODE_UP) || autoWalk_)
     {
         flags |= control::kAtPos | control::kFastAt;
     }
-    if(held(SDL_SCANCODE_DOWN))
+    if(held(SDL_SCANCODE_S) || held(SDL_SCANCODE_DOWN))
     {
         flags |= control::kAtNeg | control::kFastAt;
     }
-    const bool left = held(SDL_SCANCODE_LEFT);
-    const bool right = held(SDL_SCANCODE_RIGHT);
+    const bool left = held(SDL_SCANCODE_A) || held(SDL_SCANCODE_LEFT);
+    const bool right = held(SDL_SCANCODE_D) || held(SDL_SCANCODE_RIGHT);
     if(shift)
     {
         flags |= left ? control::kLeftPos | control::kFastLeft : 0;
@@ -110,11 +113,11 @@ void AgentController::update(float seconds, bool keyboardFree)
         yaw_ += (left ? 1.0f : -1.0f) * kTurnDegreesPerSecond * seconds;
         yaw_ = std::remainder(yaw_, 360.0f);
     }
-    if(held(SDL_SCANCODE_PAGEUP))
+    if(held(SDL_SCANCODE_E) || held(SDL_SCANCODE_PAGEUP))
     {
         flags |= control::kUpPos | control::kFastUp;
     }
-    if(held(SDL_SCANCODE_PAGEDOWN))
+    if(held(SDL_SCANCODE_Q) || held(SDL_SCANCODE_C) || held(SDL_SCANCODE_PAGEDOWN))
     {
         flags |= control::kUpNeg | control::kFastUp;
     }

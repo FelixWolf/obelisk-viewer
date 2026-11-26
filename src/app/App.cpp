@@ -1050,6 +1050,12 @@ int App::run()
             {
                 camera_.handleEvent(event);
             }
+            // The window losing the mouse: a button's release may not come.
+            if(event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
+            {
+                camera_.stopDragging();
+            }
+            syncDragCapture();
             if(!uiConsumed && !ImGui::GetIO().WantCaptureKeyboard)
             {
                 agent_.handleEvent(event);
@@ -1070,7 +1076,15 @@ int App::run()
                 if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
                    event.button.button == SDL_BUTTON_LEFT && !uiConsumed)
                 {
-                    pressPointer();
+                    // With Alt the press is the camera's (focus, then drag).
+                    if(camera_.altDragging())
+                    {
+                        altFocus(event.button.x, event.button.y);
+                    }
+                    else
+                    {
+                        pressPointer();
+                    }
                 }
                 if(event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
                    event.button.button == SDL_BUTTON_LEFT)
@@ -1165,11 +1179,51 @@ int App::run()
             // Logged out: the home scene's assets (if it's shown).
             setViewerAssetUrl(homeShown() ? home_->assetUrl : std::string());
         }
-        if(keyboardFree)
+        // With an avatar of ours the keys move it; without one (the lobby,
+        // the home scene) they move the camera.
+        const bool embodied = session_ && world_ && originHandle_;
+        if(keyboardFree && !embodied)
         {
             camera_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f);
         }
+        camera_.animate(static_cast<float>(now - lastFrameTicks_) * 1e-9f);
+        syncDragCapture();
+        const float yawBefore = agent_.yaw();
         agent_.update(static_cast<float>(now - lastFrameTicks_) * 1e-9f, keyboardFree);
+        if(embodied && !camera_.firstPerson() && !(headset_ && headset_->running()) &&
+           !fixedCamera_)
+        {
+            // The camera stays behind the avatar as it turns; moving it
+            // after the mouse moved the camera off it (panned, an Alt
+            // focus) glides it back behind it.
+            namespace control = session::control;
+            constexpr uint32_t kMoving = control::kAtPos | control::kAtNeg | control::kLeftPos |
+                                         control::kLeftNeg | control::kUpPos | control::kUpNeg |
+                                         control::kYawPos | control::kYawNeg;
+            if(camera_.offAvatar())
+            {
+                if((agent_.controlFlags() & kMoving) != 0 && !camera_.dragging())
+                {
+                    cameraBehindAgent();
+                }
+            }
+            else
+            {
+                if(const float turned = std::remainder(agent_.yaw() - yawBefore, 360.0f);
+                   turned != 0.0f)
+                {
+                    camera_.turn(turned);
+                }
+                // Following it: turning the camera with the right button
+                // turns the avatar too, so it walks the way the camera
+                // looks. (Off it, the keys bring the camera back behind the
+                // avatar first, the avatar keeping its heading.)
+                if(camera_.turning())
+                {
+                    agent_.setYaw(camera_.yaw());
+                }
+            }
+        }
         constexpr size_t kFrameHistory = 240;
         if(frameTimes_.size() >= kFrameHistory)
         {
@@ -2113,6 +2167,128 @@ void App::handleArrival(const session::Arrival& arrival)
         return;
     }
     camera_.lookAt(glm::vec3(p.x, p.y, p.z + 0.3f), 5.0f, agent_.yaw(), 12.0f);
+}
+
+void App::cameraBehindAgent()
+{
+    if(!session_ || !world_ || !originHandle_)
+    {
+        return;
+    }
+    const auto global = agentGlobalPosition();
+    if(!global)
+    {
+        return;
+    }
+    const uint64_t origin = *originHandle_;
+    const glm::vec3 p(*global - glm::dvec3(static_cast<double>(origin >> 32),
+                                           static_cast<double>(origin & 0xFFFFFFFFu), 0.0));
+    camera_.glideTo(glm::vec3(p.x, p.y, p.z + 0.3f), camera_.followDistance(), agent_.yaw(),
+                    12.0f);
+}
+
+void App::syncDragCapture()
+{
+    // Turning, panning or an Alt drag: the cursor held where it is (hidden,
+    // the mouse's motion still read) so the screen's edge doesn't stop it,
+    // and put back where the drag began, as the official viewer does.
+    const bool drag = camera_.dragging() && !camera_.firstPerson();
+    if(drag == dragCaptured_)
+    {
+        return;
+    }
+    dragCaptured_ = drag;
+    if(drag)
+    {
+        SDL_GetMouseState(&dragFrom_.x, &dragFrom_.y);
+        // The UI mustn't capture and release the mouse meanwhile (as in
+        // first person: on X11 that lets go of the pointer's grab).
+        ui_->setMouseCapture(false);
+        if(!SDL_SetWindowRelativeMouseMode(window_.get(), true))
+        {
+            log::warn("camera drag: relative mouse mode failed: {}", SDL_GetError());
+        }
+        return;
+    }
+    if(camera_.firstPerson())
+    {
+        return; // first person keeps it captured (setFirstPerson)
+    }
+    // Put back before letting go too: Wayland only moves a locked pointer.
+    SDL_WarpMouseInWindow(window_.get(), dragFrom_.x, dragFrom_.y);
+    SDL_SetWindowRelativeMouseMode(window_.get(), false);
+    SDL_WarpMouseInWindow(window_.get(), dragFrom_.x, dragFrom_.y);
+    ui_->setMouseCapture(true);
+}
+
+void App::altFocus(float x, float y)
+{
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSize(window_.get(), &width, &height);
+    if(camera_.firstPerson() || width <= 0 || height <= 0)
+    {
+        return;
+    }
+    const render::Camera camera = camera_.camera();
+    const glm::vec2 ndc(2.0f * x / static_cast<float>(width) - 1.0f,
+                        1.0f - 2.0f * y / static_cast<float>(height));
+    const float aspect = static_cast<float>(width) / static_cast<float>(height);
+    const glm::mat4 inverse = glm::inverse(camera.projection(aspect) * camera.view());
+    const glm::vec4 far = inverse * glm::vec4(ndc, 1.0f, 1.0f);
+    const glm::vec3 origin = camera.position;
+    const glm::vec3 direction = glm::normalize(glm::vec3(far) / far.w - origin);
+
+    // The prim under the pointer (the latest pick's), if any.
+    std::optional<float> along;
+    if(const auto& hover = pointer_.hover(); hover && !hover->hud)
+    {
+        along = glm::dot(hover->hit.position - origin, direction);
+    }
+    // The ground, if it's nearer: stepping along the ray until it's under
+    // the land, then halving the step.
+    if(world_ && originHandle_)
+    {
+        const uint64_t handle = *originHandle_;
+        const auto below = [&](float t) -> std::optional<bool>
+        {
+            const glm::vec3 p = origin + direction * t;
+            const double gx = static_cast<double>(handle >> 32) + static_cast<double>(p.x);
+            const double gy = static_cast<double>(handle & 0xFFFFFFFFu) + static_cast<double>(p.y);
+            constexpr double kWidth = world::kRegionWidth;
+            const double rx = std::floor(gx / kWidth) * kWidth;
+            const double ry = std::floor(gy / kWidth) * kWidth;
+            const world::RegionTerrain* terrain =
+                world_->terrain(static_cast<uint64_t>(rx) << 32 | static_cast<uint64_t>(ry));
+            if(!terrain)
+            {
+                return std::nullopt;
+            }
+            return p.z <=
+                   terrain->heightAt(static_cast<float>(gx - rx), static_cast<float>(gy - ry));
+        };
+        constexpr float kStep = 0.5f;
+        const float limit = std::min(along.value_or(512.0f), 512.0f);
+        for(float t = kStep; t <= limit; t += kStep)
+        {
+            if(below(t).value_or(false))
+            {
+                float lo = t - kStep;
+                float hi = t;
+                for(int i = 0; i < 12; i++)
+                {
+                    const float mid = 0.5f * (lo + hi);
+                    (below(mid).value_or(false) ? hi : lo) = mid;
+                }
+                along = hi;
+                break;
+            }
+        }
+    }
+    if(along && *along > 0.0f)
+    {
+        camera_.focusOn(origin + direction * *along);
+    }
 }
 
 std::optional<glm::dvec3> App::agentGlobalPosition()
@@ -6287,9 +6463,10 @@ void App::drawDeveloperWindows()
                         m.meshes, m.lodsReady, m.downloading, m.decoding, m.failed,
                         static_cast<double>(m.bytesDownloaded) / 1e6, o.meshObjects);
         }
-        ImGui::TextDisabled("Right-drag: look, wheel: zoom, middle-drag: pan, WASD/QE: move");
-        ImGui::TextDisabled("Arrows: walk and turn (Shift: sideways), PgUp/PgDn: up/down, "
-                            "Home: fly");
+        ImGui::TextDisabled("Right-drag: look, wheel: zoom, middle-drag: pan");
+        ImGui::TextDisabled("Alt-drag: focus and zoom (Ctrl: orbit, Ctrl+Shift: pan)");
+        ImGui::TextDisabled("WASD/arrows: walk and turn (Shift: sideways), E/Q, PgUp/PgDn: "
+                            "up/down, Home: fly");
     }
     ImGui::End();
 
