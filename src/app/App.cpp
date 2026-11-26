@@ -9,6 +9,7 @@
 
 #include "EmbeddedAssets.hpp"
 #include "FloatingText.hpp"
+#include "MediaKeys.hpp"
 #include "NameTags.hpp"
 #include "PanelGeometry.hpp"
 
@@ -519,6 +520,17 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->controls_.setSubmit(
         [app = app.get()](const std::string& text)
         {
+            // For the page with the keyboard: typed there, then Enter.
+            if(std::exchange(app->keyboardForMedia_, false))
+            {
+                app->media_->text(text);
+                for(const auto kind :
+                    {media::KeyKind::Down, media::KeyKind::Char, media::KeyKind::Up})
+                {
+                    app->media_->key(media::Key{0, kind, 0x0D, 0, '\r'});
+                }
+                return;
+            }
             // A setting's value, if it was opened for one (the Settings
             // tab); a text box's reply, if for one (and it's still the one
             // shown); else local chat.
@@ -1026,8 +1038,8 @@ int App::run()
             // ImGui (the debug windows) first, then the main menu.
             const bool imguiConsumed = ui_->processEvent(event);
             const bool uiConsumed = imguiConsumed || loginScreenEvent(event) ||
-                                    panelTypingEvent(event) || scriptDialogEvent(event) ||
-                                    mainMenuEvent(event);
+                                    panelTypingEvent(event) || mediaKeyEvent(event) ||
+                                    scriptDialogEvent(event) || mainMenuEvent(event);
             const bool releasing = event.type == SDL_EVENT_MOUSE_BUTTON_UP;
             // A free cursor (first person) points; it doesn't turn the view.
             const bool pointing = event.type == SDL_EVENT_MOUSE_MOTION && cursorFree();
@@ -1078,6 +1090,34 @@ int App::run()
                event.window.windowID == SDL_GetWindowID(window_.get()))
             {
                 running_ = false;
+            }
+        }
+
+        // A page with the keyboard: text input on (the window's), off again
+        // after (unless one of our pages types).
+        if(media_->focused() != mediaTextInput_)
+        {
+            mediaTextInput_ = media_->focused();
+            if(mediaTextInput_)
+            {
+                SDL_StartTextInput(window_.get());
+            }
+            else if(!typingOnPage())
+            {
+                SDL_StopTextInput(window_.get());
+            }
+        }
+        // In a headset: a text field on it taking the keyboard opens ours.
+        if(media_->editingTaken() != mediaEditingSeen_)
+        {
+            mediaEditingSeen_ = media_->editingTaken();
+            if(headset_ && headset_->running() && media_->editing())
+            {
+                keyboardForDialog_.reset();
+                keyboardForChat_.reset();
+                keyboardForSetting_.reset();
+                controls_.openKeyboard();
+                keyboardForMedia_ = true;
             }
         }
 
@@ -3025,7 +3065,8 @@ void App::setFirstPerson(bool on)
 
 void App::pressPointer()
 {
-    // On a face whose media plays (or would, clicked): the media's.
+    // On a face whose media plays (or would, clicked): the media's. Pressing
+    // anywhere else lets a page's keyboard go.
     if(const auto& pressed = pointer_.pressed(); pressed && !pressed->hud && world_)
     {
         const world::Object* o = world_->object(pressed->key.region, pressed->key.localId);
@@ -3034,6 +3075,7 @@ void App::pressPointer()
             return;
         }
     }
+    media_->unfocus();
     if(session_ && world_ && objects_ && originHandle_ && session_->agentRegion())
     {
         pointer_.press(*session_, *world_, *objects_, avatars_.get(), *originHandle_,
@@ -3070,6 +3112,7 @@ MenuItem App::radialMenu()
                               keyboardForDialog_.reset();
                               keyboardForChat_.reset(); // local chat
                               keyboardForSetting_.reset();
+                              keyboardForMedia_ = false;
                               controls_.openKeyboard();
                           }),
             MenuItem::run("Microphone", [this] { setMicrophone(!voice_->talking()); })
@@ -3458,7 +3501,8 @@ gui::Surface* App::panelTyping() const
 
 bool App::typingOnPage() const
 {
-    return (lobby_ && loginScreen_ && loginScreen_->surface().typing()) ||
+    return (media_ && media_->focused()) ||
+           (lobby_ && loginScreen_ && loginScreen_->surface().typing()) ||
            (mainMenu_ && mainMenu_->isOpen() && mainMenu_->surface().typing()) ||
            (dialogPage_ && noticeWaiting() && dialogPage_->surface().typing());
 }
@@ -3483,6 +3527,78 @@ bool App::panelTypingEvent(const SDL_Event& event)
         return true;
     }
     return false;
+}
+
+bool App::mediaKeyEvent(const SDL_Event& event)
+{
+    if(!media_->focused() || ImGui::GetIO().WantCaptureKeyboard)
+    {
+        return false;
+    }
+    if(event.type == SDL_EVENT_TEXT_INPUT)
+    {
+        media_->text(event.text.text);
+        return true;
+    }
+    if(event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP)
+    {
+        return false;
+    }
+    const bool down = event.type == SDL_EVENT_KEY_DOWN;
+    const SDL_Keycode k = event.key.key;
+    const SDL_Keymod mod = event.key.mod;
+    const bool control = (mod & SDL_KMOD_CTRL) != 0;
+    // Escape lets the page go (the keys are the avatar's again).
+    if(k == SDLK_ESCAPE)
+    {
+        if(down)
+        {
+            media_->unfocus();
+        }
+        return true;
+    }
+    // The clipboard: the page's (Chromium's, headless) isn't the system's,
+    // so pasting types what's on the system's, and copying takes what's
+    // selected on the page.
+    const bool paste = (control && k == SDLK_V) || ((mod & SDL_KMOD_SHIFT) && k == SDLK_INSERT);
+    const bool copy = (control && (k == SDLK_C || k == SDLK_X)) || (control && k == SDLK_INSERT);
+    if(paste)
+    {
+        if(down && SDL_HasClipboardText())
+        {
+            if(char* clip = SDL_GetClipboardText())
+            {
+                media_->text(clip);
+                SDL_free(clip);
+            }
+        }
+        return true;
+    }
+    if(copy && down)
+    {
+        if(const std::string selected = media_->selection(); !selected.empty())
+        {
+            SDL_SetClipboardText(selected.c_str());
+        }
+        if(k != SDLK_X)
+        {
+            return true;
+        }
+    }
+    if(const auto key = mediaKey(k, event.key.scancode, mod, down, event.key.repeat))
+    {
+        media_->key(*key);
+        // Enter and Tab: what they type is in the key (a form sent, focus
+        // moved), not text.
+        if(down && (key->keyCode == 0x0D || key->keyCode == 0x09))
+        {
+            media::Key c = *key;
+            c.kind = media::KeyKind::Char;
+            c.character = key->keyCode == 0x0D ? '\r' : '\t';
+            media_->key(c);
+        }
+    }
+    return true; // every key is the page's while it has the keyboard
 }
 
 bool App::scriptDialogEvent(const SDL_Event& event)
@@ -3617,6 +3733,7 @@ void App::updateScriptDialogs()
     case Kind::Keyboard:
         keyboardForDialog_ = action->serial;
         keyboardForSetting_.reset();
+        keyboardForMedia_ = false;
         controls_.openKeyboard();
         break;
     case Kind::Accept:
@@ -4560,6 +4677,7 @@ void App::updateMainMenu()
         keyboardForDialog_.reset();
         keyboardForChat_ = *into;
         keyboardForSetting_.reset();
+        keyboardForMedia_ = false;
         controls_.openKeyboard();
     }
     // A setting to type on the VR keyboard.
@@ -4568,6 +4686,7 @@ void App::updateMainMenu()
         keyboardForDialog_.reset();
         keyboardForChat_.reset();
         keyboardForSetting_ = *setting;
+        keyboardForMedia_ = false;
         controls_.openKeyboard();
     }
     if(mainMenu_->takeLogOut() && session_)

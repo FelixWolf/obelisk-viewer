@@ -16,7 +16,7 @@ This isn't a replacement for the official viewer or other third party viewers, i
 * Media on a Prim (Linux for now): web pages and WebM video on objects, with sound
 
 ## Coming soon:
-* Media on a Prim for Windows, and typing into pages
+* Media on a Prim for Windows
 * Group and private voice calls
 
 ## FAQ:

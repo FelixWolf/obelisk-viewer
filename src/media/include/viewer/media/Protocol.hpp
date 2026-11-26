@@ -22,7 +22,7 @@ namespace viewer::media
 {
 
 // Both sides check it (Init, Ready); a host that speaks another isn't used.
-inline constexpr uint32_t kProtocolVersion = 1;
+inline constexpr uint32_t kProtocolVersion = 2;
 // Longer than this is taken to be garbage: the stream is given up.
 inline constexpr uint32_t kMaxMessage = 16u << 20;
 
@@ -118,6 +118,50 @@ struct Quit
 {
 };
 
+// The keyboard: the page that has it (others lose it).
+struct Focus
+{
+    TabId tab = 0;
+    bool focused = false;
+};
+// Modifier keys held, and what else a key is (Key::modifiers).
+namespace key_flags
+{
+inline constexpr uint32_t kShift = 1;
+inline constexpr uint32_t kControl = 2;
+inline constexpr uint32_t kAlt = 4;
+inline constexpr uint32_t kMeta = 8;
+inline constexpr uint32_t kKeypad = 16; // on the number pad
+inline constexpr uint32_t kRepeat = 32; // held down, repeating
+inline constexpr uint32_t kCapsLock = 64;
+inline constexpr uint32_t kNumLock = 128;
+} // namespace key_flags
+enum class KeyKind : uint8_t
+{
+    Down,
+    Up,
+    // What a key types, for those whose meaning is in it (Enter, Tab): text
+    // goes as Text.
+    Char,
+};
+// A key, as Windows names them (virtual-key codes: what pages see as
+// keyCode), whatever the platform.
+struct Key
+{
+    TabId tab = 0;
+    KeyKind kind = KeyKind::Down;
+    uint32_t keyCode = 0;
+    uint32_t modifiers = 0;
+    uint32_t character = 0; // Char: the UTF-16 unit typed
+};
+// Text typed (after the keyboard's layout and any input method), into
+// whatever on the page has the keyboard.
+struct Text
+{
+    TabId tab = 0;
+    std::string text;
+};
+
 // --- The host's ---------------------------------------------------------------
 
 struct Ready
@@ -186,10 +230,27 @@ struct Crashed
 {
     TabId tab = 0;
 };
+// Whether something on the page that's typed into has the keyboard (a
+// text field): an on-screen keyboard is wanted (a headset's).
+struct Editing
+{
+    TabId tab = 0;
+    bool editing = false;
+};
+// What's selected on the page now (for copying: the host's clipboard isn't
+// the system's). Long selections are cut at kMaxSelection.
+struct Selection
+{
+    TabId tab = 0;
+    std::string text;
+};
+inline constexpr size_t kMaxSelection = 1u << 20;
 
-using Message = std::variant<Init, Open, Navigate, Resize, Close, Mouse, Wheel, Visibility, Release,
-                             Quit, Ready, Failed, Frame, Resized, Address, Title, Loading,
-                             AudioStart, Audio, AudioStop, Closed, Crashed>;
+// (New ones at the end: a message's type is its place here.)
+using Message =
+    std::variant<Init, Open, Navigate, Resize, Close, Mouse, Wheel, Visibility, Release, Quit,
+                 Ready, Failed, Frame, Resized, Address, Title, Loading, AudioStart, Audio,
+                 AudioStop, Closed, Crashed, Focus, Key, Text, Editing, Selection>;
 
 // A message as it's sent: length, type, fields.
 std::vector<uint8_t> encode(const Message& message);

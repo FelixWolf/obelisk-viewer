@@ -286,6 +286,22 @@ public:
         }
     }
     void OnPopupSize(CefRefPtr<CefBrowser>, const CefRect& rect) override { popup_ = rect; }
+    // What's selected, for the viewer to copy.
+    void OnTextSelectionChanged(CefRefPtr<CefBrowser>, const CefString& text,
+                                const CefRange&) override
+    {
+        std::string selected = text.ToString();
+        if(selected.size() > kMaxSelection)
+        {
+            selected.resize(kMaxSelection); // (may cut a character: the viewer checks)
+        }
+        send(Selection{id_, std::move(selected)});
+    }
+    // A text field took the keyboard (or let it go).
+    void OnVirtualKeyboardRequested(CefRefPtr<CefBrowser>, TextInputMode mode) override
+    {
+        send(Editing{id_, mode != CEF_TEXT_INPUT_MODE_NONE});
+    }
     void OnPaint(CefRefPtr<CefBrowser> browser, PaintElementType type, const RectList&,
                  const void* buffer, int width, int height) override
     {
@@ -715,6 +731,47 @@ void handle(const Message& message)
                 if(Tab* t = tab(m.tab))
                 {
                     t->release(m.slot);
+                }
+            }
+            else if constexpr(std::is_same_v<T, Focus>)
+            {
+                Tab* t = tab(m.tab);
+                if(t && t->browser())
+                {
+                    t->browser()->GetHost()->SetFocus(m.focused);
+                }
+            }
+            else if constexpr(std::is_same_v<T, Key>)
+            {
+                Tab* t = tab(m.tab);
+                if(!t || !t->browser())
+                {
+                    return;
+                }
+                CefKeyEvent e;
+                e.type = m.kind == KeyKind::Down ? KEYEVENT_RAWKEYDOWN
+                         : m.kind == KeyKind::Up ? KEYEVENT_KEYUP
+                                                 : KEYEVENT_CHAR;
+                e.windows_key_code = static_cast<int>(m.keyCode);
+                e.character = e.unmodified_character = static_cast<char16_t>(m.character);
+                using namespace key_flags;
+                const std::pair<uint32_t, uint32_t> flags[] = {
+                    {kShift, EVENTFLAG_SHIFT_DOWN},      {kControl, EVENTFLAG_CONTROL_DOWN},
+                    {kAlt, EVENTFLAG_ALT_DOWN},          {kMeta, EVENTFLAG_COMMAND_DOWN},
+                    {kKeypad, EVENTFLAG_IS_KEY_PAD},     {kRepeat, EVENTFLAG_IS_REPEAT},
+                    {kCapsLock, EVENTFLAG_CAPS_LOCK_ON}, {kNumLock, EVENTFLAG_NUM_LOCK_ON}};
+                for(const auto& [ours, cefs] : flags)
+                {
+                    e.modifiers |= (m.modifiers & ours) ? cefs : 0;
+                }
+                t->browser()->GetHost()->SendKeyEvent(e);
+            }
+            else if constexpr(std::is_same_v<T, Text>)
+            {
+                Tab* t = tab(m.tab);
+                if(t && t->browser() && !m.text.empty())
+                {
+                    t->browser()->GetHost()->ImeCommitText(m.text, CefRange::InvalidRange(), 0);
                 }
             }
         },

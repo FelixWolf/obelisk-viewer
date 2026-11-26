@@ -94,6 +94,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/SoundAssets.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SoundManager.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MediaWhitelist.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/MediaKeys.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MediaManager.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ObjectMedia.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MicrophoneList.cpp

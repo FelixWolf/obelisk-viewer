@@ -212,6 +212,29 @@ void fields(IO& io, T& m)
     else if constexpr(std::is_same_v<T, Quit>)
     {
     }
+    else if constexpr(std::is_same_v<T, Focus>)
+    {
+        u32(m.tab);
+        boolean(m.focused);
+    }
+    else if constexpr(std::is_same_v<T, Editing>)
+    {
+        u32(m.tab);
+        boolean(m.editing);
+    }
+    else if constexpr(std::is_same_v<T, Key>)
+    {
+        u32(m.tab);
+        byte(m.kind);
+        u32(m.keyCode);
+        u32(m.modifiers);
+        u32(m.character);
+    }
+    else if constexpr(std::is_same_v<T, Text> || std::is_same_v<T, Selection>)
+    {
+        u32(m.tab);
+        string(m.text);
+    }
     else if constexpr(std::is_same_v<T, Ready>)
     {
         u32(m.version);

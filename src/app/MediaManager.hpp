@@ -14,6 +14,10 @@
 // creator's whitelist is closed until its media changes. At most kMaxTabs
 // at once, the nearest (clicked ones first), within kMaxDistance.
 //
+// The keyboard: pressing on a page gives it the keyboard (focused()):
+// keys and text go there (key(), text()) until it's let go (unfocus():
+// Escape, pressing elsewhere, the tab closing).
+//
 // Once a page plays, pressing on it presses on the page (when its media
 // lets anyone interact), and the pointer moving over it moves there.
 //
@@ -117,6 +121,21 @@ public:
     // Where the pointer is (nothing: not on a face).
     void hover(const std::optional<MediaFaceKey>& face, glm::vec2 uv);
 
+    // A page has the keyboard.
+    bool focused() const { return focusedTab_ != 0; }
+    void unfocus();
+    // To the page with the keyboard (its tab filled in); false if none has
+    // it.
+    bool key(media::Key key);
+    bool text(const std::string& text);
+    // A text field on it has the keyboard (an on-screen keyboard wanted),
+    // and a count of the times one took it (to open that keyboard once
+    // each time).
+    bool editing() const;
+    uint64_t editingTaken() const { return editingTaken_; }
+    // What's selected on it (to copy).
+    std::string selection() const;
+
     MediaFaceState state(const MediaFaceKey& face) const;
     // What the page shows now (its address), if it plays.
     std::string address(const MediaFaceKey& face) const;
@@ -151,6 +170,8 @@ private:
         bool closing = false;
         bool shown = false; // a frame is on its texture
         std::string address;
+        bool editing = false;
+        std::string selection;
         // Drawn into: texture() asked this frame, or its object was drawn.
         uint64_t seenFrame = 0;
         bool hidden = false;
@@ -199,6 +220,8 @@ private:
     // The pointer.
     media::TabId pressedTab_ = 0;
     media::TabId hoveredTab_ = 0;
+    media::TabId focusedTab_ = 0;
+    uint64_t editingTaken_ = 0;
     glm::ivec2 hoveredAt_{-1};
     bool bgra_ = true; // the GPU samples BGRA as it is (else swizzled here)
     std::vector<media::Message> said_;

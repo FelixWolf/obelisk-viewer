@@ -1,3 +1,4 @@
+#include "MediaKeys.hpp"
 #include "MediaManager.hpp"
 
 #include "viewer/media/Protocol.hpp"
@@ -131,6 +132,11 @@ TEST_CASE("media protocol: every message there and back")
         AudioStop{3},
         Closed{3},
         Crashed{3},
+        Focus{3, true},
+        Key{3, KeyKind::Char, 0x0D, key_flags::kShift | key_flags::kRepeat, '\r'},
+        Text{3, "h\xC3\xA9llo"},
+        Editing{3, true},
+        Selection{3, "picked"},
     };
     std::vector<uint8_t> stream;
     for(const Message& m : all)
@@ -414,6 +420,95 @@ TEST_CASE("media: the nearest few, the gone forgotten, and the host failing")
     f.update("other");
     CHECK_FALSE(f.media.hostRunning());
     CHECK(f.started == 1);
+}
+
+TEST_CASE("media: the keyboard on a page")
+{
+    Fixture f;
+    const auto face = f.add("https://youtube.com/a", true, 5.0f);
+    f.update();
+    f.update();
+    auto open = f.host->open();
+    REQUIRE(open.size() == 1);
+    const TabId tab = open[0].tab;
+    // Nothing has it until the page is pressed on.
+    CHECK_FALSE(f.media.focused());
+    CHECK_FALSE(f.media.key(Key{0, KeyKind::Down, 0x41, 0, 0}));
+    CHECK_FALSE(f.media.text("a"));
+    f.host->says.push_back(Frame{tab, 0, open[0].width, open[0].height});
+    f.update();
+    REQUIRE(f.media.press(face.object, face.face, {0.5f, 0.5f}));
+    f.media.release();
+    CHECK(f.media.focused());
+    REQUIRE(f.host->sentOf<Focus>().size() == 1);
+    CHECK(f.host->sentOf<Focus>()[0].focused);
+    // Keys and text go to it.
+    CHECK(f.media.key(Key{0, KeyKind::Down, 0x41, 0, 0}));
+    CHECK(f.media.text("a"));
+    REQUIRE(f.host->sentOf<Key>().size() == 1);
+    CHECK(f.host->sentOf<Key>()[0].tab == tab);
+    CHECK(f.host->sentOf<Text>()[0].text == "a");
+    // A text field taking it is counted (an on-screen keyboard once).
+    const uint64_t taken = f.media.editingTaken();
+    f.host->says.push_back(Editing{tab, true});
+    f.host->says.push_back(Selection{tab, "picked"});
+    f.update();
+    CHECK(f.media.editing());
+    CHECK(f.media.editingTaken() == taken + 1);
+    CHECK(f.media.selection() == "picked");
+    f.host->says.push_back(Editing{tab, true}); // the same: not again
+    f.update();
+    CHECK(f.media.editingTaken() == taken + 1);
+    // Let go: nothing more reaches it.
+    f.media.unfocus();
+    CHECK_FALSE(f.media.focused());
+    CHECK_FALSE(f.host->sentOf<Focus>().back().focused);
+    CHECK_FALSE(f.media.key(Key{0, KeyKind::Down, 0x41, 0, 0}));
+    CHECK(f.media.selection().empty());
+    // The tab closing lets go too.
+    REQUIRE(f.media.press(face.object, face.face, {0.5f, 0.5f}));
+    CHECK(f.media.focused());
+    f.media.setPlay(MediaPlay::Disable);
+    f.update();
+    CHECK_FALSE(f.media.focused());
+}
+
+TEST_CASE("media: keys as pages know them")
+{
+    using namespace key_flags;
+    auto code =
+        [](SDL_Keycode k, SDL_Scancode s = SDL_SCANCODE_UNKNOWN, SDL_Keymod m = SDL_KMOD_NONE)
+    {
+        const auto key = mediaKey(k, s, m, true, false);
+        return key ? key->keyCode : 0u;
+    };
+    CHECK(code(SDLK_A) == 0x41);
+    CHECK(code(SDLK_Z) == 0x5A);
+    CHECK(code(SDLK_0) == 0x30);
+    CHECK(code(SDLK_9) == 0x39);
+    CHECK(code(SDLK_F1) == 0x70);
+    CHECK(code(SDLK_F12) == 0x7B);
+    CHECK(code(SDLK_RETURN) == 0x0D);
+    CHECK(code(SDLK_KP_ENTER) == 0x0D);
+    CHECK(code(SDLK_BACKSPACE) == 0x08);
+    CHECK(code(SDLK_SPACE) == 0x20);
+    CHECK(code(SDLK_LEFT) == 0x25);
+    CHECK(code(SDLK_DOWN) == 0x28);
+    CHECK(code(SDLK_DELETE) == 0x2E);
+    CHECK(code(SDLK_KP_0) == 0x60);
+    CHECK(code(SDLK_KP_9) == 0x69);
+    CHECK(code(SDLK_KP_PERIOD) == 0x6E);
+    // Punctuation by its place, whatever the layout makes it.
+    CHECK(code(SDLK_SEMICOLON, SDL_SCANCODE_SEMICOLON) == 0xBA);
+    CHECK(code(SDLK_M, SDL_SCANCODE_SEMICOLON) == 0x4D); // (a letter there: the letter)
+    CHECK(code(0xE9, SDL_SCANCODE_SLASH) == 0xBF);       // é on a French keyboard's /
+    CHECK(code(SDLK_UNKNOWN) == 0);
+    // Modifiers.
+    const auto k =
+        mediaKey(SDLK_KP_5, SDL_SCANCODE_KP_5, SDL_KMOD_LSHIFT | SDL_KMOD_RCTRL, false, true);
+    REQUIRE(k);
+    CHECK(k->kind == KeyKind::Up);
+    CHECK(k->modifiers == (kShift | kControl | kKeypad | kRepeat));
 }
 
 TEST_CASE("media: volume with distance")

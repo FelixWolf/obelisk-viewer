@@ -297,6 +297,12 @@ private:
     std::optional<std::string> keyboardForChat_;
     // Or a setting's (its name), asked for on the Settings tab.
     std::optional<std::string> keyboardForSetting_;
+    // The keyboard was opened for the page that has the keyboard (a text
+    // field on it took it, in a headset): what's typed goes there.
+    bool keyboardForMedia_ = false;
+    uint64_t mediaEditingSeen_ = 0;
+    // Text input is on for that page (SDL's, while a page has the keyboard).
+    bool mediaTextInput_ = false;
     void updateScriptDialogs();
     // A script's notice or an offer waits (the notice page shows).
     bool noticeWaiting() const;
@@ -465,6 +471,9 @@ private:
     };
     std::vector<HomeMedia> homeMedia_;
     std::vector<MediaSource> mediaSources_; // (kept for its capacity)
+    // Keys and text for the page with the keyboard (Escape lets it go);
+    // true if it took the event.
+    bool mediaKeyEvent(const SDL_Event& event);
     // `home`: the lobby is what's drawn (its world is world_ then).
     void updateMedia(bool home);
     uint64_t lastSoundTicks_ = 0;

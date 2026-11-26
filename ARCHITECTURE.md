@@ -1276,6 +1276,17 @@ touching the viewer: it only speaks `viewer/media/Protocol.hpp`.
   at the hit's texture coordinates (v runs up), if its media lets anyone
   interact (`perms_interact`; its owner and group aren't known yet), and
   the pointer moving over it moves there (`Mouse`).
+- **The keyboard:** pressing on a page gives it the keyboard
+  (`MediaManager::focused`, `Focus`): every key goes there (`Key`, as
+  Windows' virtual-key codes, `MediaKeys.cpp`) and the window's text input
+  as `Text` (Chromium's input-method commit, so any layout or input method
+  types what it shows), and none to the avatar, until Escape, pressing
+  anywhere else, or the tab closing. Enter and Tab also go as what they
+  type (a form sent, the next field). The host's clipboard is its own
+  (headless), so Ctrl+V types the system's clipboard and Ctrl+C copies what
+  the host says is selected (`Selection`). In a headset, a text field on
+  the page taking the keyboard (`Editing`, CEF's virtual-keyboard request)
+  opens our VR keyboard for it: what's typed goes there, then Enter.
 - **The host's own rules** (whatever the viewer says, `UrlPolicy`): pages
   over http and https only, and nothing on this computer or the local
   network (localhost, loopback, private, link-local and carrier-grade NAT
@@ -1299,7 +1310,7 @@ wrapper built from its source; libcef stripped when installed, ~285 MB). The
 Windows host waits on a sandbox test on real Windows; the viewer's side
 builds there already, and without a host, media doesn't play.
 
-Not yet: the keyboard and the scroll wheel on pages, the media controls
+Not yet: the scroll wheel on pages, the media controls
 (play, pause, home, the address), owners' and groups' interact rights,
 parcel media, zooming to a face (auto_zoom), the alternate image, and
 H.264/AAC video (the official CEF builds leave those codecs out: MP4

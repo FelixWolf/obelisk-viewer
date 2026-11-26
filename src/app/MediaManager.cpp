@@ -93,6 +93,9 @@ void MediaManager::update(std::span<const MediaSource> sources, const MediaWhite
             forget(tab);
         }
         tabs_.clear();
+        focusedTab_ = 0;
+        pressedTab_ = 0;
+        hoveredTab_ = 0;
         for(auto& [key, face] : faces_)
         {
             face.tab = 0;
@@ -301,6 +304,10 @@ void MediaManager::close(Tab& tab)
     {
         pressedTab_ = 0;
     }
+    if(focusedTab_ == tab.id)
+    {
+        focusedTab_ = 0;
+    }
     if(hoveredTab_ == tab.id)
     {
         hoveredTab_ = 0;
@@ -433,6 +440,18 @@ void MediaManager::handle(const media::Message& message)
                         f->second.autoBlocked = true;
                         close(tab);
                     }
+                }
+                else if constexpr(std::is_same_v<T, media::Editing>)
+                {
+                    if(m.editing && !tab.editing && focusedTab_ == tab.id)
+                    {
+                        editingTaken_++;
+                    }
+                    tab.editing = m.editing;
+                }
+                else if constexpr(std::is_same_v<T, media::Selection>)
+                {
+                    tab.selection = m.text;
                 }
                 else if constexpr(std::is_same_v<T, media::Crashed>)
                 {
@@ -642,6 +661,16 @@ bool MediaManager::press(const Uuid& object, int face, glm::vec2 uv)
                 host_->send(media::Mouse{tab->id, media::MouseKind::Down, p->x, p->y});
                 pressedTab_ = tab->id;
                 hoveredAt_ = *p;
+                if(focusedTab_ != tab->id)
+                {
+                    unfocus();
+                    focusedTab_ = tab->id;
+                    host_->send(media::Focus{tab->id, true});
+                    if(tab->editing)
+                    {
+                        editingTaken_++; // (it may have had one before)
+                    }
+                }
             }
         }
         return true; // (still opening: the press is its)
@@ -696,6 +725,48 @@ void MediaManager::hover(const std::optional<MediaFaceKey>& face, glm::vec2 uv)
             host_->send(media::Mouse{tab->id, media::MouseKind::Move, p->x, p->y});
         }
     }
+}
+
+void MediaManager::unfocus()
+{
+    if(focusedTab_ && host_)
+    {
+        host_->send(media::Focus{focusedTab_, false});
+    }
+    focusedTab_ = 0;
+}
+
+bool MediaManager::key(media::Key key)
+{
+    if(!focusedTab_ || !host_)
+    {
+        return false;
+    }
+    key.tab = focusedTab_;
+    host_->send(key);
+    return true;
+}
+
+bool MediaManager::text(const std::string& text)
+{
+    if(!focusedTab_ || !host_)
+    {
+        return false;
+    }
+    host_->send(media::Text{focusedTab_, text});
+    return true;
+}
+
+bool MediaManager::editing() const
+{
+    const auto it = tabs_.find(focusedTab_);
+    return it != tabs_.end() && it->second.editing;
+}
+
+std::string MediaManager::selection() const
+{
+    const auto it = tabs_.find(focusedTab_);
+    return it == tabs_.end() ? std::string() : it->second.selection;
 }
 
 MediaFaceState MediaManager::state(const MediaFaceKey& key) const

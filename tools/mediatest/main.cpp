@@ -41,6 +41,15 @@ constexpr const char* kPage =
     "let a=new AudioContext(),o=a.createOscillator();o.connect(a.destination);o.start();"
     "</script>";
 
+// A text field with the keyboard; the title says what it holds, and the
+// keys pressed (key code, key) and Enter (submitted).
+constexpr const char* kTypingPage =
+    "data:text/html,<body style='margin:0'><input id=i style='font-size:40px;width:600px'>"
+    "<script>let k=[],s='';const t=()=>document.title='['+i.value+'] '+k.join(' ')+s;"
+    "i.onkeydown=e=>{k.push(e.keyCode+':'+e.key+(e.shiftKey?'+S':''));t()};"
+    "i.oninput=t;i.onkeypress=e=>{if(e.key=='Enter'){s=' submitted';t()}};"
+    "</script>";
+
 struct Tab
 {
     std::unique_ptr<SharedMemory> memory;
@@ -188,14 +197,75 @@ int main(int argc, char** argv)
     pump();
 
     int failures = 0;
+
+    // Typing: a page of its own, clicked into, then keys and text.
+    {
+        auto memory = SharedMemory::create("mediatest", frameMemorySize(kWidth, kHeight));
+        const TabId id = 100;
+        open[id].memory = std::move(memory);
+        host->send(Open{id, "test", kTypingPage, kWidth, kHeight, open[id].memory->name(), 30});
+        bool editing = false;
+        auto wait = [&](std::chrono::milliseconds ms)
+        {
+            const auto end = Clock::now() + ms;
+            while(Clock::now() < end)
+            {
+                pump();
+                for(const Message& m : said)
+                {
+                    if(const auto* e = std::get_if<Editing>(&m); e && e->tab == id)
+                    {
+                        editing = e->editing;
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        };
+        wait(std::chrono::milliseconds(1500));
+        host->send(Focus{id, true});
+        host->send(Mouse{id, MouseKind::Down, 50, 25, MouseButton::Left, 1});
+        host->send(Mouse{id, MouseKind::Up, 50, 25, MouseButton::Left, 1});
+        wait(std::chrono::milliseconds(300));
+        const bool editingSeen = editing;
+        using namespace key_flags;
+        auto press = [&](uint32_t code, uint32_t flags, const char* text, uint32_t ch = 0)
+        {
+            host->send(Key{id, KeyKind::Down, code, flags, 0});
+            if(ch)
+            {
+                host->send(Key{id, KeyKind::Char, code, flags, ch});
+            }
+            if(text)
+            {
+                host->send(Text{id, text});
+            }
+            host->send(Key{id, KeyKind::Up, code, flags, 0});
+        };
+        press(0x41, 0, "a");        // a
+        press(0x31, kShift, "!");   // shift+1
+        press(0x45, 0, "\xC3\xA9"); // é (as an input method gives it)
+        press(0x42, 0, "b");
+        press(0x08, 0, nullptr);     // backspace
+        press(0x0D, 0, nullptr, 13); // enter
+        wait(std::chrono::milliseconds(500));
+        std::println("typing: editing {}; title '{}'", editingSeen ? "yes" : "no", open[id].title);
+        const bool typed = open[id].title.starts_with("[a!\xC3\xA9]") &&
+                           open[id].title.find("65:a") != std::string::npos &&
+                           open[id].title.find("8:Backspace") != std::string::npos &&
+                           open[id].title.ends_with("submitted");
+        std::println("typing reached the page: {}", typed ? "yes" : "no");
+        failures += !typed || !editingSeen;
+    }
     for(auto& [id, t] : open)
+
     {
         auto a = host->audio(id);
         const float buffered = a ? a->bufferedSeconds() : 0.0f;
         std::println("tab {}: {:.1f} frames/s, sound {} ({:.2f} s buffered), title '{}', at {}", id,
                      t.frames / static_cast<double>(seconds), t.audioStarted ? "yes" : "no",
                      buffered, t.title, t.address);
-        failures += t.frames < 10 * seconds || !t.audioStarted;
+        failures +=
+            id < 100 && (t.frames < 10 * seconds || !t.audioStarted); // (not the typing page)
     }
     const bool clickSeen = open[1].title == "click 123,45";
     std::println("click reached tab 1: {}", clickSeen ? "yes" : "no");

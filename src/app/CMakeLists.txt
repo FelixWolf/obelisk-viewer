@@ -53,6 +53,7 @@ add_executable(viewer
   TerrainTextures.cpp
   TerrainOverrides.cpp
   ViewerEffects.cpp
+  MediaKeys.cpp
   MediaManager.cpp
   MediaWhitelist.cpp
   MicrophoneList.cpp
