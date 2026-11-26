@@ -74,6 +74,9 @@ src/avatar   Default avatar: skeleton, .llm body meshes, shape, animation, attac
 src/text     Fonts (stb_truetype; Inter built in), glyph atlas,
              text layout: no GPU, no ImGui                         -> viewer::text
 src/ui       ImGui context + SDL3/SDL GPU backends                 -> viewer::ui
+src/media    The media host's protocol, shared memory, starting it
+             and listening to it (no CEF)                          -> viewer::media
+src/media/host  The media host program (CEF): obelisk-media
 src/app      App (owns everything), LoginPanel, TextureBrowser, camera,
              TerrainView, ObjectView, AvatarView, AnimationManager, TextureManager, procedural test scene, main()
 tests/       doctest unit tests (fixtures in tests/data)
@@ -279,6 +282,7 @@ swapped later. The backend's .cpp defines the factory function:
 | `viewer::image::J2kDecoder` | `createJ2kDecoder()` | `src/image/OpenJpegDecoder.cpp` (OpenJPEG) |
 | `viewer::net::HttpClient` | `createHttpClient()` | `src/net/CurlHttpClient.cpp` (libcurl) |
 | `viewer::voice::Peer` | `createPeer()` | `src/voice/RtcPeer.cpp` (libdatachannel) |
+| `viewer::media::MediaHost` | `startMediaHost()` | `src/media/host` (CEF, a program of its own) |
 
 ## HTTP
 
@@ -1210,6 +1214,96 @@ colors), and their names green while they speak; on the People tab; and, while
 our microphone's on, a panel at the bottom of the view (its own level too).
 
 Not yet: group, ad-hoc and private calls, and muting someone.
+
+### Media on prims
+
+A face's media (a web page or video, `ObjectMedia`) plays in a browser
+tab of the **media host**, `obelisk-media` (src/media/host, beside the
+viewer in `media/` with libcef and its files): Chromium through CEF
+(Chromium Embedded Framework), in a program of its own. The viewer never
+links CEF, so a crashing page can't take it down, and the engine can be
+replaced (another CEF, one built with other codecs, another browser) without
+touching the viewer: it only speaks `viewer/media/Protocol.hpp`.
+
+- **Starting it:** `MediaManager` starts the host the first time a face
+  wants to play (`startMediaHost`, through `ChildProcess`: its standard
+  input and output are the protocol's pipe, its standard error our log). It
+  says `Init` (the engine's folder, the sandbox), the host says `Ready`.
+  A host that fails is tried again after 30 s, three times at most. It exits
+  when the viewer says `Quit` or goes away (its input ends; on Linux it also
+  dies with us, `PR_SET_PDEATHSIG`).
+- **One engine, tabs:** every face that plays is a tab (a windowless
+  browser) of the one engine, so they share its HTTP cache and processes
+  (eight tabs: 18 processes and ~540 MiB measured, against 88 and ~1.7 GiB
+  as eight engines, the official viewer's way). Cookies and storage are a
+  profile's: the account's id (`lobby` before logging in), as a
+  `CefRequestContext` in `<engine folder>/profile-<id>`. Chromium locks
+  its folder to one process, so each running viewer takes a numbered one,
+  `<cache>/media/<n>`, under a `ProcessLock` (`<n>.lock`).
+- **Frames:** the viewer makes each tab's shared memory (`SharedMemory`:
+  a header and two slots of BGRA pixels, `frameMemorySize`) and names it
+  in `Open`; the host opens it and drops the name. The host draws into a
+  free slot and says `Frame`; the viewer uploads the newest (flipped to
+  bottom-up rows, as all our textures, with mips) and gives the slot back
+  (`Release`). With both slots busy the host keeps only the latest. A
+  `<select>`'s list (CEF's popup) is drawn over the page there.
+- **Sound:** each tab's samples come back as `Audio` messages (stereo, 48
+  kHz). The reader thread puts them straight into the tab's `TabAudio`
+  (`audio::PcmSource`), which the audio engine plays (so voice's echo
+  cancellation hears it too): full volume within 40 m of the camera, inverse
+  square to silence at 80 m (as LLViewerMediaImpl::updateVolume), times the
+  `audio.media_volume` setting.
+- **On the face:** `ObjectView` asks `MediaTextures::texture(object, face)`
+  for every face drawn: a playing page replaces its texture (a PBR face's
+  base color), counted as opaque. Asking marks it seen: pages not drawn
+  for 30 frames are hidden (`Visibility`: 1 frame a second, sound still
+  playing). Kept draws are made again when a page starts or stops
+  (`MediaTextures::revision`).
+- **What plays** (`MediaManager::choose`): the `media.play` setting with
+  the face's auto-play and the media whitelist from viewerconfig
+  (`mediaStart`, `MediaWhitelist`): `always`, `whitelist` (the default:
+  listed sites start by themselves, others wait for a click), `click`,
+  `disable` (the host isn't even started). Never what the face's creator's
+  whitelist leaves out (`MediaEntry::allows`, LLMediaEntry::checkCandidateUrl's
+  globs). At most four tabs, within 64 m: clicked faces first, then the
+  nearest. Logging in as another account closes them all (another profile).
+- **Going elsewhere:** the host says each page the tab goes to (`Address`).
+  Outside the creator's whitelist: closed until the face's media changes.
+  Somewhere that wouldn't have started by itself, unclicked: closed until
+  it's clicked.
+- **The pointer:** pressing a face with media that isn't playing plays it
+  (instead of touching it); pressing one that plays presses on the page,
+  at the hit's texture coordinates (v runs up), if its media lets anyone
+  interact (`perms_interact`; its owner and group aren't known yet), and
+  the pointer moving over it moves there (`Mouse`).
+- **The host's own rules** (whatever the viewer says, `UrlPolicy`): pages
+  over http and https only, and nothing on this computer or the local
+  network (localhost, loopback, private, link-local and carrier-grade NAT
+  addresses, by name or literal), so a prim can't reach someone's router.
+  Popups open in the tab when clicked; downloads, file pickers, permission
+  prompts (camera, microphone, ...) and dialogs are refused. Chromium runs
+  headless (`--ozone-platform=headless`: no display server needed, the GPU
+  when there is one) and doesn't talk to Google in the background.
+  Sandboxed unless `media.sandbox` is off.
+- **The lobby:** the home scene's faces may carry media too
+  (`HomeScene::media`), played the same way (autoplay only: the lobby has
+  no pointer yet).
+
+`tools/mediatest` drives the host as the viewer does (frames, sound, a
+click, closing) without the viewer: `build/<preset>/bin/mediatest --png
+out.png`.
+
+Built where `VIEWER_MEDIA` is on: x64 Linux for now (the CEF "minimal"
+distribution, pinned with its hash in cmake/Dependencies.cmake, its C++
+wrapper built from its source; libcef stripped when installed, ~285 MB). The
+Windows host waits on a sandbox test on real Windows; the viewer's side
+builds there already, and without a host, media doesn't play.
+
+Not yet: the keyboard and the scroll wheel on pages, the media controls
+(play, pause, home, the address), owners' and groups' interact rights,
+parcel media, zooming to a face (auto_zoom), the alternate image, and
+H.264/AAC video (the official CEF builds leave those codecs out: MP4
+doesn't play, WebM does).
 
 ### HUDs
 

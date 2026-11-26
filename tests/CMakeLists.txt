@@ -19,6 +19,8 @@ add_executable(viewer_tests
   CurrentOutfitTests.cpp
   ParcelInfoTests.cpp
   MediaTests.cpp
+  MediaWhitelistTests.cpp
+  MediaManagerTests.cpp
   SettingsTests.cpp
   DiskCacheTests.cpp
   HttpClientTests.cpp
@@ -91,6 +93,8 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/MusicStream.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SoundAssets.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SoundManager.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/MediaWhitelist.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/MediaManager.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ObjectMedia.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MicrophoneList.cpp
   ${PROJECT_SOURCE_DIR}/src/app/VoiceIndicators.cpp
@@ -110,6 +114,7 @@ target_link_libraries(viewer_tests PRIVATE
   viewer::environment
   viewer::avatar
   viewer::audio
+  viewer::media
   viewer::voice
   opus
   LibDataChannel::LibDataChannelStatic

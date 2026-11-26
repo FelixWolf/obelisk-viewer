@@ -7,6 +7,17 @@
 namespace viewer
 {
 
+namespace
+{
+
+#if defined(VIEWER_HAVE_MEDIA)
+constexpr bool kHaveMedia = true;
+#else
+constexpr bool kHaveMedia = false;
+#endif
+
+} // namespace
+
 std::vector<SettingDefinition> viewerSettings()
 {
     using namespace setting;
@@ -92,6 +103,30 @@ std::vector<SettingDefinition> viewerSettings()
                        .label = "Play parcel music by itself",
                        .description = "Start a parcel's music on arriving (off: it waits for "
                                       "Play on the Media tab)."}),
+
+        // Shown where there's a media host (VIEWER_HAVE_MEDIA).
+        defineSetting(kMediaPlay, std::string("whitelist"),
+                      {.page = "Sound",
+                       .section = "Media",
+                       .label = "Media on prims",
+                       .description = "Which web pages and videos on objects play by "
+                                      "themselves, where their owners ask it. Whitelist: those "
+                                      "on sites we list; others wait for a click. Any site "
+                                      "that plays sees your IP address.",
+                       .choices = {{"always", "Always"},
+                                   {"whitelist", "Whitelist"},
+                                   {"click", "Click to Play"},
+                                   {"disable", "Disable"}},
+                       .hidden = !kHaveMedia}),
+        defineSetting(kMediaVolume, int32_t{100},
+                      {.page = "Sound",
+                       .label = "Media volume",
+                       .description = "Media on prims, quieter with distance.",
+                       .minimum = 0,
+                       .maximum = 100,
+                       .step = 5,
+                       .unit = "%",
+                       .hidden = !kHaveMedia}),
 
         // --- Voice ------------------------------------------------------------------
         defineSetting(kVoice, true,
@@ -309,6 +344,13 @@ std::vector<SettingDefinition> viewerSettings()
                       {.page = "Developer",
                        .label = "Material test scene",
                        .description = "Show the material test scene.",
+                       .hidden = true}),
+        defineSetting(kMediaSandbox, true,
+                      {.page = "Developer",
+                       .label = "Media sandbox",
+                       .description = "Run media pages in Chromium's sandbox. Off only where "
+                                      "it can't run (the media host then fails to start).",
+                       .restart = true,
                        .hidden = true}),
     };
 }

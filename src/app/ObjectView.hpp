@@ -17,6 +17,7 @@
 #include "FlexibleView.hpp"
 #include "LegacyMaterialManager.hpp"
 #include "MaterialManager.hpp"
+#include "MediaTextures.hpp"
 #include "MeshManager.hpp"
 #include "ObjectIndex.hpp"
 #include "ObjectMotion.hpp"
@@ -59,6 +60,9 @@ public:
                TextureManager& textures, MeshManager& meshes, MaterialManager& materials,
                LegacyMaterialManager& legacyMaterials, const AvatarView* avatars,
                float drawDistance);
+
+    // What faces with media show while it plays (null: none).
+    void setMedia(MediaTextures* media) { media_ = media; }
 
     // Drops cached geometry (e.g. on logout).
     void clear();
@@ -217,7 +221,8 @@ private:
     material(const world::TextureFace& face, TextureManager& textures,
              LegacyMaterialManager& legacyMaterials, const world::World& world,
              const world::Object* wearer, const AvatarView* avatars, float texels,
-             const world::AnimatedTransform* animation = nullptr, bool rigged = false);
+             const world::AnimatedTransform* animation = nullptr, bool rigged = false,
+             const render::GpuTexture* media = nullptr);
     // What a skeleton's owner is to this frame, for its rigged meshes:
     // where its skeleton stands, how big it is, how far, whether it's seen.
     struct RiggedOwner
@@ -314,6 +319,8 @@ private:
         uint64_t materialRevision = 0;
         uint64_t legacyRevision = 0;
         uint64_t appearanceRevision = 0;
+        uint64_t mediaRevision = 0;
+        bool media = false; // a face shows a page
         const void* overrides = nullptr;
         float radius = 0.0f; // of its geometry, for culling
         float texels = 0.0f; // the object's, when its textures were asked for
@@ -337,6 +344,7 @@ private:
     std::deque<std::vector<glm::mat4>> palettes_;
     size_t palettesUsed_ = 0; // this frame's
     std::optional<world::ObjectKey> inspect_;
+    MediaTextures* media_ = nullptr;
     std::vector<RiggedReport> reports_;
 };
 

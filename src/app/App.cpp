@@ -712,6 +712,57 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
          std::string(setting::kPushToTalk.name), std::string(setting::kMicrophone.name),
          std::string(setting::kVoiceEcho.name)});
     app->objectMedia_ = std::make_unique<ObjectMedia>(*app->http_);
+    {
+        // Media on prims: the media host beside us (where it's built). Its
+        // engine locks the folder it's given for one process, so each
+        // running viewer takes a numbered one (and keeps its cache there).
+        const char* base = SDL_GetBasePath();
+#if defined(_WIN32)
+        const std::string suffix = ".exe";
+#else
+        const std::string suffix;
+#endif
+        const fs::path program = fs::path(base ? base : "") / "media" /
+                                 (std::string(branding::kExecutable) + "-media" + suffix);
+        const fs::path mediaRoot = cacheRoot / "media";
+        const bool sandbox = config.get(kMediaSandbox);
+        App* self = app.get();
+        app->media_ = std::make_unique<MediaManager>(
+            app->renderer_.get(), app->sounds_->engine(),
+            [self, program, mediaRoot, sandbox]() -> std::unique_ptr<media::MediaHost>
+            {
+                std::error_code ec;
+                if(!fs::exists(program, ec))
+                {
+                    log::info("media: no media host at {}: media on prims doesn't play",
+                              program.string());
+                    return nullptr;
+                }
+                fs::create_directories(mediaRoot, ec);
+                // Kept once taken (a host started again uses the same).
+                for(int slot = 0; slot < 8 && !self->mediaLock_; slot++)
+                {
+                    auto lock =
+                        std::make_unique<ProcessLock>(mediaRoot / std::format("{}.lock", slot));
+                    if(lock->state() == ProcessLock::State::Held)
+                    {
+                        self->mediaLock_ = std::move(lock);
+                        self->mediaSlot_ = slot;
+                    }
+                }
+                if(!self->mediaLock_)
+                {
+                    log::warn("media: every media folder is in use (8 viewers?)");
+                    return nullptr;
+                }
+                const fs::path root = mediaRoot / std::to_string(self->mediaSlot_);
+                return media::startMediaHost(
+                    program, media::Init{media::kProtocolVersion, root.string(), sandbox, false});
+            });
+        app->objects_->setMedia(app->media_.get());
+        app->applySettings(
+            {std::string(setting::kMediaPlay.name), std::string(setting::kMediaVolume.name)});
+    }
     app->trees_ = std::make_unique<TreeView>(*app->renderer_);
     {
         const char* base = SDL_GetBasePath();
@@ -819,6 +870,14 @@ void App::applySettings(const std::vector<std::string>& names)
         else if(name == kMusicVolume.name)
         {
             music_->setVolume(static_cast<float>(s.get(kMusicVolume)) / 100.0f);
+        }
+        else if(name == kMediaPlay.name)
+        {
+            media_->setPlay(mediaPlayFrom(s.get(kMediaPlay)));
+        }
+        else if(name == kMediaVolume.name)
+        {
+            media_->setVolume(static_cast<float>(s.get(kMediaVolume)) / 100.0f);
         }
         else if(name == kMusicAutoPlay.name)
         {
@@ -2406,6 +2465,17 @@ void App::buildSceneOf(render::Scene& scene, bool home)
             pointer_.drag(*session_, *originHandle_, *session_->agentRegion(), SDL_GetTicksNS());
         }
         const auto& after = pointer_.hover();
+        // The pointer over a page playing there.
+        {
+            const world::Object* o = after && !after->hud
+                                         ? world_->object(after->key.region, after->key.localId)
+                                         : nullptr;
+            media_->hover(
+                o && after->face >= 0 && after->face < 256
+                    ? std::optional(MediaFaceKey{o->id, static_cast<uint8_t>(after->face)})
+                    : std::nullopt,
+                after ? after->hit.uv : glm::vec2(0.0f));
+        }
         if((pointerOverride_ || !pointAt_.isNull()) &&
            (before.has_value() != after.has_value() ||
             (after && (after->key != before->key || after->face != before->face))))
@@ -2528,7 +2598,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
                         *legacyMaterials_, avatars_.get(), 128.0f);
         addFloatingText(scene, *world_, *objects_, *originHandle_, avatars_.get());
         updateSounds(scene);
-        updateMedia();
+        updateMedia(home);
         if(avatars_)
         {
             const auto* login = session_ ? session_->login() : nullptr;
@@ -2955,6 +3025,15 @@ void App::setFirstPerson(bool on)
 
 void App::pressPointer()
 {
+    // On a face whose media plays (or would, clicked): the media's.
+    if(const auto& pressed = pointer_.pressed(); pressed && !pressed->hud && world_)
+    {
+        const world::Object* o = world_->object(pressed->key.region, pressed->key.localId);
+        if(o && media_->press(o->id, pressed->face, pressed->hit.uv))
+        {
+            return;
+        }
+    }
     if(session_ && world_ && objects_ && originHandle_ && session_->agentRegion())
     {
         pointer_.press(*session_, *world_, *objects_, avatars_.get(), *originHandle_,
@@ -3149,6 +3228,7 @@ void App::loadHomeScene()
 {
     home_.reset();
     homeWorld_.reset();
+    homeMedia_.clear();
     std::ifstream in(homeScenePath_, std::ios::binary);
     if(!in)
     {
@@ -3178,6 +3258,11 @@ void App::loadHomeScene()
     materials_->put(world::kHomeBlankMaterial, assets::Material{});
     log::info("home scene {}: {} objects, assets from {}", homeScenePath_.string(),
               world->objectCount(), scene->assetUrl);
+    homeMedia_.clear();
+    for(const auto& m : scene->media)
+    {
+        homeMedia_.push_back({m.localId, {m.object, m.face}, parseMediaEntry(m.data)});
+    }
     home_ = std::move(*scene);
     homeWorld_ = std::move(world);
 }
@@ -3714,7 +3799,7 @@ std::string playableMusicUrl(std::string_view url)
 
 } // namespace
 
-void App::updateMedia()
+void App::updateMedia(bool home)
 {
     // The parcel's music: on coming onto a parcel, or its URL changing,
     // what it says plays (if it starts by itself) or what played stops.
@@ -3752,6 +3837,57 @@ void App::updateMedia()
                                  return it == r->capabilities.end() ? std::string() : it->second;
                              });
     }
+
+    // Playing it: the faces around with media, the lobby's or the session's.
+    mediaSources_.clear();
+    std::string profile;
+    if(world_ && originHandle_)
+    {
+        const glm::vec3 eye = scene_.camera.position;
+        auto distanceTo = [&](const world::Object& o) -> std::optional<float>
+        {
+            const auto frame = objects_->objectFrame(o, *world_, *originHandle_, avatars_.get());
+            return frame ? std::optional(glm::distance(glm::vec3((*frame)[3]), eye)) : std::nullopt;
+        };
+        if(home)
+        {
+            profile = "lobby";
+            for(const HomeMedia& m : homeMedia_)
+            {
+                if(const world::Object* o = world_->object(*originHandle_, m.localId))
+                {
+                    if(const auto d = distanceTo(*o))
+                    {
+                        mediaSources_.push_back({m.key, &m.entry, *d, true});
+                    }
+                }
+            }
+        }
+        else if(session_ && session_->login())
+        {
+            profile = session_->login()->agentId.toString();
+            for(const auto& [id, data] : objectMedia_->all())
+            {
+                const world::Object* o = world_->object(data.key.region, data.key.localId);
+                const auto d = o && o->id == id ? distanceTo(*o) : std::nullopt;
+                if(!d)
+                {
+                    continue;
+                }
+                for(size_t f = 0; f < data.faces.size() && f < world::kMaxFaces; f++)
+                {
+                    if(const auto& e = data.faces[f])
+                    {
+                        // Who may use the page: anyone (its owner and group
+                        // aren't known here yet).
+                        mediaSources_.push_back(
+                            {{id, static_cast<uint8_t>(f)}, &*e, *d, (e->permsInteract & 4) != 0});
+                    }
+                }
+            }
+        }
+    }
+    media_->update(mediaSources_, viewerConfig_->mediaWhitelist(), profile);
 }
 
 void App::updateVoice()
@@ -4253,6 +4389,30 @@ void App::updateMainMenu()
     status.music = music_.get();
     status.musicAutoPlay = musicAutoPlay_;
     status.parcelMediaPlay = &parcel_.mediaPlay();
+    status.primMediaState = [this](const Uuid& object, size_t face) -> std::string
+    {
+        if(face > 255)
+        {
+            return {};
+        }
+        switch(media_->state({object, static_cast<uint8_t>(face)}))
+        {
+        case MediaFaceState::Playing:
+            return "playing";
+        case MediaFaceState::Starting:
+            return "starting";
+        case MediaFaceState::Click:
+            return "click it to play";
+        case MediaFaceState::Blocked:
+            return "stopped: it went outside its allowed sites";
+        case MediaFaceState::Unavailable:
+            return "media can't play here";
+        case MediaFaceState::Off:
+        case MediaFaceState::None:
+            break;
+        }
+        return {};
+    };
     if(mainMenu_->tab() == "media" && world_ && originHandle_ && session_)
     {
         constexpr size_t kListed = 30;
@@ -4664,6 +4824,7 @@ void App::sitOn(const PointerController::Hover& hover)
 
 void App::releasePointer()
 {
+    media_->release();
     if(session_)
     {
         pointer_.release(*session_);

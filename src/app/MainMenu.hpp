@@ -139,6 +139,9 @@ public:
             const ObjectMediaData* media = nullptr;
         };
         std::vector<PrimMedia> primMedia;
+        // What a face's media is doing ("Playing", "Click to play"; empty:
+        // nothing to say), by object and face.
+        std::function<std::string(const Uuid&, size_t)> primMediaState;
         size_t primMediaTotal = 0; // all known (more than listed)
     };
     // The page's values, then its layout and animations (once a frame

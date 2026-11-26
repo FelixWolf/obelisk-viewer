@@ -10,6 +10,7 @@
 #   core  <-  protocol, volume, assets  <-  world   (terrain, objects)
 #   core, llsd, net, audio  <-  voice  (WebRTC voice)
 #   core, llsd  <-  environment         (sky settings, day cycles, lighting)
+#   core, audio  <-  media              (talks to the media host, its own program)
 #   app sees everything
 #
 # Planned: xr.
@@ -33,4 +34,5 @@ add_subdirectory(render)
 add_subdirectory(ui)
 add_subdirectory(gui)
 add_subdirectory(xr)
+add_subdirectory(media)
 add_subdirectory(app)

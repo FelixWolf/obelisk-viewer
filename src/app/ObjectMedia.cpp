@@ -21,6 +21,102 @@ constexpr auto kSweepInterval = std::chrono::seconds(2);
 
 } // namespace
 
+namespace
+{
+
+char lower(char c)
+{
+    return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
+}
+
+// A glob with only "*", any case (llmediaentry.cpp pattern_match); an
+// empty pattern matches anything.
+bool globMatches(std::string_view text, std::string_view pattern)
+{
+    if(pattern.empty())
+    {
+        return true;
+    }
+    size_t t = 0, p = 0;
+    size_t star = std::string_view::npos, resume = 0;
+    while(t < text.size())
+    {
+        if(p < pattern.size() && pattern[p] == '*')
+        {
+            star = p++;
+            resume = t;
+        }
+        else if(p < pattern.size() && lower(pattern[p]) == lower(text[t]))
+        {
+            p++;
+            t++;
+        }
+        else if(star != std::string_view::npos)
+        {
+            p = star + 1;
+            t = ++resume;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    while(p < pattern.size() && pattern[p] == '*')
+    {
+        p++;
+    }
+    return p == pattern.size();
+}
+
+// A URL's scheme, authority and path (as LLURI splits it).
+struct UrlParts
+{
+    std::string_view scheme;
+    std::string_view authority;
+    std::string_view path;
+};
+
+UrlParts urlParts(std::string_view url)
+{
+    UrlParts u;
+    const size_t sep = url.find("://");
+    if(sep == std::string_view::npos)
+    {
+        u.path = url.substr(0, url.find_first_of("?#"));
+        return u;
+    }
+    u.scheme = url.substr(0, sep);
+    std::string_view rest = url.substr(sep + 3);
+    rest = rest.substr(0, rest.find_first_of("?#"));
+    const size_t slash = rest.find('/');
+    u.authority = rest.substr(0, slash);
+    u.path = slash == std::string_view::npos ? std::string_view() : rest.substr(slash);
+    return u;
+}
+
+} // namespace
+
+bool MediaEntry::allows(std::string_view url) const
+{
+    if(!whitelistEnable || whitelist.empty())
+    {
+        return true;
+    }
+    const UrlParts candidate = urlParts(url);
+    for(const std::string& entry : whitelist)
+    {
+        const std::string filter =
+            entry.find("://") == std::string::npos ? "https://" + entry : entry;
+        const UrlParts f = urlParts(filter);
+        if(globMatches(candidate.scheme, f.scheme) &&
+           globMatches(candidate.authority, f.authority) && globMatches(candidate.path, f.path))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 MediaEntry parseMediaEntry(const llsd::Value& v)
 {
     MediaEntry e;

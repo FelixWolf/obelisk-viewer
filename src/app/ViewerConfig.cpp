@@ -292,14 +292,16 @@ ViewerConfig::ViewerConfig(net::HttpClient& http, JobSystem& jobs, Options optio
         {Kind::Config, "config", {}, false, std::nullopt},
         {Kind::News, "news", {}, false, std::nullopt},
         {Kind::GridStatus, "grid-status", {}, false, std::nullopt},
+        {Kind::MediaWhitelist, "media-whitelist", {}, false, std::nullopt},
     };
     if(!options_.baseUrl.empty() && options_.baseUrl.back() != '/')
     {
         options_.baseUrl += '/';
     }
     loadCopies();
-    // The config at once (the rest when the lobby shows).
+    // These at once (the rest when the lobby shows).
     endpoint(Kind::Config).due = Clock::time_point{};
+    endpoint(Kind::MediaWhitelist).due = Clock::time_point{};
 }
 
 ViewerConfig::~ViewerConfig()
@@ -363,6 +365,17 @@ bool ViewerConfig::use(Kind kind, std::string_view json)
         else
         {
             log::warn("viewerconfig: grid status: {}", g.error());
+        }
+        break;
+    case Kind::MediaWhitelist:
+        if(auto w = parseMediaWhitelist(json))
+        {
+            mediaWhitelist_ = std::move(*w);
+            return true;
+        }
+        else
+        {
+            log::warn("viewerconfig: media whitelist: {}", w.error());
         }
         break;
     case Kind::HomeScene:
@@ -468,6 +481,8 @@ std::chrono::seconds ViewerConfig::refresh(Kind kind) const
         return std::max(std::chrono::seconds(config_.newsRefresh), kMinNewsRefresh);
     case Kind::GridStatus:
         return std::max(std::chrono::seconds(config_.gridStatusRefresh), kMinGridStatusRefresh);
+    case Kind::MediaWhitelist:
+        return std::max(std::chrono::seconds(mediaWhitelist_.refresh), kMinMediaWhitelistRefresh);
     default:
         return kConfigRetry;
     }
@@ -504,18 +519,23 @@ void ViewerConfig::answered(Answer& a, Clock::time_point now)
 
     Endpoint& e = endpoint(a.kind);
     e.asking = false;
-    // The config once (unless it failed); the others again while the
-    // lobby shows.
-    if(a.kind != Kind::Config || !(r.ok() || r.status == 304))
+    // The config once (unless it failed); the others again (news and status
+    // while the lobby shows).
+    const auto again = [&]
     {
-        e.due = now + refresh(a.kind);
-    }
+        if(a.kind != Kind::Config || !(r.ok() || r.status == 304))
+        {
+            e.due = now + refresh(a.kind);
+        }
+    };
     if(r.status == 304)
     {
+        again();
         return;
     }
     if(!r.ok())
     {
+        again();
         log::warn("viewerconfig: {}: {}", e.name,
                   r.error != net::HttpError::None
                       ? std::format("{} ({})", net::errorName(r.error), r.errorMessage)
@@ -526,6 +546,8 @@ void ViewerConfig::answered(Answer& a, Clock::time_point now)
     {
         keep(e, r);
     }
+    // When it's asked again may be in the answer.
+    again();
 }
 
 void ViewerConfig::update(Clock::time_point now, bool lobby)
@@ -551,7 +573,7 @@ void ViewerConfig::update(Clock::time_point now, bool lobby)
     }
     for(Endpoint& e : endpoints_)
     {
-        const bool wanted = e.kind == Kind::Config || lobby;
+        const bool wanted = lobby || (e.kind != Kind::News && e.kind != Kind::GridStatus);
         if(wanted && !e.asking && e.due && now >= *e.due)
         {
             ask(e);

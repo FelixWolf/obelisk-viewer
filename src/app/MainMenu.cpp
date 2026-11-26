@@ -1113,6 +1113,13 @@ void MainMenu::updateMedia(const Status& status)
                 d += d.empty() ? "" : " · ";
                 d += part;
             };
+            if(status.primMediaState)
+            {
+                if(const std::string doing = status.primMediaState(p.object, f); !doing.empty())
+                {
+                    add(doing);
+                }
+            }
             if(e->autoPlay)
             {
                 add("plays by itself");

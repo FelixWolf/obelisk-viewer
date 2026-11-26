@@ -357,6 +357,10 @@ std::expected<HomeScene, std::string> loadHomeScene(std::span<const uint8_t> byt
                 }
                 if(f < faces.size())
                 {
+                    if(const llsd::Value& m = faces[f]["media_data"]; m.isMap())
+                    {
+                        out.media.push_back({o.localId, o.id, static_cast<uint8_t>(f), m});
+                    }
                     if(const llsd::Value& g = faces[f]["gltfMaterial"]; g.isMap())
                     {
                         o.materials.emplace_back(static_cast<uint8_t>(f), kHomeBlankMaterial);

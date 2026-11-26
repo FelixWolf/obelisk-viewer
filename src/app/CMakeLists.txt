@@ -53,6 +53,8 @@ add_executable(viewer
   TerrainTextures.cpp
   TerrainOverrides.cpp
   ViewerEffects.cpp
+  MediaManager.cpp
+  MediaWhitelist.cpp
   MicrophoneList.cpp
   VoiceIndicators.cpp
   OutfitAttachments.cpp
@@ -129,6 +131,7 @@ target_link_libraries(viewer PRIVATE
   viewer::ui
   viewer::gui
   viewer::xr
+  viewer::media
   viewer_warnings
 )
 
@@ -165,6 +168,12 @@ endif()
 # (--login-file, --screenshot, --stereo-benchmark, ...; App.hpp's
 # TestOptions) in Debug builds, and in others configured with
 # -DVIEWER_TEST_OPTIONS=ON (to measure an optimized build).
+# Built with the media host: its settings show.
+if(VIEWER_MEDIA)
+  target_compile_definitions(viewer PRIVATE VIEWER_HAVE_MEDIA=1)
+  add_dependencies(viewer viewer_media_host)
+endif()
+
 target_compile_definitions(viewer PRIVATE
   $<$<CONFIG:Debug>:VIEWER_GPU_DEBUG=1>
   $<$<OR:$<CONFIG:Debug>,$<BOOL:${VIEWER_TEST_OPTIONS}>>:VIEWER_TEST_OPTIONS=1>

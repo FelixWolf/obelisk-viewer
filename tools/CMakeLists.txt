@@ -1,3 +1,6 @@
 add_subdirectory(j2kbench)
 add_subdirectory(httpget)
 add_subdirectory(logintest)
+if(VIEWER_MEDIA)
+  add_subdirectory(mediatest)
+endif()

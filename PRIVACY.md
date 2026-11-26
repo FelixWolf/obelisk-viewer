@@ -18,6 +18,7 @@ use viewerconfig for analytics, advertising or tracking.
 | The viewer starts | Configuration: feature flags, default settings, the latest version, and which lobby scene to use |
 | The lobby (login screen) is showing | News and grid status, then updates every so often while the lobby stays open |
 | News has pictures | Those pictures |
+| The viewer starts, then every hour or so | The list of sites whose in-world media may play by itself. Your computer compares media with it; the viewer never sends what media is around you |
 | The lobby scene has changed | The new scene file |
 | An installed viewer starts, then every 6 hours (sooner after a failure) | Whether there is a newer version |
 | There is a newer version | The update's files |
@@ -71,8 +72,8 @@ We don't sell this data, or share it for advertising.
 
 ## What stays on your computer
 
-The viewer saves the latest configuration, news, grid status and their ETags,
-and the lobby scenes it has downloaded, so that the lobby works offline. These
+The viewer saves the latest configuration, news, grid status, media list and
+their ETags, and the lobby scenes it has downloaded, so that the lobby works offline. These
 are in the `viewerconfig` folder inside the viewer's cache:
 
 - **Windows:** `%LOCALAPPDATA%\obelisk\cache\viewerconfig`

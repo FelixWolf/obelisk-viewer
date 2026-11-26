@@ -1,4 +1,4 @@
-#include "ProcessLock.hpp"
+#include "viewer/core/ProcessLock.hpp"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN

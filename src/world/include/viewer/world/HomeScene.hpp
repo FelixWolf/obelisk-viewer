@@ -24,6 +24,7 @@
 
 #include "viewer/assets/LegacyMaterial.hpp"
 #include "viewer/core/Uuid.hpp"
+#include "viewer/llsd/Value.hpp"
 #include "viewer/world/World.hpp"
 
 #include <glm/glm.hpp>
@@ -63,6 +64,17 @@ struct HomeScene
     std::optional<HomeMarker> login;
     std::optional<HomeMarker> news;
     std::optional<HomeMarker> gridStatus;
+
+    // Media on its faces (llmediaentry.cpp's fields, as ObjectMedia has
+    // them; the app reads them), by object and face.
+    struct Media
+    {
+        uint32_t localId = 0;
+        Uuid object;
+        uint8_t face = 0;
+        llsd::Value data;
+    };
+    std::vector<Media> media;
 
     // The environment's settings assets (not used yet: the default sky).
     Uuid water;

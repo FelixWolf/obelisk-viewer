@@ -1,7 +1,7 @@
 #include "viewer/core/DiskCache.hpp"
 
-#include "ProcessLock.hpp"
 #include "viewer/core/Log.hpp"
+#include "viewer/core/ProcessLock.hpp"
 
 #include <algorithm>
 #include <array>

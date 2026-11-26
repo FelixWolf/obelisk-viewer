@@ -28,6 +28,10 @@ inline constexpr SettingKey<int32_t> kMasterVolume{"audio.master_volume"}; // pe
 inline constexpr SettingKey<int32_t> kSoundVolume{"audio.sound_volume"};
 inline constexpr SettingKey<int32_t> kMusicVolume{"audio.music_volume"};
 inline constexpr SettingKey<bool> kMusicAutoPlay{"audio.music_autoplay"};
+// Media on prims.
+inline constexpr SettingKey<std::string> kMediaPlay{
+    "media.play"}; // "always", "whitelist", "click", "disable"
+inline constexpr SettingKey<int32_t> kMediaVolume{"audio.media_volume"}; // percent
 // Voice.
 inline constexpr SettingKey<bool> kVoice{"voice.enabled"};
 inline constexpr SettingKey<int32_t> kVoiceVolume{"voice.volume"};     // percent
@@ -63,6 +67,8 @@ inline constexpr SettingKey<double> kVrEyeHeight{"vr.eye_height"};       // m; -
 inline constexpr SettingKey<bool> kFirstPerson{"camera.first_person"};   // at the start
 inline constexpr SettingKey<double> kDayTime{"world.day_time"};          // 0..1; -1 the region's
 inline constexpr SettingKey<bool> kTestScene{"developer.test_scene"};
+// Chromium's sandbox for media pages (off only where it can't run).
+inline constexpr SettingKey<bool> kMediaSandbox{"media.sandbox"};
 
 } // namespace viewer::setting
 

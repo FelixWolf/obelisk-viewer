@@ -16,6 +16,8 @@
 // and settings come with the versions and platforms they're for, and are
 // picked here.
 
+#include "MediaWhitelist.hpp"
+
 #include "viewer/core/JobSystem.hpp"
 #include "viewer/core/MessageQueue.hpp"
 #include "viewer/llsd/Value.hpp"
@@ -148,6 +150,7 @@ public:
     // The service's own refresh times aren't taken below these.
     static constexpr auto kMinNewsRefresh = std::chrono::seconds(300);
     static constexpr auto kMinGridStatusRefresh = std::chrono::seconds(60);
+    static constexpr auto kMinMediaWhitelistRefresh = std::chrono::seconds(300);
     // The config asked again after a failure.
     static constexpr auto kConfigRetry = std::chrono::seconds(300);
 
@@ -165,7 +168,7 @@ public:
     ViewerConfig& operator=(const ViewerConfig&) = delete;
 
     // What came; asks for what's due (news and grid status only while the
-    // lobby shows). Once a frame.
+    // lobby shows; the media whitelist all along). Once a frame.
     void update(Clock::time_point now, bool lobby);
 
     const ClientConfig& config() const { return config_; }
@@ -175,6 +178,9 @@ public:
     const llsd::Value* setting(std::string_view key) const;
     // The newest release, if newer than us.
     std::optional<ViewerRelease> newerRelease() const;
+
+    // The sites whose media may play by itself; none until it's known.
+    const MediaWhitelist& mediaWhitelist() const { return mediaWhitelist_; }
 
     const std::vector<NewsEntry>& news() const { return news_; }
     // The news has come (or was on disk): none is no news, not none yet.
@@ -194,6 +200,7 @@ private:
         Config,
         News,
         GridStatus,
+        MediaWhitelist,
         HomeScene,
     };
     struct Answer
@@ -232,6 +239,7 @@ private:
     bool lobby_ = false;
 
     ClientConfig config_;
+    viewer::MediaWhitelist mediaWhitelist_;
     std::vector<NewsEntry> news_;
     bool newsKnown_ = false;
     std::optional<GridStatus> gridStatus_;

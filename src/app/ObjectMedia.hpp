@@ -27,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -58,6 +59,11 @@ struct MediaEntry
 
     // What it shows: the current URL, else home.
     const std::string& url() const { return currentUrl.empty() ? homeUrl : currentUrl; }
+    // Whether its creator's whitelist lets it show `url` (always without
+    // one), as LLMediaEntry::checkCandidateUrl: each entry a URL whose
+    // scheme, host and path are globs ("*" for anything, any case), https
+    // if it names no scheme, and what it leaves out matching anything.
+    bool allows(std::string_view url) const;
     bool operator==(const MediaEntry&) const = default;
 };
 

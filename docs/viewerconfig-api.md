@@ -12,6 +12,7 @@ viewer asks viewerconfig, never Linden Lab's sites directly, for:
    written in the admin.
 4. **Home scene:** the lobby's scene file (`default_scene/sceneConvert.py`'s
    output; see `src/world/include/viewer/world/HomeScene.hpp`).
+5. **Media whitelist:** the sites whose media on prims may play by itself.
 
 The server fetches from Linden Lab on a schedule and caches what it gets. Any
 number of viewers then cost Linden Lab nothing more. Telemetry comes later,
@@ -306,6 +307,46 @@ while it does. `max-age` is 60.
 - **`incidents`:** unresolved incidents.
 - **`maintenance`:** scheduled maintenance that hasn't ended yet.
 - **`update` (incidents and maintenance):** the newest update's text.
+
+## Media whitelist: `GET /api/v1/media-whitelist`
+
+The sites whose media on prims may start by itself, for people whose media
+setting is "Whitelist" (the default) and where the prim asks to auto-play.
+Media elsewhere isn't blocked: it waits for a click. Fetched at startup,
+then every `refresh` seconds, logged in or not. `max-age` is 300.
+
+```json
+{
+  "schema": 1,
+  "sites": [
+    {"host": "youtube.com", "subdomains": true, "path": "/"},
+    {"host": "example.org", "subdomains": false, "path": "/media/"}
+  ],
+  "refresh": 3600
+}
+```
+
+- **`host`:** lowercase ASCII (punycode), at least two labels, no port or
+  wildcard.
+- **`subdomains`:** hosts below it too (`www.youtube.com`, never
+  `notyoutube.com`).
+- **`path`:** starts with `/`; that path and what's below it, by whole parts
+  (`/media/` lists `/media` and `/media/a`, not `/mediaplayer`). `/` is the
+  whole site. No escapes, `.` or `..`.
+- **Matching:** only `https` on its usual port. The viewer does it, so
+  viewerconfig never learns what media anyone sees. Anything it can't read
+  plainly counts as not listed, and entries breaking these rules are ignored.
+- **Navigation:** every page a tab goes to by itself is checked, redirects
+  included. Going to one that isn't listed waits for a click.
+- **`refresh`:** the viewer's own minimum is 300 seconds.
+- **No list yet** (never reached): nothing is listed.
+- **Not a promise of privacy:** a listed site still sees the IP addresses of
+  those whose viewers play it. List no link shorteners or open redirectors.
+- **Home scene:** the sites of media in the lobby's scene have to be listed
+  for it to play by itself.
+
+**Admin (server side):** the sites, each on or off with a note, and the
+refresh. YouTube and Second Life are there from the start.
 
 ## Errors
 

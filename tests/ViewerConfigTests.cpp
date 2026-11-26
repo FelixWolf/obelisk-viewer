@@ -81,6 +81,10 @@ constexpr const char* kNews = R"({
   ]
 })";
 
+constexpr const char* kMediaWhitelist = R"({
+  "schema": 1, "sites": [{"host": "youtube.com", "subdomains": true, "path": "/"}], "refresh": 30
+})";
+
 constexpr const char* kGridStatus = R"({
   "schema": 1, "fetched": "2026-11-20T15:03:00Z", "stale": false,
   "page_url": "https://status.secondlifegrid.net/",
@@ -167,8 +171,12 @@ TEST_CASE("viewerconfig: asks, keeps copies, and asks again with their ETags")
         FakeHttp http;
         ViewerConfig vc(http, jobs, {"https://vc.example/api/v1", dir, "0.4.0", "linux"});
         vc.update(t0, false);
-        // The config at once; nothing else outside the lobby.
-        REQUIRE(http.sent.size() == 1);
+        // The config and the media whitelist at once; nothing else outside
+        // the lobby.
+        REQUIRE(http.sent.size() == 2);
+        CHECK(http.sent[1].request.url == "https://vc.example/api/v1/media-whitelist");
+        CHECK_FALSE(vc.mediaWhitelist().allows("https://youtube.com/"));
+        http.answer(1, kMediaWhitelist, 200, "\"m1\"");
         CHECK(http.sent[0].request.url == "https://vc.example/api/v1/config");
         CHECK(http.sent[0].request.headers.find("User-Agent") ==
               std::string(branding::kUserAgent) + "/0.4.0 (linux)");
@@ -178,35 +186,46 @@ TEST_CASE("viewerconfig: asks, keeps copies, and asks again with their ETags")
         CHECK(vc.flag("pbr_terrain", true) == false); // the first rule's for older ones
         REQUIRE(vc.setting("ShadowDistance"));
         CHECK_FALSE(vc.setting("Unknown"));
+        CHECK(vc.mediaWhitelist().allows("https://youtube.com/"));
         REQUIRE(vc.newerRelease());
 
         // The lobby: news and status.
         vc.update(t0, true);
-        REQUIRE(http.sent.size() == 3);
-        http.answer(1, kNews, 200, "\"n1\"");
-        http.answer(2, kGridStatus, 200, "\"g1\"");
+        REQUIRE(http.sent.size() == 4);
+        http.answer(2, kNews, 200, "\"n1\"");
+        http.answer(3, kGridStatus, 200, "\"g1\"");
         vc.update(t0, true);
         CHECK(vc.news().size() == 2);
         CHECK(vc.newsKnown());
         CHECK(vc.gridStatus());
         // Again only after the refresh (news: not below its minimum).
         vc.update(t0 + std::chrono::seconds(100), true);
-        CHECK(http.sent.size() == 3);
+        CHECK(http.sent.size() == 4);
         vc.update(t0 + std::chrono::seconds(121), true);
-        REQUIRE(http.sent.size() == 4);
-        CHECK(http.sent[3].request.url.ends_with("/grid-status"));
-        CHECK(http.sent[3].request.headers.find("If-None-Match") == "\"g1\"");
-        http.answer(3, "", 304);
+        REQUIRE(http.sent.size() == 5);
+        CHECK(http.sent[4].request.url.ends_with("/grid-status"));
+        CHECK(http.sent[4].request.headers.find("If-None-Match") == "\"g1\"");
+        http.answer(4, "", 304);
         vc.update(t0 + std::chrono::seconds(121), true);
         CHECK(vc.gridStatus()); // still the copy
         // The news after its minimum (300 s, not the 30 asked for); the
         // status again too by then.
         vc.update(t0 + ViewerConfig::kMinNewsRefresh - std::chrono::seconds(1), true);
-        CHECK(http.sent.size() == 5);
-        CHECK(http.sent[4].request.url.ends_with("/grid-status"));
+        CHECK(http.sent.size() == 6);
+        CHECK(http.sent[5].request.url.ends_with("/grid-status"));
         vc.update(t0 + ViewerConfig::kMinNewsRefresh, true);
-        REQUIRE(http.sent.size() == 6);
-        CHECK(http.sent[5].request.url.ends_with("/news"));
+        REQUIRE(http.sent.size() == 8);
+        CHECK(http.sent[6].request.url.ends_with("/news"));
+        // The media whitelist too (its minimum, not the 30 asked for).
+        CHECK(http.sent[7].request.url.ends_with("/media-whitelist"));
+        CHECK(http.sent[7].request.headers.find("If-None-Match") == "\"m1\"");
+        // Failing, it keeps what it had, and asks again outside the lobby.
+        http.answer(7, "", 503);
+        vc.update(t0 + ViewerConfig::kMinMediaWhitelistRefresh, false);
+        CHECK(vc.mediaWhitelist().allows("https://youtube.com/"));
+        vc.update(t0 + 2 * ViewerConfig::kMinMediaWhitelistRefresh, false);
+        REQUIRE(http.sent.size() == 9);
+        CHECK(http.sent[8].request.url.ends_with("/media-whitelist"));
     }
     {
         // Next time: the copies at once, and their ETags sent.
@@ -214,8 +233,9 @@ TEST_CASE("viewerconfig: asks, keeps copies, and asks again with their ETags")
         ViewerConfig vc(http, jobs, {"https://vc.example/api/v1/", dir, "0.4.0", "linux"});
         CHECK(vc.news().size() == 2);
         CHECK(vc.gridStatus());
+        CHECK(vc.mediaWhitelist().allows("https://youtube.com/"));
         vc.update(t0, false);
-        REQUIRE(http.sent.size() == 1);
+        REQUIRE(http.sent.size() == 2);
         CHECK(http.sent[0].request.headers.find("If-None-Match") == "\"c1\"");
         // The service down: the copies stay.
         http.answer(0, "", 503);
@@ -223,7 +243,7 @@ TEST_CASE("viewerconfig: asks, keeps copies, and asks again with their ETags")
         CHECK(vc.flag("pbr_terrain", true) == false);
         // Asked again later.
         vc.update(t0 + ViewerConfig::kConfigRetry, false);
-        CHECK(http.sent.size() == 2);
+        CHECK(http.sent.size() == 3);
     }
 }
 
@@ -253,10 +273,10 @@ TEST_CASE("viewerconfig: the home scene, downloaded once and checked")
     vc.update(now, false);
     http.answer(0, config, 200, "\"c\"");
     vc.update(now, false);
-    REQUIRE(http.sent.size() == 2);
-    CHECK(http.sent[1].request.url == std::format("https://vc.example/s/{}.scene", sha));
+    REQUIRE(http.sent.size() == 3); // (and the media whitelist)
+    CHECK(http.sent[2].request.url == std::format("https://vc.example/s/{}.scene", sha));
     // Not what was announced: not kept.
-    http.answer(1, "something else");
+    http.answer(2, "something else");
     waitFor(vc, [&] { return false; });
     CHECK(vc.homeScene().empty());
 

@@ -307,7 +307,8 @@ std::optional<render::BlinnPhongMaterial>
 ObjectView::material(const world::TextureFace& face, TextureManager& textures,
                      LegacyMaterialManager& legacyMaterials, const world::World& world,
                      const world::Object* wearer, const AvatarView* avatars, float texels,
-                     const world::AnimatedTransform* animation, bool rigged)
+                     const world::AnimatedTransform* animation, bool rigged,
+                     const render::GpuTexture* media)
 {
     render::BlinnPhongMaterial m;
     // Bake on Mesh: on a worn face, any of its textures may stand for one
@@ -323,7 +324,8 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
                                    : face.repeats;
     auto texelsAt = [&](glm::vec2 repeats)
     { return repeatedTexels(texels, animation ? animated : repeats); };
-    m.diffuse = fetch(face.texture, texelsAt(face.repeats), false);
+    // A page playing on it shows instead of its texture.
+    m.diffuse = media ? media : fetch(face.texture, texelsAt(face.repeats), false);
     if(diffuseBake && !m.diffuse)
     {
         return std::nullopt; // the bake still loading (or none)
@@ -378,7 +380,9 @@ ObjectView::material(const world::TextureFace& face, TextureManager& textures,
     }
     // What the diffuse alpha does, with what the texture's alpha turned out
     // to be (none until it has loaded: drawn solid meanwhile).
-    const auto textureAlpha = textures.alphaMode(diffuseBake ? *diffuseBake : face.texture);
+    // A page is opaque (drawn over white), whatever the texture under it.
+    const auto textureAlpha = media ? std::optional(image::AlphaMode::Opaque)
+                                    : textures.alphaMode(diffuseBake ? *diffuseBake : face.texture);
     const bool opaqueFace = face.color.a >= 1.0f;
     if(diffuseBake && alphaMode == assets::DiffuseAlphaMode::Default)
     {
@@ -1197,6 +1201,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         {
             if(c.contentRevision != object.contentRevision || c.detail != detail || c.hud != hud ||
                c.overrides != overrides || c.materialRevision != materials.revision() ||
+               (media_ && c.mediaRevision != media_->revision()) ||
                c.legacyRevision != legacyMaterials.revision() ||
                (c.mesh && c.meshRevision != meshes.revision()) ||
                (c.worn && c.appearanceRevision != world.appearanceRevision()))
@@ -1237,6 +1242,10 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                     draw.transform = transform;
                     draw.shadowOnly = !draw.pickOnly && shadowOnly;
                     scene.objects.push_back(draw);
+                }
+                if(c.media && media_)
+                {
+                    media_->drawn(object.id); // its page is still in view
                 }
                 stats_.drawn++;
                 stats_.reused++;
@@ -1324,6 +1333,7 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // textures' sizes then scale from this one).
         const bool keep = keepable && texels > 0.0f; // (0 only on the HUD at zoom 0)
         bool complete = true;
+        bool showsMedia = false;
         const size_t firstDraw = scene.objects.size();
         const size_t facesBefore = stats_.faces;
         const size_t pbrBefore = stats_.pbrFaces;
@@ -1376,9 +1386,19 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                                   texels, glm::vec2(2.0f * std::max({object.scale.x, object.scale.y,
                                                                      object.scale.z})))
                             : texels;
+            // A page playing on it (not on HUDs).
+            const render::GpuTexture* page =
+                media_ && !hud ? media_->texture(object.id, f) : nullptr;
+            showsMedia = showsMedia || page;
             const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, faceTexels,
                                          faceAnimation, wearer, avatars);
             stats_.pbrFaces += pbr;
+            if(pbr && page)
+            {
+                auto& p = std::get<render::PbrMaterial>(draw.material);
+                p.albedo = page;
+                p.albedoLoading = false;
+            }
             if(pbr && faceAnimation)
             {
                 animatePbr(face, *faceAnimation, draw.uvRow0, draw.uvRow1);
@@ -1386,12 +1406,13 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             if(!pbr)
             {
                 // Nothing of it shows: transparent, or its texture wholly so.
-                const bool clear = face.color.a <= 0.0f || face.texture == kTransparentTexture;
+                const bool clear =
+                    face.color.a <= 0.0f || (face.texture == kTransparentTexture && !page);
                 std::optional<render::BlinnPhongMaterial> m;
                 if(!clear)
                 {
                     m = material(face, textures, legacyMaterials, world, wearer, avatars,
-                                 faceTexels, faceAnimation);
+                                 faceTexels, faceAnimation, false, page);
                     if(!m)
                     {
                         complete = false; // a bake still loading
@@ -1457,6 +1478,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 c.materialRevision = materials.revision();
                 c.legacyRevision = legacyMaterials.revision();
                 c.appearanceRevision = world.appearanceRevision();
+                c.mediaRevision = media_ ? media_->revision() : 0;
+                c.media = showsMedia;
                 c.overrides = overrides;
                 c.radius = glm::length(extent * object.scale);
                 c.texels = texels;

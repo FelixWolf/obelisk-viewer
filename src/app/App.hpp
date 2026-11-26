@@ -17,6 +17,7 @@
 #include "LoginScreen.hpp"
 #include "MainMenu.hpp"
 #include "MaterialManager.hpp"
+#include "MediaManager.hpp"
 #include "MicrophoneList.hpp"
 #include "MusicStream.hpp"
 #include "ObjectMedia.hpp"
@@ -49,6 +50,7 @@
 #include "viewer/assets/TextureCache.hpp"
 #include "viewer/core/DiskCache.hpp"
 #include "viewer/core/JobSystem.hpp"
+#include "viewer/core/ProcessLock.hpp"
 #include "viewer/image/J2kDecoder.hpp"
 #include "viewer/net/HttpClient.hpp"
 #include "viewer/render/Renderer.hpp"
@@ -449,7 +451,22 @@ private:
     std::string musicWanted_;                             // the parcel's URL we last decided on
     std::optional<std::pair<uint64_t, int>> musicParcel_; // its region and parcel
     std::unique_ptr<ObjectMedia> objectMedia_;
-    void updateMedia();
+    // Prims' media played (a media host started when needed), and the lock
+    // on the folder that host uses (one per running viewer).
+    std::unique_ptr<MediaManager> media_;
+    std::unique_ptr<ProcessLock> mediaLock_;
+    int mediaSlot_ = 0;
+    // The lobby's media (the home scene's), as ObjectMedia keeps prims'.
+    struct HomeMedia
+    {
+        uint32_t localId = 0;
+        MediaFaceKey key;
+        MediaEntry entry;
+    };
+    std::vector<HomeMedia> homeMedia_;
+    std::vector<MediaSource> mediaSources_; // (kept for its capacity)
+    // `home`: the lobby is what's drawn (its world is world_ then).
+    void updateMedia(bool home);
     uint64_t lastSoundTicks_ = 0;
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;

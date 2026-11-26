@@ -505,6 +505,46 @@ if(VIEWER_VELOPACK)
     EXPECTED_HASH SHA256=91845db83551c877ebbb1118e0fb92e4e527290d23b995c55dcd438b3293943f)
 endif()
 
+# --- CEF (Chromium Embedded Framework): media on prims ----------------------
+# Only the media host (src/media/host) links it; the viewer talks to that
+# program (src/media), so CEF can be replaced without touching the viewer.
+# The "minimal" binary distribution, pinned with its hash: libcef, its
+# resources, and the source of its C++ wrapper (built here, as CEF says).
+# Linux only for now (Windows waits on the sandbox test, docs/media.md).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+  set(viewer_media_default ON)
+else()
+  set(viewer_media_default OFF)
+endif()
+option(VIEWER_MEDIA "Build the media host (CEF) for media on prims" ${viewer_media_default})
+if(VIEWER_MEDIA)
+  if(NOT viewer_media_default)
+    message(FATAL_ERROR "VIEWER_MEDIA: only set up for x64 Linux so far")
+  endif()
+  set(VIEWER_CEF_VERSION "158.0.6+g23f1736+chromium-158.0.8127.89")
+  string(REPLACE "+" "%2B" cef_url_version "${VIEWER_CEF_VERSION}")
+  CPMAddPackage(
+    NAME cef
+    URL https://cef-builds.spotifycdn.com/cef_binary_${cef_url_version}_linux64_minimal.tar.bz2
+    URL_HASH SHA256=c0bac72cf0bc15e49940d5e59768c6c83f5a0b883e7ae01b025bf3bb6963db07
+    DOWNLOAD_ONLY YES
+  )
+  set(VIEWER_CEF_DIR "${cef_SOURCE_DIR}" CACHE INTERNAL "")
+
+  # libcef_dll_wrapper: the C++ classes over libcef's C interface. Built
+  # without our warnings, and always as a release build (libcef is one).
+  file(GLOB_RECURSE cef_wrapper_sources CONFIGURE_DEPENDS "${cef_SOURCE_DIR}/libcef_dll/*.cc")
+  list(FILTER cef_wrapper_sources EXCLUDE REGEX "/(bootstrap|sandbox|test_mode)/|_(mac|win)\\.cc$")
+  add_library(viewer_cef_wrapper STATIC ${cef_wrapper_sources})
+  target_include_directories(viewer_cef_wrapper SYSTEM PUBLIC "${cef_SOURCE_DIR}")
+  target_compile_definitions(viewer_cef_wrapper PUBLIC WRAPPING_CEF_SHARED PRIVATE NDEBUG)
+  target_compile_options(viewer_cef_wrapper PRIVATE -w)
+  add_library(viewer_libcef SHARED IMPORTED GLOBAL)
+  set_target_properties(viewer_libcef PROPERTIES IMPORTED_LOCATION "${cef_SOURCE_DIR}/Release/libcef.so")
+  find_package(Threads REQUIRED)
+  target_link_libraries(viewer_cef_wrapper PUBLIC viewer_libcef Threads::Threads ${CMAKE_DL_LIBS})
+endif()
+
 # --- The licenses of the libraries above that ship in the viewer ------------
 # (cmake/Licenses.cmake; the About page lists them). Not glslang (a build
 # tool) or doctest (the tests').
@@ -540,4 +580,9 @@ if(WIN32)
 endif()
 if(VIEWER_VELOPACK)
   viewer_license("Velopack" "${velopack_license}")
+endif()
+if(VIEWER_MEDIA)
+  # Chromium's own and its many libraries' are in CREDITS.html, beside the
+  # media host (too long for the About page).
+  viewer_license("Chromium Embedded Framework" "${cef_SOURCE_DIR}/LICENSE.txt")
 endif()
