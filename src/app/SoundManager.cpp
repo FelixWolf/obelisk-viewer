@@ -102,6 +102,10 @@ void SoundManager::setVolumes(float master, float sounds)
 
 float SoundManager::objectGain(const Playing& p, const Source& s) const
 {
+    if(!s.audible)
+    {
+        return 0.0f;
+    }
     // Silent beyond its cutoff radius, if it has one (under 0.1 m: none).
     if(s.sound.radius >= 0.1f && !s.hud && glm::length(s.position - listener_) >= s.sound.radius)
     {

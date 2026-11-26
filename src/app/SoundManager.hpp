@@ -12,6 +12,9 @@
 //   plays once that ends) and starts. AttachedSoundGainChange only changes
 //   the gain. Beyond the object's cutoff radius (llSetSoundRadius) it's
 //   silent.
+// - Parcels that keep sounds in ("Restrict sounds and gestures to this
+//   parcel"): the app leaves out what can't be heard from here, and an
+//   object's sound plays silently while it can't.
 // - Distance: OpenAL's inverse distance as the official viewer's (reference
 //   1 m, rolloff 1).
 // - The listener is the camera.
@@ -74,6 +77,7 @@ public:
         uint32_t events = 0;
         glm::vec3 position{0.0f};
         bool hud = false;
+        bool audible = true; // false: kept in (or out) by a parcel
     };
     using Locate = std::function<std::optional<Source>(const world::ObjectKey&)>;
     // Once a frame: objects with a sound (and those playing are looked up

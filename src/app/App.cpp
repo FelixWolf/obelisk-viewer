@@ -1610,6 +1610,11 @@ void App::updateSession()
         if(e.name == "ParcelProperties")
         {
             parcel_.parcelProperties(e.regionHandle, session_->agentRegion().value_or(0), e.body);
+            if(const auto& p = parcel_.parcel())
+            {
+                parcelSounds_.agentParcel(parcel_.region(), p->bitmap,
+                                          p->has(parcel_flags::kSoundLocal));
+            }
         }
         else if(e.name == "ChatterBoxInvitation" && session_->login())
         {
@@ -1627,6 +1632,14 @@ void App::updateSession()
         {
             worldThread_->postRegionRemoved(m.regionHandle);
             nearby_.removeRegion(m.regionHandle);
+            parcelSounds_.removeRegion(m.regionHandle);
+        }
+        else if(m.event.is<protocol::msg::ParcelOverlay>())
+        {
+            if(const auto o = m.event.decode<protocol::msg::ParcelOverlay>())
+            {
+                parcelSounds_.overlay(m.regionHandle, o->ParcelData.SequenceID, o->ParcelData.Data);
+            }
         }
         else if(m.event.is<protocol::msg::CoarseLocationUpdate>())
         {
@@ -1709,10 +1722,15 @@ void App::updateSession()
                 // Where, in its region (the message's handle, else the one
                 // that sent it).
                 const uint64_t handle = d.Handle != 0 ? d.Handle : m.regionHandle;
-                sounds_->trigger(d.SoundID,
-                                 regionOffset(handle, *originHandle_) +
-                                     glm::vec3(d.Position.x, d.Position.y, d.Position.z),
-                                 d.Gain);
+                // Not across a border a parcel keeps sounds in by (gestures'
+                // too: they come as these).
+                if(parcelSounds_.canHear(handle, glm::vec2(d.Position.x, d.Position.y)))
+                {
+                    sounds_->trigger(d.SoundID,
+                                     regionOffset(handle, *originHandle_) +
+                                         glm::vec3(d.Position.x, d.Position.y, d.Position.z),
+                                     d.Gain);
+                }
             }
         }
         else if(m.event.is<protocol::msg::ParcelMediaUpdate>())
@@ -2343,6 +2361,7 @@ void App::endSession()
     profilePicture_ = {};
     population_.clear(); // the next login may be another grid
     parcel_.clear();
+    parcelSounds_.clear();
     inventoryBrowser_->clear();
     currentOutfit_->clear();
     wornObjects_.clear();
@@ -4170,6 +4189,34 @@ void App::updateSounds(const render::Scene& scene)
     {
         return;
     }
+    const uint64_t origin = *originHandle_;
+    const glm::dvec3 corner(static_cast<double>(origin >> 32),
+                            static_cast<double>(origin & 0xFFFFFFFFu), 0.0);
+    // A linkset's root (or an avatar's seat's).
+    const auto rootOf = [&](const world::Object* o)
+    {
+        for(int depth = 0; depth < 16 && o->parentId != 0; depth++)
+        {
+            const world::Object* parent = world_->object(o->region, o->parentId);
+            if(!parent)
+            {
+                break;
+            }
+            o = parent;
+        }
+        return o;
+    };
+    // What we sit on (its root; null: standing): its sounds go where we go,
+    // across borders too (llaudiosourcevo.cpp).
+    const world::Object* seat = nullptr;
+    if(agentKey_)
+    {
+        if(const world::Object* me = world_->object(agentKey_->region, agentKey_->localId);
+           me && me->parentId != 0)
+        {
+            seat = rootOf(me);
+        }
+    }
     const auto locate = [&](const world::ObjectKey& key) -> std::optional<SoundManager::Source>
     {
         const world::Object* o = world_->object(key.region, key.localId);
@@ -4190,15 +4237,14 @@ void App::updateSounds(const render::Scene& scene)
                 return std::nullopt; // its parent isn't here yet
             }
             s.position = glm::vec3((*frame)[3]);
+            s.audible = parcelSounds_.canHear(corner + glm::dvec3(s.position)) ||
+                        (seat && rootOf(o) == seat);
         }
         return s;
     };
     const render::Camera& c = scene.camera;
     sounds_->update(objects_->soundSources(), locate, c.position, c.forward(), c.up);
 
-    const uint64_t origin = *originHandle_;
-    const glm::dvec3 corner(static_cast<double>(origin >> 32),
-                            static_cast<double>(origin & 0xFFFFFFFFu), 0.0);
     // A scene position's region and where in it.
     auto regionAt = [&](const glm::vec3& p)
     {
@@ -4239,7 +4285,10 @@ void App::updateSounds(const render::Scene& scene)
         };
         for(const AvatarView::Footstep& step : avatars_->footsteps(*world_, origin, ground))
         {
-            sounds_->footstep(step.position, step.material);
+            if(parcelSounds_.canHear(corner + glm::dvec3(step.position)))
+            {
+                sounds_->footstep(step.position, step.material);
+            }
         }
     }
 

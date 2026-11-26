@@ -91,6 +91,9 @@ struct Parcel
     std::string musicUrl;
     ParcelMedia media;
     bool seeAvatars = true; // from outside it
+    // Where it is: a bit per 4 m cell of its region, west to east then
+    // south to north (empty: not said).
+    std::vector<uint8_t> bitmap;
     // Bumped when the parcel's own environment changes (-1: not said).
     int environmentVersion = -1;
 

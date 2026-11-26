@@ -66,6 +66,11 @@ std::optional<Parcel> parseParcelProperties(const llsd::Value& body)
         p.media.loop = m["MediaLoop"].asInteger() != 0;
     }
     p.seeAvatars = !d.has("SeeAVs") || d["SeeAVs"].asBoolean();
+    if(d["Bitmap"].get<llsd::Binary>())
+    {
+        const llsd::Binary bitmap = d["Bitmap"].asBinary();
+        p.bitmap.assign(bitmap.begin(), bitmap.end());
+    }
     return p;
 }
 

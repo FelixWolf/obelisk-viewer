@@ -18,6 +18,7 @@ add_executable(viewer_tests
   InventoryBrowserTests.cpp
   CurrentOutfitTests.cpp
   ParcelInfoTests.cpp
+  ParcelSoundsTests.cpp
   MediaTests.cpp
   MediaWhitelistTests.cpp
   MediaManagerTests.cpp
@@ -90,6 +91,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/InventoryBrowser.cpp
   ${PROJECT_SOURCE_DIR}/src/app/CurrentOutfit.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ParcelInfo.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ParcelSounds.cpp
   ${PROJECT_SOURCE_DIR}/src/app/MusicStream.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SoundAssets.cpp
   ${PROJECT_SOURCE_DIR}/src/app/SoundManager.cpp

@@ -79,6 +79,7 @@ add_executable(viewer
   ViewerSettings.cpp
   CurrentOutfit.cpp
   ParcelInfo.cpp
+  ParcelSounds.cpp
   MusicStream.cpp
   ObjectMedia.cpp
   MainMenu.cpp
