@@ -913,7 +913,12 @@ namespace
 
 // Every process: Chromium's own (renderers, GPU, ...) are this program too.
 // `sandbox`: CEF's bootstrap's (Windows), null elsewhere.
-int run(const CefMainArgs& args, void* sandbox)
+//
+// Without a stack protector, as main(): on Linux Chromium's zygote forks
+// its processes from inside CefExecuteProcess, each with a new stack canary,
+// so any function on the stack then would find its canary changed when the
+// process returns through it ("stack smashing detected", an abort).
+NO_STACK_PROTECTOR int run(const CefMainArgs& args, void* sandbox)
 {
     CefRefPtr<App> app = new App;
     const int code = CefExecuteProcess(args, app, sandbox);
