@@ -271,6 +271,25 @@ int main(int argc, char** argv)
         std::println("wheel: a notch down scrolled to '{}', then right to '{}'", down,
                      open[id].title);
         failures += down != "0,120" || open[id].title != "120,120";
+
+        // Dragging the scrollbar's thumb (at the right edge) down.
+        host->send(Wheel{id, 100, 100, 0, 120}); // back to the top
+        host->send(Wheel{id, 100, 100, -120, 0});
+        wait(std::chrono::milliseconds(400));
+        const int32_t x = static_cast<int32_t>(kWidth) - 6;
+        host->send(Mouse{id, MouseKind::Move, x, 20, MouseButton::Left, 1});
+        host->send(Mouse{id, MouseKind::Down, x, 20, MouseButton::Left, 1});
+        for(int32_t y = 30; y <= 120; y += 10)
+        {
+            wait(std::chrono::milliseconds(20));
+            host->send(Mouse{id, MouseKind::Move, x, y, MouseButton::Left, 1});
+        }
+        host->send(Mouse{id, MouseKind::Up, x, 120, MouseButton::Left, 1});
+        wait(std::chrono::milliseconds(400));
+        const std::string dragged = open[id].title;
+        std::println("scrollbar dragged: scrolled to '{}'", dragged);
+        const size_t comma = dragged.find(',');
+        failures += comma == std::string::npos || std::atoi(dragged.c_str() + comma + 1) < 200;
     }
     for(auto& [id, t] : open)
 

@@ -204,6 +204,8 @@ public:
     }
 
     TabId id() const { return id_; }
+    // The mouse buttons held on it (CEF's EVENTFLAG_*_MOUSE_BUTTON).
+    uint32_t buttons = 0;
     CefRefPtr<CefBrowser> browser() const { return browser_; }
 
     // The viewer's, on the UI thread.
@@ -678,11 +680,21 @@ void handle(const Message& message)
                 CefMouseEvent e;
                 e.x = m.x;
                 e.y = m.y;
+                // Every event says which buttons are held: a move without
+                // them isn't a drag to Chromium (its scrollbars, selecting
+                // text), however the page's own scripts take it.
+                const uint32_t flag = m.button == MouseButton::Left ? EVENTFLAG_LEFT_MOUSE_BUTTON
+                                      : m.button == MouseButton::Right
+                                          ? EVENTFLAG_RIGHT_MOUSE_BUTTON
+                                          : EVENTFLAG_MIDDLE_MOUSE_BUTTON;
                 if(m.kind == MouseKind::Down)
                 {
-                    e.modifiers = m.button == MouseButton::Left    ? EVENTFLAG_LEFT_MOUSE_BUTTON
-                                  : m.button == MouseButton::Right ? EVENTFLAG_RIGHT_MOUSE_BUTTON
-                                                                   : EVENTFLAG_MIDDLE_MOUSE_BUTTON;
+                    t->buttons |= flag;
+                }
+                e.modifiers = t->buttons;
+                if(m.kind == MouseKind::Up)
+                {
+                    t->buttons &= ~flag;
                 }
                 auto host = t->browser()->GetHost();
                 const auto button = m.button == MouseButton::Left    ? MBT_LEFT
