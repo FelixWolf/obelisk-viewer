@@ -1309,11 +1309,22 @@ touching the viewer: it only speaks `viewer/media/Protocol.hpp`.
 click, closing) without the viewer: `build/<preset>/bin/mediatest --png
 out.png`.
 
-Built where `VIEWER_MEDIA` is on: x64 Linux for now (the CEF "minimal"
-distribution, pinned with its hash in cmake/Dependencies.cmake, its C++
-wrapper built from its source; libcef stripped when installed, ~285 MB). The
-Windows host waits on a sandbox test on real Windows; the viewer's side
-builds there already, and without a host, media doesn't play.
+Built where `VIEWER_MEDIA` is on (by default on x64 Linux and Windows; a
+build folder made before keeps what it had, so `-DVIEWER_MEDIA=ON` once):
+the CEF "minimal" distribution, pinned with its hash in
+cmake/Dependencies.cmake, its C++ wrapper built from its source.
+
+- **Linux:** the host is a program; libcef is stripped when installed
+  (~285 MB).
+- **Windows** (MinGW, as the viewer): Chromium's sandbox only works in a
+  program built with Chromium (CEF 138 and later), so the host is a DLL,
+  `obelisk-media.dll`, and the program is CEF's own `bootstrap.exe` copied
+  as `obelisk-media.exe`, which loads the DLL of its own name and calls its
+  `RunWinMain` (for every process, Chromium's too). The viewer starts it in
+  a job object that ends with the viewer (`ChildProcess`), so nothing it
+  started outlives a crash. Pipes are Win32 handles, shared memory named
+  mappings (`Local\`). Tested under Wine (`mediatest.exe --wait-ms 5000`:
+  pages are slow to load there), not yet on Windows itself.
 
 Not yet: scrolling with a VR controller's stick, the media controls
 (play, pause, home, the address), owners' and groups' interact rights,

@@ -66,7 +66,13 @@ std::unique_ptr<SharedMemory> SharedMemory::open(const std::string& name, size_t
         return nullptr;
     }
     m->data_ = static_cast<uint8_t*>(MapViewOfFile(m->handle_, FILE_MAP_ALL_ACCESS, 0, 0, size));
-    return m->data_ ? std::move(m) : nullptr;
+    // No bigger than it is: the view of it as much as asked for.
+    MEMORY_BASIC_INFORMATION info{};
+    if(!m->data_ || VirtualQuery(m->data_, &info, sizeof(info)) == 0 || info.RegionSize < size)
+    {
+        return nullptr;
+    }
+    return m;
 }
 
 SharedMemory::~SharedMemory()

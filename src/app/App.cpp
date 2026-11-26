@@ -767,9 +767,11 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
                     log::warn("media: every media folder is in use (8 viewers?)");
                     return nullptr;
                 }
-                const fs::path root = mediaRoot / std::to_string(self->mediaSlot_);
+                const std::u8string root =
+                    (mediaRoot / std::to_string(self->mediaSlot_)).u8string();
                 return media::startMediaHost(
-                    program, media::Init{media::kProtocolVersion, root.string(), sandbox, false});
+                    program, media::Init{media::kProtocolVersion,
+                                         std::string(root.begin(), root.end()), sandbox, false});
             });
         app->objects_->setMedia(app->media_.get());
         app->applySettings(

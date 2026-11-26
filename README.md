@@ -13,10 +13,9 @@ This isn't a replacement for the official viewer or other third party viewers, i
 * Controller pie menus! (Probably needs redesign)
 * Audio (Objects and Parcel Media)
 * Voice (WebRTC, nearby): V or the pie menu turns your microphone on and off
-* Media on a Prim (Linux for now): web pages and WebM video on objects, with sound
+* Media on a Prim: web pages and WebM video on objects, with sound (Windows: being tested)
 
 ## Coming soon:
-* Media on a Prim for Windows
 * Group and private voice calls
 
 ## FAQ:

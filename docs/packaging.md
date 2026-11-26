@@ -23,13 +23,16 @@ obelisk(.exe)
 openxr_loader.dll                   (Windows: the OpenXR loader SDL opens for VR)
 assets/character/  assets/ui/  assets/home.scene
 LICENSE  LICENSE-artwork.txt  LICENSE-Inter.txt
-media/                              (Linux, VIEWER_MEDIA: the media host)
-  obelisk-media  libcef.so (stripped)  libvulkan.so.1  libvk_swiftshader.so
+media/                              (VIEWER_MEDIA: the media host)
+  obelisk-media  libcef.so (stripped)  libvulkan.so.1  libvk_swiftshader.so  (Linux)
+  obelisk-media.exe (CEF's bootstrap)  obelisk-media.dll  libcef.dll
+    chrome_elf.dll  d3dcompiler_47.dll  vulkan-1.dll  vk_swiftshader.dll    (Windows)
   *.pak  icudtl.dat  v8_context_snapshot.bin  locales/en-US.pak
   LICENSE.txt  CREDITS.html         (CEF's, and Chromium's libraries')
 ```
 
-The media host adds about 100 MB to a compressed Linux package.
+The media host adds about 100 MB to a compressed Linux package and about
+180 MB to a Windows one (the portable zip: 16 MB without it, 195 MB with).
 
 Only the `viewer` install component: the dependencies' own install rules
 (static libraries, headers) and the generator `viewer_msggen` stay out.

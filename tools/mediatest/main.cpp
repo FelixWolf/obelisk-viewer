@@ -3,7 +3,10 @@
 // that frames and sound come back, that clicks reach the page, and that
 // it closes cleanly. Writes the last frame of the first tab as a PNG.
 //
-//   mediatest [--tabs N] [--seconds S] [--png OUT.png] [--url URL]
+//   mediatest [--tabs N] [--seconds S] [--png OUT.png] [--url URL] [--wait-ms MS]
+//
+// --wait-ms: how long a page is given to load before it's typed into (1500;
+// longer under Wine).
 
 #include "viewer/image/Png.hpp"
 #include "viewer/media/MediaHost.hpp"
@@ -68,6 +71,7 @@ int main(int argc, char** argv)
     int seconds = 4;
     fs::path png;
     std::string url = kPage;
+    int waitMs = 1500;
     for(int i = 1; i + 1 < argc; i += 2)
     {
         const std::string a = argv[i];
@@ -87,14 +91,26 @@ int main(int argc, char** argv)
         {
             url = argv[i + 1];
         }
+        else if(a == "--wait-ms")
+        {
+            waitMs = std::atoi(argv[i + 1]);
+        }
     }
     const char* base = SDL_GetBasePath();
-    const fs::path program = fs::path(base ? base : ".") / "media" / "obelisk-media";
+#if defined(_WIN32)
+    const char* suffix = ".exe";
+#else
+    const char* suffix = "";
+#endif
+    const fs::path program =
+        fs::path(base ? base : ".") / "media" / (std::string("obelisk-media") + suffix);
     const fs::path root = fs::temp_directory_path() / std::format("mediatest-{}", getpid());
+    const std::u8string rootUtf8 = root.u8string();
 
     using Clock = std::chrono::steady_clock;
     const auto started = Clock::now();
-    auto host = startMediaHost(program, Init{kProtocolVersion, root.string(), true, true});
+    auto host = startMediaHost(
+        program, Init{kProtocolVersion, std::string(rootUtf8.begin(), rootUtf8.end()), true, true});
     if(!host)
     {
         std::println(stderr, "FAIL: {} didn't start", program.string());
@@ -189,6 +205,8 @@ int main(int argc, char** argv)
         if(!clicked && Clock::now() > until - std::chrono::seconds(1))
         {
             clicked = true;
+            // (A move first, as the viewer sends: Windows' Chromium wants one.)
+            host->send(Mouse{1, MouseKind::Move, 123, 45, MouseButton::Left, 1});
             host->send(Mouse{1, MouseKind::Down, 123, 45, MouseButton::Left, 1});
             host->send(Mouse{1, MouseKind::Up, 123, 45, MouseButton::Left, 1});
         }
@@ -221,8 +239,10 @@ int main(int argc, char** argv)
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
         };
-        wait(std::chrono::milliseconds(1500));
+        // (Long enough for the page to load under Wine, too.)
+        wait(std::chrono::milliseconds(waitMs));
         host->send(Focus{id, true});
+        host->send(Mouse{id, MouseKind::Move, 50, 25, MouseButton::Left, 1});
         host->send(Mouse{id, MouseKind::Down, 50, 25, MouseButton::Left, 1});
         host->send(Mouse{id, MouseKind::Up, 50, 25, MouseButton::Left, 1});
         wait(std::chrono::milliseconds(300));
@@ -270,7 +290,14 @@ int main(int argc, char** argv)
         wait(std::chrono::milliseconds(400));
         std::println("wheel: a notch down scrolled to '{}', then right to '{}'", down,
                      open[id].title);
-        failures += down != "0,120" || open[id].title != "120,120";
+        // (Linux scrolls 120 pixels a notch, Windows 100.)
+        auto scrolled = [](const std::string& title, bool right)
+        {
+            const size_t comma = title.find(',');
+            return comma != std::string::npos &&
+                   std::atoi(right ? title.c_str() : title.c_str() + comma + 1) > 0;
+        };
+        failures += !scrolled(down, false) || !scrolled(open[id].title, true);
 
         // Dragging the scrollbar's thumb (at the right edge) down.
         host->send(Wheel{id, 100, 100, 0, 120}); // back to the top

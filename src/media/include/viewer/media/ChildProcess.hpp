@@ -43,6 +43,7 @@ private:
     ChildProcess() = default;
     std::mutex writing_;
 #if defined(_WIN32)
+    void* job_ = nullptr; // kills it (and its own) when we close it, or die
     void* process_ = nullptr;
     void* input_ = nullptr;
     void* output_ = nullptr;

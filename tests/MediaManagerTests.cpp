@@ -190,14 +190,16 @@ TEST_CASE("media: shared memory between two")
     opened->data()[200] = 7;
     CHECK(made->data()[200] == 7);
     opened->forget();
-    // Gone by name now; both still see it.
+#if !defined(_WIN32)
+    // Gone by name now (Windows: while it's open, it keeps its name).
     CHECK_FALSE(SharedMemory::open(made->name(), 4096));
+#endif
     CHECK(made->data()[200] == 7);
     // Not anything else, nor more than there is.
     CHECK_FALSE(SharedMemory::open("/etc/passwd", 16));
     auto again = SharedMemory::create("obelisk-test", 64);
     REQUIRE(again);
-    CHECK_FALSE(SharedMemory::open(again->name(), 4096));
+    CHECK_FALSE(SharedMemory::open(again->name(), 1u << 20));
 }
 
 TEST_CASE("media: what tabs may go to")

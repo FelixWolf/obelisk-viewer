@@ -70,9 +70,17 @@ std::unique_ptr<ChildProcess> ChildProcess::start(const std::filesystem::path& p
     {
         line += L" " + quoted(wide(a));
     }
-    // Only these handles go to it.
-    HANDLE handles[] = {childIn, childOut, GetStdHandle(STD_ERROR_HANDLE)};
-    const DWORD count = handles[2] && handles[2] != INVALID_HANDLE_VALUE ? 3 : 2;
+    // Only these handles go to it (each must be inheritable: our standard
+    // error, a copy of it).
+    HANDLE error = nullptr;
+    const HANDLE ours = GetStdHandle(STD_ERROR_HANDLE);
+    if(ours && ours != INVALID_HANDLE_VALUE)
+    {
+        DuplicateHandle(GetCurrentProcess(), ours, GetCurrentProcess(), &error, 0, TRUE,
+                        DUPLICATE_SAME_ACCESS);
+    }
+    HANDLE handles[] = {childIn, childOut, error};
+    const DWORD count = error ? 3 : 2;
     SIZE_T size = 0;
     InitializeProcThreadAttributeList(nullptr, 1, 0, &size);
     std::vector<uint8_t> list(size);
@@ -85,23 +93,49 @@ std::unique_ptr<ChildProcess> ChildProcess::start(const std::filesystem::path& p
     si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     si.StartupInfo.hStdInput = childIn;
     si.StartupInfo.hStdOutput = childOut;
-    si.StartupInfo.hStdError = count == 3 ? handles[2] : nullptr;
+    si.StartupInfo.hStdError = error;
     si.lpAttributeList = attributes;
     PROCESS_INFORMATION pi{};
-    const BOOL ok = CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
-                                   EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW, nullptr,
-                                   program.parent_path().wstring().c_str(), &si.StartupInfo, &pi);
+    // In a job that ends with us: it, and the processes it starts, go when
+    // we do, however we go. Started suspended, so it's in before it starts
+    // any.
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    if(job)
+    {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    }
+    const BOOL ok =
+        CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE,
+                       EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+                       program.parent_path().wstring().c_str(), &si.StartupInfo, &pi);
     DeleteProcThreadAttributeList(attributes);
     CloseHandle(childIn);
     CloseHandle(childOut);
+    if(error)
+    {
+        CloseHandle(error);
+    }
     if(!ok)
     {
         CloseHandle(ourIn);
         CloseHandle(ourOut);
+        if(job)
+        {
+            CloseHandle(job);
+        }
         return nullptr;
     }
+    if(job && !AssignProcessToJobObject(job, pi.hProcess))
+    {
+        CloseHandle(job); // (ours in a job that won't nest it: it ends by its input)
+        job = nullptr;
+    }
+    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     std::unique_ptr<ChildProcess> p(new ChildProcess);
+    p->job_ = job;
     p->process_ = pi.hProcess;
     p->input_ = ourIn;
     p->output_ = ourOut;
@@ -128,6 +162,10 @@ ChildProcess::~ChildProcess()
     if(process_)
     {
         CloseHandle(process_);
+    }
+    if(job_)
+    {
+        CloseHandle(job_); // (it's gone by now; anything it left goes too)
     }
 }
 

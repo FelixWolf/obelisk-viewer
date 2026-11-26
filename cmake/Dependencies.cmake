@@ -510,23 +510,31 @@ endif()
 # program (src/media), so CEF can be replaced without touching the viewer.
 # The "minimal" binary distribution, pinned with its hash: libcef, its
 # resources, and the source of its C++ wrapper (built here, as CEF says).
-# Linux only for now (Windows waits on the sandbox test, docs/media.md).
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+# x64 Linux and Windows (MinGW: CEF's C interface is a plain DLL, and its
+# wrapper builds from source).
+set(VIEWER_CEF_VERSION "158.0.6+g23f1736+chromium-158.0.8127.89")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(viewer_cef_platform linux64)
+  set(viewer_cef_hash c0bac72cf0bc15e49940d5e59768c6c83f5a0b883e7ae01b025bf3bb6963db07)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" AND WIN32)
+  set(viewer_cef_platform windows64)
+  set(viewer_cef_hash 1da0b9fe0e915bd41448939f944003d848f8d9e4d15c7d85d7a17cce656b1a9a)
+endif()
+if(viewer_cef_platform)
   set(viewer_media_default ON)
 else()
   set(viewer_media_default OFF)
 endif()
 option(VIEWER_MEDIA "Build the media host (CEF) for media on prims" ${viewer_media_default})
 if(VIEWER_MEDIA)
-  if(NOT viewer_media_default)
-    message(FATAL_ERROR "VIEWER_MEDIA: only set up for x64 Linux so far")
+  if(NOT viewer_cef_platform)
+    message(FATAL_ERROR "VIEWER_MEDIA: only set up for x64 Linux and Windows")
   endif()
-  set(VIEWER_CEF_VERSION "158.0.6+g23f1736+chromium-158.0.8127.89")
   string(REPLACE "+" "%2B" cef_url_version "${VIEWER_CEF_VERSION}")
   CPMAddPackage(
     NAME cef
-    URL https://cef-builds.spotifycdn.com/cef_binary_${cef_url_version}_linux64_minimal.tar.bz2
-    URL_HASH SHA256=c0bac72cf0bc15e49940d5e59768c6c83f5a0b883e7ae01b025bf3bb6963db07
+    URL https://cef-builds.spotifycdn.com/cef_binary_${cef_url_version}_${viewer_cef_platform}_minimal.tar.bz2
+    URL_HASH SHA256=${viewer_cef_hash}
     DOWNLOAD_ONLY YES
   )
   set(VIEWER_CEF_DIR "${cef_SOURCE_DIR}" CACHE INTERNAL "")
@@ -534,15 +542,36 @@ if(VIEWER_MEDIA)
   # libcef_dll_wrapper: the C++ classes over libcef's C interface. Built
   # without our warnings, and always as a release build (libcef is one).
   file(GLOB_RECURSE cef_wrapper_sources CONFIGURE_DEPENDS "${cef_SOURCE_DIR}/libcef_dll/*.cc")
-  list(FILTER cef_wrapper_sources EXCLUDE REGEX "/(bootstrap|sandbox|test_mode)/|_(mac|win)\\.cc$")
+  list(FILTER cef_wrapper_sources EXCLUDE REGEX "/(bootstrap|sandbox|test_mode)/")
+  if(WIN32)
+    list(FILTER cef_wrapper_sources EXCLUDE REGEX "_(mac|linux)\\.cc$")
+  else()
+    list(FILTER cef_wrapper_sources EXCLUDE REGEX "_(mac|win)\\.cc$")
+  endif()
   add_library(viewer_cef_wrapper STATIC ${cef_wrapper_sources})
   target_include_directories(viewer_cef_wrapper SYSTEM PUBLIC "${cef_SOURCE_DIR}")
   target_compile_definitions(viewer_cef_wrapper PUBLIC WRAPPING_CEF_SHARED PRIVATE NDEBUG)
   target_compile_options(viewer_cef_wrapper PRIVATE -w)
-  add_library(viewer_libcef SHARED IMPORTED GLOBAL)
-  set_target_properties(viewer_libcef PROPERTIES IMPORTED_LOCATION "${cef_SOURCE_DIR}/Release/libcef.so")
-  find_package(Threads REQUIRED)
-  target_link_libraries(viewer_cef_wrapper PUBLIC viewer_libcef Threads::Threads ${CMAKE_DL_LIBS})
+  if(WIN32)
+    add_library(viewer_libcef SHARED IMPORTED GLOBAL)
+    set_target_properties(viewer_libcef PROPERTIES
+      IMPORTED_LOCATION "${cef_SOURCE_DIR}/Release/libcef.dll"
+      IMPORTED_IMPLIB "${cef_SOURCE_DIR}/Release/libcef.lib")
+    # As CEF's own build has them (cef_variables.cmake). MinGW: its headers
+    # spell <Softpub.h> in lower case, and one file forgets <cstdint>.
+    target_compile_definitions(viewer_cef_wrapper PUBLIC
+      NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE
+      _WIN32_WINNT=0x0A00 WINVER=0x0A00 NTDDI_VERSION=0x0A000007)
+    target_compile_options(viewer_cef_wrapper PRIVATE -include cstdint)
+    target_include_directories(viewer_cef_wrapper PRIVATE
+      "${PROJECT_SOURCE_DIR}/src/media/host/mingw")
+    target_link_libraries(viewer_cef_wrapper PUBLIC viewer_libcef wintrust crypt32)
+  else()
+    add_library(viewer_libcef SHARED IMPORTED GLOBAL)
+    set_target_properties(viewer_libcef PROPERTIES IMPORTED_LOCATION "${cef_SOURCE_DIR}/Release/libcef.so")
+    find_package(Threads REQUIRED)
+    target_link_libraries(viewer_cef_wrapper PUBLIC viewer_libcef Threads::Threads ${CMAKE_DL_LIBS})
+  endif()
 endif()
 
 # --- The licenses of the libraries above that ship in the viewer ------------

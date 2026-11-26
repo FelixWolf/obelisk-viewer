@@ -11,6 +11,10 @@
 // Nothing asks the person anything: popups open in the tab (when clicked),
 // downloads, file pickers, permissions (camera, microphone, ...) and
 // dialogs are refused. Exits when the viewer says Quit or goes away.
+//
+// On Windows it's a DLL that CEF's bootstrap.exe (named as we are) loads:
+// that's how a program not built with Chromium gets its sandbox (CEF 138
+// and later). The bootstrap calls RunWinMain, for every process.
 
 #include "include/cef_app.h"
 #include "include/cef_client.h"
@@ -37,10 +41,16 @@
 #include <thread>
 #include <vector>
 
+#if defined(_WIN32)
+#include "include/cef_sandbox_win.h"
+
+#include <windows.h>
+#else
 #include <csignal>
 #include <fcntl.h>
 #include <sys/prctl.h>
 #include <unistd.h>
+#endif
 
 namespace
 {
@@ -48,15 +58,41 @@ namespace
 using namespace viewer::media;
 namespace fs = std::filesystem;
 
+// A path from UTF-8 (the protocol's), and back.
+fs::path pathOf(const std::string& utf8)
+{
+    return fs::path(std::u8string(utf8.begin(), utf8.end()));
+}
+
+std::string utf8Of(const fs::path& path)
+{
+    const std::u8string s = path.u8string();
+    return std::string(s.begin(), s.end());
+}
+
 void note(const std::string& text)
 {
-    std::fprintf(stderr, "[media host] %s\n", text.c_str());
+    const std::string line = "[media host] " + text + "\n";
+#if defined(_WIN32)
+    // (A GUI process's C library may have no standard error; the handle
+    // the viewer gave is there.)
+    DWORD wrote = 0;
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), line.data(), static_cast<DWORD>(line.size()), &wrote,
+              nullptr);
+#else
+    std::fputs(line.c_str(), stderr);
+#endif
 }
 
 // --- Our pipe to the viewer ---------------------------------------------------
 
+#if defined(_WIN32)
+HANDLE gIn = nullptr;
+HANDLE gOut = nullptr;
+#else
 int gIn = -1;
 int gOut = -1;
+#endif
 std::mutex gWriting;
 std::atomic<bool> gViewerGone{false};
 
@@ -65,12 +101,62 @@ std::atomic<bool> gViewerGone{false};
 // into it or keep it open; they get /dev/null and our standard error.
 void takePipe()
 {
+#if defined(_WIN32)
+    gIn = GetStdHandle(STD_INPUT_HANDLE);
+    gOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    SetHandleInformation(gIn, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(gOut, HANDLE_FLAG_INHERIT, 0);
+    HANDLE nul =
+        CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    nullptr, OPEN_EXISTING, 0, nullptr);
+    SetStdHandle(STD_INPUT_HANDLE, nul);
+    HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
+    SetStdHandle(STD_OUTPUT_HANDLE, err && err != INVALID_HANDLE_VALUE ? err : nul);
+#else
     gIn = fcntl(0, F_DUPFD_CLOEXEC, 3);
     gOut = fcntl(1, F_DUPFD_CLOEXEC, 3);
     const int null = open("/dev/null", O_RDWR | O_CLOEXEC);
     dup2(null, 0);
     dup2(2, 1);
     close(null);
+#endif
+}
+
+// Some of `size` bytes written (0: the viewer's gone), or read (0: it ended).
+size_t writeSome(const uint8_t* bytes, size_t size)
+{
+#if defined(_WIN32)
+    DWORD wrote = 0;
+    return WriteFile(gOut, bytes, static_cast<DWORD>(size), &wrote, nullptr) ? wrote : 0;
+#else
+    for(;;)
+    {
+        const ssize_t n = write(gOut, bytes, size);
+        if(n < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        return n > 0 ? static_cast<size_t>(n) : 0;
+    }
+#endif
+}
+
+size_t readSome(uint8_t* into, size_t size)
+{
+#if defined(_WIN32)
+    DWORD got = 0;
+    return ReadFile(gIn, into, static_cast<DWORD>(size), &got, nullptr) ? got : 0;
+#else
+    for(;;)
+    {
+        const ssize_t n = read(gIn, into, size);
+        if(n < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        return n > 0 ? static_cast<size_t>(n) : 0;
+    }
+#endif
 }
 
 void send(const Message& m)
@@ -84,17 +170,13 @@ void send(const Message& m)
     size_t at = 0;
     while(at < bytes.size())
     {
-        const ssize_t n = write(gOut, bytes.data() + at, bytes.size() - at);
-        if(n < 0 && errno == EINTR)
-        {
-            continue;
-        }
-        if(n <= 0)
+        const size_t n = writeSome(bytes.data() + at, bytes.size() - at);
+        if(n == 0)
         {
             gViewerGone = true;
             return;
         }
-        at += static_cast<size_t>(n);
+        at += n;
     }
 }
 
@@ -113,16 +195,12 @@ std::optional<Message> receive(Parser& parser)
             note("the viewer said something that isn't a message");
             return std::nullopt;
         }
-        const ssize_t n = read(gIn, buffer.data(), buffer.size());
-        if(n < 0 && errno == EINTR)
-        {
-            continue;
-        }
-        if(n <= 0)
+        const size_t n = readSome(buffer.data(), buffer.size());
+        if(n == 0)
         {
             return std::nullopt;
         }
-        parser.feed(std::span(buffer).first(static_cast<size_t>(n)));
+        parser.feed(std::span(buffer).first(n));
     }
 }
 
@@ -176,7 +254,7 @@ CefRefPtr<CefRequestContext> profileContext(const std::string& profile)
     if(!context)
     {
         CefRequestContextSettings settings;
-        CefString(&settings.cache_path) = (fs::path(gInit.root) / ("profile-" + folder)).string();
+        CefString(&settings.cache_path) = utf8Of(pathOf(gInit.root) / ("profile-" + folder));
         settings.persist_session_cookies = false;
         context = CefRequestContext::CreateContext(settings, nullptr);
     }
@@ -830,25 +908,33 @@ private:
 
 } // namespace
 
-NO_STACK_PROTECTOR int main(int argc, char* argv[])
+namespace
 {
-    CefMainArgs args(argc, argv);
+
+// Every process: Chromium's own (renderers, GPU, ...) are this program too.
+// `sandbox`: CEF's bootstrap's (Windows), null elsewhere.
+int run(const CefMainArgs& args, void* sandbox)
+{
     CefRefPtr<App> app = new App;
-    // Chromium's own processes (renderers, GPU, ...) are this program too.
-    const int code = CefExecuteProcess(args, app, nullptr);
+    const int code = CefExecuteProcess(args, app, sandbox);
     if(code >= 0)
     {
         return code;
     }
 
-    // Nothing of the viewer's but the pipe and its log; gone with it.
+    // Nothing of the viewer's but the pipe and its log; gone with it
+    // (Windows: the viewer's job object ends us).
+#if !defined(_WIN32)
     close_range(3, ~0u, 0);
+#endif
     takePipe();
+#if !defined(_WIN32)
     prctl(PR_SET_PDEATHSIG, SIGTERM);
     if(getppid() == 1)
     {
         return 0; // it's gone already
     }
+#endif
 
     Parser parser;
     const auto first = receive(parser);
@@ -865,8 +951,9 @@ NO_STACK_PROTECTOR int main(int argc, char* argv[])
     }
 
     std::error_code ec;
-    fs::create_directories(gInit.root, ec);
-    const fs::path log = fs::path(gInit.root) / "cef.log";
+    const fs::path root = pathOf(gInit.root);
+    fs::create_directories(root, ec);
+    const fs::path log = root / "cef.log";
     if(fs::file_size(log, ec) > (4u << 20))
     {
         fs::remove(log, ec); // kept small (it's only errors)
@@ -878,10 +965,10 @@ NO_STACK_PROTECTOR int main(int argc, char* argv[])
     settings.multi_threaded_message_loop = true;
     settings.background_color = 0xFFFFFFFF;
     settings.log_severity = LOGSEVERITY_ERROR;
-    CefString(&settings.log_file) = log.string();
+    CefString(&settings.log_file) = utf8Of(log);
     CefString(&settings.root_cache_path) = gInit.root;
     CefString(&settings.locale) = "en-US";
-    if(!CefInitialize(args, settings, app, nullptr))
+    if(!CefInitialize(args, settings, app, sandbox))
     {
         const int exit = CefGetExitCode();
         send(Failed{exit == CEF_RESULT_CODE_NORMAL_EXIT_PROCESS_NOTIFIED
@@ -941,3 +1028,28 @@ NO_STACK_PROTECTOR int main(int argc, char* argv[])
     CefShutdown();
     return 0;
 }
+
+} // namespace
+
+#if defined(_WIN32)
+
+// Called by the bootstrap (a Windows program: no console).
+int RunWinMain(HINSTANCE instance, LPWSTR, int, void* sandbox, cef_version_info_t*)
+{
+    return run(CefMainArgs(instance), sandbox);
+}
+
+// And by its console twin, which isn't used, but is what it'd call.
+int RunConsoleMain(int, char*[], void* sandbox, cef_version_info_t*)
+{
+    return run(CefMainArgs(GetModuleHandleW(nullptr)), sandbox);
+}
+
+#else
+
+NO_STACK_PROTECTOR int main(int argc, char* argv[])
+{
+    return run(CefMainArgs(argc, argv), nullptr);
+}
+
+#endif
