@@ -150,6 +150,7 @@ public:
     // MediaTextures.
     const render::GpuTexture* texture(const Uuid& object, size_t face) override;
     void drawn(const Uuid& object) override;
+    bool playing(const Uuid& object, size_t face) const override;
     uint64_t revision() const override { return revision_; }
 
 private:
@@ -168,8 +169,14 @@ private:
     {
         media::TabId id = 0;
         MediaFaceKey face;
-        uint32_t width = 0;
+        uint32_t width = 0; // the page's
         uint32_t height = 0;
+        // Its texture: each side the page's rounded up to a power of two,
+        // the page in its bottom left (texture coordinates from 0 to
+        // width / textureWidth), as the official viewer's: creators scale
+        // faces' textures to show just that.
+        uint32_t textureWidth = 0;
+        uint32_t textureHeight = 0;
         std::unique_ptr<media::SharedMemory> memory;
         std::optional<media::Frame> latest; // not uploaded yet
         bool closing = false;

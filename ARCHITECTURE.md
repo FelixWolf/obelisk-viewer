@@ -1254,11 +1254,19 @@ touching the viewer: it only speaks `viewer/media/Protocol.hpp`.
   cancellation hears it too): full volume within 40 m of the camera, inverse
   square to silence at 80 m (as LLViewerMediaImpl::updateVolume), times the
   `audio.media_volume` setting.
+- **Its size:** the page is as big as its media says (1024 square when it
+  says nothing; auto-scaled media up to a power of two), at most 2048. Its
+  texture is that rounded up to powers of two, the page in the bottom left
+  (texture coordinates 0 to width / texture width), the rest black, as the
+  official viewer's: creators scale faces' textures to show just the page,
+  and clicks outside it press nothing.
 - **On the face:** `ObjectView` asks `MediaTextures::texture(object, face)`
   for every face drawn: a playing page replaces its texture (a PBR face's
   base color), counted as opaque. Asking marks it seen: pages not drawn
   for 30 frames are hidden (`Visibility`: 1 frame a second, sound still
-  playing). Kept draws are made again when a page starts or stops
+  playing), but never before their first frame is shown; a face with a
+  tab counts as having media from the start (`MediaTextures::playing`), so
+  kept draws (a HUD's never change) keep saying it's in view. Kept draws are made again when a page starts or stops
   (`MediaTextures::revision`).
 - **What plays** (`MediaManager::choose`): the `media.play` setting with
   the face's auto-play and the media whitelist from viewerconfig
@@ -1275,7 +1283,8 @@ touching the viewer: it only speaks `viewer/media/Protocol.hpp`.
 - **The pointer:** pressing a face with media that isn't playing plays it
   (instead of touching it); pressing one that plays presses on the page,
   at the hit's texture coordinates (v runs up), if its media lets anyone
-  interact (`perms_interact`; its owner and group aren't known yet), and
+  interact (`perms_interact`), or its owner and it's worn by us (others'
+  owners and groups aren't known yet), and
   the pointer moving over it moves there (`Mouse`).
 - **The keyboard:** pressing on a page gives it the keyboard
   (`MediaManager::focused`, `Focus`): every key goes there (`Key`, as
@@ -1301,6 +1310,9 @@ touching the viewer: it only speaks `viewer/media/Protocol.hpp`.
   headless (`--ozone-platform=headless`: no display server needed, the GPU
   when there is one) and doesn't talk to Google in the background.
   Sandboxed unless `media.sandbox` is off.
+- **HUDs:** media on a HUD plays as anywhere, counted as 0 m away (full
+  volume, never out of reach). The blue keyboard outline isn't drawn there
+  (the HUD has no outlines).
 - **The lobby:** the home scene's faces may carry media too
   (`HomeScene::media`), played the same way (autoplay only: the lobby has
   no pointer yet).

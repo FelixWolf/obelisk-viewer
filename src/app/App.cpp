@@ -2510,9 +2510,8 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         const auto& after = pointer_.hover();
         // The pointer over a page playing there.
         {
-            const world::Object* o = after && !after->hud
-                                         ? world_->object(after->key.region, after->key.localId)
-                                         : nullptr;
+            const world::Object* o =
+                after ? world_->object(after->key.region, after->key.localId) : nullptr;
             media_->hover(
                 o && after->face >= 0 && after->face < 256
                     ? std::optional(MediaFaceKey{o->id, static_cast<uint8_t>(after->face)})
@@ -3076,7 +3075,7 @@ void App::pressPointer()
 {
     // On a face whose media plays (or would, clicked): the media's. Pressing
     // anywhere else lets a page's keyboard go.
-    if(const auto& pressed = pointer_.pressed(); pressed && !pressed->hud && world_)
+    if(const auto& pressed = pointer_.pressed(); pressed && world_)
     {
         const world::Object* o = world_->object(pressed->key.region, pressed->key.localId);
         if(o && media_->press(o->id, pressed->face, pressed->hit.uv))
@@ -4014,14 +4013,23 @@ void App::updateMedia(bool home)
                 {
                     continue;
                 }
+                // Worn by us: ours (as its owner). On the HUD: as near as
+                // can be (its place is the HUD's, not the world's).
+                const world::Object& root = ObjectView::linkRoot(*o, *world_);
+                const bool ours = agentKey_ && root.region == agentKey_->region &&
+                                  root.parentId == agentKey_->localId && root.parentId != 0;
+                const bool hud = objects_->onHud(*o, *world_, avatars_.get());
                 for(size_t f = 0; f < data.faces.size() && f < world::kMaxFaces; f++)
                 {
                     if(const auto& e = data.faces[f])
                     {
-                        // Who may use the page: anyone (its owner and group
-                        // aren't known here yet).
+                        // Who may use the page: anyone, or its owner (us,
+                        // on what we wear). (Others' objects' owners and
+                        // groups aren't known here yet.)
+                        const bool interact =
+                            (e->permsInteract & 4) != 0 || (ours && (e->permsInteract & 1) != 0);
                         mediaSources_.push_back(
-                            {{id, static_cast<uint8_t>(f)}, &*e, *d, (e->permsInteract & 4) != 0});
+                            {{id, static_cast<uint8_t>(f)}, &*e, hud ? 0.0f : *d, interact});
                     }
                 }
             }

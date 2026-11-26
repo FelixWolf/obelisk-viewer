@@ -1386,10 +1386,9 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
                                   texels, glm::vec2(2.0f * std::max({object.scale.x, object.scale.y,
                                                                      object.scale.z})))
                             : texels;
-            // A page playing on it (not on HUDs).
-            const render::GpuTexture* page =
-                media_ && !hud ? media_->texture(object.id, f) : nullptr;
-            showsMedia = showsMedia || page;
+            // A page playing on it.
+            const render::GpuTexture* page = media_ ? media_->texture(object.id, f) : nullptr;
+            showsMedia = showsMedia || page || (media_ && media_->playing(object.id, f));
             const bool pbr = pbrMaterial(draw, object, f, world, textures, materials, faceTexels,
                                          faceAnimation, wearer, avatars);
             stats_.pbrFaces += pbr;

@@ -29,6 +29,13 @@ uint32_t sideOf(int pixels)
     return std::clamp(static_cast<uint32_t>(pixels), kMinSize, kMaxSize);
 }
 
+// A page's address for the log: without its query or fragment, where
+// tokens and other private things go.
+std::string forLog(const std::string& url)
+{
+    return url.substr(0, url.find_first_of("?#"));
+}
+
 } // namespace
 
 float mediaRolloff(float distance)
@@ -129,7 +136,9 @@ void MediaManager::update(std::span<const MediaSource> sources, const MediaWhite
         {
             upload(tab);
         }
-        const bool hidden = frame_ - tab.seenFrame > kHiddenAfter;
+        // Not drawn lately: hidden. Never before its first frame is shown,
+        // though (a page hidden while it loads never draws one).
+        const bool hidden = tab.shown && frame_ - tab.seenFrame > kHiddenAfter;
         if(!tab.closing && hidden != tab.hidden && host_)
         {
             tab.hidden = hidden;
@@ -266,8 +275,15 @@ bool MediaManager::ensureHost(std::chrono::steady_clock::time_point now)
 
 void MediaManager::open(const MediaFaceKey& key, Face& face, const MediaEntry& entry)
 {
-    const uint32_t width = sideOf(entry.width);
-    const uint32_t height = sideOf(entry.height);
+    // The page's size: its media's (auto-scaled: up to a power of two, so
+    // it fills its texture).
+    uint32_t width = sideOf(entry.width);
+    uint32_t height = sideOf(entry.height);
+    if(entry.autoScale)
+    {
+        width = std::min(std::bit_ceil(width), kMaxSize);
+        height = std::min(std::bit_ceil(height), kMaxSize);
+    }
     auto memory =
         media::SharedMemory::create("obelisk-media", media::frameMemorySize(width, height));
     if(!memory)
@@ -279,13 +295,16 @@ void MediaManager::open(const MediaFaceKey& key, Face& face, const MediaEntry& e
     tab.id = nextTab_++;
     tab.face = key;
     tab.width = width;
+    tab.textureWidth = std::bit_ceil(width);
+    tab.textureHeight = std::bit_ceil(height);
     tab.height = height;
     tab.memory = std::move(memory);
     tab.seenFrame = frame_;
     face.tab = tab.id;
     host_->send(
         media::Open{tab.id, profile_, face.url, width, height, tab.memory->name(), kFrameRate});
-    log::info("media: playing {} on face {} of {}", face.url, key.face, key.object.toString());
+    log::info("media: playing {} on face {} of {}", forLog(face.url), key.face,
+              key.object.toString());
     tabs_.emplace(tab.id, std::move(tab));
 }
 
@@ -430,13 +449,14 @@ void MediaManager::handle(const media::Message& message)
                     }
                     if(!e->second.allows(m.url))
                     {
-                        log::info("media: {} isn't allowed by its creator; closed", m.url);
+                        log::info("media: {} isn't allowed by its creator; closed", forLog(m.url));
                         f->second.blocked = true;
                         close(tab);
                     }
                     else if(!f->second.clicked && startFor(e->second, m.url) != MediaStart::Play)
                     {
-                        log::info("media: {} wouldn't play by itself; closed until clicked", m.url);
+                        log::info("media: {} wouldn't play by itself; closed until clicked",
+                                  forLog(m.url));
                         f->second.autoBlocked = true;
                         close(tab);
                     }
@@ -485,10 +505,11 @@ void MediaManager::upload(Tab& tab)
             info.format = bgra_ ? SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM_SRGB
                                 : SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB;
             info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
-            info.width = tab.width;
-            info.height = tab.height;
+            info.width = tab.textureWidth;
+            info.height = tab.textureHeight;
             info.layer_count_or_depth = 1;
-            info.num_levels = static_cast<Uint32>(std::bit_width(std::max(tab.width, tab.height)));
+            info.num_levels =
+                static_cast<Uint32>(std::bit_width(std::max(tab.textureWidth, tab.textureHeight)));
             info.sample_count = SDL_GPU_SAMPLECOUNT_1;
             SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &info);
             SDL_GPUTransferBufferCreateInfo transfer{};
@@ -506,8 +527,20 @@ void MediaManager::upload(Tab& tab)
                 host_->send(media::Release{tab.id, frame.slot});
                 return;
             }
-            tab.texture =
-                render::GpuTexture(device, texture, tab.width, tab.height, info.num_levels);
+            tab.texture = render::GpuTexture(device, texture, tab.textureWidth, tab.textureHeight,
+                                             info.num_levels);
+            // What the page doesn't cover: black (only the page is
+            // uploaded from now on).
+            if(SDL_GPUCommandBuffer* clearing = SDL_AcquireGPUCommandBuffer(device))
+            {
+                SDL_GPUColorTargetInfo target{};
+                target.texture = texture;
+                target.clear_color = SDL_FColor{0.0f, 0.0f, 0.0f, 1.0f};
+                target.load_op = SDL_GPU_LOADOP_CLEAR;
+                target.store_op = SDL_GPU_STOREOP_STORE;
+                SDL_EndGPURenderPass(SDL_BeginGPURenderPass(clearing, &target, 1, nullptr));
+                SDL_SubmitGPUCommandBuffer(clearing);
+            }
         }
         // Bottom row first, as every texture of ours (Second Life's texture
         // coordinates), and swizzled if BGRA can't be sampled.
@@ -548,7 +581,8 @@ void MediaManager::upload(Tab& tab)
                 destination.w = tab.width;
                 destination.h = tab.height;
                 destination.d = 1;
-                SDL_UploadToGPUTexture(copy, &source, &destination, true);
+                // Not cycled: the rest of it (outside the page) stays.
+                SDL_UploadToGPUTexture(copy, &source, &destination, false);
                 SDL_EndGPUCopyPass(copy);
                 if(tab.texture.levels() > 1)
                 {
@@ -625,13 +659,19 @@ std::optional<glm::ivec2> MediaManager::pixel(const Tab& tab, glm::vec2 uv) cons
     {
         return std::nullopt;
     }
-    // Texture coordinates repeat; v runs up (the page's top is v = 1).
+    // Texture coordinates repeat; v runs up. The page is the texture's
+    // bottom left (its top at v = height / textureHeight), as
+    // LLViewerMediaImpl::textureCoordsToPixels; outside it, nothing.
     const float u = uv.x - std::floor(uv.x);
     const float v = uv.y - std::floor(uv.y);
-    return glm::ivec2(std::min(static_cast<int>(u * static_cast<float>(tab.width)),
-                               static_cast<int>(tab.width) - 1),
-                      std::min(static_cast<int>((1.0f - v) * static_cast<float>(tab.height)),
-                               static_cast<int>(tab.height) - 1));
+    const int x = static_cast<int>(u * static_cast<float>(tab.textureWidth));
+    const int y = static_cast<int>(tab.height) -
+                  static_cast<int>(std::ceil(v * static_cast<float>(tab.textureHeight)));
+    if(x < 0 || y < 0 || x >= static_cast<int>(tab.width) || y >= static_cast<int>(tab.height))
+    {
+        return std::nullopt;
+    }
+    return glm::ivec2(x, y);
 }
 
 bool MediaManager::press(const Uuid& object, int face, glm::vec2 uv)
@@ -836,6 +876,11 @@ const render::GpuTexture* MediaManager::texture(const Uuid& object, size_t face)
     }
     tab->seenFrame = frame_;
     return tab->shown && tab->texture ? &tab->texture : nullptr;
+}
+
+bool MediaManager::playing(const Uuid& object, size_t face) const
+{
+    return face <= 255 && !tabs_.empty() && tabOf({object, static_cast<uint8_t>(face)});
 }
 
 void MediaManager::drawn(const Uuid& object)

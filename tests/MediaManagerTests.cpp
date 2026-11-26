@@ -258,9 +258,10 @@ TEST_CASE("media: a creator's whitelist")
     e.whitelist = {"*.example.org", "http://pages.net/media/*"};
     CHECK(e.allows("https://www.example.org/x"));
     CHECK(e.allows("HTTPS://WWW.EXAMPLE.ORG/x"));
-    CHECK_FALSE(e.allows("http://www.example.org/x")); // no scheme said: https
     CHECK_FALSE(e.allows("https://example.org.evil.net/"));
     CHECK(e.allows("http://pages.net/media/a.webm"));
+    e.whitelist = {"*.example.org"};
+    CHECK(e.allows("http://www.example.org/x")); // no scheme said: any
     CHECK_FALSE(e.allows("http://pages.net/other"));
     e.whitelistEnable = false;
     CHECK(e.allows("http://pages.net/other"));
@@ -504,6 +505,48 @@ TEST_CASE("media: the wheel over a page, and the face with the keyboard")
     CHECK(*f.media.focusedFace() == face);
     f.media.unfocus();
     CHECK_FALSE(f.media.focusedFace());
+}
+
+TEST_CASE("media: a page that isn't a power of two, in the corner of its texture")
+{
+    Fixture f;
+    const auto face = f.add("https://youtube.com/a", true, 5.0f);
+    f.entries[0].width = 1280;
+    f.entries[0].height = 720;
+    f.update();
+    f.update();
+    const auto open = f.host->open();
+    REQUIRE(open.size() == 1);
+    CHECK(open[0].width == 1280); // the page itself is as big as asked
+    CHECK(open[0].height == 720);
+    f.host->says.push_back(Frame{open[0].tab, 0, 1280, 720});
+    f.update();
+    // Its texture is 2048 x 1024, the page in the bottom left (v up): the
+    // page's top left at (0, 720/1024).
+    REQUIRE(f.media.press(face.object, face.face, {0.25f, 0.5f}));
+    f.media.release();
+    auto mice = f.host->sentOf<Mouse>();
+    REQUIRE(mice.size() == 3);
+    CHECK(mice[1].x == 512);
+    CHECK(mice[1].y == 720 - 512);
+    // Outside the page (the texture's unused part): nothing to press.
+    REQUIRE(f.media.press(face.object, face.face, {0.75f, 0.9f}));
+    CHECK(f.host->sentOf<Mouse>().size() == mice.size());
+}
+
+TEST_CASE("media: an auto-scaled page fills its texture")
+{
+    Fixture f;
+    f.add("https://youtube.com/a", true, 5.0f);
+    f.entries[0].width = 1280;
+    f.entries[0].height = 720;
+    f.entries[0].autoScale = true;
+    f.update();
+    f.update();
+    const auto open = f.host->open();
+    REQUIRE(open.size() == 1);
+    CHECK(open[0].width == 2048);
+    CHECK(open[0].height == 1024);
 }
 
 TEST_CASE("media: keys as pages know them")

@@ -105,10 +105,12 @@ bool MediaEntry::allows(std::string_view url) const
     const UrlParts candidate = urlParts(url);
     for(const std::string& entry : whitelist)
     {
-        const std::string filter =
-            entry.find("://") == std::string::npos ? "https://" + entry : entry;
+        // One without a scheme matches any (its host and path read as
+        // https's), as LLMediaEntry::checkUrlAgainstWhitelist.
+        const bool schemeless = entry.find("://") == std::string::npos;
+        const std::string filter = schemeless ? "https://" + entry : entry; // (f views it)
         const UrlParts f = urlParts(filter);
-        if(globMatches(candidate.scheme, f.scheme) &&
+        if((schemeless || globMatches(candidate.scheme, f.scheme)) &&
            globMatches(candidate.authority, f.authority) && globMatches(candidate.path, f.path))
         {
             return true;
