@@ -134,6 +134,7 @@ public:
         // Voice, in words (empty: not in the world), and the microphone.
         std::string voice;
         PeopleView::Voice voiceStatus;
+        PeopleView::RenderingOf rendering; // how those around are drawn
         bool microphone = false;
         struct PrimMedia
         {

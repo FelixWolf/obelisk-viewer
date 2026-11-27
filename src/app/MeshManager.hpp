@@ -58,6 +58,11 @@ public:
     // the header is in. nullptr until then, or if it has none.
     std::shared_ptr<const assets::MeshSkin> skin(const Uuid& id);
 
+    // The bytes of each level of detail's block, lowest to highest (0:
+    // none), for render costs; asks for the header. Nothing until it's in;
+    // all 0 if the mesh can't be had.
+    std::optional<std::array<int64_t, 4>> lodSizes(const Uuid& id);
+
     // Whether there's no more to wait for before it can be drawn: some level
     // of detail is ready (asking for the lowest if none is), and its skin if
     // it's rigged; or it can't be had. Starts loading what's needed.

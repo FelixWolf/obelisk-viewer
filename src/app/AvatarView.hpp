@@ -54,6 +54,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace viewer
@@ -143,6 +144,18 @@ public:
         const auto it = loading_.find(avatar);
         return it != loading_.end() && it->second.state.loaded();
     }
+
+    // Jelly dolls (AvatarComplexity): their bodies are drawn in one flat
+    // color (with no bakes to wait for), and nothing they wear is drawn.
+    void setJellyDolls(const std::unordered_set<Uuid>& avatars, glm::vec3 color)
+    {
+        jelly_ = avatars;
+        jellyColor_ = color;
+    }
+    bool jelly(const Uuid& avatar) const { return jelly_.contains(avatar); }
+    // Whether an object is worn by a jelly doll (or linked to something that
+    // is).
+    bool wornByJelly(const world::World& world, const world::Object& object) const;
 
     // Whether an avatar can be placed: not sitting on something that isn't
     // known yet (its seat, or a link parent of it).
@@ -412,6 +425,8 @@ private:
         bindings_;
     std::string appearanceUrl_;
     float hudAspect_ = 1.0f;
+    std::unordered_set<Uuid> jelly_;
+    glm::vec3 jellyColor_{0.3f};
     // Avatars out of sight are posed once in this many frames.
     static constexpr uint64_t kUnseenPosePeriod = 8;
     // This frame's avatar root and attachment point frames (once posed),

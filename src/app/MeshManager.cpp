@@ -385,6 +385,34 @@ std::shared_ptr<const assets::MeshSkin> MeshManager::skin(const Uuid& id)
     return e.skin;
 }
 
+std::optional<std::array<int64_t, 4>> MeshManager::lodSizes(const Uuid& id)
+{
+    if(id.isNull())
+    {
+        return std::nullopt;
+    }
+    Entry& e = entries_[id];
+    if(e.header == State::None)
+    {
+        e.header = State::Loading;
+        request({id, kHeader});
+    }
+    if(e.header == State::Failed)
+    {
+        return std::array<int64_t, 4>{}; // nothing to draw
+    }
+    if(e.header != State::Ready)
+    {
+        return std::nullopt;
+    }
+    std::array<int64_t, 4> sizes{};
+    for(size_t i = 0; i < sizes.size(); i++)
+    {
+        sizes[i] = e.parsed.lods[i].present() ? e.parsed.lods[i].size : 0;
+    }
+    return sizes;
+}
+
 bool MeshManager::settled(const Uuid& id)
 {
     const bool drawable = get(id, 0) != nullptr;

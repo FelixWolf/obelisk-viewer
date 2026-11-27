@@ -270,6 +270,16 @@ std::optional<image::AlphaMode> TextureManager::alphaMode(const Uuid& id) const
     return it->second.alphaMode;
 }
 
+std::optional<glm::uvec2> TextureManager::fullDimensions(const Uuid& id) const
+{
+    const auto it = entries_.find(id);
+    if(it == entries_.end() || it->second.fullDimensions.x == 0 || it->second.fullDimensions.y == 0)
+    {
+        return std::nullopt;
+    }
+    return it->second.fullDimensions;
+}
+
 bool TextureManager::settled(const Uuid& id) const
 {
     const auto it = entries_.find(id);
@@ -591,10 +601,12 @@ void TextureManager::handleCacheResult(assets::TextureResult& result)
         if(const uint32_t full = std::max(texture.fullWidth, texture.fullHeight); full != 0)
         {
             e.fullSize = full; // the whole image's, whatever was decoded
+            e.fullDimensions = {texture.fullWidth, texture.fullHeight};
         }
         else if(e.readSize == 0 || side < e.readSize)
         {
             e.fullSize = side; // all of it
+            e.fullDimensions = {texture.width(), texture.height()};
         }
         // Smaller than wanted, and the cache has nothing to decode a bigger
         // one from: download it (this one shows meanwhile).

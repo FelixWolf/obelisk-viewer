@@ -1263,7 +1263,7 @@ void MainMenu::update(const Status& status)
     if(tab_ == "people" && status.friends && status.nearby && status.names)
     {
         people_.update(*status.friends, *status.nearby, status.names, status.here,
-                       status.voiceStatus);
+                       status.voiceStatus, status.rendering);
     }
     if(tab_ == "inventory")
     {

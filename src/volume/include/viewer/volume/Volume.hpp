@@ -59,6 +59,12 @@ struct VolumeFace
 // faces for parameters the official viewer can't build either.
 std::vector<VolumeFace> generateVolume(const VolumeParams& params, float detail);
 
+// About how many triangles each level of detail of a prim has (lowest to
+// highest), without building it: from how many points its path and
+// profile get, as llvolume.cpp getLoDTriangleCounts (for render and
+// streaming costs, where close is good enough).
+std::array<int, 4> lodTriangleCounts(const VolumeParams& params);
+
 // A point of the path the profile is swept along: where, how big and how
 // turned the profile is there, and its texture t.
 struct PathPoint

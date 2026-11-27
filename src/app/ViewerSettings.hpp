@@ -17,6 +17,10 @@ namespace viewer::setting
 // Graphics.
 inline constexpr SettingKey<bool> kShadows{"graphics.shadows"};
 inline constexpr SettingKey<bool> kAvatarPhysics{"graphics.avatar_physics"};
+// Avatars over this complexity are jelly dolls (0: no limit).
+inline constexpr SettingKey<int32_t> kAvatarMaxComplexity{"graphics.avatar_max_complexity"};
+inline constexpr SettingKey<std::string> kAvatarComplexityMode{
+    "graphics.avatar_complexity_mode"}; // "everyone", "friends", "only_friends"
 inline constexpr SettingKey<bool> kOcclusion{"graphics.occlusion"};
 inline constexpr SettingKey<bool> kPbrTerrain{"graphics.pbr_terrain"};
 inline constexpr SettingKey<int32_t> kTextureMemory{"graphics.texture_memory"}; // MiB
@@ -69,6 +73,9 @@ inline constexpr SettingKey<double> kVrEyeHeight{"vr.eye_height"};       // m; -
 inline constexpr SettingKey<bool> kFirstPerson{"camera.first_person"};   // at the start
 inline constexpr SettingKey<double> kDayTime{"world.day_time"};          // 0..1; -1 the region's
 inline constexpr SettingKey<bool> kTestScene{"developer.test_scene"};
+// Square meters of attachments past which an avatar is a jelly doll too
+// (0: no limit), while there's a complexity limit.
+inline constexpr SettingKey<double> kAvatarMaxArea{"graphics.avatar_max_area"};
 // Chromium's sandbox for media pages (off only where it can't run).
 inline constexpr SettingKey<bool> kMediaSandbox{"media.sandbox"};
 

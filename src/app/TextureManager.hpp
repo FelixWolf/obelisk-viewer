@@ -117,6 +117,9 @@ public:
 
     // How the texture uses alpha, once it's resident.
     std::optional<image::AlphaMode> alphaMode(const Uuid& id) const;
+    // The whole image's width and height, once any of it has been read
+    // (whatever size was decoded); nothing before, or if never asked for.
+    std::optional<glm::uvec2> fullDimensions(const Uuid& id) const;
 
     // Whether a texture asked for is ready to draw, or can't be had.
     bool settled(const Uuid& id) const;
@@ -175,7 +178,8 @@ private:
         image::TextureData pending;       // decoded, waiting for an upload job
         image::TextureData pendingLinear; // the same, for the linear copy
         std::unique_ptr<image::TextureData> cpuCopy;
-        uint32_t fullSize = 0; // the whole image's larger side, once known
+        uint32_t fullSize = 0;        // the whole image's larger side, once known
+        glm::uvec2 fullDimensions{0}; // and its width and height
         // Use: the most texels asked for this frame, and the size kept
         // (the largest lately; it shrinks after a while).
         float wanted = 0.0f;

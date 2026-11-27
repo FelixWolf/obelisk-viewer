@@ -1277,4 +1277,29 @@ std::vector<VolumeFace> generateSculpt(const VolumeParams& params, float detail,
     return buildFaces(b, params);
 }
 
+std::array<int, 4> lodTriangleCounts(const VolumeParams& params)
+{
+    std::array<int, 4> counts{};
+    VolumeParams effective = params;
+    if((effective.path.curve & PathCurve::Flexible) != 0)
+    {
+        effective.path.curve = PathCurve::Line;
+    }
+    for(size_t i = 0; i < counts.size(); i++)
+    {
+        // Unsplit, the profile as for a closed path: as getNumPoints counts.
+        Path path;
+        Profile profile;
+        path.generate(effective.path, kDetailScales[i], 0);
+        if(!profile.generate(effective.profile, false, kDetailScales[i], 0))
+        {
+            continue;
+        }
+        const int pathPoints = static_cast<int>(path.points.size());
+        const int profilePoints = profile.total;
+        counts[i] = std::max(0, (profilePoints - 1) * 2 * (pathPoints - 1)) + profilePoints * 2;
+    }
+    return counts;
+}
+
 } // namespace viewer::volume

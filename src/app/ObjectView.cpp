@@ -1571,7 +1571,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     for(const world::ObjectKey& key : index_.lights())
     {
         const world::Object* o = world.object(key.region, key.localId);
-        if(o && o->light && !onHud(*o, world, avatars))
+        if(o && o->light && !onHud(*o, world, avatars) &&
+           !(avatars && avatars->wornByJelly(world, *o)))
         {
             addLight(scene, world, *o, originHandle, textures, avatars, drawDistance);
         }
@@ -1579,7 +1580,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     for(const world::ObjectKey& key : index_.probes())
     {
         const world::Object* o = world.object(key.region, key.localId);
-        if(o && o->reflectionProbe && !onHud(*o, world, avatars))
+        if(o && o->reflectionProbe && !onHud(*o, world, avatars) &&
+           !(avatars && avatars->wornByJelly(world, *o)))
         {
             if(const auto frame = frameOf(*o, world, originHandle, avatars))
             {
@@ -1598,7 +1600,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
     for(const world::ObjectKey& key : particlesOn_ ? index_.particleSources() : noSources)
     {
         const world::Object* o = world.object(key.region, key.localId);
-        if(!o || !o->particles || onHud(*o, world, avatars))
+        if(!o || !o->particles || onHud(*o, world, avatars) ||
+           (avatars && avatars->wornByJelly(world, *o)))
         {
             continue;
         }
@@ -1616,7 +1619,8 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         for(const world::ObjectKey& key : world.avatarKeys())
         {
             const world::Object* o = world.object(key.region, key.localId);
-            if(!o || avatars->loaded(o->id) || !avatars->placed(*o, world, originHandle))
+            if(!o || avatars->loaded(o->id) || avatars->jelly(o->id) ||
+               !avatars->placed(*o, world, originHandle))
             {
                 continue;
             }
@@ -1710,6 +1714,12 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             r && r->parentId != 0 ? world.object(root.region, r->parentId) : nullptr;
         const bool worn = avatar && avatars && avatar->type == world::ObjectType::Avatar &&
                           !avatars->isHudPoint(avatar::attachmentPointFromState(r->state));
+        if(worn && avatars->jelly(avatar->id))
+        {
+            // A jelly doll's: not drawn (nor loaded) at all.
+            stats_.culled += set->members.size();
+            continue;
+        }
         if(worn)
         {
             const glm::vec3 at(avatars->rootFrame(*avatar, world, originHandle)[3]);

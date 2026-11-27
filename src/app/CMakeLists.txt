@@ -23,7 +23,9 @@ add_executable(viewer
   AnimationManager.cpp
   AutomaticProbes.cpp
   AccountPicture.cpp
+  AvatarComplexity.cpp
   AvatarLoading.cpp
+  AvatarRenderInfo.cpp
   AvatarNames.cpp
   AvatarView.cpp
   AgentController.cpp

@@ -49,6 +49,9 @@ const BakeSlot kBakeSlots[] = {
     {*Uuid::parse("edd51b77-fc10-ce7a-4b3d-011dfc349e4f"), 44, "aux3"},
 };
 
+// The skirt's bake (texture entry index): worn only by some.
+constexpr int kSkirtBake = 19;
+
 // How far a rigged mesh's joint position must be from the default to count
 // (the official viewer's LLJoint::aboveJointPosThreshold).
 constexpr float kJointPositionThreshold = 0.0001f;
@@ -445,6 +448,16 @@ std::optional<glm::mat4> AvatarView::seatFrame(const world::Object& avatar,
         return std::nullopt;
     }
     return glm::translate(glm::mat4(1.0f), regionOffset(o->region, originHandle)) * frame;
+}
+
+bool AvatarView::wornByJelly(const world::World& world, const world::Object& object) const
+{
+    if(jelly_.empty() || object.parentId == 0)
+    {
+        return false;
+    }
+    const world::Object* avatar = attachedAvatar(world, object);
+    return avatar && jelly_.contains(avatar->id);
 }
 
 bool AvatarView::isHudPoint(int point) const
@@ -1257,8 +1270,9 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             pose(a, body.shape, world, object.id, animations, now, root, originHandle, &object);
             simulate(a, body, root, originHandle, now);
         }
+        const bool isJelly = jelly_.contains(object.id);
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
-           seen == render::Visibility::Hidden || !loaded(object.id))
+           seen == render::Visibility::Hidden || (!loaded(object.id) && !isJelly))
         {
             continue;
         }
@@ -1271,7 +1285,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 : textures.texelsFor(2.0f * std::max(extent(object), 1.5f),
                                      glm::length(glm::vec3(root[3]) - scene.camera.position));
         const auto inUse = bakesInUse_.find(object.id);
-        const uint64_t hidden = inUse != bakesInUse_.end() ? inUse->second : 0;
+        // A jelly doll wears nothing, so every part with a bake shows.
+        const uint64_t hidden = inUse != bakesInUse_.end() && !isJelly ? inUse->second : 0;
         for(size_t i = 0; i < std::size(avatar::kBodyParts); i++)
         {
             const avatar::BodyPart& part = avatar::kBodyParts[i];
@@ -1280,13 +1295,33 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
                 continue; // none, or an attachment shows its bake instead
             }
             render::BlinnPhongMaterial m;
-            m.diffuse = bake(world, object, part.bake, part.bakeName, textures, texels);
-            if(!m.diffuse)
+            if(isJelly)
             {
-                continue; // none, or not drawn until it's in (avoids grey ghosts)
+                // One flat color, unlit (the official viewer's solid color
+                // impostor), for the parts it has a bake for (a skirt only
+                // if it wears one); no textures, so alpha cuts no holes.
+                const Uuid id =
+                    appearance ? appearance->faces[static_cast<size_t>(part.bake)].texture : Uuid{};
+                if(appearance ? !bakeDefined(id) || id == kInvisibleTexture
+                              : part.bake == kSkirtBake)
+                {
+                    continue;
+                }
+                m.diffuseTint = glm::vec4(jellyColor_, 1.0f);
+                m.fullbright = true;
+                m.opaque = true;
+                m.specularTint = glm::vec3(0.0f);
             }
-            m.alphaCutoff = 0.5f;             // alpha layers cut holes in bakes
-            m.specularTint = glm::vec3(0.0f); // no highlight, as the official avatar shader
+            else
+            {
+                m.diffuse = bake(world, object, part.bake, part.bakeName, textures, texels);
+                if(!m.diffuse)
+                {
+                    continue; // none, or not drawn until it's in (avoids grey ghosts)
+                }
+                m.alphaCutoff = 0.5f;             // alpha layers cut holes in bakes
+                m.specularTint = glm::vec3(0.0f); // no highlight, as the official avatar shader
+            }
 
             avatar::skinPalette(base_, i, a.joints, a.palettes[i]);
             const render::Mesh* expressed =

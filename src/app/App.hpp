@@ -3,7 +3,9 @@
 #include "AccountPicture.hpp"
 #include "AgentController.hpp"
 #include "AnimationManager.hpp"
+#include "AvatarComplexity.hpp"
 #include "AvatarNames.hpp"
+#include "AvatarRenderInfo.hpp"
 #include "AvatarView.hpp"
 #include "CameraController.hpp"
 #include "CurrentOutfit.hpp"
@@ -489,6 +491,16 @@ private:
     uint64_t lastSoundTicks_ = 0;
     std::unique_ptr<AvatarView> avatars_; // nullptr if the default avatar couldn't be loaded
     std::unique_ptr<ObjectView> objects_;
+    // Avatars' complexity and who's a jelly doll; what regions hear of it
+    // and say back.
+    std::unique_ptr<AvatarComplexity> complexity_;
+    std::unique_ptr<AvatarRenderInfo> renderInfo_;
+    uint64_t jellyRevision_ = ~0ull; // what avatars_ was last given
+    // Adds up avatars' complexity (now and then) and gives AvatarView the
+    // jelly dolls; tells regions and hears back.
+    void updateComplexity();
+    // Decides who's a jelly doll again (limits, choices or friends changed).
+    void decideJellyDolls();
     // What the mouse points at, and touching it.
     PointerController pointer_;
     // Names and touch text of what the pointer rests on.

@@ -20,7 +20,10 @@ sound yet.
 ## Avatars and animation
 
 - Sitting and standing (sit targets, the sit response, the seated camera)
-- Complexity limits and "jelly dolls" for crowded places
+- Complexity limits and "jelly dolls" for crowded places (done: the
+  official viewer's complexity, a limit and friends modes in Settings,
+  per-person choices on the People tab, reports to and from regions;
+  there's no limit on how many avatars are drawn whole, nor impostors)
 
 ## Interaction
 

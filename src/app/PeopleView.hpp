@@ -36,10 +36,29 @@ public:
     using Names = std::function<const AvatarName*(const Uuid&)>;
     // Their voice (nothing: not in it).
     using Voice = std::function<std::optional<voice::VoiceClient::Status>(const Uuid&)>;
+    // How someone around is drawn (AvatarComplexity): their complexity as
+    // we add it up (nothing: not yet) and as their own viewer reported it,
+    // how we picked to show them, and whether they're a jelly doll.
+    enum class Render : uint8_t
+    {
+        Normal, // by the complexity limit
+        Always, // whole
+        Never,  // as a jelly doll
+    };
+    struct Rendering
+    {
+        std::optional<uint32_t> complexity;
+        std::optional<uint32_t> reported;
+        bool pending = false; // some of what they wear hasn't been sized yet
+        Render choice = Render::Normal;
+        bool jelly = false;
+    };
+    using RenderingOf = std::function<std::optional<Rendering>(const Uuid&)>;
     // Once a frame while the tab shows: `here` is where we are on the grid
     // (nothing: not in the world).
     void update(const Friends& friends, const Nearby& nearby, const Names& names,
-                std::optional<glm::dvec3> here, const Voice& voice);
+                std::optional<glm::dvec3> here, const Voice& voice,
+                const RenderingOf& rendering = {});
 
     // What the page asked for, once.
     struct Action
@@ -54,11 +73,13 @@ public:
             ResetSkeleton,   // as we see them
             ResetAnimations, // and their animations
             SetRights,       // what we let a friend do: `rights`
+            SetRender,       // how they're drawn: `render`
         };
         Kind kind = Kind::Message;
         Uuid who;
         std::string name; // theirs, as shown
         int32_t rights = 0;
+        Render render = Render::Normal;
     };
     std::optional<Action> takeAction() { return std::exchange(action_, std::nullopt); }
 
@@ -85,11 +106,15 @@ public:
         bool givesMap = false;
         bool givesModify = false;
         Rml::String theyLetUs; // "They let you see when they're online, ..."
+        // Nearby: their complexity, and how they're drawn ("normal",
+        // "always", "never"; empty: not known).
+        Rml::String complexity;
+        Rml::String render;
         bool operator==(const Card&) const = default;
     };
 
 private:
-    void act(Action::Kind kind, int32_t rights = 0);
+    void act(Action::Kind kind, int32_t rights = 0, Render render = Render::Normal);
 
     Rml::DataModelHandle model_;
     Rml::String list_ = "friends"; // or "nearby"

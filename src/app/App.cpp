@@ -726,6 +726,10 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
          std::string(setting::kPushToTalk.name), std::string(setting::kMicrophone.name),
          std::string(setting::kVoiceEcho.name)});
     app->objectMedia_ = std::make_unique<ObjectMedia>(*app->http_);
+    app->complexity_ = std::make_unique<AvatarComplexity>(Settings::defaultFile().parent_path() /
+                                                          "avatar_render.llsd");
+    app->renderInfo_ = std::make_unique<AvatarRenderInfo>(*app->http_);
+    app->applySettings({std::string(setting::kAvatarMaxComplexity.name)});
     {
         // Media on prims: the media host beside us (where it's built). Its
         // engine locks the folder it's given for one process, so each
@@ -855,6 +859,89 @@ void App::applyAntialiasing()
                                    strength);
 }
 
+void App::updateComplexity()
+{
+    if(!complexity_ || !avatars_ || !world_)
+    {
+        return;
+    }
+    const auto* login = session_ ? session_->login() : nullptr;
+    const Uuid self = login ? login->agentId : Uuid{};
+    ComplexitySources sources;
+    sources.meshLodSizes = [this](const Uuid& id) { return meshes_->lodSizes(id); };
+    sources.meshRigged = [this](const Uuid& id) { return meshes_->isRigged(id); };
+    sources.textureSize = [this](const Uuid& id) { return textures_->fullDimensions(id); };
+    sources.textureBlends = [this](const Uuid& id)
+    { return textures_->alphaMode(id) == image::AlphaMode::Blend; };
+    const auto now = std::chrono::steady_clock::now();
+    complexity_->update(
+        *world_, sources, self, [this](const Uuid& id) { return friends_.find(id) != nullptr; },
+        now);
+    if(complexity_->revision() != jellyRevision_)
+    {
+        jellyRevision_ = complexity_->revision();
+        // The color's sRGB; tints are linear.
+        const auto linear = [](float c)
+        { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); };
+        const glm::vec3 color = AvatarComplexity::kJellyColor;
+        avatars_->setJellyDolls(complexity_->jellyDolls(),
+                                glm::vec3(linear(color.r), linear(color.g), linear(color.b)));
+    }
+
+    // What regions hear of it, and say back.
+    if(!session_ || !login)
+    {
+        return;
+    }
+    std::vector<uint64_t> regions;
+    for(const auto& [circuit, region] : session_->regions())
+    {
+        if(region->capabilitiesReceived)
+        {
+            regions.push_back(region->handle);
+        }
+    }
+    const session::Region* main = session_->mainRegion();
+    renderInfo_->update(
+        regions, main ? main->handle : 0,
+        [this](uint64_t handle)
+        {
+            const session::Region* r = session_->regionByHandle(handle);
+            if(!r)
+            {
+                return std::string();
+            }
+            const auto it = r->capabilities.find("AvatarRenderInfo");
+            return it == r->capabilities.end() ? std::string() : it->second;
+        },
+        [this](uint64_t handle)
+        {
+            // Those in the region added up whole (as the official viewer
+            // tells of those mostly loaded).
+            std::vector<AvatarRenderReport> reports;
+            for(const auto& [id, info] : complexity_->all())
+            {
+                if(info.key.region == handle && !info.pending)
+                {
+                    reports.push_back({id, info.complexity, info.jelly});
+                }
+            }
+            return reports;
+        },
+        now);
+}
+
+void App::decideJellyDolls()
+{
+    if(!complexity_)
+    {
+        return;
+    }
+    const auto* login = session_ ? session_->login() : nullptr;
+    complexity_->decide(login ? login->agentId : Uuid{},
+                        [this](const Uuid& id) { return friends_.find(id) != nullptr; });
+}
+
 void App::applySettings(const std::vector<std::string>& names)
 {
     using namespace setting;
@@ -870,6 +957,23 @@ void App::applySettings(const std::vector<std::string>& names)
             if(avatars_)
             {
                 avatars_->setPhysics(s.get(kAvatarPhysics));
+            }
+        }
+        else if(name == kAvatarMaxComplexity.name || name == kAvatarComplexityMode.name ||
+                name == kAvatarMaxArea.name)
+        {
+            if(complexity_)
+            {
+                AvatarComplexity::Limits limits;
+                limits.maxComplexity =
+                    static_cast<uint32_t>(std::max(0, s.get(kAvatarMaxComplexity)));
+                limits.maxArea = static_cast<float>(std::max(0.0, s.get(kAvatarMaxArea)));
+                const std::string mode = s.get(kAvatarComplexityMode);
+                limits.mode = mode == "friends"        ? AvatarComplexity::Mode::FriendsAlways
+                              : mode == "only_friends" ? AvatarComplexity::Mode::OnlyFriends
+                                                       : AvatarComplexity::Mode::Everyone;
+                complexity_->setLimits(limits);
+                decideJellyDolls();
             }
         }
         else if(name == kOcclusion.name)
@@ -2603,6 +2707,8 @@ void App::endSession()
     musicWanted_.clear();
     musicParcel_.reset();
     objectMedia_->clear();
+    complexity_->clear();
+    renderInfo_->clear();
     voice_->stop();
     voiceIndicators_.clear();
     friends_.clear();
@@ -2856,6 +2962,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         // origin it was drawn at.
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
+        updateComplexity();
         if(avatars_)
         {
             const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
@@ -4636,6 +4743,14 @@ void App::peopleAction(const PeopleView::Action& action)
         friends_.remove(action.who);
         break;
     }
+    case Kind::SetRender:
+        log::info("showing '{}' {}", action.name,
+                  action.render == PeopleView::Render::Always  ? "always whole"
+                  : action.render == PeopleView::Render::Never ? "as a jelly doll"
+                                                               : "by the complexity limit");
+        complexity_->setChoice(action.who, static_cast<AvatarComplexity::Choice>(action.render));
+        decideJellyDolls();
+        break;
     case Kind::ResetSkeleton:
         resetSkeleton(action.who, false);
         break;
@@ -4825,6 +4940,19 @@ void App::updateMainMenu()
     status.friends = &friends_;
     status.nearby = &nearby_;
     status.names = [this](const Uuid& id) { return avatarNames_->get(id); };
+    status.rendering = [this](const Uuid& id) -> std::optional<PeopleView::Rendering>
+    {
+        PeopleView::Rendering r;
+        if(const AvatarComplexity::Info* info = complexity_->find(id))
+        {
+            r.complexity = info->complexity;
+            r.pending = info->pending;
+            r.jelly = info->jelly;
+        }
+        r.reported = renderInfo_->reported(id);
+        r.choice = static_cast<PeopleView::Render>(complexity_->choice(id));
+        return r;
+    };
     if(session_ && session_->state() == session::SessionState::Connected)
     {
         if(const auto handle = session_->agentRegion())
@@ -6576,6 +6704,19 @@ void App::drawDeveloperWindows()
                         world_->objects().size(), o.drawn, o.faces, o.skipped);
             ImGui::Text("Prim meshes: %zu cached, %zu generating", o.meshes, o.pending);
             ImGui::Text("Particles: %zu from %zu sources", o.particles, o.particleSources);
+            {
+                const auto* login = session_ ? session_->login() : nullptr;
+                const AvatarComplexity::Info* mine =
+                    login ? complexity_->find(login->agentId) : nullptr;
+                const auto seen = renderInfo_->seen();
+                ImGui::Text("Avatars: %zu jelly dolls of %zu; our complexity %u%s",
+                            complexity_->jellyDolls().size(), complexity_->all().size(),
+                            mine ? mine->complexity : 0u,
+                            seen ? std::format(" ({} of {} around see us over their limit)",
+                                               seen->overLimit, seen->reporting)
+                                       .c_str()
+                                 : "");
+            }
             const auto c = worldThread_->cacheStats();
             ImGui::Text("Object cache: %llu hits, %llu misses",
                         static_cast<unsigned long long>(c.hits),

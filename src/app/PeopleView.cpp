@@ -61,6 +61,29 @@ std::string letsUs(int32_t rights)
     return text + ".";
 }
 
+// "Complexity 123,456 (their viewer says 120,000). Shown as a jelly doll."
+std::string complexityText(const PeopleView::Rendering& r)
+{
+    const auto grouped = [](uint32_t n)
+    {
+        std::string digits = std::to_string(n);
+        for(int i = static_cast<int>(digits.size()) - 3; i > 0; i -= 3)
+        {
+            digits.insert(static_cast<size_t>(i), ",");
+        }
+        return digits;
+    };
+    std::string text = r.complexity
+                           ? "Complexity " + grouped(*r.complexity) + (r.pending ? " so far" : "")
+                           : "Complexity not added up yet";
+    if(r.reported && (!r.complexity || *r.reported != *r.complexity))
+    {
+        text += " (their viewer says " + grouped(*r.reported) + ")";
+    }
+    text += r.jelly ? ". Shown as a jelly doll." : ".";
+    return text;
+}
+
 } // namespace
 
 void PeopleView::bind(Rml::DataModelConstructor& model)
@@ -87,6 +110,8 @@ void PeopleView::bind(Rml::DataModelConstructor& model)
         c.RegisterMember("givesMap", &Card::givesMap);
         c.RegisterMember("givesModify", &Card::givesModify);
         c.RegisterMember("theyLetUs", &Card::theyLetUs);
+        c.RegisterMember("complexity", &Card::complexity);
+        c.RegisterMember("render", &Card::render);
     }
     model.Bind("peopleList", &list_);
     model.Bind("peopleRows", &rows_);
@@ -123,6 +148,18 @@ void PeopleView::bind(Rml::DataModelConstructor& model)
                                 confirmEnd_ = false;
                                 model_.DirtyVariable("peopleConfirmEnd");
                             });
+    // How they're drawn: peopleRender(0) by the limit, (1) whole, (2) as a
+    // jelly doll.
+    model.BindEventCallback(
+        "peopleRender",
+        [this](Rml::DataModelHandle, Rml::Event&, const Rml::VariantList& arguments)
+        {
+            const int choice = arguments.empty() ? -1 : arguments.front().Get<int>(-1);
+            if(choice >= 0 && choice <= 2)
+            {
+                act(Action::Kind::SetRender, 0, static_cast<Render>(choice));
+            }
+        });
     // A right of ours to them toggled: peopleRight(1), (2) or (4).
     model.BindEventCallback(
         "peopleRight",
@@ -137,13 +174,13 @@ void PeopleView::bind(Rml::DataModelConstructor& model)
         });
 }
 
-void PeopleView::act(Action::Kind kind, int32_t rights)
+void PeopleView::act(Action::Kind kind, int32_t rights, Render render)
 {
     if(chosenId_.isNull())
     {
         return;
     }
-    action_ = Action{kind, chosenId_, card_.name, rights};
+    action_ = Action{kind, chosenId_, card_.name, rights, render};
     if(confirmEnd_)
     {
         confirmEnd_ = false;
@@ -152,7 +189,8 @@ void PeopleView::act(Action::Kind kind, int32_t rights)
 }
 
 void PeopleView::update(const Friends& friends, const Nearby& nearby, const Names& names,
-                        std::optional<glm::dvec3> here, const Voice& voice)
+                        std::optional<glm::dvec3> here, const Voice& voice,
+                        const RenderingOf& rendering)
 {
     const auto nameOf = [&](const Uuid& id) -> std::pair<std::string, std::string>
     {
@@ -297,6 +335,13 @@ void PeopleView::update(const Friends& friends, const Nearby& nearby, const Name
             card.givesMap = (f->rightsGiven & FriendRights::MapLocation) != 0;
             card.givesModify = (f->rightsGiven & FriendRights::ModifyObjects) != 0;
             card.theyLetUs = letsUs(f->rightsHas);
+        }
+        if(const auto r = near && rendering ? rendering(*id) : std::nullopt)
+        {
+            card.render = r->choice == Render::Always  ? "always"
+                          : r->choice == Render::Never ? "never"
+                                                       : "normal";
+            card.complexity = complexityText(*r);
         }
     }
     if(card != card_)

@@ -22,7 +22,8 @@ void addFloatingText(render::Scene& scene, const world::World& world, const Obje
     const glm::vec3 forward = glm::normalize(camera.target - camera.position);
     for(const auto& [key, object] : world.objects())
     {
-        if(object.hoverText.empty() || object.type != world::ObjectType::Prim)
+        if(object.hoverText.empty() || object.type != world::ObjectType::Prim ||
+           (avatars && avatars->wornByJelly(world, object)))
         {
             continue;
         }

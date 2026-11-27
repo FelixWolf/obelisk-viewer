@@ -144,6 +144,9 @@ std::vector<std::string> defaultCapabilityNames()
     return {
         "AgentPreferences",
         "AgentProfile",
+        // Avatar complexity told to and heard from the region
+        // (AvatarRenderInfo in the app).
+        "AvatarRenderInfo",
         "ChatSessionRequest",
         "EventQueueGet",
         "ExtEnvironment",

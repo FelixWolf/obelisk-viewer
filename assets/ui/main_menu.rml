@@ -365,6 +365,13 @@
                         <div class="teleport key" data-event-click="peopleResetSkeleton">Reset skeleton</div>
                         <div class="teleport key" data-event-click="peopleResetAnimations">Reset with animations</div>
                     </div>
+                    <div data-if="peopleCard.nearby &amp;&amp; peopleCard.render != ''" class="rights">
+                        <h3>Show them</h3>
+                        <div class="toggle key right" data-class-on="peopleCard.render == 'normal'" data-event-click="peopleRender(0)">By the complexity limit</div>
+                        <div class="toggle key right" data-class-on="peopleCard.render == 'always'" data-event-click="peopleRender(1)">Always whole</div>
+                        <div class="toggle key right" data-class-on="peopleCard.render == 'never'" data-event-click="peopleRender(2)">As a jelly doll</div>
+                        <div class="muted they">{{ peopleCard.complexity }}</div>
+                    </div>
                     <div data-if="peopleCard.isFriend" class="rights">
                         <h3>You let them</h3>
                         <div class="toggle key right" data-class-on="peopleCard.givesOnline" data-event-click="peopleRight(1)">See when you're online</div>

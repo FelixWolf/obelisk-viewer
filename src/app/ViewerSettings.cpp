@@ -62,6 +62,26 @@ std::vector<SettingDefinition> viewerSettings()
                        .label = "Avatar physics",
                        .description = "Bounce and sway the bodies of avatars that wear "
                                       "physics."}),
+        defineSetting(kAvatarMaxComplexity, int32_t{350000},
+                      {.page = "Graphics",
+                       .label = "Maximum complexity",
+                       .description = "Avatars more complex than this (what they wear "
+                                      "costs to draw) are shown as jelly dolls: a body "
+                                      "in one flat color, wearing nothing. 0: no limit. "
+                                      "Someone can be shown whole, or always as a jelly "
+                                      "doll, from the People tab.",
+                       .minimum = 0,
+                       .maximum = 2000000,
+                       .step = 25000}),
+        defineSetting(kAvatarComplexityMode, std::string("everyone"),
+                      {.page = "Graphics",
+                       .label = "Complexity limit for",
+                       .description = "Whom the limit applies to: everyone; everyone "
+                                      "but friends (always shown whole); or show only "
+                                      "friends, and everyone else as jelly dolls.",
+                       .choices = {{"everyone", "Everyone"},
+                                   {"friends", "All but friends"},
+                                   {"only_friends", "Show only friends"}}}),
         defineSetting(kOcclusion, true,
                       {.page = "Graphics",
                        .section = "Performance",
@@ -351,6 +371,18 @@ std::vector<SettingDefinition> viewerSettings()
                        .maximum = 1.0,
                        .step = 0.05,
                        .decimals = 2,
+                       .hidden = true}),
+        defineSetting(kAvatarMaxArea, 1000.0,
+                      {.page = "Graphics",
+                       .label = "Attachment surface area limit",
+                       .description = "Avatars whose attachments' surface adds up to more "
+                                      "than this are jelly dolls too (0: no limit), while "
+                                      "there's a complexity limit.",
+                       .minimum = 0.0,
+                       .maximum = 100000.0,
+                       .step = 100.0,
+                       .unit = "m²",
+                       .decimals = 0,
                        .hidden = true}),
         defineSetting(kTestScene, false,
                       {.page = "Developer",
