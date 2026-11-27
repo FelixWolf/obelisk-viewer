@@ -729,7 +729,9 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->complexity_ = std::make_unique<AvatarComplexity>(Settings::defaultFile().parent_path() /
                                                           "avatar_render.llsd");
     app->renderInfo_ = std::make_unique<AvatarRenderInfo>(*app->http_);
-    app->applySettings({std::string(setting::kAvatarMaxComplexity.name)});
+    app->applySettings({std::string(setting::kAvatarMaxComplexity.name),
+                        std::string(setting::kAvatarMaxFull.name),
+                        std::string(setting::kImpostorVrDistance.name)});
     {
         // Media on prims: the media host beside us (where it's built). Its
         // engine locks the folder it's given for one process, so each
@@ -931,6 +933,57 @@ void App::updateComplexity()
         now);
 }
 
+void App::updateImpostors(render::Scene& scene)
+{
+    scene.impostors.clear();
+    if(!avatars_ || !world_ || !originHandle_)
+    {
+        return;
+    }
+    const auto* login = session_ ? session_->login() : nullptr;
+    const Uuid self = login ? login->agentId : Uuid{};
+    const bool headset = headset_ && headset_->running();
+    const glm::vec3 eye = scene.camera.position;
+    std::vector<ImpostorPlanner::Candidate> candidates;
+    for(const world::ObjectKey& key : world_->avatarKeys())
+    {
+        const world::Object* o = world_->object(key.region, key.localId);
+        if(!o || o->id == self || avatars_->jelly(o->id) || !avatars_->loaded(o->id) ||
+           !avatars_->placed(*o, *world_, *originHandle_))
+        {
+            continue;
+        }
+        // A sphere around the body as it stands (from the pelvis), with
+        // room for what it wears.
+        const glm::vec3 center(avatars_->rootFrame(*o, *world_, *originHandle_)[3]);
+        const float radius = std::max(avatars_->extent(*o), 1.8f) * 0.5f + 0.3f;
+        const float distance = glm::length(center - eye);
+        if(distance > 128.0f || scene.visibility(center, radius) != render::Visibility::Visible)
+        {
+            continue;
+        }
+        candidates.push_back(
+            {o->id, center, radius, textures_->texelsFor(2.0f * radius, distance)});
+    }
+    ImpostorPlanner::Options options;
+    options.maxFull = impostorMaxFull_;
+    if(headset)
+    {
+        // A head is never still: more room before taking it again.
+        options.minDistance = impostorVrDistance_;
+        options.maxAngle = 0.1f;
+    }
+    const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
+    impostors_.update(candidates, eye, options, now);
+    std::unordered_map<Uuid, AvatarView::ImpostorUse> uses;
+    for(const auto& [id, plan] : impostors_.all())
+    {
+        uses[id] = {plan.slot, plan.capture};
+        scene.impostors.push_back(plan.card);
+    }
+    avatars_->setImpostors(std::move(uses));
+}
+
 void App::decideJellyDolls()
 {
     if(!complexity_)
@@ -975,6 +1028,14 @@ void App::applySettings(const std::vector<std::string>& names)
                 complexity_->setLimits(limits);
                 decideJellyDolls();
             }
+        }
+        else if(name == kAvatarMaxFull.name)
+        {
+            impostorMaxFull_ = static_cast<uint32_t>(std::max(0, s.get(kAvatarMaxFull)));
+        }
+        else if(name == kImpostorVrDistance.name)
+        {
+            impostorVrDistance_ = static_cast<float>(std::max(0.0, s.get(kImpostorVrDistance)));
         }
         else if(name == kOcclusion.name)
         {
@@ -2709,6 +2770,7 @@ void App::endSession()
     objectMedia_->clear();
     complexity_->clear();
     renderInfo_->clear();
+    impostors_.clear();
     voice_->stop();
     voiceIndicators_.clear();
     friends_.clear();
@@ -2963,6 +3025,7 @@ void App::buildSceneOf(render::Scene& scene, bool home)
         scene.worldOrigin = glm::dvec2(static_cast<double>(*originHandle_ >> 32),
                                        static_cast<double>(*originHandle_ & 0xFFFFFFFFu));
         updateComplexity();
+        updateImpostors(scene);
         if(avatars_)
         {
             const double now = static_cast<double>(SDL_GetTicksNS() - startTicks_) * 1e-9;
@@ -6717,6 +6780,8 @@ void App::drawDeveloperWindows()
                                        .c_str()
                                  : "");
             }
+            ImGui::Text("Impostors: %zu, %u pictures taken this frame", impostors_.all().size(),
+                        renderer_->impostorsCaptured());
             const auto c = worldThread_->cacheStats();
             ImGui::Text("Object cache: %llu hits, %llu misses",
                         static_cast<unsigned long long>(c.hits),

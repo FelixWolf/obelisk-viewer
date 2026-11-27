@@ -1,6 +1,7 @@
 add_executable(viewer_tests
   main.cpp
   AvatarComplexityTests.cpp
+  ImpostorPlannerTests.cpp
   AvatarLoadingTests.cpp
   AvatarNameTests.cpp
   AvatarTests.cpp
@@ -65,6 +66,7 @@ add_executable(viewer_tests
   # App code with no dependencies of its own, tested as is.
   ${PROJECT_SOURCE_DIR}/src/app/AutomaticProbes.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarComplexity.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ImpostorPlanner.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarLoading.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarRenderInfo.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AvatarNames.cpp

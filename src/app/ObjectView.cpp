@@ -1720,6 +1720,13 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
             stats_.culled += set->members.size();
             continue;
         }
+        // An impostor's: drawn only into its picture, when that's taken.
+        const AvatarView::ImpostorUse* impostor = worn ? avatars->impostor(avatar->id) : nullptr;
+        if(impostor && !impostor->capture)
+        {
+            stats_.culled += set->members.size();
+            continue;
+        }
         if(worn)
         {
             const glm::vec3 at(avatars->rootFrame(*avatar, world, originHandle)[3]);
@@ -1732,6 +1739,16 @@ void ObjectView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         const size_t first = scene.objects.size();
         addMembers(set->members, true);
+        if(impostor)
+        {
+            for(size_t i = first; i < scene.objects.size(); i++)
+            {
+                render::ObjectDraw& d = scene.objects[i];
+                d.impostor = static_cast<int32_t>(impostor->slot);
+                d.shadowOnly = false;
+                d.pickId = 0;
+            }
+        }
         if(worn && !avatars->loaded(avatar->id))
         {
             // Looked at (so it loads), but not drawn until its avatar is.

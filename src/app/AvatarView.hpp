@@ -157,6 +157,25 @@ public:
     // is).
     bool wornByJelly(const world::World& world, const world::Object& object) const;
 
+    // Impostors (ImpostorPlanner): an avatar drawn as a picture on a card.
+    // Its body and what it wears are drawn only when the picture is taken
+    // (`capture`), into its slot (ObjectDraw::impostor); posed less often
+    // otherwise.
+    struct ImpostorUse
+    {
+        uint32_t slot = 0;
+        bool capture = false;
+    };
+    void setImpostors(std::unordered_map<Uuid, ImpostorUse> impostors)
+    {
+        impostors_ = std::move(impostors);
+    }
+    const ImpostorUse* impostor(const Uuid& avatar) const
+    {
+        const auto it = impostors_.find(avatar);
+        return it == impostors_.end() ? nullptr : &it->second;
+    }
+
     // Whether an avatar can be placed: not sitting on something that isn't
     // known yet (its seat, or a link parent of it).
     bool placed(const world::Object& avatar, const world::World& world, uint64_t originHandle) const
@@ -426,6 +445,7 @@ private:
     std::string appearanceUrl_;
     float hudAspect_ = 1.0f;
     std::unordered_set<Uuid> jelly_;
+    std::unordered_map<Uuid, ImpostorUse> impostors_;
     glm::vec3 jellyColor_{0.3f};
     // Avatars out of sight are posed once in this many frames.
     static constexpr uint64_t kUnseenPosePeriod = 8;

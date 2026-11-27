@@ -296,6 +296,26 @@ private:
     // The probe textures, as samplers 'radiance, irradiance, BRDF table'.
     std::array<SDL_GPUTextureSamplerBinding, 3> probeSamplers() const;
 
+    // Impostors (RendererImpostors.cpp): the pictures to take this frame,
+    // each from its draws (ObjectDraw::impostor) into its slot, lit as the
+    // view; then, in each view, the cards (after opaque objects).
+    bool createImpostorTargets();
+    void captureImpostors(SDL_GPUCommandBuffer* commands, const Scene& scene,
+                          const FrameFS& frameFs, bool drawsReady);
+    void drawImpostors(ScenePass& pass, const Scene& scene, const glm::mat4& viewProjection);
+    // Big slots' and small ones' pictures: color and depth, a layer a slot.
+    SDL_GPUTexture* impostorColor_[2] = {};
+    SDL_GPUTexture* impostorDepth_[2] = {};
+    bool impostorTargetsFailed_ = false;
+    // Which slots have a picture (taken since the targets were made).
+    std::array<bool, kImpostorSlots> impostorTaken_{};
+    uint32_t impostorsCaptured_ = 0;
+
+public:
+    // Impostor pictures taken last frame.
+    uint32_t impostorsCaptured() const { return impostorsCaptured_; }
+
+private:
     // HUD attachments (RendererHud.cpp): into the HUD image, `width` x
     // `height` (false if there are none); that image over `target`, or on a
     // panel in the scene.

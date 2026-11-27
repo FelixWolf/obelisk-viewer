@@ -73,6 +73,17 @@ std::vector<SettingDefinition> viewerSettings()
                        .minimum = 0,
                        .maximum = 2000000,
                        .step = 25000}),
+        defineSetting(kAvatarMaxFull, int32_t{16},
+                      {.page = "Graphics",
+                       .label = "Avatars drawn whole",
+                       .description = "How many avatars in view, nearest first, are drawn "
+                                      "whole; those farther are impostors: a picture of "
+                                      "each, taken now and then, on a card. 0: all whole. "
+                                      "In a headset, avatars within a few meters are always "
+                                      "drawn whole (a card looks flat up close).",
+                       .minimum = 0,
+                       .maximum = 64,
+                       .step = 1}),
         defineSetting(kAvatarComplexityMode, std::string("everyone"),
                       {.page = "Graphics",
                        .label = "Complexity limit for",
@@ -382,6 +393,17 @@ std::vector<SettingDefinition> viewerSettings()
                        .maximum = 100000.0,
                        .step = 100.0,
                        .unit = "m²",
+                       .decimals = 0,
+                       .hidden = true}),
+        defineSetting(kImpostorVrDistance, 8.0,
+                      {.page = "Graphics",
+                       .label = "Impostors' least distance in a headset",
+                       .description = "In a headset, avatars nearer than this are never "
+                                      "impostors.",
+                       .minimum = 0.0,
+                       .maximum = 64.0,
+                       .step = 1.0,
+                       .unit = "m",
                        .decimals = 0,
                        .hidden = true}),
         defineSetting(kTestScene, false,

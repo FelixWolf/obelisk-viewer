@@ -50,8 +50,8 @@ void Renderer::drawGlow(SDL_GPUCommandBuffer* commands, const Scene& scene, cons
     std::vector<const ObjectDraw*> draws;
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(draw.glow > 0.0f && !draw.hud && !draw.pickOnly && !draw.shadowOnly && draw.mesh &&
-           *draw.mesh)
+        if(draw.glow > 0.0f && !draw.hud && !draw.pickOnly && !draw.shadowOnly &&
+           draw.impostor < 0 && draw.mesh && *draw.mesh)
         {
             draws.push_back(&draw);
         }

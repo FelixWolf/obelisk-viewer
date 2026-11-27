@@ -56,7 +56,7 @@ bool Renderer::drawHud(SDL_GPUCommandBuffer* commands, const Scene& scene, uint3
     std::vector<const ObjectDraw*> blended;
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(!draw.hud || draw.pickOnly || !draw.mesh || !*draw.mesh ||
+        if(!draw.hud || draw.pickOnly || draw.impostor >= 0 || !draw.mesh || !*draw.mesh ||
            draw.mesh->layout != VertexLayout::Object)
         {
             continue;

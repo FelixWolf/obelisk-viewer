@@ -133,7 +133,7 @@ void Renderer::drawWaterMask(SDL_GPUCommandBuffer* commands, const Scene& scene,
     pushFragmentUniforms(commands, 0, glm::vec4(0.0f, scene.water.height, 1.0f, 0.0f));
     for(const ObjectDraw& draw : scene.objects)
     {
-        if(!draw.waterExclusion || !draw.mesh || !*draw.mesh ||
+        if(!draw.waterExclusion || draw.impostor >= 0 || !draw.mesh || !*draw.mesh ||
            draw.mesh->layout != VertexLayout::Object)
         {
             continue;

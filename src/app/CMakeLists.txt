@@ -20,6 +20,7 @@ add_executable(viewer
   main.cpp
   App.cpp
   FrameProfile.cpp
+  ImpostorPlanner.cpp
   AnimationManager.cpp
   AutomaticProbes.cpp
   AccountPicture.cpp

@@ -166,6 +166,42 @@ struct ObjectDraw
     // Glow (the texture entry's): how much the face glows, a blurred halo
     // added over the view (RendererGlow.cpp).
     float glow = 0.0f;
+    // >= 0: drawn only into that impostor slot's picture (Scene::impostors,
+    // one being taken this frame), nowhere else.
+    int32_t impostor = -1;
+};
+
+// Impostors (as the official viewer's, for avatars past the nearest few):
+// a picture of the avatar, taken now and then from where the camera is,
+// shown on a card where it stands. Pictures go in slots: kImpostorBigSlots
+// of kImpostorBigSize square, then kImpostorSmallSlots of kImpostorSmallSize.
+inline constexpr uint32_t kImpostorBigSlots = 16;
+inline constexpr uint32_t kImpostorSmallSlots = 64;
+inline constexpr uint32_t kImpostorBigSize = 320;
+inline constexpr uint32_t kImpostorSmallSize = 160;
+inline constexpr uint32_t kImpostorSlots = kImpostorBigSlots + kImpostorSmallSlots;
+inline constexpr uint32_t impostorSlotSize(uint32_t slot)
+{
+    return slot < kImpostorBigSlots ? kImpostorBigSize : kImpostorSmallSize;
+}
+
+struct Impostor
+{
+    uint32_t slot = 0;
+    // Its picture is taken again this frame, from the draws whose impostor
+    // is this slot.
+    bool capture = false;
+    // The picture's camera (as taken, or to take): it frames a sphere
+    // around the avatar from where the camera was.
+    glm::mat4 captureViewProjection{1.0f};
+    glm::vec3 eye{0.0f}; // where it's taken from
+    // The card: where the picture's sphere center was, and the card's half
+    // extents (right, up) there, facing where it was taken from. Shown at
+    // `center` + `offset` (where the avatar is now).
+    glm::vec3 center{0.0f};
+    glm::vec3 right{0.0f};
+    glm::vec3 up{0.0f};
+    glm::vec3 offset{0.0f};
 };
 
 // What's along a ray: the nearest pickable draw (ObjectDraw::pickId) it
@@ -507,6 +543,7 @@ struct Scene
     std::vector<Panel> panels;
     std::vector<PointerLine> pointerLines;
     std::vector<ParticleDraw> particles;
+    std::vector<Impostor> impostors;
     Water water;
     // Passes that can be left out (for measuring what they cost): glow,
     // measuring the view for dynamic exposure (the last exposure stays), and

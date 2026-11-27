@@ -118,7 +118,8 @@ Renderer::~Renderer()
          hudImage_,       hudDepth_,        pickTargets_[0], pickTargets_[1],   pickTargets_[2],
          pickTargets_[3], pickDepth_,       outlineMask_,    glyphTexture_,     glowMask_,
          glowImages_[0],  glowImages_[1],   glowImages_[2],  occlusionTexture_, eyeImages_[0],
-         eyeImages_[1]})
+         eyeImages_[1],   impostorColor_[0], impostorColor_[1], impostorDepth_[0],
+         impostorDepth_[1]})
     {
         if(t)
         {

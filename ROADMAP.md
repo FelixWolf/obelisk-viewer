@@ -22,8 +22,9 @@ sound yet.
 - Sitting and standing (sit targets, the sit response, the seated camera)
 - Complexity limits and "jelly dolls" for crowded places (done: the
   official viewer's complexity, a limit and friends modes in Settings,
-  per-person choices on the People tab, reports to and from regions;
-  there's no limit on how many avatars are drawn whole, nor impostors)
+  per-person choices on the People tab, reports to and from regions),
+  and impostors past the nearest graphics.avatar_max_full (never within
+  8 m in a headset; they cast no shadows and can't be clicked)
 
 ## Interaction
 

@@ -404,7 +404,7 @@ void Renderer::captureProbeFace(SDL_GPUCommandBuffer* commands, const Scene& sce
         for(const ObjectDraw& draw : scene.objects)
         {
             if(!draw.mesh || !*draw.mesh || draw.mesh->layout != VertexLayout::Object || draw.hud ||
-               draw.pickOnly)
+               draw.pickOnly || draw.impostor >= 0)
             {
                 continue;
             }

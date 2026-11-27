@@ -1263,7 +1263,10 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         // Pose: every avatar's (attachments follow it), those out of sight
         // only every so many frames, as the official viewer slows unseen
         // avatars' updates (their animation's time still runs).
-        const bool unseen = seen == render::Visibility::Hidden;
+        // An impostor between pictures is as good as unseen.
+        const ImpostorUse* asImpostor = impostor(object.id);
+        const bool unseen =
+            seen == render::Visibility::Hidden || (asImpostor && !asImpostor->capture);
         if(!unseen || a.joints.empty() ||
            (frame_ + std::hash<Uuid>()(object.id)) % kUnseenPosePeriod == 0)
         {
@@ -1272,7 +1275,8 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
         }
         const bool isJelly = jelly_.contains(object.id);
         if(glm::length(glm::vec3(root[3]) - scene.camera.position) > drawDistance ||
-           seen == render::Visibility::Hidden || (!loaded(object.id) && !isJelly))
+           seen == render::Visibility::Hidden || (!loaded(object.id) && !isJelly) ||
+           (asImpostor && !asImpostor->capture))
         {
             continue;
         }
@@ -1329,6 +1333,11 @@ void AvatarView::addTo(render::Scene& scene, const world::World& world, uint64_t
             render::ObjectDraw draw{expressed ? expressed : &body.meshes[i], root, m};
             draw.joints = a.palettes[i];
             draw.shadowOnly = seen == render::Visibility::ShadowOnly;
+            if(asImpostor)
+            {
+                draw.impostor = static_cast<int32_t>(asImpostor->slot); // into its picture only
+                draw.shadowOnly = false;
+            }
             if(!a.shadowJoints.empty())
             {
                 // First person: the head shrunk in view, whole in the shadow.

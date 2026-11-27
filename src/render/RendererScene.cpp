@@ -345,6 +345,10 @@ bool Renderer::createPipelines()
         createShader(device_, {kHudPanelVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "hud_panel.vert");
     SDL_GPUShader* hudPanelFrag = createShader(
         device_, {kHudPanelFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0}, "hud_panel.frag");
+    SDL_GPUShader* impostorVert =
+        createShader(device_, {kImpostorVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1}, "impostor.vert");
+    SDL_GPUShader* impostorFrag =
+        createShader(device_, {kImpostorFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 1}, "impostor.frag");
     p.eyeCopyVert = createShader(device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0},
                                  "fullscreen.vert");
     p.eyeCopyFrag =
@@ -787,6 +791,8 @@ bool Renderer::createPipelines()
         {"skyFrag", skyFrag},
         {"hudPanelVert", hudPanelVert},
         {"hudPanelFrag", hudPanelFrag},
+        {"impostorVert", impostorVert},
+        {"impostorFrag", impostorFrag},
         {"waterVert", waterVert},
         {"waterFrag", waterFrag},
         {"blinnPhongCoverageFrag",
@@ -857,6 +863,8 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
     SDL_GPUShader* skyFrag = shader("skyFrag");
     SDL_GPUShader* hudPanelVert = shader("hudPanelVert");
     SDL_GPUShader* hudPanelFrag = shader("hudPanelFrag");
+    SDL_GPUShader* impostorVert = shader("impostorVert");
+    SDL_GPUShader* impostorFrag = shader("impostorFrag");
     SDL_GPUShader* waterVert = shader("waterVert");
     SDL_GPUShader* waterFrag = shader("waterFrag");
     // Opaque objects' alpha masks, multisampled.
@@ -958,6 +966,30 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
         info.target_info.depth_stencil_format = depthFormat_;
         info.multisample_state.sample_count = count;
         set.hudPanel = SDL_CreateGPUGraphicsPipeline(device_, &info);
+    }
+    if(impostorVert && impostorFrag)
+    {
+        // Opaque where its picture has something (it discards the rest),
+        // writing that something's depth.
+        SDL_GPUColorTargetDescription targets[2] = {};
+        targets[0].format = kHdrFormat;
+        SDL_GPUGraphicsPipelineCreateInfo info = {};
+        info.vertex_shader = impostorVert;
+        info.fragment_shader = impostorFrag;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = true;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        setSceneTargets(info, targets, samples);
+        info.target_info.has_depth_stencil_target = true;
+        info.target_info.depth_stencil_format = depthFormat_;
+        info.multisample_state.sample_count = count;
+        set.impostor = SDL_CreateGPUGraphicsPipeline(device_, &info);
+        if(!set.impostor)
+        {
+            log::error("creating the impostor pipeline failed: {}", SDL_GetError());
+        }
     }
     if(fullscreenVert && skyFrag)
     {
@@ -1339,14 +1371,15 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
     // can't nest).
     const bool drawsReady = uploadDraws(commands, scene);
     // Room in the instance stream for every pass's draws: each view's, each
-    // shadow cascade's and a probe face's.
+    // shadow cascade's, a probe face's and the impostor pictures' (each draw
+    // in at most one).
     instanceStreamUsed_ = 0;
     instanceStreamCycled_ = false;
     if(drawsReady)
     {
         const auto perPass = static_cast<uint32_t>(scene.objects.size() * sizeof(uint32_t));
         reserve(instanceStream_,
-                perPass * static_cast<uint32_t>(views.size() + kShadowCascades + 1),
+                perPass * static_cast<uint32_t>(views.size() + kShadowCascades + 2),
                 SDL_GPU_BUFFERUSAGE_VERTEX);
     }
     lightsUsed_ = uploadLights(commands, scene);
@@ -1358,6 +1391,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
     // Reflection probes: the ones surfaces use (into frameFs), and the next
     // face of whichever is being captured.
     updateProbes(commands, scene, frameFs, drawsReady);
+    // Impostors' pictures, lit as the view (after the shadows and probes).
+    captureImpostors(commands, scene, frameFs, drawsReady);
     drawPick(commands, scene, drawsReady);
     // Labels (the HUD's, and the first view's) up before the HUD is drawn.
     const Camera& first = *views[0].camera;
@@ -1457,7 +1492,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         {
             if(!drawsReady || !draw.mesh || !*draw.mesh ||
                draw.mesh->layout == VertexLayout::Terrain || draw.shadowOnly || draw.hud ||
-               draw.pickOnly)
+               draw.pickOnly || draw.impostor >= 0)
             {
                 continue;
             }
@@ -1640,6 +1675,7 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             instanceBase ? std::optional(*instanceBase + static_cast<uint32_t>(opaqueCount))
                          : std::nullopt;
         drawObjects(scenePass, scene, all.first(opaqueCount), instanceBase);
+        drawImpostors(scenePass, scene, projection * view);
         // Water: the view so far copied for it to show through, then it,
         // then what's blended over it (another pass, loading the first's).
         // The occlusion map is made before, so what's under it isn't hidden.
@@ -2294,7 +2330,7 @@ void Renderer::drawShadows(SDL_GPUCommandBuffer* commands, const Scene& scene,
     {
         const ObjectDraw& draw = scene.objects[i];
         if(!draw.mesh || !*draw.mesh || draw.mesh->layout == VertexLayout::Terrain || draw.hud ||
-           draw.pickOnly || !draw.castsShadow)
+           draw.pickOnly || !draw.castsShadow || draw.impostor >= 0)
         {
             continue;
         }

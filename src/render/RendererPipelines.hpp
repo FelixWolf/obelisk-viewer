@@ -29,6 +29,7 @@ struct ScenePipelines
     SDL_GPUGraphicsPipeline* terrainPbr = nullptr;
     SDL_GPUGraphicsPipeline* sky = nullptr;
     SDL_GPUGraphicsPipeline* hudPanel = nullptr; // the HUD image on a panel
+    SDL_GPUGraphicsPipeline* impostor = nullptr; // impostors' cards (optional)
     SDL_GPUGraphicsPipeline* water = nullptr;
     // Particles: one per blend, made when first needed.
     std::unordered_map<uint16_t, SDL_GPUGraphicsPipeline*> particle;
@@ -44,7 +45,7 @@ struct ScenePipelines
     {
         for(SDL_GPUGraphicsPipeline* p :
             {blinnPhong, blinnPhongBlend, pbr, blinnPhongSkinned, blinnPhongSkinnedBlend,
-             pbrSkinned, terrainBlinnPhong, terrainPbr, sky, hudPanel, water})
+             pbrSkinned, terrainBlinnPhong, terrainPbr, sky, hudPanel, impostor, water})
         {
             if(p)
             {

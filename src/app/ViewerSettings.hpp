@@ -21,6 +21,8 @@ inline constexpr SettingKey<bool> kAvatarPhysics{"graphics.avatar_physics"};
 inline constexpr SettingKey<int32_t> kAvatarMaxComplexity{"graphics.avatar_max_complexity"};
 inline constexpr SettingKey<std::string> kAvatarComplexityMode{
     "graphics.avatar_complexity_mode"}; // "everyone", "friends", "only_friends"
+// Avatars drawn whole (nearest first); the rest are impostors (0: all whole).
+inline constexpr SettingKey<int32_t> kAvatarMaxFull{"graphics.avatar_max_full"};
 inline constexpr SettingKey<bool> kOcclusion{"graphics.occlusion"};
 inline constexpr SettingKey<bool> kPbrTerrain{"graphics.pbr_terrain"};
 inline constexpr SettingKey<int32_t> kTextureMemory{"graphics.texture_memory"}; // MiB
@@ -76,6 +78,8 @@ inline constexpr SettingKey<bool> kTestScene{"developer.test_scene"};
 // Square meters of attachments past which an avatar is a jelly doll too
 // (0: no limit), while there's a complexity limit.
 inline constexpr SettingKey<double> kAvatarMaxArea{"graphics.avatar_max_area"};
+// In a headset, no avatar nearer than this (m) is an impostor.
+inline constexpr SettingKey<double> kImpostorVrDistance{"graphics.impostor_vr_distance"};
 // Chromium's sandbox for media pages (off only where it can't run).
 inline constexpr SettingKey<bool> kMediaSandbox{"media.sandbox"};
 

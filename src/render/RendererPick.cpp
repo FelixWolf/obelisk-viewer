@@ -129,7 +129,8 @@ void Renderer::drawPick(SDL_GPUCommandBuffer* commands, const Scene& scene, bool
         pushVertexUniforms(commands, 0, FrameVS{viewProjection, glm::vec4(0.0f)});
         for(const ObjectDraw& draw : scene.objects)
         {
-            if(draw.pickId == 0 || draw.hud != hud || !draw.mesh || !*draw.mesh ||
+            if(draw.pickId == 0 || draw.hud != hud || draw.impostor >= 0 || !draw.mesh ||
+               !*draw.mesh ||
                draw.mesh->layout != VertexLayout::Object ||
                (draw.pickTransparentOnly && !transparent))
             {
@@ -290,7 +291,8 @@ void Renderer::drawOutline(SDL_GPUCommandBuffer* commands, const Scene& scene,
     for(const ObjectDraw& draw : scene.objects)
     {
         const bool same = faceOnly ? draw.pickId == pickId : draw.pickId >> 8 == pickId >> 8;
-        if(same && !draw.hud && !draw.pickTransparentOnly && draw.mesh && *draw.mesh &&
+        if(same && !draw.hud && !draw.pickTransparentOnly && draw.impostor < 0 && draw.mesh &&
+           *draw.mesh &&
            draw.mesh->layout == VertexLayout::Object)
         {
             draws.push_back(&draw);

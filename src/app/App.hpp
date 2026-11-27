@@ -11,6 +11,7 @@
 #include "CurrentOutfit.hpp"
 #include "EnvironmentManager.hpp"
 #include "FrameProfile.hpp"
+#include "ImpostorPlanner.hpp"
 #include "InstantMessages.hpp"
 #include "LegacyMaterialManager.hpp"
 #include "LobbyBoards.hpp"
@@ -501,6 +502,12 @@ private:
     void updateComplexity();
     // Decides who's a jelly doll again (limits, choices or friends changed).
     void decideJellyDolls();
+    // Impostors: which avatars are pictures on cards this frame (into
+    // avatars_ and the scene).
+    ImpostorPlanner impostors_;
+    uint32_t impostorMaxFull_ = 16;   // graphics.avatar_max_full
+    float impostorVrDistance_ = 8.0f; // graphics.impostor_vr_distance
+    void updateImpostors(render::Scene& scene);
     // What the mouse points at, and touching it.
     PointerController pointer_;
     // Names and touch text of what the pointer rests on.

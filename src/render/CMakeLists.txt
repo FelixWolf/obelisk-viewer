@@ -22,6 +22,8 @@ set(shader_sources
   hud_composite.frag
   hud_panel.vert
   hud_panel.frag
+  impostor.vert
+  impostor.frag
   pick.frag
   outline_mask.frag
   outline.frag
@@ -65,6 +67,7 @@ viewer_embed_shaders(${shader_header}
 add_library(viewer_render STATIC
   Renderer.cpp
   RendererScene.cpp
+  RendererImpostors.cpp
   RendererProbes.cpp
   RendererHud.cpp
   RendererPick.cpp
