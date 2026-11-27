@@ -292,6 +292,9 @@ public:
     // for where everyone on the grid is, a few places a region with how
     // many at each (Extra). Ignored unless Connected.
     void requestMapRegion(std::string_view name);
+    // MapBlockReply for the regions in a range (grid coordinates, in
+    // regions, inclusive): their names and map images.
+    void requestMapBlocks(uint32_t minX, uint32_t minY, uint32_t maxX, uint32_t maxY);
     void requestAgentLocations(uint64_t regionHandle);
     static constexpr uint32_t kMapAgentLocations = 6; // MAP_ITEM_AGENT_LOCATIONS
 

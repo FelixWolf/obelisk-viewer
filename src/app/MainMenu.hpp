@@ -4,7 +4,8 @@
 // Media, Settings, About) and the chosen one's page, an interface page
 // (assets/ui/main_menu.rml) shown over the window on the desktop, or on a
 // panel in VR (and first person). Home shows the clocks (SLT and local),
-// the viewer's and the region's performance and where we are; Destinations,
+// the viewer's and the region's performance and where we are (with a map
+// of our region and its neighbours, and who's on it: RegionMap); Destinations,
 // the Destination Guide's categories (What's Hot Now first), a category's
 // places, and a place alone, to teleport to; Parcel, the one we're on (its
 // picture, owner, group, size, rules, description, and its estate);
@@ -28,6 +29,7 @@
 #include "ObjectMedia.hpp"
 #include "ParcelInfo.hpp"
 #include "PeopleView.hpp"
+#include "RegionMap.hpp"
 #include "SettingsView.hpp"
 
 #include "viewer/core/Branding.hpp"
@@ -120,6 +122,8 @@ public:
         const Nearby* nearby = nullptr;
         PeopleView::Names names;
         std::optional<glm::dvec3> here;
+        // Home's map of the regions around ours (null: not shown).
+        const RegionMap* regionMap = nullptr;
         // Media: the parcel's music stream, whether it starts by itself,
         // how a script last said the parcel's video should play, and the
         // prims around with media (nearest first; their names empty until
@@ -274,6 +278,24 @@ public:
         Rml::String text;  // "Allowed", ...
         bool operator==(const Rule&) const = default;
     };
+    // A region on Home's map, as the page shows it (the northern row
+    // first).
+    struct MapTile
+    {
+        Rml::String name;  // empty: not known
+        Rml::String image; // empty: water
+        bool here = false; // ours
+        bool operator==(const MapTile&) const = default;
+    };
+    // Someone on Home's map: where ("37.5%" across from the left and down
+    // from the top) and who ("self", "friend" or "other", for its style).
+    struct MapDot
+    {
+        Rml::String left;
+        Rml::String top;
+        Rml::String kind;
+        bool operator==(const MapDot&) const = default;
+    };
     // A category of the Destination Guide, as the page shows it.
     struct Category
     {
@@ -294,6 +316,7 @@ private:
     void updateInventory(const Status& status);
     void openInventoryEntry(int index);
     void updateOutfits(const Status& status);
+    void updateMap(const Status& status);
 
     Destinations* destinations_ = nullptr;
     GridPopulation* population_ = nullptr;
@@ -333,6 +356,12 @@ private:
     bool microphone_ = false;
     bool microphonePressed_ = false;
     double lastNumbers_ = -1.0; // when the numbers were last shown (seconds)
+    // Home's map: its regions, and the people on it.
+    std::vector<MapTile> mapTiles_;
+    std::vector<MapDot> mapDots_;
+    bool mapShown_ = false;
+    uint64_t mapVersion_ = ~uint64_t{0};
+    double mapDotsAt_ = -1.0; // when the people were last placed (seconds)
     // Destinations: the categories; one's places (category_ isn't empty);
     // one place alone (chosen_ isn't -1). The page picks them.
     std::vector<Category> categories_;

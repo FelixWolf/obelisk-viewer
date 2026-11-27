@@ -80,11 +80,29 @@
                 </div>
             </div>
 
-            <div class="card">
-                <h3>Region</h3>
-                <div class="region-name">{{ region }}</div>
-                <div class="muted">{{ position }}</div>
-                <div class="placeholder">The map of the region and its neighbours goes here</div>
+            <div class="card region">
+                <div class="region-text">
+                    <h3>Region</h3>
+                    <div class="region-name">{{ region }}</div>
+                    <div class="muted">{{ position }}</div>
+                    <div class="map-key" data-if="mapShown">
+                        <div><span class="dot self"></span>You</div>
+                        <div><span class="dot friend"></span>Friends</div>
+                        <div><span class="dot other"></span>Others</div>
+                    </div>
+                </div>
+                <!-- Our region in the middle of its neighbours (north up),
+                     and who's around. -->
+                <div class="minimap" data-if="mapShown">
+                    <div class="map-tile" data-for="t : mapTiles" data-class-here="t.here">
+                        <div class="map-image" data-if="t.image != ''"
+                             data-style-decorator="'image(' + t.image + ')'"></div>
+                        <div class="map-name" data-if="t.name != ''">{{ t.name }}</div>
+                    </div>
+                    <div data-for="d : mapDots" data-attr-class="'map-dot ' + d.kind"
+                         data-style-left="d.left" data-style-top="d.top"></div>
+                </div>
+                <div class="minimap empty" data-if="!mapShown">Log in to see the map</div>
             </div>
         </div>
 

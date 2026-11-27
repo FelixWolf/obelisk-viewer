@@ -66,6 +66,7 @@ add_executable(viewer
   Updater.cpp
   ViewerConfig.cpp
   GridPopulation.cpp
+  RegionMap.cpp
   InstantMessages.cpp
   Offers.cpp
   InventoryBrowser.cpp

@@ -136,6 +136,23 @@ std::unique_ptr<MainMenu> MainMenu::create(gui::Gui& gui, Destinations& destinat
     model.Bind("localDate", &m->localDate_);
     model.Bind("region", &m->region_);
     model.Bind("position", &m->position_);
+    if(auto tile = model.RegisterStruct<MapTile>())
+    {
+        tile.RegisterMember("name", &MapTile::name);
+        tile.RegisterMember("image", &MapTile::image);
+        tile.RegisterMember("here", &MapTile::here);
+    }
+    model.RegisterArray<std::vector<MapTile>>();
+    if(auto dot = model.RegisterStruct<MapDot>())
+    {
+        dot.RegisterMember("left", &MapDot::left);
+        dot.RegisterMember("top", &MapDot::top);
+        dot.RegisterMember("kind", &MapDot::kind);
+    }
+    model.RegisterArray<std::vector<MapDot>>();
+    model.Bind("mapTiles", &m->mapTiles_);
+    model.Bind("mapDots", &m->mapDots_);
+    model.Bind("mapShown", &m->mapShown_);
     model.Bind("greeting", &m->greeting_);
     model.Bind("displayName", &m->displayName_);
     model.Bind("picture", &m->picture_);
@@ -905,6 +922,72 @@ void MainMenu::updateInventory(const Status& status)
     put("invItem", invItem_, std::move(item));
 }
 
+void MainMenu::updateMap(const Status& status)
+{
+    const RegionMap* map = status.regionMap;
+    const bool shown = map && map->centre().has_value();
+    if(shown != mapShown_)
+    {
+        mapShown_ = shown;
+        model_.DirtyVariable("mapShown");
+    }
+    if(!shown)
+    {
+        return;
+    }
+    // The regions, when they change.
+    if(map->version() != mapVersion_)
+    {
+        mapVersion_ = map->version();
+        const glm::uvec2 centre = *map->centre();
+        std::vector<MapTile> tiles;
+        for(const RegionMap::Tile& t : map->tiles())
+        {
+            tiles.push_back({t.name, t.image, t.x == centre.x && t.y == centre.y});
+        }
+        if(tiles != mapTiles_)
+        {
+            mapTiles_ = std::move(tiles);
+            model_.DirtyVariable("mapTiles");
+        }
+    }
+    // The people, a few times a second.
+    const double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
+    if(now - mapDotsAt_ < 0.25)
+    {
+        return;
+    }
+    mapDotsAt_ = now;
+    const glm::uvec2 centre = *map->centre();
+    const auto percent = [](float f) { return std::format("{:.2f}%", static_cast<double>(f) * 100.0); };
+    std::vector<MapDot> dots;
+    if(status.nearby)
+    {
+        for(const Nearby::Person& p : status.nearby->all())
+        {
+            const glm::dvec3 where = globalPosition(p.regionHandle, p.position);
+            if(const auto at = mapPlace(centre, RegionMap::kSpan, glm::dvec2(where)))
+            {
+                const bool friendly = status.friends && status.friends->find(p.id);
+                dots.push_back({percent(at->x), percent(at->y), friendly ? "friend" : "other"});
+            }
+        }
+    }
+    // Ours last, over the others.
+    if(status.here)
+    {
+        if(const auto at = mapPlace(centre, RegionMap::kSpan, glm::dvec2(*status.here)))
+        {
+            dots.push_back({percent(at->x), percent(at->y), "self"});
+        }
+    }
+    if(dots != mapDots_)
+    {
+        mapDots_ = std::move(dots);
+        model_.DirtyVariable("mapDots");
+    }
+}
+
 void MainMenu::updateOutfits(const Status& status)
 {
     const auto put = [&](const char* variable, auto& field, auto value)
@@ -1172,6 +1255,10 @@ void MainMenu::update(const Status& status)
     {
         chat_.update(*status.chat, *status.ims, status.self, tab_ == "chat", status.headset,
                      surface_->document());
+    }
+    if(tab_ == "home")
+    {
+        updateMap(status);
     }
     if(tab_ == "people" && status.friends && status.nearby && status.names)
     {

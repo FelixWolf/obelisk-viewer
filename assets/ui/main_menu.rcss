@@ -185,15 +185,99 @@ body
 
 .region-name { font-size: 26dp; color: #ffffff; }
 
-.placeholder
+.card.region
+{
+    display: flex;
+    flex-direction: row;
+}
+.region-text { flex: 1 1 0; }
+
+/* Home's map: 5 by 3 regions of 120dp, ours in the middle, and the people
+   on it; as tall as fits without Home scrolling. */
+.minimap
+{
+    position: relative;
+    flex: 0 0 600dp;
+    width: 600dp;
+    height: 360dp;
+    margin-left: 20dp;
+    border-radius: 10dp;
+    overflow: hidden;
+    background-color: #1d4f7a; /* water, where there's no region */
+}
+.minimap.empty
 {
     height: 140dp;
-    border-radius: 10dp;
     decorator: linear-gradient(135deg, #34448a, #222e64);
     color: #b0bce0;
     text-align: center;
     padding-top: 56dp;
+    box-sizing: border-box;
 }
+.map-tile
+{
+    position: relative;
+    float: left;
+    width: 20%;
+    height: 33.3333%;
+    box-sizing: border-box;
+    border: 1dp #00000040;
+}
+.map-tile.here { border: 2dp #ffc24a; }
+.map-image
+{
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+}
+.map-name
+{
+    position: absolute;
+    left: 4dp;
+    bottom: 3dp;
+    right: 4dp;
+    font-size: 12dp;
+    color: #ffffff;
+    font-effect: shadow(1dp 1dp #000000c0);
+    white-space: nowrap;
+    overflow: hidden;
+}
+.map-dot
+{
+    position: absolute;
+    box-sizing: border-box;
+    width: 10dp;
+    height: 10dp;
+    margin: -5dp 0 0 -5dp;
+    border-radius: 5dp;
+    border: 1dp #00000080;
+    background-color: #4fd25a;
+}
+.map-dot.friend { background-color: #ffe14a; }
+.map-dot.self
+{
+    width: 14dp;
+    height: 14dp;
+    margin: -7dp 0 0 -7dp;
+    border-radius: 7dp;
+    border: 2dp #000000a0;
+    background-color: #ffffff;
+}
+.map-key { margin-top: 14dp; font-size: 15dp; color: #c0cae8; }
+.map-key > div { margin-top: 4dp; }
+.map-key .dot
+{
+    display: inline-block;
+    width: 10dp;
+    height: 10dp;
+    margin-right: 8dp;
+    border-radius: 5dp;
+    background-color: #4fd25a;
+}
+.map-key .dot.friend { background-color: #ffe14a; }
+.map-key .dot.self { background-color: #ffffff; }
 
 .banner
 {

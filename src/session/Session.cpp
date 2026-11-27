@@ -4,6 +4,7 @@
 #include "viewer/llsd/Serialization.hpp"
 #include "viewer/protocol/Messages.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cctype>
 #include <cstring>
@@ -834,6 +835,25 @@ void Session::requestMapRegion(std::string_view name)
     request.AgentData.SessionID = login_->sessionId;
     request.AgentData.Flags = kMapLayerFlag;
     request.NameData.Name = protocol::fromString(name);
+    send(*main, request, true);
+}
+
+void Session::requestMapBlocks(uint32_t minX, uint32_t minY, uint32_t maxX, uint32_t maxY)
+{
+    const Region* main = mainRegion();
+    if(state_ != SessionState::Connected || !main)
+    {
+        return;
+    }
+    const auto u16 = [](uint32_t v) { return static_cast<uint16_t>(std::min<uint32_t>(v, 0xFFFF)); };
+    msg::MapBlockRequest request;
+    request.AgentData.AgentID = login_->agentId;
+    request.AgentData.SessionID = login_->sessionId;
+    request.AgentData.Flags = kMapLayerFlag;
+    request.PositionData.MinX = u16(minX);
+    request.PositionData.MaxX = u16(maxX);
+    request.PositionData.MinY = u16(minY);
+    request.PositionData.MaxY = u16(maxY);
     send(*main, request, true);
 }
 

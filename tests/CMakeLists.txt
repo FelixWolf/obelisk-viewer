@@ -15,6 +15,7 @@ add_executable(viewer_tests
   CircuitTests.cpp
   DestinationsTests.cpp
   GridPopulationTests.cpp
+  RegionMapTests.cpp
   InventoryBrowserTests.cpp
   CurrentOutfitTests.cpp
   ParcelInfoTests.cpp
@@ -88,6 +89,7 @@ add_executable(viewer_tests
   ${PROJECT_SOURCE_DIR}/src/app/Updater.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ViewerConfig.cpp
   ${PROJECT_SOURCE_DIR}/src/app/GridPopulation.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/RegionMap.cpp
   ${PROJECT_SOURCE_DIR}/src/app/InventoryBrowser.cpp
   ${PROJECT_SOURCE_DIR}/src/app/CurrentOutfit.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ParcelInfo.cpp

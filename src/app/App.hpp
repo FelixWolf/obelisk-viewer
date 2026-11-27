@@ -28,6 +28,7 @@
 #include "OutfitAttachments.hpp"
 #include "People.hpp"
 #include "PeopleView.hpp"
+#include "RegionMap.hpp"
 #include "PointerController.hpp"
 #include "SceneAssets.hpp"
 #include "ScriptDialogPage.hpp"
@@ -399,6 +400,7 @@ private:
     std::unique_ptr<TextureBrowser> textureBrowser_;
     std::unique_ptr<net::HttpClient> http_;
     std::unique_ptr<Destinations> destinations_; // the main menu's (it goes after this)
+    std::unique_ptr<RegionMap> regionMap_;       // the main menu's map (likewise)
     // viewerconfig (news, grid status, the home scene, flags), and the
     // lobby's boards showing its news and status.
     std::unique_ptr<ViewerConfig> viewerConfig_;

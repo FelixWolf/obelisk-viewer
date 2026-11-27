@@ -634,6 +634,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
             log::warn("no news or grid status boards: their pages couldn't be set up");
         }
         app->destinations_ = std::make_unique<Destinations>(*app->http_, *app->jobs_, *app->gui_);
+        app->regionMap_ = std::make_unique<RegionMap>(*app->http_, *app->jobs_, *app->gui_);
         app->mainMenu_ = MainMenu::create(*app->gui_, *app->destinations_, app->population_,
                                           *app->inventoryBrowser_, *app->settings_);
         if(app->mainMenu_)
@@ -1636,6 +1637,11 @@ void App::updateSession()
         {
             session_->requestAgentLocations(region);
         }
+        // And of the regions around us (Home's map).
+        if(const auto range = regionMap_ ? regionMap_->takeRequest() : std::nullopt)
+        {
+            session_->requestMapBlocks(range->minX, range->minY, range->maxX, range->maxY);
+        }
         // And of the parcel we're on.
         const auto parcel = parcel_.requests();
         session_->requestGroupNames(parcel.groups);
@@ -1866,11 +1872,18 @@ void App::updateSession()
             if(const auto reply = m.event.decode<protocol::msg::MapBlockReply>())
             {
                 std::vector<GridPopulation::MapBlock> blocks;
+                std::vector<RegionMap::Block> mapBlocks;
                 for(const auto& block : reply->Data)
                 {
                     blocks.push_back({protocol::toString(block.Name), block.X, block.Y});
+                    mapBlocks.push_back(
+                        {protocol::toString(block.Name), block.X, block.Y, block.MapImageID});
                 }
                 population_.mapBlocks(blocks);
+                if(regionMap_)
+                {
+                    regionMap_->mapBlocks(mapBlocks);
+                }
             }
         }
         else if(m.event.is<protocol::msg::UUIDGroupNameReply>())
@@ -2542,6 +2555,10 @@ void App::endSession()
     accountPicture_->clear();
     profilePicture_ = {};
     population_.clear(); // the next login may be another grid
+    if(regionMap_)
+    {
+        regionMap_->clear();
+    }
     parcel_.clear();
     parcelSounds_.clear();
     inventoryBrowser_->clear();
@@ -4764,6 +4781,25 @@ void App::updateMainMenu()
             const protocol::Vector3 p = session_->agentPosition();
             status.here = globalPosition(*handle, glm::vec3(p.x, p.y, p.z));
         }
+    }
+    // Home's map: the regions around ours (while it's shown).
+    if(regionMap_ && mainMenu_->tab() == "home")
+    {
+        std::optional<glm::uvec2> centre;
+        if(session_ && session_->state() == session::SessionState::Connected)
+        {
+            if(const auto* login = session_->login())
+            {
+                regionMap_->setServer(login->reply["map-server-url"].asString());
+            }
+            if(const auto handle = session_->agentRegion())
+            {
+                centre = glm::uvec2(static_cast<uint32_t>(*handle >> 32) / 256,
+                                    static_cast<uint32_t>(*handle & 0xFFFFFFFFu) / 256);
+            }
+        }
+        regionMap_->update(centre);
+        status.regionMap = regionMap_.get();
     }
     // Media: the music, and (while the tab shows them) the prims around
     // with media, nearest first.
