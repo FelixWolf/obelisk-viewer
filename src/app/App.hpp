@@ -172,6 +172,8 @@ private:
     // Puts settings that changed (their names) into effect; those read only
     // at the start wait for the next.
     void applySettings(const std::vector<std::string>& names);
+    // The antialiasing method and strength settings, into the renderer.
+    void applyAntialiasing();
     void drawFpsOverlay();
     void handleLoginAction(LoginAction action);
     // Wears the Current Outfit Folder's attachments the region didn't

@@ -565,8 +565,10 @@ the official viewer.
 
 ### Antialiasing
 
-`graphics.antialiasing` (off, 2x, 4x; applied at once by
-`Renderer::setSamples`) multisamples the scene pass: it draws into a color
+`graphics.antialiasing` (off, fxaa, msaa) with
+`graphics.antialiasing_strength` (low, medium, high), applied at once by
+`App::applyAntialiasing`. MSAA (`Renderer::setSamples`: 2, 4 or 8 samples,
+fewer if the GPU can't) multisamples the scene pass: it draws into a color
 and a depth target with that many samples a pixel, resolved into the ones
 the later passes read. Pipelines are made per sample count
 (`ScenePipelines`; reflection probes' faces always use one sample). SDL
@@ -582,6 +584,16 @@ something seen only through part of one, a pixel's worth at most. With
 water it's resolved twice, before the water (for the occlusion map) and
 after. Opaque alpha masks use alpha to coverage (`coverage.glsl`), by shader
 variants of their own; blended ones aren't smoothed beyond their geometry.
+
+`fxaa` is the cheap alternative (`Renderer::setFxaa`, one sample): the
+tonemap pass draws into `fxaaSource_` (the swapchain's format) and
+`fxaa.frag` (FXAA 3.11's quality version on the sRGB-encoded color's luma;
+the strength picks its preset 12, 25 or 39: the contrast taken as an edge,
+the subpixel blur and the steps searched along an edge, `kFxaaPresets`)
+smooths it into the view's target, before the outline, labels and the HUD,
+which stay sharp. It costs one fullscreen pass, and
+smooths alpha masks and blended edges too, but softens fine detail and
+thin lines a little and doesn't hold still on sub-pixel detail as MSAA does.
 
 ### Occlusion culling
 

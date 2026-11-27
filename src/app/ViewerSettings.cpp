@@ -40,10 +40,19 @@ std::vector<SettingDefinition> viewerSettings()
                       {.page = "Graphics",
                        .section = "Quality",
                        .label = "Antialiasing",
-                       .description = "Smooth edges by drawing them with more samples a pixel "
-                                      "(MSAA). Costs GPU time and memory, most at a "
-                                      "headset's resolution.",
-                       .choices = {{"off", "Off"}, {"2x", "2x"}, {"4x", "4x"}}}),
+                       .description = "Smooth edges. FXAA blurs them after drawing, for "
+                                      "little GPU time, softening fine detail a little. "
+                                      "MSAA draws them with more samples a pixel: "
+                                      "sharper, but it costs GPU time and memory, most "
+                                      "at a headset's resolution.",
+                       .choices = {{"off", "Off"}, {"fxaa", "FXAA"}, {"msaa", "MSAA"}}}),
+        defineSetting(kAntialiasingStrength, std::string("medium"),
+                      {.page = "Graphics",
+                       .label = "Antialiasing strength",
+                       .description = "FXAA: how faint an edge it smooths and how far "
+                                      "along it it looks. MSAA: 2, 4 or 8 samples a "
+                                      "pixel (fewer if the GPU can't).",
+                       .choices = {{"low", "Low"}, {"medium", "Medium"}, {"high", "High"}}}),
         defineSetting(kAvatarPhysics, true,
                       {.page = "Graphics",
                        .section = "Avatars",

@@ -52,10 +52,10 @@ glm::vec3 markerForward(const glm::quat& rotation)
     return glm::length(forward) > 1e-4f ? glm::normalize(forward) : glm::vec3(0.0f, 1.0f, 0.0f);
 }
 
-// The antialiasing setting's samples a pixel.
-uint32_t samplesOf(const std::string& antialiasing)
+// The antialiasing strength setting as 1 to 3.
+uint32_t strengthOf(const std::string& strength)
 {
-    return antialiasing == "4x" ? 4 : antialiasing == "2x" ? 2 : 1;
+    return strength == "high" ? 3 : strength == "low" ? 1 : 2;
 }
 
 fs::path defaultCacheDirectory()
@@ -596,7 +596,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     app->applySettings({std::string(kDayTime.name), std::string(kSkyAsset.name),
                         std::string(kVrTurning.name), std::string(kVrSnapAngle.name),
                         std::string(kVrTurnSpeed.name)});
-    app->renderer_->setSamples(samplesOf(config.get(kAntialiasing)));
+    app->applyAntialiasing();
     app->shadows_ = config.get(kShadows);
     app->bandwidth_ = static_cast<float>(config.get(kBandwidth));
     app->textures_ = std::make_unique<TextureManager>(*app->worldTextureCache_, *app->renderer_,
@@ -840,6 +840,16 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
     return app;
 }
 
+void App::applyAntialiasing()
+{
+    using namespace setting;
+    const std::string method = settings_->get(kAntialiasing);
+    const uint32_t strength = strengthOf(settings_->get(kAntialiasingStrength));
+    // MSAA: 2, 4 or 8 samples.
+    renderer_->setSamples(method == "msaa" ? 1u << strength : 1u);
+    renderer_->setFxaa(method == "fxaa" ? strength : 0u);
+}
+
 void App::applySettings(const std::vector<std::string>& names)
 {
     using namespace setting;
@@ -865,9 +875,9 @@ void App::applySettings(const std::vector<std::string>& names)
         {
             pbrTerrain_ = s.get(kPbrTerrain);
         }
-        else if(name == kAntialiasing.name)
+        else if(name == kAntialiasing.name || name == kAntialiasingStrength.name)
         {
-            renderer_->setSamples(samplesOf(s.get(kAntialiasing)));
+            applyAntialiasing();
         }
         else if(name == kTextureMemory.name)
         {

@@ -43,6 +43,7 @@ set(shader_sources
   blinnphong_coverage.frag
   pbr_coverage.frag
   depth_resolve.frag
+  fxaa.frag
 )
 set(shader_header ${CMAKE_CURRENT_BINARY_DIR}/generated/viewer/render/ShaderBytecode.hpp)
 viewer_embed_shaders(${shader_header}

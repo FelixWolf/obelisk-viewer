@@ -71,6 +71,19 @@ struct TonemapFS
 {
     glm::vec4 settings;
 };
+struct FxaaFS
+{
+    glm::vec4 settings;
+    float steps[12];
+};
+
+// FXAA 3.11's quality presets 12, 25 and 39, by strength.
+constexpr FxaaFS kFxaaPresets[] = {
+    {{0.166f, 0.0833f, 0.5f, 5.0f}, {1.0f, 1.5f, 2.0f, 4.0f, 12.0f}},
+    {{0.125f, 0.0625f, 0.75f, 8.0f}, {1.0f, 1.5f, 2.0f, 2.0f, 2.0f, 2.0f, 4.0f, 8.0f}},
+    {{0.063f, 0.0312f, 1.0f, 12.0f},
+     {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.5f, 2.0f, 2.0f, 2.0f, 2.0f, 4.0f, 8.0f}},
+};
 struct ExposureFS
 {
     glm::vec4 params;  // luminance taken as bright, least and most exposure, speed error
@@ -225,6 +238,8 @@ bool Renderer::createPipelines()
         device_, {kFullscreenVert, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0}, "fullscreen.vert");
     SDL_GPUShader* tonemapFrag =
         createShader(device_, {kTonemapFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 1}, "tonemap.frag");
+    SDL_GPUShader* fxaaFrag =
+        createShader(device_, {kFxaaFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 1}, "fxaa.frag");
     SDL_GPUShader* glowMaskFrag = createShader(
         device_, {kGlowMaskFrag, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0, 1}, "glow_mask.frag");
     SDL_GPUShader* glowExtractFrag = createShader(
@@ -364,6 +379,15 @@ bool Renderer::createPipelines()
         if(!p.tonemap)
         {
             log::error("creating the tonemap pipeline failed: {}", SDL_GetError());
+        }
+        if(fxaaFrag)
+        {
+            info.fragment_shader = fxaaFrag;
+            p.fxaa = SDL_CreateGPUGraphicsPipeline(device_, &info);
+            if(!p.fxaa)
+            {
+                log::error("creating the FXAA pipeline failed: {}", SDL_GetError());
+            }
         }
     }
     // Dynamic exposure's passes: one value per pixel, half floats.
@@ -720,12 +744,12 @@ bool Renderer::createPipelines()
     p.shadowTerrain = shadowPipeline(terrainVert, shadowFrag, kTerrain, "shadow (terrain)");
 
     for(SDL_GPUShader* s :
-        {tonemapFrag,        luminanceFrag,     exposureFrag,        shadowFrag,
-         shadowMaskedFrag,   probeRadianceFrag, probeIrradianceFrag, brdfTableFrag,
-         hudLegacyFrag,      hudPbrFrag,        hudCompositeFrag,    pickFrag,
-         outlineMaskFrag,    outlineFrag,       labelVert,           labelFrag,
-         panelImageFrag,     glowMaskFrag,      glowExtractFrag,     glowBlurFrag,
-         occlusionReduceFrag})
+        {tonemapFrag,   fxaaFrag,           luminanceFrag,     exposureFrag,
+         shadowFrag,    shadowMaskedFrag,   probeRadianceFrag, probeIrradianceFrag,
+         brdfTableFrag, hudLegacyFrag,      hudPbrFrag,        hudCompositeFrag,
+         pickFrag,      outlineMaskFrag,    outlineFrag,       labelVert,
+         labelFrag,     panelImageFrag,     glowMaskFrag,      glowExtractFrag,
+         glowBlurFrag,  occlusionReduceFrag})
     {
         if(s)
         {
@@ -952,16 +976,16 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
 
 ScenePipelines& Renderer::scenePipelines()
 {
-    return pipelines_->scene[samples_ >= 4 ? 2 : samples_ >= 2 ? 1 : 0];
+    return pipelines_->scene[sampleIndex(samples_)];
 }
 
 void Renderer::setSamples(uint32_t samples)
 {
-    samples = samples >= 4 ? 4 : samples >= 2 ? 2 : 1;
+    samples = samples >= 8 ? 8 : samples >= 4 ? 4 : samples >= 2 ? 2 : 1;
     while(samples > 1)
     {
         const SDL_GPUSampleCount count = sampleCount(samples);
-        ScenePipelines& set = pipelines_->scene[samples >= 4 ? 2 : 1];
+        ScenePipelines& set = pipelines_->scene[sampleIndex(samples)];
         if(pipelines_->depthResolve &&
            SDL_GPUTextureSupportsSampleCount(device_, kHdrFormat, count) &&
            SDL_GPUTextureSupportsSampleCount(device_, kSceneDepthFormat, count) &&
@@ -983,10 +1007,25 @@ void Renderer::setSamples(uint32_t samples)
     }
 }
 
+void Renderer::setFxaa(uint32_t strength)
+{
+    strength = std::min(strength, 3u);
+    if(strength > 0 && !pipelines_->fxaa)
+    {
+        log::warn("FXAA isn't available");
+        strength = 0;
+    }
+    if((strength > 0) != (fxaa_ > 0))
+    {
+        releaseTargets(); // made again with the next frame
+    }
+    fxaa_ = strength;
+}
+
 void Renderer::releaseTargets()
 {
-    for(SDL_GPUTexture** t :
-        {&hdrTarget_, &depthTarget_, &msaaColor_, &msaaDepth_, &msaaSceneDepth_, &sceneDepth_})
+    for(SDL_GPUTexture** t : {&hdrTarget_, &depthTarget_, &msaaColor_, &msaaDepth_,
+                              &msaaSceneDepth_, &sceneDepth_, &fxaaSource_})
     {
         if(*t)
         {
@@ -1187,6 +1226,19 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
                     *t = nullptr;
                 }
             }
+        }
+    }
+
+    if(fxaa_ > 0)
+    {
+        info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        info.format = swapchainFormat();
+        info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        fxaaSource_ = SDL_CreateGPUTexture(device_, &info);
+        if(!fxaaSource_)
+        {
+            log::error("creating the {}x{} FXAA target failed: {}; drawing without", width, height,
+                       SDL_GetError());
         }
     }
 
@@ -2028,9 +2080,21 @@ void Renderer::updateExposure(SDL_GPUCommandBuffer* commands, const Lighting& li
 void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target,
                            const Lighting& light, bool clear)
 {
+    // With FXAA it's tonemapped into fxaaSource_ first, then smoothed into
+    // the target (before the outline, labels and HUD, which are sharp).
+    SDL_GPUTexture* const finalTarget = target;
+    const bool fxaa = fxaa_ > 0 && fxaaSource_ && samples_ == 1;
     SDL_GPUColorTargetInfo color = {};
+    if(fxaa)
+    {
+        target = fxaaSource_;
+        clear = false;
+        color.cycle = true; // each view's, and the screenshot's, its own
+    }
     color.texture = target;
-    color.load_op = clear ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+    color.load_op = clear  ? SDL_GPU_LOADOP_CLEAR
+                    : fxaa ? SDL_GPU_LOADOP_DONT_CARE
+                           : SDL_GPU_LOADOP_LOAD;
     color.store_op = SDL_GPU_STOREOP_STORE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, nullptr);
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->tonemap);
@@ -2041,6 +2105,22 @@ void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targe
     SDL_BindGPUFragmentSamplers(pass, 0, inputs, 3);
     pushFragmentUniforms(commands, 0,
                          TonemapFS{glm::vec4(light.exposure, light.tonemapMix, 0.0f, 0.0f)});
+    SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+    if(!fxaa)
+    {
+        return;
+    }
+
+    SDL_GPUColorTargetInfo out = {};
+    out.texture = finalTarget;
+    out.load_op = SDL_GPU_LOADOP_DONT_CARE; // every pixel written
+    out.store_op = SDL_GPU_STOREOP_STORE;
+    pass = SDL_BeginGPURenderPass(commands, &out, 1, nullptr);
+    SDL_BindGPUGraphicsPipeline(pass, pipelines_->fxaa);
+    const SDL_GPUTextureSamplerBinding source = {fxaaSource_, pipelines_->clampSampler};
+    SDL_BindGPUFragmentSamplers(pass, 0, &source, 1);
+    pushFragmentUniforms(commands, 0, kFxaaPresets[fxaa_ - 1]);
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
 }

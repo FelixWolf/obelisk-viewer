@@ -59,7 +59,8 @@ inline void setSceneTargets(SDL_GPUGraphicsPipelineCreateInfo& info,
 
 inline SDL_GPUSampleCount sampleCount(uint32_t samples)
 {
-    return samples >= 4   ? SDL_GPU_SAMPLECOUNT_4
+    return samples >= 8   ? SDL_GPU_SAMPLECOUNT_8
+           : samples >= 4 ? SDL_GPU_SAMPLECOUNT_4
            : samples >= 2 ? SDL_GPU_SAMPLECOUNT_2
                           : SDL_GPU_SAMPLECOUNT_1;
 }
