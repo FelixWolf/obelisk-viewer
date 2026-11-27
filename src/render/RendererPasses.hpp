@@ -34,6 +34,29 @@ inline constexpr SDL_GPUTextureFormat kOcclusionFormat = SDL_GPU_TEXTUREFORMAT_R
 // after tonemapping), premultiplied by coverage.
 inline constexpr SDL_GPUTextureFormat kHudFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 
+// Multisampling: the scene pass's depth, again as a color (the second
+// target), as SDL can neither resolve depth nor sample a multisampled
+// texture. Resolved (averaged) as the color is, then into the depth the
+// later passes read (depth_resolve.frag).
+inline constexpr SDL_GPUTextureFormat kSceneDepthFormat = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+
+// A scene pass pipeline's color targets: `targets[0]` (filled in by the
+// caller) and, multisampled, the depth one, written only by what writes
+// depth. Call once the depth state is set.
+inline void setSceneTargets(SDL_GPUGraphicsPipelineCreateInfo& info,
+                            SDL_GPUColorTargetDescription (&targets)[2], uint32_t samples)
+{
+    targets[1] = {};
+    targets[1].format = kSceneDepthFormat;
+    if(!info.depth_stencil_state.enable_depth_write)
+    {
+        targets[1].blend_state.enable_color_write_mask = true;
+        targets[1].blend_state.color_write_mask = 0;
+    }
+    info.target_info.color_target_descriptions = targets;
+    info.target_info.num_color_targets = samples > 1 ? 2 : 1;
+}
+
 inline SDL_GPUSampleCount sampleCount(uint32_t samples)
 {
     return samples >= 4   ? SDL_GPU_SAMPLECOUNT_4

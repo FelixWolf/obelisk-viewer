@@ -50,6 +50,8 @@ layout(set = 3, binding = 1) uniform MaterialFS
 } material;
 
 layout(location = 0) out vec4 outColor;
+// Multisampled: the depth, as a color (setSceneTargets); no target otherwise.
+layout(location = 1) out float outDepth;
 
 const float kLayerThreshold = 0.1;      // drop layers contributing less than this
 const float kTriplanarSharpness = 8.0;
@@ -94,6 +96,7 @@ Sample sampleProjection(int layer, vec2 position, vec3 tangent, vec3 bitangent, 
 
 void main()
 {
+    outDepth = gl_FragCoord.z;
     vec3 n = normalize(inNormal);
 
     vec4 layerWeights = max(terrainLayerWeights(blendRamp, inBlend) - kLayerThreshold, 0.0);

@@ -49,9 +49,12 @@ struct Material
 Material material;
 
 layout(location = 0) out vec4 outColor;
+// Multisampled: the depth, as a color (setSceneTargets); no target otherwise.
+layout(location = 1) out float outDepth;
 
 void main()
 {
+    outDepth = gl_FragCoord.z;
     material = Material(draws[inDraw].material[0], draws[inDraw].material[1],
                         draws[inDraw].material[2]);
     vec4 baseColor = texture(albedoMap, inUv) * material.baseColorFactor;

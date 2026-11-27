@@ -127,7 +127,8 @@ SDL_GPUGraphicsPipeline* surfacePipeline(SDL_GPUDevice* device, SDL_GPUTextureFo
     {
         return nullptr;
     }
-    SDL_GPUColorTargetDescription color = {};
+    SDL_GPUColorTargetDescription targets[2] = {};
+    SDL_GPUColorTargetDescription& color = targets[0];
     color.format = format;
     if(blend)
     {
@@ -177,8 +178,7 @@ SDL_GPUGraphicsPipeline* surfacePipeline(SDL_GPUDevice* device, SDL_GPUTextureFo
     // Less or equal, as the official viewer: layers made of the same
     // geometry (a plate over a body) show the later one, not a mix.
     info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
-    info.target_info.color_target_descriptions = &color;
-    info.target_info.num_color_targets = 1;
+    setSceneTargets(info, targets, samples);
     info.target_info.has_depth_stencil_target = true;
     info.target_info.depth_stencil_format = depthFormat;
     info.multisample_state.sample_count = sampleCount(samples);
@@ -875,8 +875,8 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
         const SDL_GPUVertexBufferDescription buffer = {0, sizeof(glm::vec3),
                                                        SDL_GPU_VERTEXINPUTRATE_VERTEX, 0};
         const SDL_GPUVertexAttribute attribute = {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, 0};
-        SDL_GPUColorTargetDescription color = {};
-        color.format = kHdrFormat;
+        SDL_GPUColorTargetDescription targets[2] = {};
+        targets[0].format = kHdrFormat;
         SDL_GPUGraphicsPipelineCreateInfo info = {};
         info.vertex_shader = waterVert;
         info.fragment_shader = waterFrag;
@@ -889,8 +889,7 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
         info.depth_stencil_state.enable_depth_test = true;
         info.depth_stencil_state.enable_depth_write = true;
         info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
-        info.target_info.color_target_descriptions = &color;
-        info.target_info.num_color_targets = 1;
+        setSceneTargets(info, targets, samples);
         info.target_info.has_depth_stencil_target = true;
         info.target_info.depth_stencil_format = depthFormat_;
         info.multisample_state.sample_count = count;
@@ -903,7 +902,8 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
     if(hudPanelVert && hudPanelFrag)
     {
         // Premultiplied.
-        SDL_GPUColorTargetDescription color = {};
+        SDL_GPUColorTargetDescription targets[2] = {};
+        SDL_GPUColorTargetDescription& color = targets[0];
         color.format = kHdrFormat;
         color.blend_state.enable_blend = true;
         color.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
@@ -920,8 +920,7 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
         info.depth_stencil_state.enable_depth_test = true;
         info.depth_stencil_state.enable_depth_write = false;
         info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
-        info.target_info.color_target_descriptions = &color;
-        info.target_info.num_color_targets = 1;
+        setSceneTargets(info, targets, samples);
         info.target_info.has_depth_stencil_target = true;
         info.target_info.depth_stencil_format = depthFormat_;
         info.multisample_state.sample_count = count;
@@ -929,15 +928,15 @@ bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
     }
     if(fullscreenVert && skyFrag)
     {
-        SDL_GPUColorTargetDescription color = {};
-        color.format = kHdrFormat;
+        SDL_GPUColorTargetDescription targets[2] = {};
+        targets[0].format = kHdrFormat;
         SDL_GPUGraphicsPipelineCreateInfo info = {};
         info.vertex_shader = fullscreenVert;
         info.fragment_shader = skyFrag;
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
-        info.target_info.color_target_descriptions = &color;
-        info.target_info.num_color_targets = 1;
+        // The sky is far: the depth target stays as cleared.
+        setSceneTargets(info, targets, samples);
         info.target_info.has_depth_stencil_target = true; // in the scene pass, unused
         info.target_info.depth_stencil_format = depthFormat_;
         info.multisample_state.sample_count = count;
@@ -965,6 +964,7 @@ void Renderer::setSamples(uint32_t samples)
         ScenePipelines& set = pipelines_->scene[samples >= 4 ? 2 : 1];
         if(pipelines_->depthResolve &&
            SDL_GPUTextureSupportsSampleCount(device_, kHdrFormat, count) &&
+           SDL_GPUTextureSupportsSampleCount(device_, kSceneDepthFormat, count) &&
            SDL_GPUTextureSupportsSampleCount(device_, depthFormat_, count))
         {
             if(set.complete() || createScenePipelines(set, samples))
@@ -985,7 +985,8 @@ void Renderer::setSamples(uint32_t samples)
 
 void Renderer::releaseTargets()
 {
-    for(SDL_GPUTexture** t : {&hdrTarget_, &depthTarget_, &msaaColor_, &msaaDepth_})
+    for(SDL_GPUTexture** t :
+        {&hdrTarget_, &depthTarget_, &msaaColor_, &msaaDepth_, &msaaSceneDepth_, &sceneDepth_})
     {
         if(*t)
         {
@@ -1009,7 +1010,7 @@ void Renderer::resolveDepth(SDL_GPUCommandBuffer* commands)
     depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, nullptr, 0, &depth);
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->depthResolve);
-    const SDL_GPUTextureSamplerBinding from = {msaaDepth_, pipelines_->clampSampler};
+    const SDL_GPUTextureSamplerBinding from = {sceneDepth_, pipelines_->clampSampler};
     SDL_BindGPUFragmentSamplers(pass, 0, &from, 1);
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
@@ -1163,15 +1164,22 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
         info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
         msaaColor_ = SDL_CreateGPUTexture(device_, &info);
         info.format = depthFormat_;
-        info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
         msaaDepth_ = SDL_CreateGPUTexture(device_, &info);
-        if(!msaaColor_ || !msaaDepth_)
+        info.format = kSceneDepthFormat;
+        info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+        msaaSceneDepth_ = SDL_CreateGPUTexture(device_, &info);
+        // What it's resolved into.
+        info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        sceneDepth_ = SDL_CreateGPUTexture(device_, &info);
+        if(!msaaColor_ || !msaaDepth_ || !msaaSceneDepth_ || !sceneDepth_)
         {
             log::error("creating {}x{} render targets with {} samples failed: {}; drawing "
                        "with one",
                        width, height, samples_, SDL_GetError());
             samples_ = 1;
-            for(SDL_GPUTexture** t : {&msaaColor_, &msaaDepth_})
+            for(SDL_GPUTexture** t : {&msaaColor_, &msaaDepth_, &msaaSceneDepth_, &sceneDepth_})
             {
                 if(*t)
                 {
@@ -1334,6 +1342,20 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             depth.texture = msaaDepth_;
             depth.cycle = false; // big, and only read by this frame's own passes
         }
+        // The scene pass's targets: the color and, multisampled, the depth
+        // as a color (setSceneTargets), loaded and stored as the color is.
+        SDL_GPUColorTargetInfo targets[2] = {};
+        const auto sceneTargets = [&]
+        {
+            targets[0] = color;
+            targets[1] = {};
+            targets[1].texture = msaaSceneDepth_;
+            targets[1].resolve_texture = sceneDepth_;
+            targets[1].clear_color = SDL_FColor{1.0f, 0.0f, 0.0f, 0.0f}; // far, as depth
+            targets[1].load_op = color.load_op;
+            targets[1].store_op = color.store_op;
+            return samples_ > 1 ? 2u : 1u;
+        };
 
         // Opaque objects, then blended ones from far to near (as the official
         // viewer: each face by its own center's depth along the view, moved
@@ -1520,7 +1542,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
         }
 
         drawWaterMask(commands, scene, frameVs, width, height);
-        SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+        uint32_t targetCount = sceneTargets();
+        SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, targets, targetCount, &depth);
         ScenePass scenePass(commands, pass, scenePipelines(), frameVs, viewFs,
                             storageOr(lightBuffer_), storageOr(probeBuffer_), clusters);
         if(atmo.enabled)
@@ -1556,7 +1579,8 @@ void Renderer::drawViews(SDL_GPUCommandBuffer* commands, const Scene& scene,
             {
                 color.store_op = SDL_GPU_STOREOP_RESOLVE;
             }
-            blendPass = SDL_BeginGPURenderPass(commands, &color, 1, &depth);
+            targetCount = sceneTargets();
+            blendPass = SDL_BeginGPURenderPass(commands, targets, targetCount, &depth);
             second.emplace(commands, blendPass, scenePipelines(), frameVs, viewFs,
                            storageOr(lightBuffer_), storageOr(probeBuffer_), clusters);
             drawWater(*second, scene, camera, width, height);

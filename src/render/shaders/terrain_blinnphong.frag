@@ -32,9 +32,12 @@ FRAME_FS_BLOCK
 #include "probes.glsl"
 
 layout(location = 0) out vec4 outColor;
+// Multisampled: the depth, as a color (setSceneTargets); no target otherwise.
+layout(location = 1) out float outDepth;
 
 void main()
 {
+    outDepth = gl_FragCoord.z;
     vec4 weights = terrainLayerWeights(blendRamp, inBlend);
     vec2 uv = inTexturePosition.xy;
     vec3 albedo = weights.x * texture(diffuseMaps, vec3(uv, 0.0)).rgb +

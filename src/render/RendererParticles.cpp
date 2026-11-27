@@ -109,7 +109,8 @@ SDL_GPUGraphicsPipeline* Renderer::particlePipeline(ScenePipelines& set, uint8_t
     SDL_GPUGraphicsPipeline* pipeline = nullptr;
     if(p.particleVert && p.particleFrag)
     {
-        SDL_GPUColorTargetDescription color = {};
+        SDL_GPUColorTargetDescription targets[2] = {};
+        SDL_GPUColorTargetDescription& color = targets[0];
         color.format = kHdrFormat;
         color.blend_state.enable_blend = true;
         color.blend_state.src_color_blendfactor = blendFactor(source);
@@ -120,6 +121,7 @@ SDL_GPUGraphicsPipeline* Renderer::particlePipeline(ScenePipelines& set, uint8_t
         color.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
         SDL_GPUGraphicsPipelineCreateInfo info =
             particlePipelineInfo(p.particleVert, p.particleFrag, &color, depthFormat_);
+        setSceneTargets(info, targets, set.samples);
         info.multisample_state.sample_count = sampleCount(set.samples);
         pipeline = SDL_CreateGPUGraphicsPipeline(device_, &info);
         if(!pipeline)

@@ -40,6 +40,8 @@ water;
 #include "probes.glsl"
 
 layout(location = 0) out vec4 outColor;
+// Multisampled: the depth, as a color (setSceneTargets); no target otherwise.
+layout(location = 1) out float outDepth;
 
 vec3 wave(vec2 uv)
 {
@@ -50,6 +52,7 @@ vec3 wave(vec2 uv)
 
 void main()
 {
+    outDepth = gl_FragCoord.z;
     const float time = water.params.x;
     const vec3 rel = inWorldPosition - frame.cameraPosition.xyz;
     const float dist = length(rel);

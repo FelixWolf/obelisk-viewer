@@ -397,6 +397,10 @@ private:
     uint32_t samples_ = 1;
     SDL_GPUTexture* msaaColor_ = nullptr;
     SDL_GPUTexture* msaaDepth_ = nullptr;
+    // The depth again as a color (kSceneDepthFormat), and it resolved: what
+    // resolveDepth makes depthTarget_ from (SDL can't resolve depth).
+    SDL_GPUTexture* msaaSceneDepth_ = nullptr;
+    SDL_GPUTexture* sceneDepth_ = nullptr;
     void releaseTargets();
     // Dynamic exposure (as the official viewer's): the scene's luminance,
     // mipmapped down to its average, and the exposure (1x1), last frame's

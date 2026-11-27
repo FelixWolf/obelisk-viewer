@@ -570,10 +570,16 @@ the official viewer.
 and a depth target with that many samples a pixel, resolved into the ones
 the later passes read. Pipelines are made per sample count
 (`ScenePipelines`; reflection probes' faces always use one sample). SDL
-can't resolve depth, so `depth_resolve.frag` does, taking the farthest
-sample: glow and the outline draw surfaces again against it, at the pixel's
-middle, and occlusion culling must hide only what's behind all of the pixel.
-With water it's resolved twice, before the water (for the occlusion map) and
+can't resolve depth (nor sample a multisampled texture), so what writes
+depth also writes it as a color, into a second multisampled target
+(`kSceneDepthFormat`, `setSceneTargets`; shaders' `outDepth`), which is
+resolved as the color is: the average of the pixel's samples.
+`depth_resolve.frag` makes the depth the later passes read from it. Glow and
+the outline draw surfaces again against it, at the pixel's middle, where a
+surface's depth is its samples' average (depth is linear across a triangle);
+an edge pixel is between its surfaces, so occlusion culling could hide
+something seen only through part of one, a pixel's worth at most. With
+water it's resolved twice, before the water (for the occlusion map) and
 after. Opaque alpha masks use alpha to coverage (`coverage.glsl`), by shader
 variants of their own; blended ones aren't smoothed beyond their geometry.
 
