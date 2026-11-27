@@ -355,6 +355,39 @@ TEST_CASE("VrControls: the menu follows the hand that opened it; its stick, let 
     CHECK_FALSE(controls.menuOpen());
 }
 
+TEST_CASE("VrControls: the menu can be made anew as it opens (for what's pointed at)")
+{
+    int opened = 0;
+    VrControls controls;
+    controls.setMenu(MenuItem::submenu("", {MenuItem::run("Old", [] {})}));
+    controls.setMenuOpening(
+        [&]
+        {
+            opened++;
+            controls.setMenu(MenuItem::submenu(
+                "", {MenuItem::run("Sit here", [] {}), MenuItem::run("Fly", [] {})}));
+        });
+    VrControls::Input input;
+    input.eye = glm::vec3(0.0f, 0.0f, 1.6f);
+    VrControls::Pointer& left = input.pointers[0];
+    left.active = true;
+    left.menuAt = glm::vec3(0.4f, 0.2f, 1.3f);
+    left.menu = true;
+    controls.update(input);
+    CHECK(opened == 0);
+    input.now += 0.6;
+    controls.update(input);
+    REQUIRE(controls.menuOpen());
+    CHECK(opened == 1);
+    const auto slots = controls.menu().slots();
+    REQUIRE(slots.size() == 2);
+    CHECK(slots[0].label == "Sit here");
+    // Held on (moving it to the hand again): not made anew.
+    input.now += 0.6;
+    controls.update(input);
+    CHECK(opened == 1);
+}
+
 TEST_CASE("VrControls: a page on a panel: pointed at, pressed, not the world's")
 {
     VrControls controls;

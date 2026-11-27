@@ -233,6 +233,10 @@ std::array<VrControls::Pointed, VrControls::kPointers> VrControls::update(const 
             menuAnchor_ = input.anchor;
             if(!menu_.isOpen())
             {
+                if(menuOpening_)
+                {
+                    menuOpening_();
+                }
                 menu_.open(menuFrame_);
                 stickChoice_.reset();
             }

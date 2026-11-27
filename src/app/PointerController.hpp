@@ -67,6 +67,11 @@ public:
     // touch positions are given in.
     void press(session::Session& session, const world::World& world, const ObjectView& objects,
                const AvatarView* avatars, uint64_t originHandle, uint64_t agentRegion);
+    // Touches `target` (as seen earlier: the radial menu's "Touch") and lets
+    // go at once, as the official pie menu's touch (handle_object_touch).
+    void touch(session::Session& session, const world::World& world, const ObjectView& objects,
+               const AvatarView* avatars, uint64_t originHandle, uint64_t agentRegion,
+               const Hover& target);
     void release(session::Session& session);
     // Once a frame while pressed: where on the touched prim the pointer is
     // now, sent when it changes (ObjectGrabUpdate; off the prim: face -1),
@@ -75,6 +80,9 @@ public:
     void drag(session::Session& session, uint64_t originHandle, uint64_t agentRegion, uint64_t now);
 
 private:
+    void grab(session::Session& session, const world::World& world, const ObjectView& objects,
+              const AvatarView* avatars, uint64_t originHandle, uint64_t agentRegion,
+              const Hover& target);
     uint64_t nextRequest_ = 1;
     uint64_t latestRequest_ = 0;
     bool aimed_ = false;

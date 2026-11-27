@@ -517,6 +517,7 @@ std::unique_ptr<App> App::create(const AppOptions& options, std::unique_ptr<Sett
         app->vrEyeHeight_ = static_cast<float>(eyes);
     }
     app->controls_.setMenu(app->radialMenu());
+    app->controls_.setMenuOpening([app = app.get()] { app->radialMenuOpening(); });
     app->controls_.setSubmit(
         [app = app.get()](const std::string& text)
         {
@@ -1083,9 +1084,10 @@ int App::run()
             {
                 setFirstPerson(!camera_.firstPerson());
             }
-            // The left button touches what the pointer is on. In first
-            // person (and in a headset) the buttons go through the VR
-            // controls each frame (updateControls).
+            // The left button does what clicking what the pointer's on
+            // does (primaryPress). In first person (and in a headset) the
+            // buttons go through the VR controls each frame
+            // (updateControls).
             if(!camera_.firstPerson())
             {
                 if(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
@@ -1098,13 +1100,13 @@ int App::run()
                     }
                     else
                     {
-                        pressPointer();
+                        primaryPress();
                     }
                 }
                 if(event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
                    event.button.button == SDL_BUTTON_LEFT)
                 {
-                    releasePointer();
+                    primaryRelease();
                 }
             }
 
@@ -3342,70 +3344,105 @@ MenuItem App::radialMenu()
     // out unless it holds, .named() works its label out when shown,
     // .staying() keeps the menu open after it. More than
     // RadialMenu::kSlices to a level page.
-    return MenuItem::submenu(
-        "",
+    std::vector<MenuItem> items;
+    // On something: what can be done to it, what a click does first (its
+    // click action), so the two aren't mistaken for each other.
+    if(menuTarget_ && world_)
+    {
+        const PointerController::Hover& target = menuTarget_->hover;
+        const world::Object* object = world_->object(target.key.region, target.key.localId);
+        const bool prim = object && object->type == world::ObjectType::Prim;
+        std::optional<MenuItem> touch;
+        std::optional<MenuItem> sit;
+        if(target.touchable)
         {
-            MenuItem::run("Fly", [this] { agent_.setFlying(!agent_.flying()); })
-                .named([this] { return std::string(agent_.flying() ? "Land" : "Fly"); })
-                .when([this] { return !sitting(); }),
-            MenuItem::run("Stand up", [this] { agent_.standUp(); })
-                .when([this] { return sitting(); }),
-            MenuItem::run("Chat",
-                          [this]
-                          {
-                              keyboardForDialog_.reset();
-                              keyboardForChat_.reset(); // local chat
-                              keyboardForSetting_.reset();
-                              keyboardForMedia_ = false;
-                              controls_.openKeyboard();
-                          }),
-            MenuItem::run("Microphone", [this] { setMicrophone(!voice_->talking()); })
-                .named([this] { return voiceText(); })
-                .when([this] { return voice_->state() == voice::VoiceClient::State::Connected; })
-                .staying(),
-            MenuItem::submenu("Reset",
-                              {
-                                  MenuItem::run("Skeleton",
-                                                [this]
-                                                {
-                                                    if(const auto* login =
-                                                           session_ ? session_->login() : nullptr)
-                                                    {
-                                                        resetSkeleton(login->agentId, false);
-                                                    }
-                                                }),
-                                  MenuItem::run("Skeleton and animations",
-                                                [this]
-                                                {
-                                                    if(const auto* login =
-                                                           session_ ? session_->login() : nullptr)
-                                                    {
-                                                        resetSkeleton(login->agentId, true);
-                                                    }
-                                                }),
-                              }),
-            MenuItem::submenu(
-                "VR",
+            touch = MenuItem::run(
+                menuTarget_->touchName.empty() ? "Touch" : menuTarget_->touchName,
+                [this, target]
                 {
-                    MenuItem::run("Recenter",
-                                  [this]
+                    if(session_ && world_ && objects_ && originHandle_ && session_->agentRegion())
+                    {
+                        pointer_.touch(*session_, *world_, *objects_, avatars_.get(),
+                                       *originHandle_, *session_->agentRegion(), target);
+                    }
+                });
+        }
+        if(prim && !target.attachment && !sitting())
+        {
+            sit = MenuItem::run(menuTarget_->sitName.empty() ? "Sit here" : menuTarget_->sitName,
+                                [this, target] { sitOn(target); });
+        }
+        auto& first = clickSits(target) ? sit : touch;
+        auto& second = clickSits(target) ? touch : sit;
+        for(auto* item : {&first, &second})
+        {
+            if(*item)
+            {
+                items.push_back(std::move(**item));
+            }
+        }
+    }
+    std::vector<MenuItem> rest = {
+        MenuItem::run("Fly", [this] { agent_.setFlying(!agent_.flying()); })
+            .named([this] { return std::string(agent_.flying() ? "Land" : "Fly"); })
+            .when([this] { return !sitting(); }),
+        MenuItem::run("Stand up", [this] { agent_.standUp(); }).when([this] { return sitting(); }),
+        MenuItem::run("Chat",
+                      [this]
+                      {
+                          keyboardForDialog_.reset();
+                          keyboardForChat_.reset(); // local chat
+                          keyboardForSetting_.reset();
+                          keyboardForMedia_ = false;
+                          controls_.openKeyboard();
+                      }),
+        MenuItem::run("Microphone", [this] { setMicrophone(!voice_->talking()); })
+            .named([this] { return voiceText(); })
+            .when([this] { return voice_->state() == voice::VoiceClient::State::Connected; })
+            .staying(),
+        MenuItem::submenu(
+            "Reset",
+            {
+                MenuItem::run("Skeleton",
+                              [this]
+                              {
+                                  if(const auto* login = session_ ? session_->login() : nullptr)
                                   {
-                                      if(headset_)
+                                      resetSkeleton(login->agentId, false);
+                                  }
+                              }),
+                MenuItem::run("Skeleton and animations",
+                              [this]
+                              {
+                                  if(const auto* login = session_ ? session_->login() : nullptr)
+                                  {
+                                      resetSkeleton(login->agentId, true);
+                                  }
+                              }),
+            }),
+        MenuItem::submenu("VR",
+                          {
+                              MenuItem::run("Recenter",
+                                            [this]
+                                            {
+                                                if(headset_)
+                                                {
+                                                    headset_->recenter();
+                                                }
+                                            })
+                                  .when([this] { return headset_ && headset_->running(); }),
+                              MenuItem::run("Avatar scale", [this] { vrScaling_ = !vrScaling_; })
+                                  .named(
+                                      [this]
                                       {
-                                          headset_->recenter();
-                                      }
-                                  })
-                        .when([this] { return headset_ && headset_->running(); }),
-                    MenuItem::run("Avatar scale", [this] { vrScaling_ = !vrScaling_; })
-                        .named(
-                            [this]
-                            {
-                                return std::string(vrScaling_ ? "Avatar scale: on"
-                                                              : "Avatar scale: off");
-                            })
-                        .staying(),
-                }),
-        });
+                                          return std::string(vrScaling_ ? "Avatar scale: on"
+                                                                        : "Avatar scale: off");
+                                      })
+                                  .staying(),
+                          }),
+    };
+    std::move(rest.begin(), rest.end(), std::back_inserter(items));
+    return MenuItem::submenu("", std::move(items));
 }
 
 bool App::mainMenuOverWindow() const
@@ -5211,19 +5248,47 @@ void App::updateControls(render::Scene& scene)
     controls_.addTo(scene, headset, worldHits);
 }
 
+bool App::clickSits(const PointerController::Hover& hover) const
+{
+    return !hover.hud && !hover.attachment && hover.clickAction == world::ClickAction::Sit &&
+           !sitting();
+}
+
 void App::primaryPress()
 {
-    const auto& hover = pointer_.hover();
-    if(hover && !hover->hud && hover->clickAction == world::ClickAction::Sit && !sitting())
+    // What a press would touch (the transparent pick, as the official left
+    // click chooses) decides what clicking does.
+    const auto& pressed = pointer_.pressed();
+    if(pressed && clickSits(*pressed))
     {
-        sitOn(*hover);
+        sitOn(*pressed);
         return;
     }
     pressPointer();
-    if(hover && !hover->hud && !hover->touchable && !sitting())
+    const auto& hover = pointer_.hover();
+    if(hover && !hover->hud && !hover->attachment && !hover->touchable && !sitting())
     {
         sitHold_ = SitHold{hover->key, SDL_GetTicksNS()};
     }
+}
+
+void App::radialMenuOpening()
+{
+    // What the pointer's on: the menu offers what can be done to it
+    // (radialMenu).
+    menuTarget_.reset();
+    if(const auto& pressed = pointer_.pressed(); pressed && !pressed->hud)
+    {
+        MenuTarget target{*pressed, {}, {}};
+        const auto& hover = pointer_.hover();
+        if(hoverInfo_ && hover && hover->key == pressed->key)
+        {
+            target.touchName = hoverInfo_->touchName;
+            target.sitName = hoverInfo_->sitName;
+        }
+        menuTarget_ = std::move(target);
+    }
+    controls_.setMenu(radialMenu());
 }
 
 void App::primaryRelease()

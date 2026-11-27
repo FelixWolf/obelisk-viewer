@@ -24,12 +24,12 @@
 #include "ObjectProperties.hpp"
 #include "ObjectView.hpp"
 #include "Offers.hpp"
-#include "ParcelSounds.hpp"
 #include "OutfitAttachments.hpp"
+#include "ParcelSounds.hpp"
 #include "People.hpp"
 #include "PeopleView.hpp"
-#include "RegionMap.hpp"
 #include "PointerController.hpp"
+#include "RegionMap.hpp"
 #include "SceneAssets.hpp"
 #include "ScriptDialogPage.hpp"
 #include "ScriptDialogs.hpp"
@@ -564,12 +564,26 @@ private:
     bool cursorFree() const; // first person, the cursor let go of to point with
     bool vrScaling_ = true;  // the radial menu's "Avatar scale"
     // The primary action (a controller's trigger, a click): on what the
-    // pointer's on, sit if that's what it does, else touch; held a moment
-    // on something that isn't touched, sit on it.
+    // pointer's on, its click action: sit if that's what it does, else
+    // touch; held a moment on something that isn't touched, sit on it.
+    // The radial menu offers both (menuTarget_), the click's first.
     void primaryPress();
     void primaryRelease();
     void sitOn(const PointerController::Hover& hover);
     bool sitting() const;
+    // Whether a click on `hover` sits (its click action is sit, and we can).
+    bool clickSits(const PointerController::Hover& hover) const;
+    // What the pointer was on as the radial menu opened, and what its
+    // script calls touching and sitting (llSetTouchText, llSetSitText):
+    // the menu offers both, what a click on it does first.
+    struct MenuTarget
+    {
+        PointerController::Hover hover;
+        std::string touchName;
+        std::string sitName;
+    };
+    std::optional<MenuTarget> menuTarget_;
+    void radialMenuOpening();
     struct SitHold
     {
         world::ObjectKey key;

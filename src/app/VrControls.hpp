@@ -67,6 +67,9 @@ public:
     };
 
     void setMenu(MenuItem root) { menu_.setRoot(std::move(root)); }
+    // Called just before the menu opens: a chance to setMenu() anew for
+    // what's pointed at then.
+    void setMenuOpening(std::function<void()> f) { menuOpening_ = std::move(f); }
     void setSubmit(VrKeyboard::Submit submit) { keyboard_.setSubmit(std::move(submit)); }
     // A press of the menu button (not a hold) while the radial menu's
     // closed.
@@ -143,6 +146,7 @@ private:
     glm::mat4 anchored(const glm::mat4& frame, const glm::vec3& openedAt) const;
 
     RadialMenu menu_;
+    std::function<void()> menuOpening_;
     VrKeyboard keyboard_;
     Input last_;
     std::array<Pointed, kPointers> pointed_{};

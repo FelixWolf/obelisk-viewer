@@ -24,8 +24,9 @@ sound yet.
 
 ## Interaction
 
-- Click actions besides touch: sit, pay, buy, open, play media (touch,
-  the hover outline with touch text, and clicking HUDs are done)
+- Click actions besides touch and sit: pay, buy, open, play media (touch,
+  sit, the hover outline with touch text, clicking HUDs, and the radial
+  menu's touch and sit, the click's first, are done)
 - Script dialogs: `llDialog`, `llTextBox`, permission requests,
   `llLoadURL`, `llMapDestination`
 - ★ Radial menu, the same on desktop and in VR

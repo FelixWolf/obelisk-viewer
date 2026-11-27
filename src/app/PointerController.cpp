@@ -90,19 +90,41 @@ void PointerController::press(session::Session& session, const world::World& wor
                               uint64_t originHandle, uint64_t agentRegion)
 {
     release(session);
-    if(!press_ || !press_->touchable)
+    if(!press_)
     {
         return;
     }
-    const world::Object* object = world.object(press_->key.region, press_->key.localId);
+    if(press_->clickAction != world::ClickAction::Touch &&
+       press_->clickAction != world::ClickAction::Sit)
+    {
+        // Pay, buy, open, play, zoom: not yet; a touch meanwhile. (Sit is
+        // the app's: here only when it can't sit, seated already.)
+        log::info("click action {} isn't supported yet: touching instead", press_->clickAction);
+    }
+    grab(session, world, objects, avatars, originHandle, agentRegion, *press_);
+}
+
+void PointerController::touch(session::Session& session, const world::World& world,
+                              const ObjectView& objects, const AvatarView* avatars,
+                              uint64_t originHandle, uint64_t agentRegion, const Hover& target)
+{
+    release(session);
+    grab(session, world, objects, avatars, originHandle, agentRegion, target);
+    release(session);
+}
+
+void PointerController::grab(session::Session& session, const world::World& world,
+                             const ObjectView& objects, const AvatarView* avatars,
+                             uint64_t originHandle, uint64_t agentRegion, const Hover& target)
+{
+    if(!target.touchable)
+    {
+        return;
+    }
+    const world::Object* object = world.object(target.key.region, target.key.localId);
     if(!object)
     {
         return;
-    }
-    if(press_->clickAction != world::ClickAction::Touch)
-    {
-        // Sit, pay, buy, open, play, zoom: not yet; a touch meanwhile.
-        log::info("click action {} isn't supported yet: touching instead", press_->clickAction);
     }
     // From the prim to its root, in the root's frame (lltoolgrab.cpp).
     const world::Object& root = ObjectView::linkRoot(*object, world);
@@ -115,12 +137,12 @@ void PointerController::press(session::Session& session, const world::World& wor
         grabOffset =
             glm::transpose(rootRotation) * (glm::vec3((*rootFrame)[3]) - glm::vec3((*frame)[3]));
     }
-    const session::Session::TouchSurface surface = surfaceOf(*press_, originHandle, agentRegion);
+    const session::Session::TouchSurface surface = surfaceOf(target, originHandle, agentRegion);
     session.touchObject(object->region, object->localId, toVector(grabOffset), surface);
-    grabbed_ = Grab{object->region,       object->localId,  press_->key, object->id,
-                    toVector(grabOffset), surface.position, surface,     0};
+    grabbed_ = Grab{object->region,       object->localId,  target.key, object->id,
+                    toVector(grabOffset), surface.position, surface,    0};
     log::info("touched {} (face {}{}): uv {:.3f} {:.3f}, st {:.3f} {:.3f}, at {:.3f} {:.3f} {:.3f}",
-              object->id.toString(), press_->face, press_->hud ? ", HUD" : "", surface.uv.x,
+              object->id.toString(), target.face, target.hud ? ", HUD" : "", surface.uv.x,
               surface.uv.y, surface.st.x, surface.st.y, surface.position.x, surface.position.y,
               surface.position.z);
 }
