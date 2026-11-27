@@ -21,7 +21,7 @@ inline constexpr SettingKey<bool> kOcclusion{"graphics.occlusion"};
 inline constexpr SettingKey<bool> kPbrTerrain{"graphics.pbr_terrain"};
 inline constexpr SettingKey<int32_t> kTextureMemory{"graphics.texture_memory"}; // MiB
 inline constexpr SettingKey<std::string> kAntialiasing{
-    "graphics.antialiasing"}; // "off", "fxaa", "msaa"
+    "graphics.antialiasing"}; // "off", "fxaa", "smaa", "msaa"
 inline constexpr SettingKey<std::string> kAntialiasingStrength{
     "graphics.antialiasing_strength"}; // "low", "medium", "high"
 inline constexpr SettingKey<bool> kVsync{"graphics.vsync"};

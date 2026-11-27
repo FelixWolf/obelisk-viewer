@@ -76,10 +76,17 @@ public:
     // Multisampling: the samples a pixel the scene is drawn with (1, 2, 4
     // or 8; fewer if the GPU doesn't do as many). Between frames only.
     void setSamples(uint32_t samples);
-    // FXAA: edges smoothed after tonemapping, a cheaper alternative to
-    // multisampling (used with one sample): 0 off, 1 to 3 its strength
-    // (FXAA 3.11's quality presets 12, 25 and 39). Between frames only.
-    void setFxaa(uint32_t strength);
+    // Antialiasing after tonemapping, cheaper alternatives to multisampling
+    // (used with one sample): FXAA (FXAA 3.11's quality presets 12, 25 and
+    // 39 by strength) or SMAA (1x; kSmaaPresets). `strength` 1 to 3.
+    // Between frames only.
+    enum class PostAntialiasing : uint8_t
+    {
+        None,
+        Fxaa,
+        Smaa,
+    };
+    void setPostAntialiasing(PostAntialiasing method, uint32_t strength);
 
     // Returns nullopt if no swapchain image is available (e.g. minimized).
     // The frame must always be finished with endFrame(), even then.
@@ -405,9 +412,19 @@ private:
     // resolveDepth makes depthTarget_ from (SDL can't resolve depth).
     SDL_GPUTexture* msaaSceneDepth_ = nullptr;
     SDL_GPUTexture* sceneDepth_ = nullptr;
-    // FXAA: the view tonemapped into this, then smoothed into the target.
-    uint32_t fxaa_ = 0; // its strength, 0 off
-    SDL_GPUTexture* fxaaSource_ = nullptr;
+    // FXAA and SMAA: the view tonemapped into aaSource_, then smoothed into
+    // the target; SMAA's edges and blend weights between.
+    PostAntialiasing postAa_ = PostAntialiasing::None;
+    uint32_t postAaStrength_ = 2; // 1 to 3
+    SDL_GPUTexture* aaSource_ = nullptr;
+    SDL_GPUTexture* smaaEdges_ = nullptr;
+    SDL_GPUTexture* smaaWeights_ = nullptr;
+    // SMAA's area and search textures (RendererSmaa.cpp), and its
+    // pipelines, made when it's first chosen.
+    GpuTexture smaaArea_;
+    GpuTexture smaaSearch_;
+    bool createSmaa();
+    void drawSmaa(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target);
     void releaseTargets();
     // Dynamic exposure (as the official viewer's): the scene's luminance,
     // mipmapped down to its average, and the exposure (1x1), last frame's

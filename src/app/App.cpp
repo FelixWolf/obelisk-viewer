@@ -847,7 +847,11 @@ void App::applyAntialiasing()
     const uint32_t strength = strengthOf(settings_->get(kAntialiasingStrength));
     // MSAA: 2, 4 or 8 samples.
     renderer_->setSamples(method == "msaa" ? 1u << strength : 1u);
-    renderer_->setFxaa(method == "fxaa" ? strength : 0u);
+    using Post = render::Renderer::PostAntialiasing;
+    renderer_->setPostAntialiasing(method == "fxaa"   ? Post::Fxaa
+                                   : method == "smaa" ? Post::Smaa
+                                                      : Post::None,
+                                   strength);
 }
 
 void App::applySettings(const std::vector<std::string>& names)

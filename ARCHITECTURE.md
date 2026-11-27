@@ -565,7 +565,7 @@ the official viewer.
 
 ### Antialiasing
 
-`graphics.antialiasing` (off, fxaa, msaa) with
+`graphics.antialiasing` (off, fxaa, smaa, msaa) with
 `graphics.antialiasing_strength` (low, medium, high), applied at once by
 `App::applyAntialiasing`. MSAA (`Renderer::setSamples`: 2, 4 or 8 samples,
 fewer if the GPU can't) multisamples the scene pass: it draws into a color
@@ -585,15 +585,29 @@ water it's resolved twice, before the water (for the occlusion map) and
 after. Opaque alpha masks use alpha to coverage (`coverage.glsl`), by shader
 variants of their own; blended ones aren't smoothed beyond their geometry.
 
-`fxaa` is the cheap alternative (`Renderer::setFxaa`, one sample): the
-tonemap pass draws into `fxaaSource_` (the swapchain's format) and
-`fxaa.frag` (FXAA 3.11's quality version on the sRGB-encoded color's luma;
-the strength picks its preset 12, 25 or 39: the contrast taken as an edge,
-the subpixel blur and the steps searched along an edge, `kFxaaPresets`)
-smooths it into the view's target, before the outline, labels and the HUD,
-which stay sharp. It costs one fullscreen pass, and
-smooths alpha masks and blended edges too, but softens fine detail and
-thin lines a little and doesn't hold still on sub-pixel detail as MSAA does.
+`fxaa` and `smaa` are the cheap alternatives
+(`Renderer::setPostAntialiasing`, one sample): the tonemap pass draws into
+`aaSource_` (the swapchain's format), which is smoothed into the view's
+target before the outline, labels and the HUD, which stay sharp. Both
+smooth alpha masks and blended edges too, but don't hold still on
+sub-pixel detail as MSAA does.
+
+FXAA is `fxaa.frag` (FXAA 3.11's quality version on the sRGB-encoded
+color's luma; the strength picks its preset 12, 25 or 39: the contrast
+taken as an edge, the subpixel blur and the steps searched along an edge,
+`kFxaaPresets`). It costs one fullscreen pass, but softens fine detail and
+thin lines a little.
+
+SMAA (1x) is upstream's `SMAA.hlsl` (iryoku/smaa, fetched by CPM) compiled
+as GLSL through `smaa.glsl`, with its area and search textures
+(`AreaTex.h`, `SearchTex.h`) uploaded when it's first chosen
+(`RendererSmaa.cpp`). Three passes: the edges by luma (`smaa_edges`, into
+an RG8 image), each edge pixel's blend weights from the edges' shapes
+(`smaa_weights`, RGBA8), and the view blended by them into the target
+(`smaa_blend`). Its settings are uniforms, not upstream's preset defines;
+the strength picks `kSmaaPresets`: 8 search steps without diagonals, then
+SMAA_PRESET_HIGH and SMAA_PRESET_ULTRA. It keeps texture detail FXAA
+blurs, for two more passes; like FXAA it blends the sRGB-encoded color.
 
 ### Occlusion culling
 

@@ -17,10 +17,6 @@ avatar's head and hand (desktop) and others' look-at and point-at, and
 first person (desktop). It has no chat window, IM, sitting or
 sound yet.
 
-## Rendering
-
-- SMAA, or temporal anti-aliasing (FXAA is done)
-
 ## Avatars and animation
 
 - Sitting and standing (sit targets, the sit response, the seated camera)

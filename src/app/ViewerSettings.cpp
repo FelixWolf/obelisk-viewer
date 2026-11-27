@@ -36,22 +36,25 @@ std::vector<SettingDefinition> viewerSettings()
                                       "to test the PBR terrain shader. Regions with PBR "
                                       "terrain draw as PBR without it.",
                        .hidden = true}),
-        defineSetting(kAntialiasing, std::string("off"),
-                      {.page = "Graphics",
-                       .section = "Quality",
-                       .label = "Antialiasing",
-                       .description = "Smooth edges. FXAA blurs them after drawing, for "
-                                      "little GPU time, softening fine detail a little. "
-                                      "MSAA draws them with more samples a pixel: "
-                                      "sharper, but it costs GPU time and memory, most "
-                                      "at a headset's resolution.",
-                       .choices = {{"off", "Off"}, {"fxaa", "FXAA"}, {"msaa", "MSAA"}}}),
+        defineSetting(
+            kAntialiasing, std::string("off"),
+            {.page = "Graphics",
+             .section = "Quality",
+             .label = "Antialiasing",
+             .description = "Smooth edges. FXAA blurs them after drawing, for "
+                            "little GPU time, softening fine detail a little. "
+                            "SMAA finds their shapes after drawing and blends "
+                            "along them: sharper than FXAA, for a little more. "
+                            "MSAA draws them with more samples a pixel: "
+                            "sharper still, but it costs GPU time and memory, "
+                            "most at a headset's resolution.",
+             .choices = {{"off", "Off"}, {"fxaa", "FXAA"}, {"smaa", "SMAA"}, {"msaa", "MSAA"}}}),
         defineSetting(kAntialiasingStrength, std::string("medium"),
                       {.page = "Graphics",
                        .label = "Antialiasing strength",
-                       .description = "FXAA: how faint an edge it smooths and how far "
-                                      "along it it looks. MSAA: 2, 4 or 8 samples a "
-                                      "pixel (fewer if the GPU can't).",
+                       .description = "FXAA and SMAA: how faint an edge they smooth and "
+                                      "how far along it they look. MSAA: 2, 4 or 8 "
+                                      "samples a pixel (fewer if the GPU can't).",
                        .choices = {{"low", "Low"}, {"medium", "Medium"}, {"high", "High"}}}),
         defineSetting(kAvatarPhysics, true,
                       {.page = "Graphics",

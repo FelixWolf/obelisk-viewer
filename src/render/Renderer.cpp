@@ -108,14 +108,17 @@ Renderer::~Renderer()
     blackLayers_.reset();
     flatNormalLayers_.reset();
     terrainBlendRamp_.reset();
+    smaaArea_.reset();
+    smaaSearch_.reset();
     for(SDL_GPUTexture* t :
-        {hdrTarget_,      depthTarget_,      msaaColor_,       msaaDepth_,      screenshotTexture_,
-         fxaaSource_,     msaaSceneDepth_,   sceneDepth_,      shadowMap_,      projectors_,
-         luminance_,      exposureMaps_[0],  exposureMaps_[1], probeRadiance_,  probeIrradiance_,
-         probeCapture_,   probeDepth_,       brdfTable_,       hudImage_,       hudDepth_,
-         pickTargets_[0], pickTargets_[1],   pickTargets_[2],  pickTargets_[3], pickDepth_,
-         outlineMask_,    glyphTexture_,     glowMask_,        glowImages_[0],  glowImages_[1],
-         glowImages_[2],  occlusionTexture_, eyeImages_[0],    eyeImages_[1]})
+        {hdrTarget_,      depthTarget_,     msaaColor_,      msaaDepth_,        screenshotTexture_,
+         aaSource_,       smaaEdges_,       smaaWeights_,    msaaSceneDepth_,   sceneDepth_,
+         shadowMap_,      projectors_,      luminance_,      exposureMaps_[0],  exposureMaps_[1],
+         probeRadiance_,  probeIrradiance_, probeCapture_,   probeDepth_,       brdfTable_,
+         hudImage_,       hudDepth_,        pickTargets_[0], pickTargets_[1],   pickTargets_[2],
+         pickTargets_[3], pickDepth_,       outlineMask_,    glyphTexture_,     glowMask_,
+         glowImages_[0],  glowImages_[1],   glowImages_[2],  occlusionTexture_, eyeImages_[0],
+         eyeImages_[1]})
     {
         if(t)
         {

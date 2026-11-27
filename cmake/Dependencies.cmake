@@ -230,6 +230,16 @@ if(stb_ADDED)
   add_library(viewer::stb ALIAS viewer_stb)
 endif()
 
+# --- SMAA: the antialiasing shaders and their lookup textures (viewer::render) -
+# SMAA.hlsl is compiled as GLSL (SMAA_GLSL_4); Textures/AreaTex.h and
+# SearchTex.h are the precomputed area and search textures.
+CPMAddPackage(
+  NAME smaa
+  GITHUB_REPOSITORY iryoku/smaa
+  GIT_TAG 71c806a838bdd7d517df19192a20f0c61b3ca29d
+  DOWNLOAD_ONLY YES
+)
+
 # --- libogg and libvorbis: decoding sounds (viewer::audio) -------------------
 # The reference decoder: Second Life's oldest sounds use Vorbis features
 # (floor 0) lighter decoders leave out.
@@ -591,6 +601,7 @@ viewer_license("curl" "${curl_SOURCE_DIR}/COPYING")
 viewer_license("TinyXML-2" "${tinyxml2_SOURCE_DIR}/LICENSE.txt")
 viewer_license("GLM" "${glm_SOURCE_DIR}/copying.txt")
 viewer_license("stb" "${stb_SOURCE_DIR}/LICENSE")
+viewer_license("SMAA" "${smaa_SOURCE_DIR}/LICENSE.txt")
 viewer_license("miniaudio" "${miniaudio_SOURCE_DIR}/LICENSE")
 viewer_license("libogg" "${ogg_SOURCE_DIR}/COPYING")
 viewer_license("libvorbis" "${vorbis_SOURCE_DIR}/COPYING")

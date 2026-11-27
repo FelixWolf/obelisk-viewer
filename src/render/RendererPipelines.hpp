@@ -91,6 +91,11 @@ struct Renderer::Pipelines
     SDL_GPUGraphicsPipeline* depthResolve = nullptr; // multisampled depth to one sample
     SDL_GPUGraphicsPipeline* tonemap = nullptr;
     SDL_GPUGraphicsPipeline* fxaa = nullptr; // the tonemapped view, smoothed, into the target
+    // SMAA's passes (RendererSmaa.cpp): edges, blend weights, blending into
+    // the target; made when first chosen.
+    SDL_GPUGraphicsPipeline* smaaEdges = nullptr;
+    SDL_GPUGraphicsPipeline* smaaWeights = nullptr;
+    SDL_GPUGraphicsPipeline* smaaBlend = nullptr;
     // Dynamic exposure: the scene's luminance, then the exposure from it.
     SDL_GPUGraphicsPipeline* luminance = nullptr;
     SDL_GPUGraphicsPipeline* exposure = nullptr;
@@ -143,43 +148,29 @@ struct Renderer::Pipelines
     std::unordered_map<int, SDL_GPUGraphicsPipeline*> eyeCopy;
     SDL_GPUSampler* repeatSampler = nullptr;
     SDL_GPUSampler* clampSampler = nullptr;
+    SDL_GPUSampler* pointSampler = nullptr;  // nearest, clamped (SMAA's search texture)
     SDL_GPUSampler* shadowSampler = nullptr; // compares depth, filters the results
 
     ~Pipelines()
     {
-        for(SDL_GPUGraphicsPipeline* p : {depthResolve,
-                                          tonemap,
-                                          fxaa,
-                                          luminance,
-                                          exposure,
-                                          probeRadiance,
-                                          probeIrradiance,
-                                          brdfTable,
-                                          hudLegacy[0],
-                                          hudLegacy[1],
-                                          hudPbr[0],
-                                          hudPbr[1],
-                                          hudComposite,
-                                          pick[0],
-                                          pick[1],
-                                          outlineMask,
-                                          outline,
-                                          label,
-                                          occlusionReduce,
-                                          glowMask,
-                                          glowMaskSkinned,
-                                          glowExtract,
-                                          glowBlur,
-                                          hudLabel,
-                                          panelImage,
-                                          shadowObject,
-                                          shadowObjectMasked,
-                                          shadowSkinned,
-                                          shadowSkinnedMasked,
-                                          shadowTerrain,
-                                          particleGlow,
-                                          waterMask,
-                                          waterMaskObject})
+        for(SDL_GPUGraphicsPipeline* p : {depthResolve,  tonemap,
+                                          fxaa,          smaaEdges,
+                                          smaaWeights,   smaaBlend,
+                                          luminance,     exposure,
+                                          probeRadiance, probeIrradiance,
+                                          brdfTable,     hudLegacy[0],
+                                          hudLegacy[1],  hudPbr[0],
+                                          hudPbr[1],     hudComposite,
+                                          pick[0],       pick[1],
+                                          outlineMask,   outline,
+                                          label,         occlusionReduce,
+                                          glowMask,      glowMaskSkinned,
+                                          glowExtract,   glowBlur,
+                                          hudLabel,      panelImage,
+                                          shadowObject,  shadowObjectMasked,
+                                          shadowSkinned, shadowSkinnedMasked,
+                                          shadowTerrain, particleGlow,
+                                          waterMask,     waterMaskObject})
         {
             if(p)
             {
@@ -209,7 +200,7 @@ struct Renderer::Pipelines
                 SDL_ReleaseGPUShader(device, s);
             }
         }
-        for(SDL_GPUSampler* s : {repeatSampler, clampSampler, shadowSampler})
+        for(SDL_GPUSampler* s : {repeatSampler, clampSampler, pointSampler, shadowSampler})
         {
             if(s)
             {

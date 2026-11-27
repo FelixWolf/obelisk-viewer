@@ -814,6 +814,14 @@ bool Renderer::createPipelines()
     sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     sampler.enable_anisotropy = false;
     p.clampSampler = SDL_CreateGPUSampler(device_, &sampler);
+    {
+        SDL_GPUSamplerCreateInfo point = sampler;
+        point.min_filter = SDL_GPU_FILTER_NEAREST;
+        point.mag_filter = SDL_GPU_FILTER_NEAREST;
+        point.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+        point.max_lod = 0.0f;
+        p.pointSampler = SDL_CreateGPUSampler(device_, &point);
+    }
     sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
     sampler.max_lod = 0.0f;
     sampler.enable_compare = true;
@@ -826,7 +834,8 @@ bool Renderer::createPipelines()
            p.label && p.hudLabel && p.glowMask && p.glowMaskSkinned && p.glowExtract &&
            p.glowBlur && p.occlusionReduce && p.shadowObject && p.shadowObjectMasked &&
            p.shadowSkinned && p.shadowSkinnedMasked && p.shadowTerrain && p.waterMask &&
-           p.waterMaskObject && p.repeatSampler && p.clampSampler && p.shadowSampler;
+           p.waterMaskObject && p.repeatSampler && p.clampSampler && p.pointSampler &&
+           p.shadowSampler;
 }
 
 bool Renderer::createScenePipelines(ScenePipelines& set, uint32_t samples)
@@ -1007,25 +1016,31 @@ void Renderer::setSamples(uint32_t samples)
     }
 }
 
-void Renderer::setFxaa(uint32_t strength)
+void Renderer::setPostAntialiasing(PostAntialiasing method, uint32_t strength)
 {
-    strength = std::min(strength, 3u);
-    if(strength > 0 && !pipelines_->fxaa)
+    if(method == PostAntialiasing::Fxaa && !pipelines_->fxaa)
     {
         log::warn("FXAA isn't available");
-        strength = 0;
+        method = PostAntialiasing::None;
     }
-    if((strength > 0) != (fxaa_ > 0))
+    if(method == PostAntialiasing::Smaa && !pipelines_->smaaBlend && !createSmaa())
     {
+        log::warn("SMAA isn't available");
+        method = PostAntialiasing::None;
+    }
+    if(method != postAa_)
+    {
+        postAa_ = method;
         releaseTargets(); // made again with the next frame
     }
-    fxaa_ = strength;
+    postAaStrength_ = std::clamp(strength, 1u, 3u);
 }
 
 void Renderer::releaseTargets()
 {
-    for(SDL_GPUTexture** t : {&hdrTarget_, &depthTarget_, &msaaColor_, &msaaDepth_,
-                              &msaaSceneDepth_, &sceneDepth_, &fxaaSource_})
+    for(SDL_GPUTexture** t :
+        {&hdrTarget_, &depthTarget_, &msaaColor_, &msaaDepth_, &msaaSceneDepth_, &sceneDepth_,
+         &aaSource_, &smaaEdges_, &smaaWeights_})
     {
         if(*t)
         {
@@ -1229,16 +1244,31 @@ bool Renderer::ensureTargets(uint32_t width, uint32_t height)
         }
     }
 
-    if(fxaa_ > 0)
+    if(postAa_ != PostAntialiasing::None)
     {
         info.sample_count = SDL_GPU_SAMPLECOUNT_1;
         info.format = swapchainFormat();
         info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        fxaaSource_ = SDL_CreateGPUTexture(device_, &info);
-        if(!fxaaSource_)
+        aaSource_ = SDL_CreateGPUTexture(device_, &info);
+        if(postAa_ == PostAntialiasing::Smaa)
         {
-            log::error("creating the {}x{} FXAA target failed: {}; drawing without", width, height,
-                       SDL_GetError());
+            info.format = SDL_GPU_TEXTUREFORMAT_R8G8_UNORM;
+            smaaEdges_ = SDL_CreateGPUTexture(device_, &info);
+            info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+            smaaWeights_ = SDL_CreateGPUTexture(device_, &info);
+        }
+        if(!aaSource_ || (postAa_ == PostAntialiasing::Smaa && (!smaaEdges_ || !smaaWeights_)))
+        {
+            log::error("creating the {}x{} antialiasing targets failed: {}; drawing without", width,
+                       height, SDL_GetError());
+            for(SDL_GPUTexture** t : {&aaSource_, &smaaEdges_, &smaaWeights_})
+            {
+                if(*t)
+                {
+                    SDL_ReleaseGPUTexture(device_, *t);
+                    *t = nullptr;
+                }
+            }
         }
     }
 
@@ -2080,20 +2110,20 @@ void Renderer::updateExposure(SDL_GPUCommandBuffer* commands, const Lighting& li
 void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* target,
                            const Lighting& light, bool clear)
 {
-    // With FXAA it's tonemapped into fxaaSource_ first, then smoothed into
-    // the target (before the outline, labels and HUD, which are sharp).
+    // With FXAA or SMAA it's tonemapped into aaSource_ first, then smoothed
+    // into the target (before the outline, labels and HUD, which are sharp).
     SDL_GPUTexture* const finalTarget = target;
-    const bool fxaa = fxaa_ > 0 && fxaaSource_ && samples_ == 1;
+    const bool post = postAa_ != PostAntialiasing::None && aaSource_ && samples_ == 1;
     SDL_GPUColorTargetInfo color = {};
-    if(fxaa)
+    if(post)
     {
-        target = fxaaSource_;
+        target = aaSource_;
         clear = false;
         color.cycle = true; // each view's, and the screenshot's, its own
     }
     color.texture = target;
     color.load_op = clear  ? SDL_GPU_LOADOP_CLEAR
-                    : fxaa ? SDL_GPU_LOADOP_DONT_CARE
+                    : post ? SDL_GPU_LOADOP_DONT_CARE
                            : SDL_GPU_LOADOP_LOAD;
     color.store_op = SDL_GPU_STOREOP_STORE;
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(commands, &color, 1, nullptr);
@@ -2107,8 +2137,13 @@ void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targe
                          TonemapFS{glm::vec4(light.exposure, light.tonemapMix, 0.0f, 0.0f)});
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
-    if(!fxaa)
+    if(!post)
     {
+        return;
+    }
+    if(postAa_ == PostAntialiasing::Smaa)
+    {
+        drawSmaa(commands, finalTarget);
         return;
     }
 
@@ -2118,9 +2153,9 @@ void Renderer::drawTonemap(SDL_GPUCommandBuffer* commands, SDL_GPUTexture* targe
     out.store_op = SDL_GPU_STOREOP_STORE;
     pass = SDL_BeginGPURenderPass(commands, &out, 1, nullptr);
     SDL_BindGPUGraphicsPipeline(pass, pipelines_->fxaa);
-    const SDL_GPUTextureSamplerBinding source = {fxaaSource_, pipelines_->clampSampler};
+    const SDL_GPUTextureSamplerBinding source = {aaSource_, pipelines_->clampSampler};
     SDL_BindGPUFragmentSamplers(pass, 0, &source, 1);
-    pushFragmentUniforms(commands, 0, kFxaaPresets[fxaa_ - 1]);
+    pushFragmentUniforms(commands, 0, kFxaaPresets[postAaStrength_ - 1]);
     SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(pass);
 }
